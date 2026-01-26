@@ -15,23 +15,29 @@ const prisma = new PrismaClient();
  */
 async function clearWalletData(walletAddress: string, dryRun: boolean = false) {
   logger.info(`Starting cleanup for wallet: ${walletAddress}`);
-  
+
   if (dryRun) {
     logger.info('DRY RUN MODE: No records will be deleted');
   }
 
   // Tables to clear (in order of dependencies)
+  // Must delete child tables with foreign keys first, then parent Wallet table last
   const tables = [
-    { name: 'HeliusTransactionCache', field: 'signature', where: {} },
+    // Independent tables without foreign keys to Wallet
     { name: 'SwapAnalysisInput', field: 'walletAddress', where: { walletAddress } },
-    { name: 'AnalysisResult', field: 'walletAddress', where: { walletAddress } },
-    { name: 'WalletPnlSummary', field: 'walletAddress', where: { walletAddress } },
-    { name: 'WalletBehaviorProfile', field: 'walletAddress', where: { walletAddress } },
     { name: 'AnalysisRun', field: 'walletAddress', where: { walletAddress } },
-    { name: 'ActivityLog', field: 'walletAddress', where: { walletAddress } },
     { name: 'MappingActivityLog', field: 'walletAddress', where: { walletAddress } },
+    // Tables with foreign keys to Wallet (must be deleted before Wallet)
+    { name: 'HolderProfileSnapshot', field: 'walletAddress', where: { walletAddress } },
+    { name: 'TokenLot', field: 'walletAddress', where: { walletAddress } },
+    { name: 'AnalysisResult', field: 'walletAddress', where: { walletAddress } },
+    { name: 'ActivityLog', field: 'walletAddress', where: { walletAddress } },
     { name: 'WalletNote', field: 'walletAddress', where: { walletAddress } },
     { name: 'UserFavoriteWallet', field: 'walletAddress', where: { walletAddress } },
+    // WalletPnlSummary and its child (AdvancedTradeStats will cascade delete)
+    { name: 'WalletPnlSummary', field: 'walletAddress', where: { walletAddress } },
+    { name: 'WalletBehaviorProfile', field: 'walletAddress', where: { walletAddress } },
+    // Finally delete the Wallet record itself
     { name: 'Wallet', field: 'address', where: { address: walletAddress } }
   ];
 

@@ -4,6 +4,35 @@
 
 ---
 
+## 📋 Active Work
+
+| Status | Task | Scope | Notes |
+|:------:|:-----|:-----:|:------|
+| 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
+| 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
+| 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |
+
+**Recently Completed:**
+- ✅ P0: Database deadlock fix with prevention + retry (Jan 26)
+- ✅ Similarity Lab Frame 1: Wallet Input Area (Jan 23-25)
+- ✅ Similarity Lab Frame 2: Global Analysis Metrics (Jan 25)
+- ✅ Error logging cleanup audit (Jan 22)
+- ✅ Holder Profiles bucket alignment verification (Jan 25)
+- ✅ Job subscription handling refactor (Jan 25)
+- ✅ TimeRangeSelector hydration fix (Jan 25)
+
+
+
+<details>
+<summary><b>Legend</b></summary>
+
+**Status:** 🔄 In Progress • ⏸️ Blocked • 📝 Ready • ✅ Testing
+**Scope:** 🔹 Small (<50 lines, <1hr) • 🔸 Medium (2-5 files, <4hrs) • 🔶 Large (5+ files, multi-day)
+
+</details>
+
+---
+
 ## 🎯 Current Focus & Priorities
 
 ### P0: Database Deadlock ✅ FIXED
@@ -200,35 +229,6 @@ The following tasks are created to track frame-by-frame work:
 - **Task #3:** Frame 5 - Review Contextual Holdings
 
 Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` to mark progress.
-
----
-
-## 📋 Active Work
-
-| Status | Task | Scope | Notes |
-|:------:|:-----|:-----:|:------|
-| 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
-| 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
-| 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |
-
-**Recently Completed:**
-- ✅ P0: Database deadlock fix with prevention + retry (Jan 26)
-- ✅ Similarity Lab Frame 1: Wallet Input Area (Jan 23-25)
-- ✅ Similarity Lab Frame 2: Global Analysis Metrics (Jan 25)
-- ✅ Error logging cleanup audit (Jan 22)
-- ✅ Holder Profiles bucket alignment verification (Jan 25)
-- ✅ Job subscription handling refactor (Jan 25)
-- ✅ TimeRangeSelector hydration fix (Jan 25)
-
-
-
-<details>
-<summary><b>Legend</b></summary>
-
-**Status:** 🔄 In Progress • ⏸️ Blocked • 📝 Ready • ✅ Testing
-**Scope:** 🔹 Small (<50 lines, <1hr) • 🔸 Medium (2-5 files, <4hrs) • 🔶 Large (5+ files, multi-day)
-
-</details>
 
 ---
 

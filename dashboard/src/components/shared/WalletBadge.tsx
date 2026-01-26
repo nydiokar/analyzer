@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Copy, ExternalLink, Info, Wallet, User, Star, Edit2 } from "lucide-react";
+import { Copy, ExternalLink, Info, Wallet, User, Bookmark, Edit2 } from "lucide-react";
 import { memo, MouseEvent } from "react";
 import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
@@ -104,6 +104,24 @@ const sizeConfig = {
     actionsGap: string;
   }
 >;
+
+// Solscan logo SVG component - simplified with better visibility
+const SolscanIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 20 20"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+  >
+    {/* Rounded rectangle background with brand color */}
+    <rect x="2" y="2" width="16" height="16" rx="3" className="fill-[#009978] opacity-20" />
+
+    {/* Three horizontal bars - Solscan's signature pattern */}
+    <rect x="5" y="6" width="10" height="1.5" rx="0.75" fill="currentColor" />
+    <rect x="5" y="9.25" width="10" height="1.5" rx="0.75" fill="currentColor" />
+    <rect x="5" y="12.5" width="10" height="1.5" rx="0.75" fill="currentColor" />
+  </svg>
+);
 
 const truncateAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
@@ -200,6 +218,23 @@ const WalletBadge = memo(({
     }
   };
 
+  const handleCopyProfileLink = async (e: MouseEvent) => {
+    e.stopPropagation();
+
+    try {
+      const profileUrl = `${window.location.origin}/wallets/${address}`;
+      await navigator.clipboard.writeText(profileUrl);
+      toast.success("Copied!", {
+        description: "Profile link copied to clipboard.",
+        duration: 2000,
+      });
+    } catch (error) {
+      toast.error("Copy failed", {
+        description: "Could not copy to clipboard. Please copy manually.",
+      });
+    }
+  };
+
   const handleFavoriteToggle = (e: MouseEvent) => {
     e.stopPropagation();
     if (onFavoriteToggle) {
@@ -217,12 +252,12 @@ const WalletBadge = memo(({
             <Wallet className="h-3 w-3 text-muted-foreground" />
           </div>
 
-          {/* Name/Address - clickable to copy */}
+          {/* Name/Address - clickable to copy profile link */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={handleCopyAddress}
+                onClick={handleCopyProfileLink}
                 className={cn(
                   "flex flex-col items-start text-sm transition-colors",
                   isKnownWallet ? "text-muted-foreground" : "text-foreground hover:text-primary"
@@ -246,7 +281,7 @@ const WalletBadge = memo(({
             </TooltipTrigger>
             <TooltipContent>
               <p className="font-mono text-xs">{address}</p>
-              <p className="text-muted-foreground text-xs mt-1">Click to copy</p>
+              <p className="text-muted-foreground text-xs mt-1">Click to copy profile link</p>
             </TooltipContent>
           </Tooltip>
 
@@ -257,7 +292,7 @@ const WalletBadge = memo(({
                 <button
                   type="button"
                   onClick={handleCopyAddress}
-                  className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  className="p-0.5 rounded text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
                 >
                   <Copy className="h-3 w-3" />
                 </button>
@@ -272,9 +307,9 @@ const WalletBadge = memo(({
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  className="inline-flex items-center justify-center p-0.5 rounded bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 transition-all"
                 >
-                  <ExternalLink className="h-3 w-3" />
+                  <SolscanIcon className="h-3 w-3 text-muted-foreground hover:text-[#009978]" />
                 </a>
               </TooltipTrigger>
               <TooltipContent><p>Solscan</p></TooltipContent>
@@ -287,7 +322,7 @@ const WalletBadge = memo(({
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
                 >
                   <User className="h-3 w-3" />
                 </a>
@@ -305,12 +340,12 @@ const WalletBadge = memo(({
     return (
       <TooltipProvider>
         <div className={cn("inline-flex flex-col items-center gap-0.5 p-1 rounded border border-border/40 hover:border-border transition-colors", className)}>
-          {/* Address on top - clickable to copy */}
+          {/* Address on top - clickable to copy profile link */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={handleCopyAddress}
+                onClick={handleCopyProfileLink}
                 className={cn(
                   "text-xs font-mono cursor-pointer transition-colors hover:text-primary",
                   isKnownWallet && "text-muted-foreground"
@@ -322,7 +357,7 @@ const WalletBadge = memo(({
             <TooltipContent>
               <p className="font-mono text-xs">{address}</p>
               {secondaryLabel && <p className="text-muted-foreground text-xs">{secondaryLabel}</p>}
-              <p className="text-muted-foreground text-xs mt-1">Click to copy</p>
+              <p className="text-muted-foreground text-xs mt-1">Click to copy profile link</p>
             </TooltipContent>
           </Tooltip>
 
@@ -335,7 +370,7 @@ const WalletBadge = memo(({
                     <button
                       type="button"
                       onClick={handleCopyAddress}
-                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                      className="p-0.5 rounded text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
                     >
                       <Copy className="h-2.5 w-2.5" />
                     </button>
@@ -352,9 +387,9 @@ const WalletBadge = memo(({
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                      className="inline-flex items-center justify-center p-0.5 rounded bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 transition-all"
                     >
-                      <ExternalLink className="h-2.5 w-2.5" />
+                      <SolscanIcon className="h-2.5 w-2.5 text-muted-foreground hover:text-[#009978]" />
                     </a>
                   </TooltipTrigger>
                   <TooltipContent><p>Solscan</p></TooltipContent>
@@ -367,7 +402,7 @@ const WalletBadge = memo(({
                     <Link
                       href={`/wallet/${address}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                      className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
                     >
                       <User className="h-2.5 w-2.5" />
                     </Link>
@@ -423,10 +458,10 @@ const WalletBadge = memo(({
                   variant="outline"
                   size="sm"
                   asChild
-                  className="flex-1 h-7"
+                  className="flex-1 h-7 bg-muted/30 hover:bg-[#009978]/10 text-muted-foreground hover:text-[#009978] border-border/40 hover:border-[#009978]/20 transition-all"
                 >
                   <a href={`https://solscan.io/account/${address}`} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-3 w-3 mr-1" />
+                    <SolscanIcon className="h-3 w-3 mr-1" />
                     Solscan
                   </a>
                 </Button>
@@ -454,12 +489,12 @@ const WalletBadge = memo(({
     return (
       <TooltipProvider>
         <div className={cn("inline-flex flex-col rounded border border-border/40 hover:border-border transition-colors overflow-hidden", className)}>
-          {/* Address section - clickable to copy */}
+          {/* Address section - clickable to copy profile link */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={handleCopyAddress}
+                onClick={handleCopyProfileLink}
                 className={cn(
                   "px-2 py-1.5 bg-card text-xs font-mono cursor-pointer text-center transition-colors hover:bg-muted/20",
                   isKnownWallet && "text-muted-foreground"
@@ -471,7 +506,7 @@ const WalletBadge = memo(({
             <TooltipContent>
               <p className="font-mono text-xs">{address}</p>
               {secondaryLabel && <p className="text-muted-foreground text-xs">{secondaryLabel}</p>}
-              <p className="text-muted-foreground text-xs mt-1">Click to copy</p>
+              <p className="text-muted-foreground text-xs mt-1">Click to copy profile link</p>
             </TooltipContent>
           </Tooltip>
 
@@ -484,7 +519,7 @@ const WalletBadge = memo(({
                     <button
                       type="button"
                       onClick={handleCopyAddress}
-                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                      className="p-0.5 rounded text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
                     >
                       <Copy className="h-3 w-3" />
                     </button>
@@ -501,9 +536,9 @@ const WalletBadge = memo(({
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                      className="inline-flex items-center justify-center p-0.5 rounded bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 transition-all"
                     >
-                      <ExternalLink className="h-3 w-3" />
+                      <SolscanIcon className="h-3 w-3 text-muted-foreground hover:text-[#009978]" />
                     </a>
                   </TooltipTrigger>
                   <TooltipContent><p>Solscan</p></TooltipContent>
@@ -516,7 +551,7 @@ const WalletBadge = memo(({
                     <Link
                       href={`/wallet/${address}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                      className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
                     >
                       <User className="h-3 w-3" />
                     </Link>
@@ -551,12 +586,12 @@ const WalletBadge = memo(({
                 </AvatarFallback>
               </Avatar>
 
-              {/* Name + Address (clickable to copy) */}
+              {/* Name + Address (clickable to copy profile link) */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={handleCopyAddress}
+                    onClick={handleCopyProfileLink}
                     className={cn(
                       "flex flex-col items-start min-w-0 transition-colors",
                       isKnownWallet ? "" : "hover:text-primary",
@@ -581,7 +616,7 @@ const WalletBadge = memo(({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Click to copy address</p>
+                  <p>Click to copy profile link</p>
                 </TooltipContent>
               </Tooltip>
 
@@ -594,14 +629,14 @@ const WalletBadge = memo(({
                     className={cn(
                       "inline-flex items-center rounded-md px-1 py-0.5 transition-colors flex-shrink-0",
                       isFavorite
-                        ? "text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20"
-                        : "text-muted-foreground hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                        ? "text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                        : "text-muted-foreground hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20"
                     )}
                   >
                     {isFavorite ? (
-                      <Star className={cn("fill-amber-500 flex-shrink-0", resolvedSize.icon)} />
+                      <Bookmark className={cn("fill-purple-500 flex-shrink-0", resolvedSize.icon)} />
                     ) : (
-                      <Star className={cn("flex-shrink-0", resolvedSize.icon)} />
+                      <Bookmark className={cn("flex-shrink-0", resolvedSize.icon)} />
                     )}
                   </button>
                 </TooltipTrigger>
@@ -621,7 +656,8 @@ const WalletBadge = memo(({
                         onEdit();
                       }}
                       className={cn(
-                        "inline-flex items-center rounded-md px-1 py-0.5 transition-colors flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-accent"
+                        "inline-flex items-center rounded-md px-1 py-0.5 transition-colors flex-shrink-0",
+                        "text-muted-foreground hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-950/20"
                       )}
                     >
                       <Edit2 className={cn("flex-shrink-0", resolvedSize.icon)} />
@@ -641,7 +677,8 @@ const WalletBadge = memo(({
                       type="button"
                       onClick={handleCopyAddress}
                       className={cn(
-                        "inline-flex items-center gap-0.5 rounded-md bg-background/70 px-1.5 py-0.5 text-foreground transition hover:bg-accent/70 flex-shrink-0",
+                        "inline-flex items-center gap-0.5 rounded-md bg-background/70 px-1.5 py-0.5 transition flex-shrink-0",
+                        "text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20",
                         resolvedSize.metric
                       )}
                     >
@@ -658,11 +695,18 @@ const WalletBadge = memo(({
               {showActions && visibleActions.solscan && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
-                      <a href={`https://solscan.io/account/${address}`} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className={cn("text-muted-foreground", resolvedSize.icon)} />
-                      </a>
-                    </Button>
+                    <a
+                      href={`https://solscan.io/account/${address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        "inline-flex items-center justify-center rounded-md transition-all flex-shrink-0",
+                        "bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20",
+                        "h-6 w-6"
+                      )}
+                    >
+                      <SolscanIcon className={cn("text-muted-foreground hover:text-[#009978] transition-colors", resolvedSize.icon)} />
+                    </a>
                   </TooltipTrigger>
                   <TooltipContent>
                     <p>View on Solscan</p>
@@ -674,9 +718,14 @@ const WalletBadge = memo(({
               {showActions && visibleActions.profile && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6" asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 hover:bg-indigo-500/10 transition-colors"
+                      asChild
+                    >
                       <a href={`/wallets/${address}`} target="_blank" rel="noopener noreferrer">
-                        <User className={cn("text-muted-foreground", resolvedSize.icon)} />
+                        <User className={cn("text-muted-foreground hover:text-indigo-500 transition-colors", resolvedSize.icon)} />
                       </a>
                     </Button>
                   </TooltipTrigger>
@@ -901,11 +950,18 @@ const WalletBadge = memo(({
           >
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                  <a href={`https://solscan.io/account/${address}`} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className={cn("text-muted-foreground", resolvedSize.icon)} />
-                  </a>
-                </Button>
+                <a
+                  href={`https://solscan.io/account/${address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    "inline-flex items-center justify-center rounded-md transition-all",
+                    "bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20",
+                    "h-8 w-8"
+                  )}
+                >
+                  <SolscanIcon className={cn("text-muted-foreground hover:text-[#009978] transition-colors", resolvedSize.icon)} />
+                </a>
               </TooltipTrigger>
               <TooltipContent>
                 <p>View on Solscan</p>
