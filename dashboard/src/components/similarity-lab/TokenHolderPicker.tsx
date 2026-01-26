@@ -4,9 +4,8 @@ import { useMemo, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { TokenBadge } from '@/components/shared/TokenBadge';
 import { Loader2 } from 'lucide-react';
-import { useTopHolders, useTokenMetadata } from '@/hooks/useTopHolders';
+import { useTopHolders } from '@/hooks/useTopHolders';
 import type { TopHolderItem } from '@/types/api';
 
 interface TokenHolderPickerProps {
@@ -18,7 +17,6 @@ interface TokenHolderPickerProps {
 export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionChange }: TokenHolderPickerProps) {
   // Fetch holders (cached by react-query)
   const { data: holdersData, isLoading } = useTopHolders(tokenMint, 'finalized');
-  const { meta: tokenMetadata } = useTokenMetadata(tokenMint);
 
   const holders: TopHolderItem[] = useMemo(
     () => (holdersData?.holders || []).filter(h => !!h.ownerAccount),
@@ -27,6 +25,10 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
 
   // Auto-select top 10 on first load (only when holders first load)
   const [hasAutoSelected, setHasAutoSelected] = useState(false);
+
+  useEffect(() => {
+    setHasAutoSelected(false);
+  }, [tokenMint]);
 
   useEffect(() => {
     if (holders.length > 0 && !hasAutoSelected) {
@@ -64,14 +66,6 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
     ).length;
   }, [holders, selectedAddresses]);
 
-  const formatAmount = (uiStr?: string | number | null, raw?: string) => {
-    const ui = typeof uiStr === 'string' ? parseFloat(uiStr) : typeof uiStr === 'number' ? uiStr : NaN;
-    if (!isNaN(ui)) return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(ui);
-    const n = raw ? Number(raw) : NaN;
-    if (!isNaN(n)) return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n);
-    return uiStr ?? raw ?? '';
-  };
-
   if (isLoading) {
     return (
       <div className="flex flex-col h-full">
@@ -97,22 +91,6 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
     <div className="flex flex-col space-y-2 max-h-[400px] w-full min-w-0">
       {/* Compact Header */}
       <div className="space-y-2 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium"></span>
-            <TokenBadge
-              mint={tokenMint}
-              metadata={tokenMetadata ? {
-                name: tokenMetadata.name ?? undefined,
-                symbol: tokenMetadata.symbol ?? undefined,
-                imageUrl: tokenMetadata.imageUrl ?? undefined,
-              } : undefined}
-              variant="inline"
-              size="s"
-            />
-          </div>
-        </div>
-
         <div className="flex items-center justify-between">
           <span className="text-xs text-muted-foreground">
             {selectedAddresses.length} / {holders.length}
@@ -141,7 +119,7 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
       <div className="border rounded-md flex-1 min-h-0 overflow-y-auto w-full">
         <div className="w-full">
           {/* Minimal Header */}
-          <div className="sticky top-0 grid grid-cols-[24px_40px_minmax(0,1fr)_80px] gap-1 px-2 py-1.5 text-xs font-semibold text-muted-foreground border-b bg-muted/90 backdrop-blur">
+          <div className="sticky top-0 grid grid-cols-[20px_32px_minmax(0,1fr)_56px] gap-1 px-1.5 py-1.5 text-xs font-semibold text-muted-foreground border-b bg-muted/90 backdrop-blur">
             <div></div>
             <div>#</div>
             <div>Wallet</div>
@@ -162,7 +140,7 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
             return (
               <div
                 key={key}
-                className={`grid grid-cols-[24px_40px_minmax(0,1fr)_80px] items-center gap-1 px-2 py-1 border-b last:border-0 text-[10px] hover:bg-muted/30 transition-colors ${
+                className={`grid grid-cols-[20px_32px_minmax(0,1fr)_56px] items-center gap-1 px-1.5 py-1 border-b last:border-0 text-[10px] hover:bg-muted/30 transition-colors ${
                   isUnknown ? 'opacity-50' : ''
                 }`}
               >

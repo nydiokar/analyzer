@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo, memo, useCallback } from 'react';
+import { useState, useEffect, useMemo, memo, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowUp } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { ArrowUp, X } from 'lucide-react';
 
 import { SmartWalletInput } from '@/components/similarity-lab/SmartWalletInput';
 import { TokenHolderPicker } from '@/components/similarity-lab/TokenHolderPicker';
@@ -15,6 +16,7 @@ import { useJobProgress } from '@/hooks/useJobProgress';
 import { JobProgressData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { AppShell } from '@/components/layout/AppShell';
+import { TokenBadge } from '@/components/shared/TokenBadge';
 
 
 // Removed TopProgressBar - progress now handled inline
@@ -27,7 +29,7 @@ type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 export default function AnalysisLabPage() {
   // Core state management - textarea + selected holders are source of truth
   const [inputText, setInputText] = useState<string>('');
-  const [detectedToken, setDetectedToken] = useState<string | null>(null);
+  const [tokenInput, setTokenInput] = useState<string>('');
   const [selectedHolderAddresses, setSelectedHolderAddresses] = useState<string[]>([]);
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
 
@@ -37,8 +39,45 @@ export default function AnalysisLabPage() {
       .split(/[\n,\s]+/) // Split by newlines, commas, or spaces
       .map(l => l.trim())
       .filter(Boolean)
-      .filter(w => isValidSolanaAddress(w) && w !== detectedToken);
-  }, [inputText, detectedToken]);
+      .filter(w => isValidSolanaAddress(w));
+  }, [inputText]);
+
+  const normalizedTokenInput = useMemo(() => tokenInput.trim(), [tokenInput]);
+
+  const tokenMint = useMemo(() => {
+    if (!normalizedTokenInput) return null;
+    return isValidSolanaAddress(normalizedTokenInput) ? normalizedTokenInput : null;
+  }, [normalizedTokenInput]);
+
+  const [activeTokenMint, setActiveTokenMint] = useState<string | null>(null);
+  const previousTokenMintRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (tokenMint) {
+      setActiveTokenMint(tokenMint);
+    } else if (!normalizedTokenInput) {
+      setActiveTokenMint(null);
+    }
+  }, [tokenMint, normalizedTokenInput]);
+
+  useEffect(() => {
+    if (activeTokenMint !== previousTokenMintRef.current) {
+      previousTokenMintRef.current = activeTokenMint;
+      setSelectedHolderAddresses([]);
+    }
+  }, [activeTokenMint]);
+
+  const tokenStatusMessage = useMemo(() => {
+    if (!normalizedTokenInput) return '';
+    if (!tokenMint) return 'Invalid token mint address';
+    return '';
+  }, [normalizedTokenInput, tokenMint]);
+
+  const tokenStatusColor = useMemo(() => {
+    if (!normalizedTokenInput) return 'text-muted-foreground';
+    if (!tokenMint) return 'text-red-600 dark:text-red-500';
+    return 'text-green-600 dark:text-green-500';
+  }, [normalizedTokenInput, tokenMint]);
 
   // Job status
   const [jobStatuses, setJobStatuses] = useState<{ analysis: JobStatus, enrichment: JobStatus }>({
@@ -59,34 +98,6 @@ export default function AnalysisLabPage() {
 
   // toast is now imported directly from sonner
   const jobSocketDebug = process.env.NEXT_PUBLIC_JOB_SOCKET_DEBUG === 'true';
-
-  // Handle token detection from textarea
-  const handleTokenDetected = useCallback((token: string) => {
-    // Only set if it's a new token (not already set) OR no token set yet
-    setDetectedToken(prev => {
-      // If we already have a token, only change if it's explicitly removed and a new one appears
-      if (prev && prev !== token) {
-        // Don't switch tokens - user needs to explicitly remove the old one first
-        return prev;
-      }
-      return token;
-    });
-  }, []);
-
-  // When textarea changes, check if token was removed
-  useEffect(() => {
-    if (!detectedToken) return;
-
-    // Check if token still exists in textarea (using same parsing as everywhere else)
-    const allTextareaAddresses = inputText.split(/[\n,\s]+/).map(l => l.trim()).filter(Boolean);
-    const hasToken = allTextareaAddresses.some(l => l === detectedToken);
-
-    if (!hasToken) {
-      // Token was removed from textarea, clear holder selection
-      setDetectedToken(null);
-      setSelectedHolderAddresses([]);
-    }
-  }, [inputText, detectedToken]);
 
   // Simple WebSocket callbacks that DON'T depend on changing state
   const {
@@ -547,6 +558,57 @@ export default function AnalysisLabPage() {
     setTimeout(poll, 1000);
   };
 
+  const tokenPanel = (
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label htmlFor="tokenInput" className="text-sm font-medium">
+            Token Mint
+          </label>
+          {tokenInput && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setTokenInput('')}
+              disabled={jobStatuses.analysis === 'running'}
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3 mr-1" />
+              Clear
+            </Button>
+          )}
+        </div>
+        <Input
+          id="tokenInput"
+          placeholder="Token mint address"
+          value={tokenInput}
+          onChange={(e) => setTokenInput(e.target.value)}
+          disabled={jobStatuses.analysis === 'running'}
+          className="font-mono text-sm w-full max-w-[360px] bg-muted/30 border-foreground/20 shadow-sm focus-visible:ring-2 focus-visible:ring-primary/40"
+        />
+        {tokenMint && (
+          <TokenBadge
+            mint={tokenMint}
+            variant="inline"
+            size="m"
+            className="max-w-[360px]"
+          />
+        )}
+        {tokenStatusMessage && (
+          <p className={`text-xs ${tokenStatusColor}`}>{tokenStatusMessage}</p>
+        )}
+      </div>
+
+      {activeTokenMint ? (
+        <TokenHolderPicker
+          tokenMint={activeTokenMint}
+          selectedAddresses={selectedHolderAddresses}
+          onSelectionChange={setSelectedHolderAddresses}
+        />
+      ) : null}
+    </div>
+  );
+
   return (
     <AppShell>
       <div className="w-full px-[10%] lg:px-[15%] space-y-6 pb-8">
@@ -568,33 +630,20 @@ export default function AnalysisLabPage() {
                 onChange={setInputText}
                 onAnalyze={handleAnalyze}
                 isAnalyzing={jobStatuses.analysis === 'running'}
-                onTokenDetected={handleTokenDetected}
                 selectedHolderCount={selectedHolderAddresses.length}
               />
             </div>
 
-            {/* Right: Token Holder Picker (when token detected) - Fills remaining space */}
-            {detectedToken && (
-              <div className="border-l pl-4 hidden lg:block flex-1 min-w-0">
-                <TokenHolderPicker
-                  tokenMint={detectedToken}
-                  selectedAddresses={selectedHolderAddresses}
-                  onSelectionChange={setSelectedHolderAddresses}
-                />
-              </div>
-            )}
+            {/* Right: Token Panel - Fills remaining space */}
+            <div className="border-l pl-4 hidden lg:block flex-1 min-w-0">
+              {tokenPanel}
+            </div>
           </div>
 
           {/* Mobile: Show holder picker below on small screens */}
-          {detectedToken && (
-            <div className="mt-4 pt-4 border-t lg:hidden">
-              <TokenHolderPicker
-                tokenMint={detectedToken}
-                selectedAddresses={selectedHolderAddresses}
-                onSelectionChange={setSelectedHolderAddresses}
-              />
-            </div>
-          )}
+          <div className="mt-4 pt-4 border-t lg:hidden">
+            {tokenPanel}
+          </div>
         </Card>
 
         {/* Analysis Progress Indicator - Modern Pulsing Animation */}

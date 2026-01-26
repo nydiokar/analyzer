@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import { useMemo, useEffect, useRef } from 'react';
+import { useMemo } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Loader2, Search, X } from 'lucide-react';
@@ -11,7 +11,6 @@ interface SmartWalletInputProps {
   onChange: (value: string) => void;
   onAnalyze: () => void;
   isAnalyzing: boolean;
-  onTokenDetected?: (token: string) => void;
   selectedHolderCount?: number;
 }
 
@@ -20,7 +19,6 @@ export function SmartWalletInput({
   onChange,
   onAnalyze,
   isAnalyzing,
-  onTokenDetected,
   selectedHolderCount = 0,
 }: SmartWalletInputProps) {
   // Parse wallets from textarea - flexible parsing (newlines, commas, spaces)
@@ -39,41 +37,18 @@ export function SmartWalletInput({
     return wallets.filter(w => !isValidSolanaAddress(w));
   }, [wallets]);
 
-  // Detect token address (first valid 32-44 char address) - memoize to prevent re-triggers
-  const detectedToken = useMemo(() => {
-    return wallets.find(w => w.length >= 32 && w.length <= 44 && isValidSolanaAddress(w));
-  }, [wallets]);
-
-  // Track last detected token to prevent re-triggering onTokenDetected
-  const lastDetectedTokenRef = useRef<string | undefined>(undefined);
-
-  useEffect(() => {
-    if (detectedToken && detectedToken !== lastDetectedTokenRef.current && onTokenDetected) {
-      lastDetectedTokenRef.current = detectedToken;
-      onTokenDetected(detectedToken);
-    } else if (!detectedToken && lastDetectedTokenRef.current) {
-      // Token was removed, clear the ref
-      lastDetectedTokenRef.current = undefined;
-    }
-  }, [detectedToken, onTokenDetected]);
-
-  // Count custom wallets (exclude token address)
-  const customWalletCount = useMemo(() => {
-    return validWallets.filter(w => w !== detectedToken).length;
-  }, [validWallets, detectedToken]);
-
-  // Total count = holders + custom wallets
-  const totalCount = selectedHolderCount + customWalletCount;
+  // Total count = holders + valid custom wallets
+  const totalCount = selectedHolderCount + validWallets.length;
 
   // Count truly invalid addresses (not valid Solana addresses)
   const invalidCount = useMemo(() => {
-    return invalidWallets.filter(w => w !== detectedToken).length;
-  }, [invalidWallets, detectedToken]);
+    return invalidWallets.length;
+  }, [invalidWallets]);
 
   // Status message
   const statusMessage = useMemo(() => {
     if (wallets.length === 0 && selectedHolderCount === 0) {
-      return 'Paste wallet or token addresses';
+      return '';
     }
 
     const parts: string[] = [];
@@ -82,30 +57,24 @@ export function SmartWalletInput({
       parts.push(`${selectedHolderCount} from holders`);
     }
 
-    if (customWalletCount > 0) {
-      parts.push(`${customWalletCount} custom`);
+    if (validWallets.length > 0) {
+      parts.push(`${validWallets.length} custom`);
     }
 
     if (invalidCount > 0) {
       parts.push(`${invalidCount} invalid`);
     }
 
-    if (detectedToken && selectedHolderCount === 0) {
-      parts.push('token detected (select holders on right)');
-    }
-
-    const summary = parts.join(' • ');
+    const summary = parts.join(' | ');
 
     if (totalCount >= 2) {
-      return `${summary} • Ready to analyze`;
+      return `${summary} | Ready to analyze`;
     } else if (totalCount === 1) {
-      return `${summary} • Add at least one more`;
-    } else if (totalCount === 0 && detectedToken) {
-      return 'Token detected • Select holders to analyze';
+      return `${summary} | Add at least one more`;
     }
 
-    return summary || 'Enter wallet addresses';
-  }, [wallets.length, customWalletCount, invalidCount, detectedToken, selectedHolderCount, totalCount]);
+    return summary || '';
+  }, [wallets.length, validWallets.length, invalidCount, selectedHolderCount, totalCount]);
 
   const statusColor = useMemo(() => {
     if (invalidCount > 0 && totalCount < 2) {
@@ -142,19 +111,21 @@ export function SmartWalletInput({
         </div>
         <Textarea
           id="walletInput"
-          placeholder="Paste wallets and/or token address.&#10; Accepts: comma-separated, space-separated, or one per line.&#10;Token addresses will show holder selection on the right"
+          placeholder="Paste wallet addresses.&#10; Accepts: comma-separated, space-separated, or one per line."
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={isAnalyzing}
-          className="min-h-[180px] max-h-[400px] font-mono text-sm resize-y"
+          className="min-h-[180px] max-h-[400px] font-mono text-sm resize-y bg-muted/30 border-foreground/20 shadow-sm focus-visible:ring-2 focus-visible:ring-primary/40"
           rows={8}
         />
       </div>
 
       <div className="flex items-center justify-between gap-3">
-        <p className={`text-xs ${statusColor} flex-1`}>
-          {statusMessage}
-        </p>
+        {statusMessage && (
+          <p className={`text-xs ${statusColor} flex-1`}>
+            {statusMessage}
+          </p>
+        )}
 
         <Button
           onClick={onAnalyze}
