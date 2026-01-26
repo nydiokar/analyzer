@@ -214,8 +214,9 @@ if (isWsol) {
         associatedUsdcValue = totalStableMovement;
     }
     // Tier 3.5: Gross native SOL outflow (pump.fun pattern)
-    // When net change is near zero but user spent significant SOL
-    else if (netIsNearZero && grossNativeSolOut >= 0.001) {
+    // When net change is near zero but user spent significant SOL,
+    // and there is NOT a large native SOL inflow (rent-return guard)
+    else if (netIsNearZero && grossNativeSolOut >= 0.001 && grossNativeSolIn <= grossNativeSolOut * GROSS_NATIVE_SOL_IN_RATIO_LIMIT) {
         associatedSolValue = grossNativeSolOut;
     }
     // Tier 4: Net user change fallback (prefers SOL over stable)
@@ -226,6 +227,16 @@ if (isWsol) {
     }
 }
 ```
+
+**Value Source Tracking (Internal)**:
+The mapper tracks where an associated value came from, and uses that to decide whether "self-healing" is allowed to modify it.
+
+```typescript
+let associatedSolValueSource: 'none' | 'wsol' | 'stable' | 'event' | 'spl-to-spl' | 'total-movement' | 'gross-out' | 'net-change' = 'none';
+let associatedUsdcValueSource: 'none' | 'stable' | 'event' | 'total-movement' | 'net-change' = 'none';
+```
+
+Strong sources (`event`, `spl-to-spl`, `wsol`, `stable`) are trusted; weak sources (`net-change`, `total-movement`, `gross-out`) are eligible for self-healing if a fee would dwarf the value.
 
 ### 10. Fee Calculation
 
@@ -241,13 +252,26 @@ if (tx.fee > 0 && tx.feePayer === walletAddress) {
 
 // Small native transfers OUT (tips, routing fees)
 for (const nativeTransfer of tx.nativeTransfers) {
-    if (isFromUser && amountSol < FEE_TRANSFER_THRESHOLD_SOL) {
+    const maxFeeLikeTransfer = Math.min(
+        FEE_TRANSFER_THRESHOLD_SOL,
+        associatedSolValue * FEE_TRANSFER_VALUE_RATIO
+    );
+    if (isFromUser && amountSol <= maxFeeLikeTransfer) {
         refinedFeeAmountSol += amountSol;
     }
 }
 
 feePercentage = (refinedFeeAmountSol / associatedSolValue) * 100;
 ```
+
+**Fee Self-Healing Guard (Weak Sources Only)**:
+If the computed fee would exceed `FEE_SELF_HEALING_PERCENT_THRESHOLD` (default 50%) **and** the value came from a weak heuristic (`net-change`, `total-movement`, `gross-out`), the mapper assumes the value is actually fees/rent and zeroes it out. If the value came from a strong source, the fee is skipped but the value is kept.
+
+Configuration lives in `TRANSACTION_MAPPING_CONFIG` (see `src/config/constants.ts`):
+- `FEE_TRANSFER_THRESHOLD_SOL`
+- `FEE_TRANSFER_VALUE_RATIO`
+- `GROSS_NATIVE_SOL_IN_RATIO_LIMIT`
+- `FEE_SELF_HEALING_PERCENT_THRESHOLD`
 
 ### 11. Small Outgoing Transfer Heuristic
 

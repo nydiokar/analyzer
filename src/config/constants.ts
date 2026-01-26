@@ -58,6 +58,15 @@ export const TRANSACTION_MAPPING_CONFIG = {
   NATIVE_SOL_LAMPORT_THRESHOLD: 100000, // 0.0001 SOL
   SOL_DUST_TRANSFER_THRESHOLD: 0.001, // 0.001 SOL
 
+  // Mapper fee/rent heuristics
+  // Fee attribution rules: only count tiny outgoing native transfers as fees, and only if small vs value.
+  FEE_TRANSFER_THRESHOLD_SOL: 0.01, // Native transfers OUT below this may be fees/tips
+  FEE_TRANSFER_VALUE_RATIO: 0.25, // Only treat as fee if <= 25% of associated SOL value
+  // Rent-return guard for pump.fun gross-out pricing.
+  GROSS_NATIVE_SOL_IN_RATIO_LIMIT: 0.2, // If native SOL in >= 20% of out, treat as rent-return (skip gross-out pricing)
+  // Self-healing guard when fee would dwarf inferred value from weak heuristics.
+  FEE_SELF_HEALING_PERCENT_THRESHOLD: 50, // Self-heal when fee would exceed this % of value
+
   // Bot activity thresholds
   HIGH_FREQUENCY_THRESHOLD: 10, // transactions
   MICRO_TRANSACTION_SOL_THRESHOLD: 0.1, // SOL value
