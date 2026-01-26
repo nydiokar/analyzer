@@ -162,6 +162,8 @@ interface MappingStats {
   feePayerHeuristicApplied: number;
   /** Number of records for which a fee amount was calculated and assigned. */
   feesCalculated: number;
+  /** Number of times the fee self-healing guard zeroed out suspect values. */
+  feeSelfHealingTriggered: number;
   // --- New Counters ---
   /** Number of attempts made by the event matcher to find intermediary values. */
   eventMatcherAttempts: number;
@@ -458,6 +460,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
     otherTokenTransfersProcessed: 0,
     feePayerHeuristicApplied: 0,
     feesCalculated: 0,
+    feeSelfHealingTriggered: 0,
     // --- Initialize New Counters ---
     eventMatcherAttempts: 0,
     eventMatcherPrimaryMintsIdentified: 0,
@@ -1322,7 +1325,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
                     if (wouldBeFeePercentage > 50) {
                         // Fee is >50% of value - this is wrong! The associatedSolValue is likely just fees/rent itself
-                        logger.warn(`Tx ${tx.signature}, Mint ${mint} (${direction}): SELF-HEALING - Fee would be ${wouldBeFeePercentage.toFixed(1)}% of value (${refinedFeeAmountSol.toFixed(9)} / ${associatedSolValue.toFixed(9)}). This indicates value was miscalculated. Setting both to 0.`);
+                        mappingStats.feeSelfHealingTriggered++;
+                        logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): SELF-HEALING - Fee would be ${wouldBeFeePercentage.toFixed(1)}% of value (${refinedFeeAmountSol.toFixed(9)} / ${associatedSolValue.toFixed(9)}). This indicates value was miscalculated. Setting both to 0.`);
                         // Don't assign the fee, and zero out the suspect value
                         associatedSolValue = 0;
                         associatedUsdcValue = 0;

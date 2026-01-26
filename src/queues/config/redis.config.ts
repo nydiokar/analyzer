@@ -16,14 +16,9 @@ export const redisConfig: ConnectionOptions = {
     const delay = Math.min(times * 50, 3000);
     return delay;
   },
-  reconnectOnError: (err: Error) => {
-    const targetError = 'READONLY';
-    if (err.message.includes(targetError)) {
-      // Only reconnect on specific errors
-      return true;
-    }
-    return false;
-  },
+  // REMOVED: reconnectOnError was preventing reconnection on connection failures
+  // Let ioredis use its default behavior: always attempt to reconnect unless connection is explicitly closed
+  // The retryStrategy above controls the reconnection timing
   // Connection timeout
   connectTimeout: 10000, // 10 seconds
   // Keep connection alive
