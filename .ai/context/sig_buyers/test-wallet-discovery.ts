@@ -7,6 +7,8 @@ import { HELIUS_CONFIG } from '../../../src/config/constants';
 import { HeliusTransaction } from '../../../src/types/helius-api';
 import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
 import logger from '../../../src/core/utils/logger';
+import * as path from 'path';
+import * as fs from 'fs';
 
 
 
@@ -40,7 +42,7 @@ async function discoverSignificantWallets() {
     return;
   }
 
-  console.log('🔍 Discovering significant wallets using WORKING RPC approach...\n');
+  console.log('🔍 Discovering significant wallets using DATABASE-FIRST approach...\n');
 
   const databaseService = new DatabaseService();
   const heliusClient = new HeliusApiClient({
@@ -51,12 +53,12 @@ async function discoverSignificantWallets() {
 
   // Configuration
   const config = {
-    mintAddress: '3wASZZHadqJDw2decXbBoM1qLMKmh3pCBXk9nArwpump',
+    mintAddress: 'DzrScTJ32QqLWNQz6UEwRe5QaTw9SJbAepAuh95wBAGS',
     minSolSpent: 1.0,
     minUsdcSpent: 150,
-    maxTransactions: 1000, // Reduced to avoid API limits, but let's try to get more
-    startTime: 1767464280, // Original start time
-    endTime: 1767472500, // End at 23:00 instead of 00:18
+    maxTransactions: 2000,
+    startTime: 1769413020,     // 2026-01-26T07:37:00.000Z
+    endTime: 1769415180,       // 2026-01-26T08:18:00.000Z (20 min earlier than before)
     minWallets: 50
   };
 
@@ -75,112 +77,60 @@ async function discoverSignificantWallets() {
     console.log(`   Duration: ${((endTime - startTime) / 3600).toFixed(1)} hours\n`);
 
   try {
-    console.log('🚀 Fetching transactions using ENHANCED API with TIME FILTERING...');
-    console.log('🔍 This is the CORRECT approach that actually worked before!');
 
-    // THE WORKING APPROACH: Get signatures via RPC with extensive pagination
-    // We need to paginate BACKWARDS through history to find the target time period
-    console.log('🔄 Paginating backwards through signature history to find target period...');
+    // Target wallets for debugging
+    const targetWallets = [
+      '7rnTq4E9bgkYTqMx62142zAFXnyifkDdJgGZc8jNq1xg',
+      'G8JbnuUxgBFHUPQycaJHz3uCLTqjk71qSbcnts9T6CYq'
+    ];
 
-    let allSignatures: any[] = [];
-    let beforeSignature: string | null = null;
-    let pagesFetched = 0;
-    const maxPages = 100; // Go back much further to find historical data
-    const signatureLimit = 10000; // Collect more signatures before processing
-    let foundTargetPeriod = false;
+    // Declare walletAnalysis at the correct scope
+    const walletAnalysis = new Map<string, {
+      solSpent: number;
+      usdcSpent: number;
+      solReceived: number;
+      usdcReceived: number;
+      transactionCount: number;
+      firstTransaction: number;
+      lastTransaction: number;
+    }>();
 
-    while (allSignatures.length < signatureLimit && pagesFetched < maxPages) {
-      pagesFetched++;
+    console.log('🚀 FETCHING TRANSACTIONS from Helius API...\n');
 
-      const pageSignatures = await heliusClient['getSignaturesViaRpcPage'](
+    // USE THE SMART METHOD: Enhanced API with time filters
+    const transactions = await fetchEnhancedTransactionsForMintWindow(
+      heliusClient,
       config.mintAddress,
-        1000, // Get max per page
-        beforeSignature
-      );
-
-      if (pageSignatures.length === 0) {
-        console.log(`   📄 Reached end of signature history at page ${pagesFetched}`);
-        break;
+      ['SWAP', 'TRANSFER'],
+      startTime,
+      endTime,
+      {
+        useAnchorBatch: true,
+        maxPages: 200,
+        maxTransactions: 10000
       }
+    );
 
-      allSignatures.push(...pageSignatures);
-      console.log(`   📄 Page ${pagesFetched}: +${pageSignatures.length} signatures (total: ${allSignatures.length})`);
+    console.log(`✅ Fetched ${transactions.length} transactions using Enhanced API\n`);
+    globalTelemetry.apiCalls.getAllTransactionsForMint = 1;
+    globalTelemetry.transactions.totalFetched = transactions.length;
 
-      // Check if we've reached our target time period
-      const targetSignatures = pageSignatures.filter(sig =>
-        sig.blockTime && sig.blockTime >= startTime && sig.blockTime <= endTime
-      );
-
-      if (targetSignatures.length > 0) {
-        console.log(`   ✅ FOUND TARGET PERIOD! Page ${pagesFetched} has ${targetSignatures.length} signatures in time range`);
-        foundTargetPeriod = true;
-      }
-
-      // Check if we've gone past our target time (signatures are ordered newest first)
-      const oldestInPage = pageSignatures[pageSignatures.length - 1];
-      if (oldestInPage.blockTime && oldestInPage.blockTime < startTime) {
-        if (foundTargetPeriod) {
-          console.log(`   ⏰ Found target period and now gone past it at page ${pagesFetched}`);
-        } else {
-          console.log(`   ⏰ Gone past target time at page ${pagesFetched} without finding it`);
-        }
-        break;
-      }
-
-      // Set up for next page
-      beforeSignature = oldestInPage.signature;
-
-      // If we got fewer than 1000, we've reached the end
-      if (pageSignatures.length < 1000) {
-        console.log(`   📄 Reached end of available signatures at page ${pagesFetched}`);
-        break;
-      }
-    }
-
-    console.log(`📄 Total signatures collected: ${allSignatures.length} across ${pagesFetched} pages`);
-
-    if (allSignatures.length === 0) {
-      console.log('❌ No signatures found for this mint address');
+    if (transactions.length === 0) {
+      console.log('❌ No transactions found for this time period');
       return;
     }
 
-    // Apply time filtering to ALL collected signatures
-    let signatureStrings = allSignatures.map(info => info.signature);
-
-    if (startTime && endTime) {
-      const filteredSignatures = allSignatures.filter(sig =>
-        sig.blockTime && sig.blockTime >= startTime && sig.blockTime <= endTime
-      );
-      signatureStrings = filteredSignatures.map(info => info.signature);
-      console.log(`⏰ After time filtering: ${signatureStrings.length} signatures in target period`);
+    // Show actual time range
+    const timestamps = transactions.map(tx => tx.timestamp).filter(t => t);
+    if (timestamps.length > 0) {
+      const minTime = Math.min(...timestamps);
+      const maxTime = Math.max(...timestamps);
+      console.log(`⏰ ACTUAL TIME RANGE of fetched transactions:`);
+      console.log(`   Oldest:  ${new Date(minTime * 1000).toISOString()} (${minTime})`);
+      console.log(`   Newest:  ${new Date(maxTime * 1000).toISOString()} (${maxTime})`);
+      console.log(`   Target:  ${new Date(startTime * 1000).toISOString()} - ${new Date(endTime * 1000).toISOString()}`);
+      console.log(`   Match:   ${minTime <= startTime && maxTime >= endTime ? '✅ COVERS TARGET' : '⚠️ PARTIAL COVERAGE'}\n`);
     }
-
-    // Fetch transaction details - this gives us parseable data
-    console.log('📥 Fetching transaction details...');
-    const batchSize = 100;
-    const fetchedTransactions: any[] = [];
-
-    for (let i = 0; i < signatureStrings.length; i += batchSize) {
-      const batch = signatureStrings.slice(i, i + batchSize);
-      console.log(`   Batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(signatureStrings.length/batchSize)} (${batch.length} signatures)...`);
-
-      try {
-        const batchTransactions = await heliusClient['getTransactionsBySignatures'](batch);
-        fetchedTransactions.push(...batchTransactions);
-      } catch (error) {
-        console.log(`   ❌ Error fetching batch ${Math.floor(i/batchSize) + 1}: ${error}`);
-        break;
-      }
-    }
-
-    console.log(`✅ Fetched ${fetchedTransactions.length} transaction details`);
-
-    // Filter out null transactions
-    const transactions = fetchedTransactions.filter(tx => tx !== null);
-    console.log(`✅ Valid transactions: ${transactions.length}\n`);
-    globalTelemetry.apiCalls.getSignaturesViaRpcPage = 1;
-    globalTelemetry.apiCalls.getTransactionsBySignatures = Math.ceil(signatureStrings.length / batchSize);
-    globalTelemetry.transactions.totalFetched = transactions.length;
 
     // DEBUG: Show transaction structure and check what Helius actually parsed
     console.log('🔍 DEBUG: Checking what Helius Enhanced API actually returned...');
@@ -260,7 +210,7 @@ async function discoverSignificantWallets() {
       }
 
       // Check if our target wallet appears in ANY transaction
-      if (walletAddresses.includes('GPsdQQDYewZuYjG6u2fhvpTbPce9kKfoSE4usNLZUXPU')) {
+      if (walletAddresses.includes('7rnTq4E9bgkYTqMx62142zAFXnyifkDdJgGZc8jNq1xg')) {
         console.log(`🎯 FOUND GPsdQQDY... TARGET WALLET in TX ${transactions.indexOf(tx)}: ${tx.signature?.substring(0, 8)}... at ${new Date(tx.timestamp * 1000).toISOString().slice(11, 19)}`);
         console.log(`   Wallets in this TX: ${walletAddresses.join(', ')}`);
       }
@@ -284,12 +234,6 @@ async function discoverSignificantWallets() {
     console.log(`📋 Address types: ${Array.from(addressTypes.entries()).filter(([addr, type]) => type === 'wallet').length} wallets\n`);
 
     // Check target wallets
-    const targetWallets = [
-      '2aXKbrrzC36LMLYqY4jMXsqZbS9GupDkFjJwMB1qXEf7',
-      'GPsdQQDYewZuYjG6u2fhvpTbPce9kKfoSE4usNLZUXPU',
-      'omegoMAe1AMY5MFKQQr3JwXVy8F4eCvmBAfcpo8XAfq' // The one from the working file
-    ];
-
     targetWallets.forEach(targetWallet => {
       const hasTargetWallet = transactionsByWallet.has(targetWallet);
       const txCount = hasTargetWallet ? transactionsByWallet.get(targetWallet)!.length : 0;
@@ -312,15 +256,6 @@ async function discoverSignificantWallets() {
 
     // USE THE MAPPER - this is what makes significantBuyersAnalysis.ts work!
     console.log('💰 Analyzing wallets using MAPPER (the proven method from significantBuyersAnalysis.ts)...');
-    const walletAnalysis = new Map<string, {
-      solSpent: number;
-      usdcSpent: number;
-      solReceived: number;
-      usdcReceived: number;
-      transactionCount: number;
-      firstTransaction: number;
-      lastTransaction: number;
-    }>();
 
     // Group transactions by wallet for mapper analysis (this is the key!)
     const transactionsByWalletForMapper = new Map<string, HeliusTransaction[]>();
@@ -366,6 +301,9 @@ async function discoverSignificantWallets() {
 
     console.log(`📊 Grouped ${transactionsByWalletForMapper.size} wallets for mapper analysis`);
 
+    // Collect all analysis inputs to save to database
+    const allAnalysisInputs: any[] = [];
+
     // Now use the mapper for PROPER SOL calculation (this is what significantBuyersAnalysis.ts does!)
     for (const [walletAddress, walletTransactions] of transactionsByWalletForMapper) {
       try {
@@ -375,31 +313,73 @@ async function discoverSignificantWallets() {
           walletTransactions
         );
 
+        // Add ALL analysis inputs to our collection for database save (not just target mint)
+        allAnalysisInputs.push(...analysisInputs);
+
         // Filter for transactions involving the target mint
         const relevantInputs = analysisInputs.filter(input => input.mint === config.mintAddress);
 
         if (relevantInputs.length === 0) continue;
 
+        // DEBUG FOR TARGET WALLET - PROVE SELF-HEALING
+        if (walletAddress === '7rnTq4E9bgkYTqMx62142zAFXnyifkDdJgGZc8jNq1xg') {
+          console.log(`\n🔍 ============ DEBUG TARGET WALLET ============`);
+          console.log(`   Wallet: ${walletAddress}`);
+          console.log(`   Total transactions for wallet: ${walletTransactions.length}`);
+          console.log(`   Relevant inputs for mint: ${relevantInputs.length}`);
+          console.log(`\n   📊 MAPPER OUTPUT FOR EACH INPUT:`);
+          relevantInputs.forEach((input, idx) => {
+            console.log(`   Input ${idx + 1}:`);
+            console.log(`      Signature: ${input.signature.substring(0, 30)}...`);
+            console.log(`      Direction: ${input.direction}`);
+            console.log(`      Amount: ${input.amount}`);
+            console.log(`      associatedSolValue: ${input.associatedSolValue} ⬅️ THIS IS WHAT WE'RE SUMMING`);
+            console.log(`      timestamp: ${new Date(input.timestamp * 1000).toISOString()}`);
+          });
+
+          // Now check raw transaction data
+          console.log(`\n   🔍 RAW TRANSACTION DATA (PROOF):`);
+          walletTransactions.slice(0, 3).forEach((tx, idx) => {
+            console.log(`\n   TX ${idx + 1}: ${tx.signature?.substring(0, 30)}...`);
+            console.log(`      timestamp: ${new Date((tx.timestamp || 0) * 1000).toISOString()}`);
+            console.log(`      Has nativeTransfers: ${!!tx.nativeTransfers}`);
+            console.log(`      nativeTransfers count: ${tx.nativeTransfers?.length || 0}`);
+            if (tx.nativeTransfers && tx.nativeTransfers.length > 0) {
+              console.log(`      Native transfers involving wallet:`);
+              tx.nativeTransfers.forEach((nt, ntIdx) => {
+                if (nt.fromUserAccount === walletAddress || nt.toUserAccount === walletAddress) {
+                  const direction = nt.fromUserAccount === walletAddress ? 'SPENT' : 'RECEIVED';
+                  const amount = (nt.amount || 0) / 1e9;
+                  console.log(`         ${ntIdx + 1}. ${direction} ${amount.toFixed(6)} SOL ⬅️ ACTUAL SOL AMOUNT`);
+                }
+              });
+            }
+          });
+          console.log(`\n   ============================================\n`);
+        }
+
         // Calculate SOL metrics using mapper data
+        // IMPORTANT: direction: 'in' = tokens coming IN (BUY) = SOL SPENT
+        //            direction: 'out' = tokens going OUT (SELL) = SOL RECEIVED
         const solSpent = relevantInputs
-          .filter(input => input.direction === 'out')
+          .filter(input => input.direction === 'in')
           .reduce((sum, input) => sum + input.associatedSolValue, 0);
 
         const usdcSpent = relevantInputs
-          .filter(input => input.direction === 'out')
+          .filter(input => input.direction === 'in')
           .reduce((sum, input) => sum + (input.associatedUsdcValue ?? 0), 0);
 
         const solReceived = relevantInputs
-          .filter(input => input.direction === 'in')
+          .filter(input => input.direction === 'out')
           .reduce((sum, input) => sum + input.associatedSolValue, 0);
 
         const usdcReceived = relevantInputs
-          .filter(input => input.direction === 'in')
+          .filter(input => input.direction === 'out')
           .reduce((sum, input) => sum + (input.associatedUsdcValue ?? 0), 0);
 
-        const timestamps = relevantInputs.map(input => input.timestamp);
-        const firstTransaction = Math.min(...timestamps);
-        const lastTransaction = Math.max(...timestamps);
+        const timestamps = relevantInputs.map(input => input.timestamp).filter(t => t && t > 0);
+        const firstTransaction = timestamps.length > 0 ? Math.min(...timestamps) : 0;
+        const lastTransaction = timestamps.length > 0 ? Math.max(...timestamps) : 0;
 
         walletAnalysis.set(walletAddress, {
           solSpent,
@@ -412,13 +392,24 @@ async function discoverSignificantWallets() {
         });
 
         // Debug for target wallets
-        if (walletAddress === 'GPsdQQDYewZuYjG6u2fhvpTbPce9kKfoSE4usNLZUXPU' ||
-            walletAddress === 'omegoMAe1AMY5MFKQQr3JwXVy8F4eCvmBAfcpo8XAfq') {
+        if (walletAddress === '7rnTq4E9bgkYTqMx62142zAFXnyifkDdJgGZc8jNq1xg') {
           console.log(`🎯 ${walletAddress.substring(0, 8)}...: ${solSpent.toFixed(4)} SOL spent, ${relevantInputs.length} tx`);
         }
 
       } catch (error) {
         logger.warn(`❌ Failed to analyze wallet ${walletAddress}:`, getErrorMessage(error));
+      }
+    }
+
+    // Save all mapped data to database for future runs
+    if (allAnalysisInputs.length > 0) {
+      console.log(`\n💾 Saving ${allAnalysisInputs.length} analysis inputs to database...`);
+      try {
+        await databaseService.saveSwapAnalysisInputs(allAnalysisInputs);
+        console.log(`   ✅ Successfully saved to database\n`);
+      } catch (error) {
+        console.log(`   ⚠️  Failed to save to database: ${getErrorMessage(error)}`);
+        console.log(`   Continuing with analysis...\n`);
       }
     }
 
@@ -466,6 +457,29 @@ async function discoverSignificantWallets() {
           console.log(`❌ Target wallet ${targetWallet.substring(0, 8)}... not found in analysis`);
         }
       });
+
+      // EXPORT TO CSV
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, -5);
+      const csvPath = path.join(__dirname, `../../../analysis_reports/wallet_discovery_${config.mintAddress.substring(0, 8)}_${timestamp}.csv`);
+
+      const csvLines = [
+        'Rank,Wallet Address,SOL Spent,SOL Received,Net PnL,Transaction Count,First Transaction,Last Transaction'
+      ];
+
+      qualifyingWallets.forEach(([wallet, analysis], index) => {
+        const rank = index + 1;
+        const netPnl = analysis.solReceived - analysis.solSpent;
+        const firstTx = new Date(analysis.firstTransaction * 1000).toISOString();
+        const lastTx = new Date(analysis.lastTransaction * 1000).toISOString();
+
+        csvLines.push(
+          `${rank},${wallet},${analysis.solSpent.toFixed(6)},${analysis.solReceived.toFixed(6)},${netPnl.toFixed(6)},${analysis.transactionCount},${firstTx},${lastTx}`
+        );
+      });
+
+      fs.writeFileSync(csvPath, csvLines.join('\n'));
+      console.log(`\n📁 CSV exported to: ${csvPath}`);
+      console.log(`   Total wallets: ${qualifyingWallets.length}`);
     }
 
   } catch (error) {
@@ -672,7 +686,7 @@ function analyzeTransactionsForWallets(transactions: any[], mintAddress: string)
 
 // Helper function to check for target wallet
 function checkForTargetWallet(walletMap: Map<string, { solSpent: number; txCount: number }>, approachName: string): boolean {
-  const targetWallet = 'GPsdQQDYewZuYjG6u2fhvpTbPce9kKfoSE4usNLZUXPU';
+  const targetWallet = '7rnTq4E9bgkYTqMx62142zAFXnyifkDdJgGZc8jNq1xg';
   const targetData = walletMap.get(targetWallet);
 
   if (targetData) {
@@ -702,14 +716,14 @@ async function testEnhancedApiTimeFiltering() {
     requestsPerSecond: HELIUS_CONFIG.DEFAULT_RPS
   }, databaseService);
   const config = {
-    mintAddress: '3wASZZHadqJDw2decXbBoM1qLMKmh3pCBXk9nArwpump',
+    mintAddress: 'DzrScTJ32QqLWNQz6UEwRe5QaTw9SJbAepAuh95wBAGS',
     minSolSpent: 1.0,
-    startTime: 1767464280, // 2026-01-03T18:18:00.000Z
-    endTime: 1767481200,   // 2026-01-03T23:00:00.000Z
+    startTime: 1769413020, // 2026-01-03T18:18:00.000Z
+    endTime: 1769415180
   };
 
   console.log(`🎯 Target time range: ${new Date(config.startTime * 1000).toISOString()} - ${new Date(config.endTime * 1000).toISOString()}`);
-  console.log(`🎯 Target wallet: GPsdQQDYewZuYjG6u2fhvpTbPce9kKfoSE4usNLZUXPU\n`);
+  console.log(`🎯 Target wallet: 7rnTq4E9bgkYTqMx62142zAFXnyifkDdJgGZc8jNq1xg\n`);
 
   // Enhanced API ONLY: mint address approach (no bonding curve, no RPC)
   const approaches = [
@@ -809,24 +823,16 @@ async function fetchEnhancedTransactionsForMintWindow(
     maxTransactions: number;
   }
 ): Promise<HeliusTransaction[]> {
-  const allBySignature = new Map<string, HeliusTransaction>();
-
-  for (const type of types) {
-    const typeTransactions = await fetchEnhancedTransactionsForMintWindowByType(
-      heliusClient,
-      mintAddress,
-      type,
-      startTime,
-      endTime,
-      options
-    );
-
-    for (const tx of typeTransactions) {
-      allBySignature.set(tx.signature, tx);
-    }
-  }
-
-  return Array.from(allBySignature.values());
+  // RPC method doesn't support type filtering, so just fetch once
+  // (ignoring the 'types' parameter since RPC returns all types)
+  return await fetchEnhancedTransactionsForMintWindowByType(
+    heliusClient,
+    mintAddress,
+    'ALL', // Not used by RPC method
+    startTime,
+    endTime,
+    options
+  );
 }
 
 async function fetchEnhancedTransactionsForMintWindowByType(
@@ -841,67 +847,110 @@ async function fetchEnhancedTransactionsForMintWindowByType(
     maxTransactions: number;
   }
 ): Promise<HeliusTransaction[]> {
+  console.log(`\n📊 PAGINATION DEBUG for type=${type}:`);
+  console.log(`   startTime: ${startTime} (${new Date(startTime * 1000).toISOString()})`);
+  console.log(`   endTime: ${endTime} (${new Date(endTime * 1000).toISOString()})`);
+  console.log(`   maxTransactions: ${options.maxTransactions}, maxPages: ${options.maxPages}`);
+
   const allTransactions: HeliusTransaction[] = [];
   const limit = 100;
   let beforeSignature: string | undefined;
   let pagesFetched = 0;
 
-  if (options.useAnchorBatch) {
-    const anchorBatch = await heliusClient.getTransactionsViaEnhancedAPI(mintAddress, {
-      limit,
-      type,
-      gteTime: startTime,
-      lteTime: endTime
-    });
+  // TWO-PHASE APPROACH:
+  // Phase 1: Get signatures via RPC with time filters (FAST, supports blockTime filters)
+  // Phase 2: Enrich those signatures via Enhanced API (gets us parsed data)
 
-    console.log(`🔍 Anchor batch (${type}): ${anchorBatch.length} transactions`);
+  console.log(`\n📄 PHASE 1: Collecting signatures via RPC with blockTime filters`);
+  console.log(`   This is the ONLY method that supports time filtering for mint addresses!`);
 
-    for (const tx of anchorBatch) {
-      if (tx.timestamp >= startTime && tx.timestamp <= endTime) {
-        allTransactions.push(tx);
+  let paginationToken: string | undefined;
+  let allSignatures: string[] = [];
+
+  while (allSignatures.length < options.maxTransactions && pagesFetched < options.maxPages) {
+    // Use RPC to get SIGNATURES ONLY (not full transactions)
+    const result = await heliusClient['getTransactionsForAddressSignatures'](mintAddress, {
+      limit: 1000, // Can fetch up to 1000 signatures per page
+      sortOrder: 'desc', // Newest first
+      paginationToken,
+      filters: {
+        blockTime: {
+          gte: startTime,
+          lte: endTime
+        }
       }
-    }
-
-    if (anchorBatch.length === 0) {
-      return allTransactions;
-    }
-
-    beforeSignature = anchorBatch[anchorBatch.length - 1]?.signature;
-  }
-
-  while (allTransactions.length < options.maxTransactions && pagesFetched < options.maxPages) {
-    const batch = await heliusClient.getTransactionsViaEnhancedAPI(mintAddress, {
-      limit,
-      beforeSignature,
-      type
     });
 
     pagesFetched += 1;
+    const signaturesInPage = result.signatures.map(sig => sig.signature);
+    console.log(`   Page ${pagesFetched}: Got ${signaturesInPage.length} signatures`);
 
-    if (batch.length === 0) break;
-
-    for (const tx of batch) {
-      if (tx.timestamp >= startTime && tx.timestamp <= endTime) {
-        allTransactions.push(tx);
-      }
-    }
-
-    const oldestTx = batch[batch.length - 1];
-    beforeSignature = oldestTx?.signature;
-
-    // Stop paging once we have gone past the window.
-    if (oldestTx?.timestamp && oldestTx.timestamp < startTime) {
+    if (signaturesInPage.length === 0) {
+      console.log(`   ⛔ Empty batch, stopping pagination`);
       break;
     }
 
-    if (batch.length < limit) break;
+    const times = result.signatures.map(sig => sig.blockTime).filter((t): t is number => t !== null && t !== undefined);
+    if (times.length > 0) {
+      const minT = Math.min(...times);
+      const maxT = Math.max(...times);
+      console.log(`      Time range: ${new Date(minT * 1000).toISOString()} - ${new Date(maxT * 1000).toISOString()}`);
+    }
+
+    allSignatures.push(...signaturesInPage);
+    console.log(`      Total signatures collected: ${allSignatures.length}`);
+
+    paginationToken = result.paginationToken;
+
+    if (!paginationToken) {
+      console.log(`   ✅ No more pages available`);
+      break;
+    }
   }
 
+  console.log(`\n✅ PHASE 1 COMPLETE: Collected ${allSignatures.length} signatures in ${pagesFetched} pages`);
+
+  if (allSignatures.length === 0) {
+    console.log(`   ⚠️ No signatures found in time window, skipping Phase 2`);
+    return allTransactions;
+  }
+
+  // PHASE 2: Enrich ALL signatures via Enhanced API
+  console.log(`\n📄 PHASE 2: Enriching ${allSignatures.length} signatures via Enhanced API...`);
+
+  const batchSize = 100;
+  let enrichedCount = 0;
+
+  for (let i = 0; i < allSignatures.length; i += batchSize) {
+    const batch = allSignatures.slice(i, i + batchSize);
+    console.log(`   Enriching batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(allSignatures.length/batchSize)} (${batch.length} signatures)...`);
+
+    const enrichedTxs = await heliusClient['getTransactionsBySignatures'](batch);
+    const validTxs = enrichedTxs.filter(tx => tx !== null);
+
+    allTransactions.push(...validTxs);
+    enrichedCount += validTxs.length;
+    console.log(`      Enriched: ${validTxs.length}/${batch.length}, Total: ${enrichedCount}`);
+  }
+
+  console.log(`\n✅ PHASE 2 COMPLETE: Enriched ${enrichedCount} transactions`);
+
+  // Show example of what we got
+  if (allTransactions.length > 0) {
+    const sample = allTransactions[0];
+    console.log(`\n📋 Sample enriched transaction:`);
+    console.log(`   Has tokenTransfers: ${!!sample.tokenTransfers}`);
+    console.log(`   Has nativeTransfers: ${!!sample.nativeTransfers}`);
+    console.log(`   Has events.swap: ${!!sample.events?.swap}`);
+    console.log(`   timestamp: ${sample.timestamp}`);
+  }
+
+  console.log(`\n✅ Type ${type}: Collected ${allTransactions.length} transactions after ${pagesFetched} pages\n`);
   return allTransactions;
 }
 
 // Run the discovery
-// discoverSignificantWallets().catch(console.error);
+discoverSignificantWallets().catch(console.error);
 
 // Quick test of bonding curve address
 async function quickBondingCurveTest() {
@@ -960,5 +1009,5 @@ async function quickBondingCurveTest() {
   }
 }
 
-testEnhancedApiTimeFiltering().catch(console.error);
+// testEnhancedApiTimeFiltering().catch(console.error);
 // quickBondingCurveTest().catch(console.error);

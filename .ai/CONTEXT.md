@@ -35,6 +35,74 @@
 
 ## 🎯 Current Focus & Priorities
 
+### P0: Invalid address triggering spam (DDoS ourselves ... )
+
+
+✅ WebSocket connected
+5intercept-console-error.ts:44 Failed to trigger flash analysis Error: Invalid Solana address: 8LUtQLSVoKewkXXHSsWJA9sio9cH7Q4hSfKVm5cR
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
+    at fetcher (fetcher.ts:116:19)
+    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
+error @ intercept-console-error.ts:44
+intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please w
+
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM     LOG [JobProgressGateway] Client HFSHEqtcyT9TlVPFAAAY connected and joined room: user-cmj7qi9720000vh38071nrw3x
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
+0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate lim
+ 
 ### P0: Database Deadlock ✅ FIXED
 **Issue:** PostgreSQL deadlocks during parallel token metadata upserts
 **Status:** ✅ Fixed with two-pronged approach (Jan 26, 2026)

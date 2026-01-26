@@ -19,6 +19,7 @@ const ESC = '\x1b[';
 process.env.LOG_LEVEL = 'info';
 
 const logger = createLogger('SignificantBuyersAnalysis');
+// DON"T TRUST FULLY - check .ai\context\sig_buyers\test-wallet-discovery.ts rather for latest logic 
 
 // Global telemetry counters
 let globalTelemetry = {
