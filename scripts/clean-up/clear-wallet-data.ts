@@ -20,6 +20,16 @@ async function clearWalletData(walletAddress: string, dryRun: boolean = false) {
     logger.info('DRY RUN MODE: No records will be deleted');
   }
 
+  // First, we need to get all signatures associated with this wallet to clear transaction cache
+  logger.info('Step 1: Identifying cached transactions to clear...');
+  const swapSignatures = await prisma.swapAnalysisInput.findMany({
+    where: { walletAddress },
+    select: { signature: true },
+    distinct: ['signature']
+  });
+  const signaturesToClear = swapSignatures.map(s => s.signature);
+  logger.info(`Found ${signaturesToClear.length} unique signatures to clear from HeliusTransactionCache`);
+
   // Tables to clear (in order of dependencies)
   // Must delete child tables with foreign keys first, then parent Wallet table last
   const tables = [
@@ -72,6 +82,30 @@ async function clearWalletData(walletAddress: string, dryRun: boolean = false) {
     } catch (error) {
       logger.error(`Error clearing ${table.name}`, { error });
     }
+  }
+
+  // Step 2: Clear HeliusTransactionCache for this wallet's signatures
+  logger.info('Step 2: Clearing HeliusTransactionCache...');
+  if (signaturesToClear.length > 0) {
+    try {
+      if (dryRun) {
+        const cacheCount = await prisma.heliusTransactionCache.count({
+          where: { signature: { in: signaturesToClear } }
+        });
+        logger.info(`DRY RUN: Would delete ${cacheCount} HeliusTransactionCache records`);
+        totalDeleted += cacheCount;
+      } else {
+        const result = await prisma.heliusTransactionCache.deleteMany({
+          where: { signature: { in: signaturesToClear } }
+        });
+        logger.info(`HeliusTransactionCache: Deleted ${result.count} cached transaction records`);
+        totalDeleted += result.count;
+      }
+    } catch (error) {
+      logger.error('Error clearing HeliusTransactionCache', { error });
+    }
+  } else {
+    logger.info('HeliusTransactionCache: No signatures to clear (wallet had no swap records)');
   }
 
   if (dryRun) {

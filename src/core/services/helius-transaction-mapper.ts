@@ -977,10 +977,12 @@ export function mapHeliusTransactionsToIntermediateRecords(
              const fromUserTA = transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount);
              const toUserTA = transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount);
 
-            // Detect burns: transfer to empty/null address
+            // Detect burns: transfer to empty/null token account (true burns have no destination)
+            // NOTE: toUserAccount can be empty in legitimate swaps (token goes to DEX/program)
+            // We only consider it a burn if BOTH toUserAccount AND toTokenAccount are empty
             const isBurn = fromUserTA && (
-                !transfer.toUserAccount || transfer.toUserAccount === "" ||
-                !transfer.toTokenAccount || transfer.toTokenAccount === ""
+                (!transfer.toTokenAccount || transfer.toTokenAccount === "") &&
+                (!transfer.toUserAccount || transfer.toUserAccount === "")
             );
 
             if (toUserTA && !fromUserTA) direction = 'in';
@@ -1192,27 +1194,20 @@ export function mapHeliusTransactionsToIntermediateRecords(
                                 const stableIsSignificant = totalStableMovement >= STABLE_SIGNIFICANCE_THRESHOLD;
                                 const netSolIsSignificant = absSolChange >= SOL_SIGNIFICANCE_THRESHOLD;
 
-                                // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}, Mint ${mint} (${direction}): actualWsolMovement=${actualWsolMovement.toFixed(9)} (sig=${wsolIsSignificant}), totalStableMovement=${totalStableMovement.toFixed(9)} (sig=${stableIsSignificant}), netSolChange=${absSolChange.toFixed(9)} (sig=${netSolIsSignificant})`);
-
                                 // Priority 1: Actual WSOL movement (clear economic value from WSOL token transfers)
                                 if (wsolIsSignificant) {
                                     associatedSolValue = actualWsolMovement;
                                     mappingStats.associatedValueFromTotalMovement++;
-                                    // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}, Mint ${mint} (${direction}): Using actualWsolMovement=${associatedSolValue.toFixed(9)}`);
                                 }
                                 // Priority 2: Stable movement (USDC/USDT/USD1 - clear economic value)
                                 else if (stableIsSignificant) {
                                     associatedUsdcValue = totalStableMovement;
                                     mappingStats.associatedValueFromTotalMovement++;
-                                    // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}, Mint ${mint} (${direction}): Using totalStableMovement=${associatedUsdcValue.toFixed(9)}`);
                                 }
                                 // Priority 3: Net SOL change (last resort - might just be fees/rent, but best guess)
                                 else if (netSolIsSignificant) {
                                     associatedSolValue = absSolChange;
                                     mappingStats.associatedValueFromTotalMovement++;
-                                   // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}, Mint ${mint} (${direction}): Using netSolChange=${associatedSolValue.toFixed(9)} (last resort fallback)`);
-                                } else {
-                                    // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}, Mint ${mint} (${direction}): No significant value found from any source`);
                                 }
                             }
 

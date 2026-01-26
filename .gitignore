@@ -30,7 +30,7 @@ run_vacuum.py
 *db.backup*
 
 
-## DATA 
+## DATA
 data/
 reports/
 active_alerts/
@@ -39,8 +39,11 @@ alerts.json
 analysis_reports/
 analysis_sessions/
 debug_output/
+# But keep fixture files for regression tests
+!debug_output/*_raw.json
+!debug_output/*_database_rows.json
 logs.json
-*audit.json 
+*audit.json
 analyses/
 
 ## PROJECT DOCUMENTATION
