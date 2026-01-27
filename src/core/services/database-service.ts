@@ -973,7 +973,7 @@ export class DatabaseService {
      * @param userId The ID of the user.
      * @param walletAddress The address of the wallet to favorite.
      * @returns A promise that resolves to the created UserFavoriteWallet record.
-     * @throws NotFoundException if the user or wallet does not exist.
+       * @throws NotFoundException if the user does not exist.
      * @throws ConflictException if the wallet is already in the user\'s favorites.
      * @throws InternalServerErrorException for other database errors.
      */
@@ -986,11 +986,12 @@ export class DatabaseService {
             throw new NotFoundException(`User with ID "${userId}" not found.`);
         }
 
-        const walletExists = await this.prismaClient.wallet.findUnique({ where: { address: walletAddress } });
-        if (!walletExists) {
-            this.logger.warn(`Add favorite failed: Wallet ${walletAddress} not found.`);
-            throw new NotFoundException(`Wallet with address "${walletAddress}" not found. It may need to be analyzed first.`);
-        }
+        // Ensure wallet exists in DB; create a lightweight stub if missing.
+        await this.prismaClient.wallet.upsert({
+            where: { address: walletAddress },
+            create: { address: walletAddress },
+            update: {},
+        });
 
         try {
             const favorite = await this.prismaClient.userFavoriteWallet.create({

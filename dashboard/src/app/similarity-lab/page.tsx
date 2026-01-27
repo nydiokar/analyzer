@@ -17,6 +17,9 @@ import { JobProgressData, JobFailedData, EnrichmentCompletionData } from '@/type
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { AppShell } from '@/components/layout/AppShell';
 import { TokenBadge } from '@/components/shared/TokenBadge';
+import { useFavorites } from '@/hooks/useFavorites';
+import { BulkTrackModal } from '@/components/shared/BulkTrackModal';
+import { useSimilarityLabTrackersFlow } from '@/hooks/similarity-lab/useSimilarityLabTrackersFlow';
 
 
 // Removed TopProgressBar - progress now handled inline
@@ -32,6 +35,7 @@ export default function AnalysisLabPage() {
   const [tokenInput, setTokenInput] = useState<string>('');
   const [selectedHolderAddresses, setSelectedHolderAddresses] = useState<string[]>([]);
   const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
+  const { favorites: favoriteWallets, mutate: mutateFavorites } = useFavorites();
 
   // SINGLE SOURCE OF TRUTH: Parse wallets from textarea once, reuse everywhere
   const parsedTextareaWallets = useMemo(() => {
@@ -78,6 +82,18 @@ export default function AnalysisLabPage() {
     if (!tokenMint) return 'text-red-600 dark:text-red-500';
     return 'text-green-600 dark:text-green-500';
   }, [normalizedTokenInput, tokenMint]);
+
+  const {
+    selectedHolderDetails,
+    defaultCollectionName,
+    defaultNicknamePrefix,
+    bulkTrack,
+  } = useSimilarityLabTrackersFlow({
+    tokenMint: activeTokenMint,
+    selectedAddresses: selectedHolderAddresses,
+    favorites: favoriteWallets,
+    onSaved: mutateFavorites,
+  });
 
   // Job status
   const [jobStatuses, setJobStatuses] = useState<{ analysis: JobStatus, enrichment: JobStatus }>({
@@ -347,6 +363,7 @@ export default function AnalysisLabPage() {
     }
   };
 
+
   const handleRefreshPrices = useCallback(async () => {
     if (!analysisResult?.walletBalances) {
       toast.error('Cannot Refresh', {
@@ -604,6 +621,18 @@ export default function AnalysisLabPage() {
           tokenMint={activeTokenMint}
           selectedAddresses={selectedHolderAddresses}
           onSelectionChange={setSelectedHolderAddresses}
+          onTrackSelected={() => {
+            const eligibleCount = selectedHolderDetails.filter(holder =>
+              holder.knownType ? !bulkTrack.excludedKnownTypes.has(holder.knownType) : true
+            ).length;
+            if (eligibleCount === 0) {
+              toast.info('No eligible wallets', {
+                description: 'All selected holders are system or LP wallets and will be skipped.',
+              });
+              return;
+            }
+            bulkTrack.open();
+          }}
         />
       ) : null}
     </div>
@@ -622,9 +651,9 @@ export default function AnalysisLabPage() {
 
         {/* Main Input Card - 2-column layout with controlled widths */}
         <Card className="p-4">
-          <div className="flex flex-col lg:flex-row gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[460px_minmax(0,1fr)] gap-6">
             {/* Left: Wallet Input - Fixed width */}
-            <div className="lg:w-[500px] flex-shrink-0">
+            <div className="flex-shrink-0">
               <SmartWalletInput
                 value={inputText}
                 onChange={setInputText}
@@ -635,7 +664,7 @@ export default function AnalysisLabPage() {
             </div>
 
             {/* Right: Token Panel - Fills remaining space */}
-            <div className="border-l pl-4 hidden lg:block flex-1 min-w-0">
+            <div className="border-l pl-8 hidden lg:block min-w-0">
               {tokenPanel}
             </div>
           </div>
@@ -645,6 +674,13 @@ export default function AnalysisLabPage() {
             {tokenPanel}
           </div>
         </Card>
+
+        {/* Bulk Track Confirmation */}
+        <BulkTrackModal
+          bulkTrack={bulkTrack}
+          defaultCollectionName={defaultCollectionName}
+          defaultNicknamePrefix={defaultNicknamePrefix}
+        />
 
         {/* Analysis Progress Indicator - Modern Pulsing Animation */}
         {jobStatuses.analysis === 'running' && (

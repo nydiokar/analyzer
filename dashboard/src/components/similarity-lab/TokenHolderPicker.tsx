@@ -3,18 +3,26 @@
 import { useMemo, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Bookmark, Copy } from 'lucide-react';
 import { useTopHolders } from '@/hooks/useTopHolders';
 import type { TopHolderItem } from '@/types/api';
+import { toast } from 'sonner';
 
 interface TokenHolderPickerProps {
   tokenMint: string;
   selectedAddresses: string[];
   onSelectionChange: (addresses: string[]) => void;
+  onTrackSelected?: () => void;
 }
 
-export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionChange }: TokenHolderPickerProps) {
+export function TokenHolderPicker({
+  tokenMint,
+  selectedAddresses,
+  onSelectionChange,
+  onTrackSelected,
+}: TokenHolderPickerProps) {
   // Fetch holders (cached by react-query)
   const { data: holdersData, isLoading } = useTopHolders(tokenMint, 'finalized');
 
@@ -60,6 +68,16 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
     onSelectionChange([]);
   };
 
+  const copySelected = async () => {
+    if (selectedAddresses.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(selectedAddresses.join('\n'));
+      toast.success(`Copied ${selectedAddresses.length} wallet${selectedAddresses.length !== 1 ? 's' : ''}`);
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+
   const systemWalletCount = useMemo(() => {
     return holders.filter(h =>
       selectedAddresses.includes(h.ownerAccount || h.tokenAccount) && h.knownType === 'SYSTEM'
@@ -96,6 +114,34 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
             {selectedAddresses.length} / {holders.length}
           </span>
           <div className="flex items-center gap-1">
+            {onTrackSelected && (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={onTrackSelected}
+                      disabled={selectedAddresses.length === 0}
+                      className="h-6 w-6"
+                    >
+                      <Bookmark className="h-3 w-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Track selected</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={copySelected}
+              disabled={selectedAddresses.length === 0}
+              className="h-6 text-xs px-2"
+            >
+              <Copy className="h-3 w-3 mr-1" />
+              Copy
+            </Button>
             <Button variant="ghost" size="sm" onClick={selectAll} className="h-6 text-xs px-2">
               All
             </Button>
@@ -104,22 +150,13 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
             </Button>
           </div>
         </div>
-
-        {/* System Wallet Warning */}
-        {systemWalletCount > 0 && (
-          <Alert variant="default" className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20 py-1.5">
-            <AlertDescription className="text-[10px] leading-tight">
-              {systemWalletCount} system wallet{systemWalletCount !== 1 ? 's' : ''} (may be filtered)
-            </AlertDescription>
-          </Alert>
-        )}
       </div>
 
       {/* Ultra Compact Holder Table - Now Scrollable */}
       <div className="border rounded-md flex-1 min-h-0 overflow-y-auto w-full">
         <div className="w-full">
           {/* Minimal Header */}
-          <div className="sticky top-0 grid grid-cols-[20px_32px_minmax(0,1fr)_56px] gap-1 px-1.5 py-1.5 text-xs font-semibold text-muted-foreground border-b bg-muted/90 backdrop-blur">
+          <div className="sticky top-0 grid grid-cols-[20px_28px_minmax(0,1fr)_56px] gap-0.5 px-1.5 py-1.5 text-xs font-semibold text-muted-foreground border-b bg-muted/90 backdrop-blur">
             <div></div>
             <div>#</div>
             <div>Wallet</div>
@@ -140,7 +177,7 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
             return (
               <div
                 key={key}
-                className={`grid grid-cols-[20px_32px_minmax(0,1fr)_56px] items-center gap-1 px-1.5 py-1 border-b last:border-0 text-[10px] hover:bg-muted/30 transition-colors ${
+                className={`grid grid-cols-[20px_28px_minmax(0,1fr)_56px] items-center gap-0.5 px-1.5 py-1 border-b last:border-0 text-[10px] hover:bg-muted/30 transition-colors ${
                   isUnknown ? 'opacity-50' : ''
                 }`}
               >
@@ -159,7 +196,8 @@ export function TokenHolderPicker({ tokenMint, selectedAddresses, onSelectionCha
                     knownLabel={h.knownLabel}
                     size="s"
                     variant="minimal"
-                    showActions={false}
+                    showActions={true}
+                    visibleActions={{ copy: true, solscan: false, profile: false }}
                   />
                 </div>
                 <div className="text-right font-mono text-xs font-semibold tabular-nums">

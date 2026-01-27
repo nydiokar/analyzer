@@ -284,11 +284,17 @@ const globalBatcher = new TokenMetadataBatcher();
  * Multiple components requesting metadata simultaneously will be batched into ONE API call
  * Auto-refreshes after 2 seconds to show enriched data
  */
-export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata) {
+export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata) {
   const [metadata, setMetadata] = useState<TokenMetadata | null>(providedMetadata || null);
   const [isLoading, setIsLoading] = useState(!providedMetadata);
 
   useEffect(() => {
+    if (!mint) {
+      setMetadata(providedMetadata || null);
+      setIsLoading(false);
+      return;
+    }
+
     setMetadata(providedMetadata || null);
 
     // Callback for updates
@@ -312,7 +318,9 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
 
     // Cleanup: unsubscribe on unmount
     return () => {
-      globalBatcher.unsubscribe(mint, updateCallback);
+      if (mint) {
+        globalBatcher.unsubscribe(mint, updateCallback);
+      }
     };
   }, [mint, providedMetadata]);
 
