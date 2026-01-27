@@ -187,9 +187,10 @@ export class WalletBalanceService {
                 if (parsedInfo && parsedInfo.tokenAmount) {
                     const uiAmount = parsedInfo.tokenAmount.uiAmount;
 
-                    // Skip tokens with zero, null, or dust balance (< 200 tokens)
-                    // This filters out: zero balances, incomplete sells (1-100 tokens left), dust airdrops
-                    if (uiAmount === null || uiAmount < 200) {
+                    // Skip tokens with zero, null, or dust balance (< 1000 tokens)
+                    // Increased from 200 to 1000 to filter spam/airdrop tokens more aggressively
+                    // This filters out: zero balances, incomplete sells, dust airdrops, spam tokens
+                    if (uiAmount === null || uiAmount < 1000) {
                       filteredCount++;
                       return;
                     }

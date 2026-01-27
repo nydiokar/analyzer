@@ -262,6 +262,16 @@ export class EnrichmentOperationsProcessor {
     walletBalances: Record<string, any>,
     job: Job
   ): Promise<{ enrichedBalances: Record<string, any>; summary: { newTokensFetched: number } }> {
+    // 🎯 LOG: Show which wallets have how many tokens (identify whales)
+    Object.entries(walletBalances).forEach(([address, balance]) => {
+      const tokenCount = balance.tokenBalances?.length || 0;
+      if (tokenCount > 10000) {
+        this.logger.warn(`🐋 WHALE DETECTED: ${address} has ${tokenCount} tokens`);
+      } else if (tokenCount > 5000) {
+        this.logger.log(`⚠️ Large wallet: ${address} has ${tokenCount} tokens`);
+      }
+    });
+
     // Extract all unique token addresses
     const allTokens = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
     const uniqueTokens = [...new Set(allTokens)];
@@ -278,6 +288,7 @@ export class EnrichmentOperationsProcessor {
     }
 
     // 🚨 GUARDRAIL: Protect against whale wallets with 10k+ shitcoins
+    // This should rarely trigger now that similarity processor filters tokens before passing
     const MAX_TOKENS_PER_ENRICHMENT = 5000;
     const MIN_BALANCE_THRESHOLD = 1000; // Minimum UI balance to consider (filters dust)
 

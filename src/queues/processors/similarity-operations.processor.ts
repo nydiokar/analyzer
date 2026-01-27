@@ -146,6 +146,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       const detectionResult = await this.detectSystemWalletsEarly(walletAddresses);
       const validWallets = detectionResult.validWallets;
       const invalidWallets = detectionResult.systemWallets;
+      const tokenCounts = detectionResult.tokenCounts; // this is not used, it was meant for smart "classification" of whales but keep it for now
 
       this.logger.log(`System wallet detection complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (system wallets)`);
 
@@ -169,8 +170,9 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         : Promise.resolve();
 
       // Start balance fetching in parallel - DON'T await yet
+      // 🎯 CRITICAL FIX: Pass token counts to balance fetcher to enable whale protection
       // Fetch balances for all valid wallets (uses cache internally)
-      const balancePromise = this.balanceCacheService.getManyBalances(validWallets);
+      const balancePromise = this.balanceCacheService.getManyBalances(validWallets, tokenCounts);
       
       // Log progress but don't block
       await job.updateProgress(10);
@@ -193,7 +195,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         // Try to get any valid wallets that were processed before the error
         // This is a fallback for when balance fetch fails
         try {
-          const fallbackBalances = await this.balanceCacheService.getManyBalances(validWallets);
+          const fallbackBalances = await this.balanceCacheService.getManyBalances(validWallets, tokenCounts);
 
           if (Object.keys(fallbackBalances).length >= 2) {
             this.logger.log(`✅ Recovered ${Object.keys(fallbackBalances).length} valid wallets after balance fetch error`);
@@ -222,6 +224,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
             this.logger.log(`Enrichment already scheduled for request: ${requestId}. Skipping duplicate.`);
           } else {
           // Use all wallet balances for enrichment
+          // Tokens are already filtered at source (>1000 balance threshold in WalletBalanceService)
           const validWalletBalances: Record<string, any> = {};
           for (const walletAddr of finalWalletsToAnalyze) {
             if (actualWalletBalances[walletAddr]) {
@@ -486,6 +489,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
   private async detectSystemWalletsEarly(walletAddresses: string[]): Promise<{
     validWallets: string[];
     systemWallets: string[];
+    tokenCounts: Record<string, number>;
   }> {
     this.logger.log(`🔍 System wallet detection: Using SystemWalletDetectionService (thresholds: 15k LARGE, 70k SYSTEM)`);
 
@@ -506,8 +510,17 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       }
     }
 
-    const { valid, filtered, largeWallets } = await this.systemWalletDetection.filterSystemWallets(unknownWallets);
+    const { valid, filtered, largeWallets, filteredDetails } = await this.systemWalletDetection.filterSystemWallets(unknownWallets);
     const validWallets = [...knownAllowed, ...valid];
+
+    // 🎯 CRITICAL FIX: Extract token counts from detection results
+    // This allows balance fetcher to skip whale wallets BEFORE fetching
+    const tokenCounts: Record<string, number> = {};
+    for (const [address, detection] of filteredDetails.entries()) {
+      if (detection.tokenCount !== undefined) {
+        tokenCounts[address] = detection.tokenCount;
+      }
+    }
 
     if (excludedByRegistry.size > 0) {
       this.logger.warn(`dYs? Filtered ${excludedByRegistry.size} known wallet(s) via registry for similarity analysis`);
@@ -528,10 +541,14 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     }
 
     this.logger.log(`System wallet detection complete: ${validWallets.length} valid wallets, ${filtered.size + excludedByRegistry.size} wallets filtered`);
+    if (Object.keys(tokenCounts).length > 0) {
+      this.logger.debug(`Token counts extracted for ${Object.keys(tokenCounts).length} wallets (will guide balance fetching)`);
+    }
 
     return {
       validWallets: validWallets,
       systemWallets: [...Array.from(excludedByRegistry.keys()), ...Array.from(filtered.keys())],
+      tokenCounts: tokenCounts,
     };
   }
 

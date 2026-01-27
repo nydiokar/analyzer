@@ -2,7 +2,7 @@ import { MostCommonTokens } from './MostCommonTokens';
 import { EnhancedKeyInsights } from './EnhancedKeyInsights';
 import { CombinedSimilarityResult } from './types';
 import { GlobalMetricsCard } from './GlobalMetricsCard';
-import { ContextualHoldingsCard } from './ContextualHoldingsCard';
+// import { ContextualHoldingsCard } from './ContextualHoldingsCard'; // 🔧 REMOVED: Caused whale wallet issues
 import { HistoricalVsLiveComparison } from './HistoricalVsLiveComparison';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Sparkles } from 'lucide-react';
@@ -52,12 +52,8 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
         <HistoricalVsLiveComparison results={results} />
       </div>
 
-      <ContextualHoldingsCard 
-        results={results} 
-        enrichedBalances={enrichedBalances} 
-        onRefreshPrices={onRefreshPrices}
-        isRefreshing={isRefreshing}
-      />
+      {/* 🔧 REMOVED: ContextualHoldingsCard - caused whale wallet issues with 30k+ tokens */}
+      {/* Component fetched all current balances which triggered massive RPC calls and system choking */}
     </div>
   );
 } 
