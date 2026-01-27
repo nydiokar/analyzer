@@ -76,8 +76,9 @@ export class EnrichmentOperationsProcessor {
       if (!balancesPayload) {
         throw new Error(`Missing balances payload for enrichment request ${requestId}`);
       }
-      // Best-effort cleanup once loaded
-      await this.jobPayloadCache.deletePayload(balancesKey);
+      // 🔧 FIX: Don't delete payload immediately - let TTL handle cleanup
+      // Deleting here prevents retries from working (payload already gone on 2nd/3rd attempt)
+      // await this.jobPayloadCache.deletePayload(balancesKey);
     }
 
     if (!balancesPayload) {
@@ -181,8 +182,9 @@ export class EnrichmentOperationsProcessor {
         if (!balancesPayload) {
           throw new Error(`Missing balances payload for enrichment request ${requestId}`);
         }
-        // Best-effort cleanup once loaded
-        await this.jobPayloadCache.deletePayload(balancesKey);
+        // 🔧 FIX: Don't delete payload immediately - let TTL handle cleanup
+        // Deleting here prevents retries from working (payload already gone on 2nd/3rd attempt)
+        // await this.jobPayloadCache.deletePayload(balancesKey);
       }
 
       if (!balancesPayload) {

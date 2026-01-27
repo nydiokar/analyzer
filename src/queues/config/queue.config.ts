@@ -70,6 +70,8 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     workerOptions: {
       connection: redisConnection,
       concurrency: 4,              // ⚡ OPTIMIZED: Increased from 3 to 5 to utilize 50 RPS better
+      lockDuration: 120000,        // 🔒 2 minutes lock duration for wallet sync operations
+      lockRenewTime: 60000,        // 🔒 Renew lock every 60 seconds
     }
   },
   [QueueNames.ANALYSIS_OPERATIONS]: {
@@ -90,6 +92,8 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
       concurrency: 12,              // ⚡ Total concurrent jobs across all types
       maxStalledCount: 3,           // Prevent stuck jobs during scaling
       stalledInterval: 30000,       // 30 seconds check for stalled jobs
+      lockDuration: 180000,         // 🔒 3 minutes lock duration for analysis jobs (PnL, behavior, dashboard)
+      lockRenewTime: 90000,         // 🔒 Renew lock every 90 seconds
       // 🛡️ SAFETY NET: High limiter to prevent extreme bursts only
       // Normal operation: 12 workers × ~3 jobs/sec = ~36 jobs/sec (well below limit)
       // This only activates during pathological scenarios (mass queue dumps, etc.)
@@ -116,6 +120,8 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     workerOptions: {
       connection: redisConnection,
       concurrency: 6,              // ⚡ OPTIMIZED: Increased from 5 to 7 for better 50-wallet similarity performance
+      lockDuration: 180000,        // 🔒 3 minutes lock duration for long-running similarity jobs
+      lockRenewTime: 90000,        // 🔒 Renew lock every 90 seconds to prevent expiry during processing
     }
   },
   [QueueNames.ENRICHMENT_OPERATIONS]: {
@@ -134,6 +140,8 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     workerOptions: {
       connection: redisConnection,
       concurrency: 5,              // ⚡ OPTIMIZED: Increased from 3 to 5 for faster metadata enrichment
+      lockDuration: 180000,        // 🔒 3 minutes lock duration for enrichment jobs
+      lockRenewTime: 90000,        // 🔒 Renew lock every 90 seconds to prevent expiry during processing
     }
   }
 };

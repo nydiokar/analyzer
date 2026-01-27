@@ -302,6 +302,19 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 ## 📅 Recent Activity
 
+### January 27, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 27.1 | ?? | Similarity Lab: Holder picker tracking flow + UI refactor | ?? | `similarity-lab/page.tsx`, `TokenHolderPicker.tsx`, `BulkTrackModal.tsx`, `WalletBadge.tsx`, tracking hooks |
+| 27.2 | ?? | Favorites: Allow tracking wallets without prior analysis (stub wallet upsert) | ?? | `database-service.ts` |
+
+**Summary:**
+
+**27.1:** Redesigned holder picker tracking UX with a confirmable bulk-track modal, compact copy/track controls, and LP/system exclusion. Extracted tracking logic into reusable hooks and a shared modal, added a similarity-lab flow hook, and refined holder table spacing + minimal wallet badge copy actions.
+
+**27.2:** Removed the ?wallet must exist? constraint for favorites by upserting a stub wallet record on add. Users can now track wallets immediately without forcing analysis; analysis still behaves as initial sync when run later.
+
 ### January 26, 2026
 
 | ID | T | Title | Scope | Components |
@@ -514,5 +527,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-01-17 • **Branch:** `discover-analytics-ux`
+**Last Updated:** 2026-01-27 • **Branch:** `discover-analytics-ux`
+
 
