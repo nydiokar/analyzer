@@ -409,6 +409,7 @@ function TokenPerformanceTab({
   const [fallbackResponse, setFallbackResponse] = useState<PaginatedTokenPerformanceResponse | null>(null);
   const [isUsingFallback, setIsUsingFallback] = useState(false);
   const initialLoadNotifiedRef = useRef(false);
+  const lastSuccessAtRef = useRef<number | null>(null);
 
   const querySignature = useMemo(() => JSON.stringify({
     walletAddress,
@@ -513,15 +514,46 @@ function TokenPerformanceTab({
     () => fetchUrl ? fetcher(fetchUrl) : Promise.reject(new Error('No fetch URL')),
     {
       revalidateOnFocus: false,
-      keepPreviousData: false,
+      keepPreviousData: true,
       dedupingInterval: 3000,
       revalidateOnReconnect: false,
       revalidateIfStale: true,
       onError: (err) => {
         console.error(`[TokenPerformance] ❌ Fetch error:`, err);
-      }
+      },
+      onSuccess: () => {
+        lastSuccessAtRef.current = Date.now();
+      },
     }
   );
+
+  useEffect(() => {
+    if (!swrKey) return;
+    if (typeof window === 'undefined') return;
+
+    const STALE_MS = 5 * 60 * 1000;
+    const maybeRevalidate = () => {
+      if (isLoadingData) return;
+      const lastSuccess = lastSuccessAtRef.current;
+      if (!lastSuccess) return;
+      if (Date.now() - lastSuccess >= STALE_MS) {
+        localMutate();
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        maybeRevalidate();
+      }
+    };
+
+    window.addEventListener('focus', maybeRevalidate);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', maybeRevalidate);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [swrKey, isLoadingData, localMutate]);
 
   // Accumulate pages for infinite scroll
   useEffect(() => {

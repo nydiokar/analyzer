@@ -325,6 +325,18 @@ export default function AnalysisLabPage() {
     }
   }, []);
 
+  useEffect(() => {
+    try {
+      if (analysisResult) {
+        localStorage.setItem('analysisResult', JSON.stringify(analysisResult));
+      } else {
+        localStorage.removeItem('analysisResult');
+      }
+    } catch (error) {
+      console.warn('Failed to persist analysis result to localStorage', error);
+    }
+  }, [analysisResult]);
+
 
 
   // Subscribe to enrichment job when ID is set
