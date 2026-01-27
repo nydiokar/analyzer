@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardAnalysisResponse } from '@/types/api';
+import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { debounce } from 'lodash';
 
 const DEBOUNCE_DELAY = 300;
@@ -71,10 +72,6 @@ export function WalletSearch() {
     document.addEventListener('keydown', down);
     return () => document.removeEventListener('keydown', down);
   }, []);
-
-  const isValidSolanaAddress = (address: string): boolean => {
-    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
-  };
 
   const handleSelectWallet = (walletAddress: string) => {
     setOpen(false);

@@ -730,23 +730,28 @@ export default function WalletProfileLayout({
       // Don't set status='queued' yet - wait for backend response
       // This prevents phantom "queued" states when analysis is skipped
 
-      try {
-        const payload: DashboardAnalysisRequest = {
-          walletAddress,
-          analysisScope: scope,
-          triggerSource: options.triggerSource,
-          forceRefresh: options.forceRefresh ?? false,
-          historyWindowDays: options.historyWindowDays,
-          targetSignatureCount: options.targetSignatureCount,
-          queueWorkingAfter: options.queueWorkingAfter,
-          queueDeepAfter: options.queueDeepAfter,
-          enrichMetadata: options.enrichMetadata,
-        };
+        try {
+          const payload: DashboardAnalysisRequest = {
+            walletAddress,
+            analysisScope: scope,
+            triggerSource: options.triggerSource,
+            forceRefresh: options.forceRefresh ?? false,
+            historyWindowDays: options.historyWindowDays,
+            targetSignatureCount: options.targetSignatureCount,
+            queueWorkingAfter: options.queueWorkingAfter,
+            queueDeepAfter: options.queueDeepAfter,
+            enrichMetadata: options.enrichMetadata,
+          };
 
-        const response: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
+          if (typeof window !== 'undefined' && options.triggerSource === 'auto') {
+            // Prevent auto-trigger retry storms when a request fails.
+            sessionStorage.setItem(`autoTrigger:${walletAddress}`, new Date().toISOString());
+          }
+
+          const response: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
 
         if (response.alreadyRunning && response.jobId) {
           jobIdToScopeRef.current[response.jobId] = scope;
@@ -821,11 +826,8 @@ export default function WalletProfileLayout({
           }
         }
 
-        if (typeof window !== 'undefined' && options.triggerSource === 'auto') {
-          sessionStorage.setItem(`autoTrigger:${walletAddress}`, new Date().toISOString());
-        }
-      } catch (error: any) {
-        console.error(`Failed to trigger ${scope} analysis`, error);
+        } catch (error: any) {
+          console.error(`Failed to trigger ${scope} analysis`, error);
         setScopeStates((prev) => ({
           ...prev,
           [scope]: {
@@ -844,13 +846,16 @@ export default function WalletProfileLayout({
     [walletAddress, registerJobSubscription, scopeLabels, scopeStates, isRestrictedWallet],
   );
 
-  const shouldAutoTriggerFlash = useCallback(() => {
-    if (!walletSummary || !walletAddress) {
-      return false;
-    }
-    if (isDemoAccount) {
-      return false;
-    }
+    const shouldAutoTriggerFlash = useCallback(() => {
+      if (!walletSummary || !walletAddress) {
+        return false;
+      }
+      if (!isValidSolanaAddress(walletAddress)) {
+        return false;
+      }
+      if (isDemoAccount) {
+        return false;
+      }
     if (walletSummary.status === 'restricted') {
       return false;
     }

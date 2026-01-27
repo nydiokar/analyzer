@@ -35,73 +35,20 @@
 
 ## 🎯 Current Focus & Priorities
 
-### P0: Invalid address triggering spam (DDoS ourselves ... )
+### P0: Invalid address triggering spam (DDoS ourselves ... ) ✅ FIXED
 
-
-✅ WebSocket connected
 5intercept-console-error.ts:44 Failed to trigger flash analysis Error: Invalid Solana address: 8LUtQLSVoKewkXXHSsWJA9sio9cH7Q4hSfKVm5cR
     at fetcher (fetcher.ts:116:19)
     at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
 error @ intercept-console-error.ts:44
 intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 Failed to trigger flash analysis Error: You're going a bit too fast! Please wait a moment before trying again.
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please w
 
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM     LOG [JobProgressGateway] Client HFSHEqtcyT9TlVPFAAAY connected and joined room: user-cmj7qi9720000vh38071nrw3x
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate limit exceeded on POST /api/v1/analyses/wallets/dashboard-analysis from ::1
-0|sova-backend-api  | [Nest] 7916  - 01/26/2026, 9:17:37 PM    WARN [ThrottlerExceptionFilter] Rate lim
+
+**Status:** ✅ Fixed (Jan 27, 2026)
+**Fix Summary:**
+- Hardened Solana address validation (base58 decode → 32 bytes)
+- Blocked auto-trigger on invalid wallet address
+- Added auto-trigger cooldown on failed requests to prevent retry storms
  
 ### P0: Database Deadlock ✅ FIXED
 **Issue:** PostgreSQL deadlocks during parallel token metadata upserts
@@ -308,12 +255,15 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 |:--:|:-:|:------|:-----:|:-----------|
 | 27.1 | ?? | Similarity Lab: Holder picker tracking flow + UI refactor | ?? | `similarity-lab/page.tsx`, `TokenHolderPicker.tsx`, `BulkTrackModal.tsx`, `WalletBadge.tsx`, tracking hooks |
 | 27.2 | ?? | Favorites: Allow tracking wallets without prior analysis (stub wallet upsert) | ?? | `database-service.ts` |
+| 27.3 | 🛠 | P0 Fix: Invalid address auto-trigger spam | 🔹 | `dashboard/src/lib/solana-utils.ts`, `WalletProfileLayout.tsx`, `WalletSearch.tsx` |
 
 **Summary:**
 
 **27.1:** Redesigned holder picker tracking UX with a confirmable bulk-track modal, compact copy/track controls, and LP/system exclusion. Extracted tracking logic into reusable hooks and a shared modal, added a similarity-lab flow hook, and refined holder table spacing + minimal wallet badge copy actions.
 
 **27.2:** Removed the ?wallet must exist? constraint for favorites by upserting a stub wallet record on add. Users can now track wallets immediately without forcing analysis; analysis still behaves as initial sync when run later.
+
+**27.3:** Fixed invalid address auto-trigger spam by enforcing base58 decode validation (32-byte public key), preventing auto-trigger when address is invalid, and adding an auto-trigger cooldown even on request failure to stop retry storms.
 
 ### January 26, 2026
 
