@@ -20,6 +20,7 @@
 - ✅ Holder Profiles bucket alignment verification (Jan 25)
 - ✅ Job subscription handling refactor (Jan 25)
 - ✅ TimeRangeSelector hydration fix (Jan 25)
+- ✅ Bulk favorites import + auto-analysis queueing (Jan 27)
 
 
 
@@ -256,6 +257,7 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 | 27.1 | ?? | Similarity Lab: Holder picker tracking flow + UI refactor | ?? | `similarity-lab/page.tsx`, `TokenHolderPicker.tsx`, `BulkTrackModal.tsx`, `WalletBadge.tsx`, tracking hooks |
 | 27.2 | ?? | Favorites: Allow tracking wallets without prior analysis (stub wallet upsert) | ?? | `database-service.ts` |
 | 27.3 | 🛠 | P0 Fix: Invalid address auto-trigger spam | 🔹 | `dashboard/src/lib/solana-utils.ts`, `WalletProfileLayout.tsx`, `WalletSearch.tsx` |
+| 27.4 | 🟦 | Bulk favorites import + auto-analysis queueing | 🔸 | `user-favorites.controller.ts`, `user-favorites.service.ts`, `database-service.ts`, `trackers/page.tsx` |
 
 **Summary:**
 
@@ -264,6 +266,8 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 **27.2:** Removed the ?wallet must exist? constraint for favorites by upserting a stub wallet record on add. Users can now track wallets immediately without forcing analysis; analysis still behaves as initial sync when run later.
 
 **27.3:** Fixed invalid address auto-trigger spam by enforcing base58 decode validation (32-byte public key), preventing auto-trigger when address is invalid, and adding an auto-trigger cooldown even on request failure to stop retry storms.
+
+**27.4:** Added bulk favorites import endpoint with schema normalization (trackedWalletAddress/name/emoji/alertsOn), batch upsert for favorites, and auto-queue dashboard analysis after import. Trackers UI now supports JSON/CSV import, optional import collection, and auto-queues deep analysis for the first 5 wallets (targetSignatureCount set to 10k but capped by DASHBOARD_MAX_SIGNATURES until raised).
 
 ### January 26, 2026
 

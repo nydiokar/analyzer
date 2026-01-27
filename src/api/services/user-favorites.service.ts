@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { DatabaseService } from '../services/database.service';
 import { FavoriteWalletDetailDto, UpdateFavoriteWalletDto, AddFavoriteWalletDto } from '../shared/dto/favorite-wallet-detail.dto';
+import { BulkImportFavoriteWalletsDto, BulkImportWalletItemDto } from '../shared/dto/favorite-wallet-import.dto';
+import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 // Prisma types like UserFavoriteWallet are now handled by DatabaseService return types
 
 @Injectable()
@@ -105,5 +107,127 @@ export class UserFavoritesService {
   async getUserCollections(userId: string): Promise<string[]> {
     const collections = await this.databaseService.getUserFavoriteCollections(userId);
     return collections;
+  }
+
+  async importFavorites(userId: string, dto: BulkImportFavoriteWalletsDto): Promise<{
+    requested: number;
+    valid: number;
+    invalidWallets: string[];
+    added: number;
+    updated: number;
+    skipped: number;
+    normalizedWallets: string[];
+  }> {
+    const wallets = Array.isArray(dto.wallets) ? dto.wallets : [];
+    if (wallets.length === 0) {
+      return {
+        requested: 0,
+        valid: 0,
+        invalidWallets: [],
+        added: 0,
+        updated: 0,
+        skipped: 0,
+        normalizedWallets: [],
+      };
+    }
+
+    const defaultCollections = this.normalizeCollections(dto.defaultCollections);
+    const invalidWallets: string[] = [];
+    const normalizedMap = new Map<string, { walletAddress: string; nickname?: string; collections?: string[]; metadata?: any }>();
+
+    for (const item of wallets) {
+      const walletAddress = this.extractWalletAddress(item);
+      if (!walletAddress || !isValidSolanaAddress(walletAddress)) {
+        if (walletAddress) {
+          invalidWallets.push(walletAddress);
+        }
+        continue;
+      }
+
+      const nickname = item.nickname || item.name || undefined;
+      const itemCollections = this.normalizeCollections(item.collections || item.collection);
+      const collections = Array.from(new Set([...defaultCollections, ...itemCollections]));
+
+      const metadata = this.buildImportMetadata(item);
+
+      const existing = normalizedMap.get(walletAddress);
+      if (!existing) {
+        normalizedMap.set(walletAddress, {
+          walletAddress,
+          nickname,
+          collections: collections.length > 0 ? collections : undefined,
+          metadata,
+        });
+      } else {
+        if (!existing.nickname && nickname) {
+          existing.nickname = nickname;
+        }
+        if (collections.length > 0) {
+          existing.collections = Array.from(new Set([...(existing.collections || []), ...collections]));
+        }
+        if (metadata && typeof metadata === 'object') {
+          const base = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
+          existing.metadata = { ...base, ...metadata };
+        }
+      }
+    }
+
+    const normalizedFavorites = Array.from(normalizedMap.values());
+    const normalizedWallets = normalizedFavorites.map(entry => entry.walletAddress);
+
+    if (normalizedFavorites.length === 0) {
+      return {
+        requested: wallets.length,
+        valid: 0,
+        invalidWallets,
+        added: 0,
+        updated: 0,
+        skipped: 0,
+        normalizedWallets,
+      };
+    }
+
+    const result = await this.databaseService.bulkUpsertFavoriteWallets({
+      userId,
+      favorites: normalizedFavorites,
+      mergeCollections: dto.mergeCollections ?? true,
+      overwriteNickname: dto.overwriteNickname ?? false,
+      mergeMetadata: true,
+    });
+
+    return {
+      requested: wallets.length,
+      valid: normalizedFavorites.length,
+      invalidWallets,
+      added: result.added,
+      updated: result.updated,
+      skipped: result.skipped,
+      normalizedWallets,
+    };
+  }
+
+  private extractWalletAddress(item: BulkImportWalletItemDto): string | undefined {
+    return item.walletAddress || item.trackedWalletAddress || undefined;
+  }
+
+  private normalizeCollections(input?: string[] | string): string[] {
+    if (!input) return [];
+    if (Array.isArray(input)) {
+      return input.map(entry => entry.trim()).filter(Boolean);
+    }
+    if (typeof input === 'string') {
+      return [input.trim()].filter(Boolean);
+    }
+    return [];
+  }
+
+  private buildImportMetadata(item: BulkImportWalletItemDto): any | undefined {
+    const metadata = {
+      ...((item.metadata && typeof item.metadata === 'object') ? item.metadata : {}),
+      ...(item.emoji ? { emoji: item.emoji } : {}),
+      ...(typeof item.alertsOn === 'boolean' ? { alertsOn: item.alertsOn } : {}),
+    };
+
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
   }
 } 

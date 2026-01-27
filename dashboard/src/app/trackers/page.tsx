@@ -111,6 +111,7 @@ export default function TrackersPage() {
   const [deletingWallet, setDeletingWallet] = useState<FavoriteWallet | null>(null);
   const [showAddWalletModal, setShowAddWalletModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importCollection, setImportCollection] = useState('');
 
   // Extract unique collections and count wallets per collection
   const allCollections = useMemo(() => {
@@ -349,75 +350,139 @@ export default function TrackersPage() {
 
     try {
       const text = await file.text();
-      const lines = text.split('\n').map(line => line.trim()).filter(line => line);
-
-      // Skip header
-      const dataLines = lines.slice(1);
-
-      if (dataLines.length === 0) {
-        toast.error('No wallets found in CSV file');
-        return;
-      }
-
-      // Parse CSV rows with proper quote handling
-      const walletsToImport: { walletAddress: string; nickname: string; collections: string[] }[] = [];
+      const trimmed = text.trim();
       const errors: string[] = [];
 
-      for (let i = 0; i < dataLines.length; i++) {
-        const line = dataLines[i];
+      const defaultCollections = importCollection.trim()
+        ? [importCollection.trim()]
+        : [];
 
-        // Proper CSV parsing that handles quoted fields
-        const parts: string[] = [];
-        let currentField = '';
-        let insideQuotes = false;
+      const buildImportPayload = (wallets: Array<{ walletAddress: string; nickname?: string; collections?: string[]; metadata?: any }>) => ({
+        wallets,
+        defaultCollections: defaultCollections.length > 0 ? defaultCollections : undefined,
+        analyze: true,
+        analysisScope: 'deep',
+        analysisLimit: 5,
+        targetSignatureCount: 10000,
+      });
 
-        for (let j = 0; j < line.length; j++) {
-          const char = line[j];
-          const nextChar = line[j + 1];
+      const tryParseJson = () => {
+        if (!trimmed || (!trimmed.startsWith('[') && !trimmed.startsWith('{'))) {
+          return null;
+        }
 
-          if (char === '"') {
-            if (insideQuotes && nextChar === '"') {
-              // Escaped quote (e.g., "" inside quoted field)
-              currentField += '"';
-              j++; // Skip next quote
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          return null;
+        }
+      };
+
+      const parsedJson = tryParseJson();
+      let walletsToImport: Array<{ walletAddress: string; nickname?: string; collections?: string[]; metadata?: any }> = [];
+
+      if (parsedJson) {
+        const payload = Array.isArray(parsedJson)
+          ? { wallets: parsedJson, defaultCollections: undefined }
+          : {
+              wallets: parsedJson.wallets || parsedJson.items || parsedJson.data || [],
+              defaultCollections: parsedJson.defaultCollections || parsedJson.collections || parsedJson.collection,
+            };
+
+        const jsonDefaultCollections = Array.isArray(payload.defaultCollections)
+          ? payload.defaultCollections
+          : typeof payload.defaultCollections === 'string'
+            ? [payload.defaultCollections]
+            : [];
+
+        const mergedDefaults = Array.from(new Set([...defaultCollections, ...jsonDefaultCollections]));
+
+        walletsToImport = (payload.wallets || []).map((item: any) => {
+          const walletAddress = item.walletAddress || item.trackedWalletAddress || item.address || '';
+          const nickname = item.nickname || item.name || '';
+          const itemCollections = Array.isArray(item.collections)
+            ? item.collections
+            : typeof item.collection === 'string'
+              ? [item.collection]
+              : [];
+          const collections = Array.from(new Set([...mergedDefaults, ...itemCollections.filter(Boolean)]));
+          const metadata = {
+            ...(item.metadata && typeof item.metadata === 'object' ? item.metadata : {}),
+            ...(item.emoji ? { emoji: item.emoji } : {}),
+            ...(typeof item.alertsOn === 'boolean' ? { alertsOn: item.alertsOn } : {}),
+          };
+
+          return {
+            walletAddress,
+            nickname: nickname || undefined,
+            collections: collections.length > 0 ? collections : undefined,
+            metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+          };
+        });
+      } else {
+        const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+
+        const dataLines = lines.slice(1);
+
+        if (dataLines.length === 0) {
+          toast.error('No wallets found in CSV file');
+          return;
+        }
+
+        for (let i = 0; i < dataLines.length; i++) {
+          const line = dataLines[i];
+
+          const parts: string[] = [];
+          let currentField = '';
+          let insideQuotes = false;
+
+          for (let j = 0; j < line.length; j++) {
+            const char = line[j];
+            const nextChar = line[j + 1];
+
+            if (char === '"') {
+              if (insideQuotes && nextChar === '"') {
+                currentField += '"';
+                j++;
+              } else {
+                insideQuotes = !insideQuotes;
+              }
+            } else if (char === ',' && !insideQuotes) {
+              parts.push(currentField.trim());
+              currentField = '';
             } else {
-              // Toggle quote state
-              insideQuotes = !insideQuotes;
+              currentField += char;
             }
-          } else if (char === ',' && !insideQuotes) {
-            // Field delimiter
-            parts.push(currentField.trim());
-            currentField = '';
-          } else {
-            currentField += char;
           }
+          parts.push(currentField.trim());
+
+          if (parts.length < 1) {
+            errors.push(`Row ${i + 2}: Invalid format`);
+            continue;
+          }
+
+          const walletAddress = parts[0];
+          const nickname = parts[1] || '';
+          const collectionsStr = parts[2] || '';
+          const csvCollections = collectionsStr ? collectionsStr.split(';').map(c => c.trim()).filter(c => c) : [];
+          const collections = Array.from(new Set([...defaultCollections, ...csvCollections]));
+
+          if (!isValidSolanaAddress(walletAddress)) {
+            errors.push(`Row ${i + 2}: Invalid wallet address "${walletAddress}"`);
+            continue;
+          }
+
+          const isDuplicate = favoriteWallets?.some((w: FavoriteWallet) => w.walletAddress === walletAddress);
+          if (isDuplicate) {
+            continue;
+          }
+
+          walletsToImport.push({
+            walletAddress,
+            nickname: nickname || undefined,
+            collections: collections.length > 0 ? collections : undefined,
+          });
         }
-        // Push last field
-        parts.push(currentField.trim());
-
-        if (parts.length < 1) {
-          errors.push(`Row ${i + 2}: Invalid format`);
-          continue;
-        }
-
-        const walletAddress = parts[0];
-        const nickname = parts[1] || '';
-        const collectionsStr = parts[2] || '';
-        const collections = collectionsStr ? collectionsStr.split(';').map(c => c.trim()).filter(c => c) : [];
-
-        // Validate wallet address
-        if (!isValidSolanaAddress(walletAddress)) {
-          errors.push(`Row ${i + 2}: Invalid wallet address "${walletAddress}"`);
-          continue;
-        }
-
-        // Check for duplicates in current tracked wallets
-        const isDuplicate = favoriteWallets?.some((w: FavoriteWallet) => w.walletAddress === walletAddress);
-        if (isDuplicate) {
-          continue; // Skip duplicates silently
-        }
-
-        walletsToImport.push({ walletAddress, nickname, collections });
       }
 
       if (walletsToImport.length === 0) {
@@ -434,38 +499,21 @@ export default function TrackersPage() {
         return;
       }
 
-      // Batch import wallets
-      let successCount = 0;
-      let failCount = 0;
+      const response = await fetcher('/users/me/favorites/import', {
+        method: 'POST',
+        body: JSON.stringify(buildImportPayload(walletsToImport)),
+      });
 
-      for (const wallet of walletsToImport) {
-        try {
-          await fetcher('/users/me/favorites', {
-            method: 'POST',
-            body: JSON.stringify(wallet),
-          });
-          successCount++;
-        } catch (error: unknown) {
-          failCount++;
-          errors.push(`Failed to add ${wallet.walletAddress}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-      }
-
-      // Refresh favorites list
       await mutateFavorites();
 
-      // Show result toast
-      if (successCount > 0) {
-        toast.success('Wallets imported', {
-          description: `${successCount} wallets imported successfully${failCount > 0 ? `, ${failCount} failed` : ''}.`,
-        });
-      } else {
-        const message = getErrorMessage('trackers-import');
-        toast.error(message.title, {
-          description: `Failed to import wallets. ${errors.length} errors found.`,
-        });
-      }
+      const added = response?.added ?? 0;
+      const updated = response?.updated ?? 0;
+      const skipped = response?.skipped ?? 0;
+      const invalidCount = response?.invalidWallets?.length || 0;
 
+      toast.success('Wallets imported', {
+        description: `${added} added, ${updated} updated, ${skipped} skipped${invalidCount > 0 ? `, ${invalidCount} invalid` : ''}.`,
+      });
     } catch (error: unknown) {
       const message = getErrorMessage('trackers-import', error);
       toast.error(message.title, {
@@ -474,7 +522,7 @@ export default function TrackersPage() {
     } finally {
       setIsImporting(false);
     }
-  }, [favoriteWallets, mutateFavorites]);
+  }, [favoriteWallets, importCollection, mutateFavorites]);
 
   // Loading state
   if (!favoriteWallets && !error) {
@@ -726,6 +774,12 @@ export default function TrackersPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Import collection (optional)"
+                    value={importCollection}
+                    onChange={(e) => setImportCollection(e.target.value)}
+                    className="h-9 w-48"
+                  />
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -739,14 +793,14 @@ export default function TrackersPage() {
                         Import
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Import wallets from CSV</TooltipContent>
+                    <TooltipContent>Import wallets from CSV or JSON</TooltipContent>
                   </Tooltip>
 
                   {/* Hidden file input */}
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv"
+                    accept=".csv,.json"
                     onChange={handleImportWallets}
                     className="hidden"
                   />

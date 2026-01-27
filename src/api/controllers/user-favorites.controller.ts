@@ -4,6 +4,10 @@ import { Response } from 'express';
 import { User } from '@prisma/client';
 import { UserFavoritesService } from '../services/user-favorites.service';
 import { AddFavoriteWalletDto, FavoriteWalletDetailDto, UpdateFavoriteWalletDto } from '../shared/dto/favorite-wallet-detail.dto';
+import { BulkImportFavoriteWalletsDto } from '../shared/dto/favorite-wallet-import.dto';
+import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
+import type { DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
+import { JobPriority } from '../../queues/config/queue.config';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -13,7 +17,10 @@ interface AuthenticatedRequest extends Request {
 @Controller('users/me/favorites')
 @ApiBearerAuth()
 export class UserFavoritesController {
-  constructor(private readonly userFavoritesService: UserFavoritesService) {}
+  constructor(
+    private readonly userFavoritesService: UserFavoritesService,
+    private readonly analysisOperationsQueue: AnalysisOperationsQueue,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: "Add a wallet to the authenticated user's favorites" })
@@ -119,4 +126,83 @@ export class UserFavoritesController {
     }
     return this.userFavoritesService.getUserCollections(userId);
   }
-} 
+
+  @Post('import')
+  @ApiOperation({ summary: 'Bulk import wallets into favorites (CSV/JSON compatible)' })
+  @ApiBody({ type: BulkImportFavoriteWalletsDto })
+  @ApiResponse({ status: HttpStatus.CREATED, description: 'Wallets imported successfully.' })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid input.' })
+  @HttpCode(HttpStatus.CREATED)
+  async importFavorites(
+    @Body() dto: BulkImportFavoriteWalletsDto,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<{
+    requested: number;
+    valid: number;
+    invalidWallets: string[];
+    added: number;
+    updated: number;
+    skipped: number;
+    analysisQueued?: number;
+    analysisRequestId?: string;
+    analysisJobIds?: string[];
+  }> {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    const importResult = await this.userFavoritesService.importFavorites(userId, dto);
+
+    if (!dto.analyze) {
+      return importResult;
+    }
+
+    const walletsToAnalyze = importResult.normalizedWallets;
+    const limit = dto.analysisLimit && dto.analysisLimit > 0 ? dto.analysisLimit : walletsToAnalyze.length;
+    const scope = dto.analysisScope ?? 'deep';
+    const requestId = `bulk-import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const jobIds: string[] = [];
+    const batchSize = 25;
+    const targetWallets = walletsToAnalyze.slice(0, limit);
+
+    for (let i = 0; i < targetWallets.length; i += batchSize) {
+      const batch = targetWallets.slice(i, i + batchSize);
+      const jobs = await Promise.all(
+        batch.map(walletAddress => {
+          const jobData: DashboardWalletAnalysisJobData = {
+            walletAddress,
+            userId,
+            requestId,
+            analysisScope: scope,
+            triggerSource: 'system',
+            targetSignatureCount: dto.targetSignatureCount,
+            forceRefresh: dto.forceRefresh ?? false,
+            queueWorkingAfter: dto.queueWorkingAfter ?? false,
+            queueDeepAfter: dto.queueDeepAfter ?? false,
+          };
+          return this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
+            priority: JobPriority.NORMAL,
+            delay: 0,
+          });
+        })
+      );
+
+      if (dto.includeJobIds) {
+        jobs.forEach(job => {
+          if (job.id) {
+            jobIds.push(String(job.id));
+          }
+        });
+      }
+    }
+
+    return {
+      ...importResult,
+      analysisQueued: targetWallets.length,
+      analysisRequestId: requestId,
+      ...(dto.includeJobIds ? { analysisJobIds: jobIds } : {}),
+    };
+  }
+}

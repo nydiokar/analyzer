@@ -1169,6 +1169,188 @@ export class DatabaseService {
     }
     // --- End Wallet Favorite Methods ---
 
+    /**
+     * Bulk upsert favorite wallets for a user.
+     * - Creates missing Wallet records.
+     * - Inserts new favorites via createMany.
+     * - Optionally merges collections and metadata for existing favorites.
+     */
+    async bulkUpsertFavoriteWallets(params: {
+        userId: string;
+        favorites: Array<{
+            walletAddress: string;
+            nickname?: string;
+            collections?: string[];
+            metadata?: any;
+        }>;
+        mergeCollections?: boolean;
+        overwriteNickname?: boolean;
+        mergeMetadata?: boolean;
+    }): Promise<{ added: number; updated: number; skipped: number }> {
+        const {
+            userId,
+            favorites,
+            mergeCollections = true,
+            overwriteNickname = false,
+            mergeMetadata = true,
+        } = params;
+
+        this.logger.debug(`Bulk importing ${favorites.length} favorite wallets for user ${userId}`);
+
+        const userExists = await this.prismaClient.user.findUnique({ where: { id: userId } });
+        if (!userExists) {
+            this.logger.warn(`Bulk favorite import failed: User ${userId} not found.`);
+            throw new NotFoundException(`User with ID "${userId}" not found.`);
+        }
+
+        if (!favorites.length) {
+            return { added: 0, updated: 0, skipped: 0 };
+        }
+
+        const uniqueFavorites = new Map<string, { walletAddress: string; nickname?: string; collections?: string[]; metadata?: any }>();
+        for (const favorite of favorites) {
+            const existing = uniqueFavorites.get(favorite.walletAddress);
+            if (!existing) {
+                uniqueFavorites.set(favorite.walletAddress, {
+                    walletAddress: favorite.walletAddress,
+                    nickname: favorite.nickname,
+                    collections: favorite.collections ? [...favorite.collections] : [],
+                    metadata: favorite.metadata,
+                });
+                continue;
+            }
+
+            if (!existing.nickname && favorite.nickname) {
+                existing.nickname = favorite.nickname;
+            }
+
+            if (favorite.collections?.length) {
+                const merged = new Set<string>([...(existing.collections || []), ...favorite.collections]);
+                existing.collections = Array.from(merged);
+            }
+
+            if (favorite.metadata && typeof favorite.metadata === 'object') {
+                const existingMeta = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
+                existing.metadata = { ...existingMeta, ...favorite.metadata };
+            }
+        }
+
+        const addresses = Array.from(uniqueFavorites.keys());
+        if (!addresses.length) {
+            return { added: 0, updated: 0, skipped: 0 };
+        }
+
+        await this.prismaClient.wallet.createMany({
+            data: addresses.map(address => ({ address })),
+            skipDuplicates: true,
+        });
+
+        const existingFavorites = await this.prismaClient.userFavoriteWallet.findMany({
+            where: { userId, walletAddress: { in: addresses } },
+            select: { walletAddress: true, nickname: true, collections: true, metadata: true },
+        });
+
+        const existingMap = new Map<string, typeof existingFavorites[number]>();
+        existingFavorites.forEach(fav => existingMap.set(fav.walletAddress, fav));
+
+        const toCreate: Prisma.UserFavoriteWalletCreateManyInput[] = [];
+        const updates: Array<{ walletAddress: string; data: Prisma.UserFavoriteWalletUpdateInput }> = [];
+
+        const parseCollections = (raw: string | null): string[] => {
+            if (!raw) return [];
+            try {
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        };
+
+        for (const favorite of uniqueFavorites.values()) {
+            const existing = existingMap.get(favorite.walletAddress);
+            const normalizedCollections = favorite.collections?.filter(c => c && c.trim()) ?? [];
+            const metadata = favorite.metadata;
+
+            if (!existing) {
+                toCreate.push({
+                    userId,
+                    walletAddress: favorite.walletAddress,
+                    nickname: favorite.nickname ?? null,
+                    collections: normalizedCollections.length > 0 ? JSON.stringify(normalizedCollections) : null,
+                    metadata: metadata ?? undefined,
+                });
+                continue;
+            }
+
+            const updateData: Prisma.UserFavoriteWalletUpdateInput = {};
+            let changed = false;
+
+            if (favorite.nickname && (overwriteNickname || !existing.nickname)) {
+                updateData.nickname = favorite.nickname;
+                changed = true;
+            }
+
+            if (normalizedCollections.length > 0) {
+                const existingCollections = parseCollections(existing.collections ?? null);
+                const nextCollections = mergeCollections
+                    ? Array.from(new Set([...existingCollections, ...normalizedCollections]))
+                    : normalizedCollections;
+
+                if (JSON.stringify(existingCollections) !== JSON.stringify(nextCollections)) {
+                    updateData.collections = JSON.stringify(nextCollections);
+                    changed = true;
+                }
+            }
+
+            if (metadata !== undefined) {
+                const existingMeta = existing.metadata ?? undefined;
+                let nextMeta = metadata;
+                if (mergeMetadata && metadata && typeof metadata === 'object') {
+                    const baseMeta = existingMeta && typeof existingMeta === 'object' ? existingMeta : {};
+                    nextMeta = { ...baseMeta, ...metadata };
+                }
+
+                if (JSON.stringify(existingMeta) !== JSON.stringify(nextMeta)) {
+                    updateData.metadata = nextMeta as Prisma.InputJsonValue;
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                updates.push({ walletAddress: favorite.walletAddress, data: updateData });
+            }
+        }
+
+        let added = 0;
+        if (toCreate.length > 0) {
+            const result = await this.prismaClient.userFavoriteWallet.createMany({
+                data: toCreate,
+                skipDuplicates: true,
+            });
+            added = result.count;
+        }
+
+        if (updates.length > 0) {
+            const batchSize = 200;
+            for (let i = 0; i < updates.length; i += batchSize) {
+                const batch = updates.slice(i, i + batchSize);
+                await this.prismaClient.$transaction(
+                    batch.map(update =>
+                        this.prismaClient.userFavoriteWallet.update({
+                            where: { userId_walletAddress: { userId, walletAddress: update.walletAddress } },
+                            data: update.data,
+                        })
+                    )
+                );
+            }
+        }
+
+        const updated = updates.length;
+        const skipped = addresses.length - added - updated;
+
+        return { added, updated, skipped: Math.max(0, skipped) };
+    }
+
     // --- Wallet Methods ---
 
     /**
