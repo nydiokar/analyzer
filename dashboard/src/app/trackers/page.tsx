@@ -5,10 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter } from 'lucide-react';
+import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Loader2 } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback, useRef } from 'react';
+import { useJobProgress } from '@/hooks/useJobProgress';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { WalletEditForm } from '@/components/layout/WalletEditForm';
 import QuickAddForm from '@/components/layout/QuickAddForm';
@@ -113,6 +114,7 @@ export default function TrackersPage() {
   const [showAddWalletModal, setShowAddWalletModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importCollection, setImportCollection] = useState('');
+  const [importJobsInProgress, setImportJobsInProgress] = useState<string[]>([]);
 
   // Extract unique collections and count wallets per collection
   const allCollections = useMemo(() => {
@@ -137,6 +139,31 @@ export default function TrackersPage() {
   }, [favoriteWallets]);
 
   // Portfolio stats
+  // Job progress tracking
+  const { subscribeToJob } = useJobProgress({
+    onJobProgress: useCallback(() => {
+      // Progress updates handled by internal hook state
+    }, []),
+    onJobCompleted: useCallback((data) => {
+      if (importJobsInProgress.includes(data.jobId)) {
+        setImportJobsInProgress(prev => prev.filter(id => id !== data.jobId));
+        mutateFavorites();
+        if (importJobsInProgress.length === 1) {
+          toast.success('All imported wallets analyzed!');
+        }
+      }
+    }, [importJobsInProgress, mutateFavorites]),
+    onJobFailed: useCallback((data) => {
+      if (importJobsInProgress.includes(data.jobId)) {
+        setImportJobsInProgress(prev => prev.filter(id => id !== data.jobId));
+        toast.error('Analysis failed', { description: data.error || 'Unknown error' });
+      }
+    }, [importJobsInProgress]),
+    onEnrichmentComplete: useCallback(() => {
+      // Not needed for import tracking
+    }, []),
+  });
+
   const portfolioStats = useMemo(() => {
     if (!favoriteWallets?.length) return null;
 
@@ -535,6 +562,13 @@ export default function TrackersPage() {
       const invalidCount = response?.invalidWallets?.length || 0;
       const overLimit = response?.overLimit ?? 0;
       const flashQueued = response?.analysisQueued ?? 0;
+      const jobIds = response?.analysisJobIds ?? [];
+
+      // Track import jobs for progress visibility
+      if (jobIds.length > 0 && subscribeToJob) {
+        setImportJobsInProgress(jobIds);
+        jobIds.forEach((jobId: string) => subscribeToJob(jobId));
+      }
 
       toast.success('Wallets imported', {
         description: `${added} added, ${updated} updated, ${skipped} skipped${invalidCount > 0 ? `, ${invalidCount} invalid` : ''}${overLimit > 0 ? `, ${overLimit} over the ${USER_FAVORITES_MAX} cap` : ''}. ${flashQueued} queued for quick flash analysis. Open a wallet to run deep analysis.`,
@@ -707,6 +741,14 @@ export default function TrackersPage() {
               <Badge variant="outline" className="text-xs">
                 {favoriteWallets.length}/{USER_FAVORITES_MAX}
               </Badge>
+            )}
+            {importJobsInProgress.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                <span className="text-xs text-blue-500 font-medium">
+                  Analyzing {importJobsInProgress.length} wallet{importJobsInProgress.length > 1 ? 's' : ''}
+                </span>
+              </div>
             )}
 
             {/* Filters - Priority to Active */}
