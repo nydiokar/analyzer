@@ -289,6 +289,7 @@ model User {
   emailVerified       Boolean                  @default(false)
   lastLoginAt         DateTime?
   passwordHash        String?
+  lastBulkImportAt    DateTime?
   activityLogs        ActivityLog[]
   apiKeys             ApiKey[]
   verificationTokens  EmailVerificationToken[]
@@ -296,6 +297,8 @@ model User {
   passwordResetTokens PasswordResetToken[]
   favoriteWallets     UserFavoriteWallet[]
   walletNotes         WalletNote[]
+
+  @@index([lastBulkImportAt])
 }
 
 model EmailVerificationToken {

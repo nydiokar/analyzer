@@ -68,7 +68,7 @@ interface ScriptOptions {
   noAnalyze: boolean;
 }
 
-const USER_ID = 'cmj7qi9720000vh38071nrw3x';
+const USER_ID = 'cmkzo1izj0000vhts6hx3t5sy';
 
 function parseArgs(): { file: string; options: ScriptOptions } {
   const args = process.argv.slice(2);

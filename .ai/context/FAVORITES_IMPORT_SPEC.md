@@ -1,8 +1,19 @@
 # Favorites Import & Analysis Strategy
 
-**Status:** Implementation Spec
+**Status:** ✅ Implemented with Modifications
 **Created:** 2026-01-29
 **Last Updated:** 2026-01-29
+**Implementation Summary:** See `FAVORITES_IMPORT_IMPLEMENTATION.md`
+
+## ⚠️ IMPORTANT: What Was Actually Implemented
+
+This spec was used as a guide, but we discovered a critical design flaw during implementation:
+
+**Spec Suggested:** Add `UserFavoriteWallet.lastFlashAnalysis`, `lastWorkingAnalysis`, `lastDeepAnalysis` for per-user freshness tracking
+
+**What We Actually Did:** Only added `User.lastBulkImportAt` for import cooldown
+
+**Why:** Per-user analysis timestamps would cause duplicate work. If 100 users track the same wallet, each would show "never analyzed" → queue 100 analyses. Instead, we use existing wallet-level `AnalysisRun` table + processor freshness checks. See implementation doc for details.
 
 ## Overview
 
@@ -410,16 +421,16 @@ async refreshCollection(@Param('name') name: string, @Req() req: AuthenticatedRe
 ## Implementation Checklist
 
 - [x] God mode import script (`scripts/god-mode-import-favorites.ts`)
-- [ ] Database migration (add lastXAnalysis fields, lastBulkImportAt)
-- [ ] Update constants (`USER_FAVORITES_CONFIG`)
-- [ ] Clean up import DTO (remove unused params)
-- [ ] Implement import cooldown check
-- [ ] Implement freshness check helper
-- [ ] Update import controller (50 immediate + 250 background)
-- [ ] Implement batch analyze endpoint
-- [ ] Implement collection refresh endpoint
-- [ ] Update frontend UI (batch select, collection refresh button)
-- [ ] Update API documentation
+- [x] Database migration (`User.lastBulkImportAt` only - NOT per-user analysis timestamps)
+- [x] Update constants (`USER_FAVORITES_CONFIG`)
+- [x] Clean up import DTO (remove unused params)
+- [x] Implement import cooldown check
+- [x] ~~Implement freshness check helper~~ **SKIPPED** - use existing processor logic instead
+- [x] Update import controller (50 immediate + 250 background)
+- [x] Implement batch analyze endpoint
+- [x] Implement collection refresh endpoint
+- [ ] Update frontend UI (batch select, collection refresh button) - **NEXT PR**
+- [x] Update API documentation
 
 ## Testing Strategy
 

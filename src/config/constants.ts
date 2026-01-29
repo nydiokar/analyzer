@@ -105,7 +105,23 @@ export const ANALYSIS_EXECUTION_CONFIG = {
 } as const;
 
 export const USER_FAVORITES_CONFIG = {
+  // Core limits
   MAX_FAVORITES: getEnvNumber('USER_FAVORITES_MAX', 300),
+  MAX_IMPORT_BATCH: getEnvNumber('USER_FAVORITES_MAX_IMPORT_BATCH', 300),
+
+  // Import auto-analysis
+  IMPORT_FLASH_IMMEDIATE: getEnvNumber('USER_FAVORITES_IMPORT_FLASH_IMMEDIATE', 50),        // High priority, runs now
+  IMPORT_FLASH_BACKGROUND: getEnvNumber('USER_FAVORITES_IMPORT_FLASH_BACKGROUND', 250),     // Low priority, spread over 1 hour
+  IMPORT_BACKGROUND_DELAY_MS: getEnvNumber('USER_FAVORITES_IMPORT_BACKGROUND_DELAY_MS', 14400), // 14.4 sec between background jobs
+
+  // Batch operations
+  BATCH_DEEP_ANALYSIS_LIMIT: getEnvNumber('USER_FAVORITES_BATCH_DEEP_ANALYSIS_LIMIT', 20), // Can queue 20 deep at once
+  COLLECTION_REFRESH_LIMIT: getEnvNumber('USER_FAVORITES_COLLECTION_REFRESH_LIMIT', 100),  // Can refresh full collection
+
+  // Import cooldown (prevent abuse)
+  IMPORT_COOLDOWN_SECONDS: getEnvNumber('USER_FAVORITES_IMPORT_COOLDOWN_SECONDS', 3600),   // 1 hour between bulk imports
+
+  // Deprecated - kept for backwards compatibility
   IMPORT_FLASH_BATCH: getEnvNumber('USER_FAVORITES_IMPORT_FLASH_BATCH', 50),
 } as const;
 

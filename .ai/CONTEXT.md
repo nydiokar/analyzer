@@ -11,8 +11,11 @@
 | 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
 | 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |
+| 🔄 | WHEN password is reset we must send confirmation email! 
+
 
 **Recently Completed:**
+- ✅ Favorites import system with attack-resistant design (Jan 29)
 - ✅ P0: Database deadlock fix with prevention + retry (Jan 26)
 - ✅ Similarity Lab Frame 1: Wallet Input Area (Jan 23-25)
 - ✅ Similarity Lab Frame 2: Global Analysis Metrics (Jan 25)
@@ -249,6 +252,16 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 ---
 
 ## 📅 Recent Activity
+
+### January 29, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 29.1 | 🟦 | Favorites import system - attack-resistant design | 🔸 | `user-favorites.controller.ts`, `user-favorites.service.ts`, `database-service.ts`, `constants.ts`, `batch-analyze-favorites.dto.ts` |
+
+**Summary:**
+
+**29.1:** Implemented production-ready favorites import system with enterprise-grade protection. **Import Flow:** 50+250 batching (first 50 HIGH priority immediate, next 250 LOW priority staggered over 1 hour with 14.4sec delays). **Cooldown Protection:** User-level import cooldown (1 hour between bulk imports) via `User.lastBulkImportAt`. **Freshness Checking:** Wallet-level freshness (existing `AnalysisRun` table + processor logic) - prevents duplicate analysis when multiple users track same wallet. **New Endpoints:** `POST /batch-analyze` (up to 20 wallets, working/deep scope) and `POST /collections/:name/refresh` (flash analysis for collection, max 100 wallets). **Key Decision:** Did NOT add per-user analysis timestamps (would cause duplicate work problem) - instead rely on existing wallet-level freshness checks in processor. **DTO Cleanup:** Removed confusing unused params from import DTO (analyze, analysisScope, forceRefresh, etc). All jobs queue with `forceRefresh: false` to let processor decide based on wallet-level staleness. System correctly handles 100 users tracking same wallet - first queues analysis, subsequent requests skipped by processor.
 
 ### January 27, 2026
 

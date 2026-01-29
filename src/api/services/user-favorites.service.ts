@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { DatabaseService } from '../services/database.service';
 import { FavoriteWalletDetailDto, UpdateFavoriteWalletDto, AddFavoriteWalletDto } from '../shared/dto/favorite-wallet-detail.dto';
 import { BulkImportFavoriteWalletsDto, BulkImportWalletItemDto } from '../shared/dto/favorite-wallet-import.dto';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
+import { USER_FAVORITES_CONFIG } from '../../config/constants';
 // Prisma types like UserFavoriteWallet are now handled by DatabaseService return types
 
 @Injectable()
@@ -120,6 +121,9 @@ export class UserFavoritesService {
     normalizedWallets: string[];
     createdWallets: string[];
   }> {
+    // Check import cooldown before processing
+    await this.checkImportCooldown(userId);
+
     const wallets = Array.isArray(dto.wallets) ? dto.wallets : [];
     if (wallets.length === 0) {
       return {
@@ -201,6 +205,11 @@ export class UserFavoritesService {
       mergeMetadata: true,
     });
 
+    // Update last bulk import timestamp on success
+    if (result.added > 0 || result.updated > 0) {
+      await this.databaseService.updateUserLastBulkImport(userId);
+    }
+
     return {
       requested: wallets.length,
       valid: normalizedFavorites.length,
@@ -237,5 +246,47 @@ export class UserFavoritesService {
     };
 
     return Object.keys(metadata).length > 0 ? metadata : undefined;
+  }
+
+  /**
+   * Get wallets in a specific collection
+   */
+  async getWalletsInCollection(userId: string, collectionName: string): Promise<string[]> {
+    const favorites = await this.databaseService.getFavoriteWalletsByUserId(userId);
+
+    return favorites
+      .filter(fav => {
+        if (!fav.collections) return false;
+        try {
+          const collections = JSON.parse(fav.collections);
+          return Array.isArray(collections) && collections.includes(collectionName);
+        } catch {
+          return false;
+        }
+      })
+      .map(fav => fav.walletAddress);
+  }
+
+  /**
+   * Check if user can perform bulk import (enforces cooldown)
+   */
+  private async checkImportCooldown(userId: string): Promise<void> {
+    const user = await this.databaseService.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException(`User not found`);
+    }
+
+    if (user.lastBulkImportAt) {
+      const cooldownMs = USER_FAVORITES_CONFIG.IMPORT_COOLDOWN_SECONDS * 1000;
+      const elapsed = Date.now() - user.lastBulkImportAt.getTime();
+
+      if (elapsed < cooldownMs) {
+        const remainingSec = Math.ceil((cooldownMs - elapsed) / 1000);
+        const remainingMin = Math.ceil(remainingSec / 60);
+        throw new ConflictException(
+          `Import available in ${remainingMin} minute${remainingMin !== 1 ? 's' : ''} (${remainingSec} seconds)`
+        );
+      }
+    }
   }
 } 

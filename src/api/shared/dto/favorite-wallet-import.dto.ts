@@ -38,7 +38,13 @@ export class BulkImportWalletItemDto {
 }
 
 export class BulkImportFavoriteWalletsDto {
-  @ApiProperty({ description: 'Wallets to import', type: [BulkImportWalletItemDto] })
+  @ApiProperty({
+    description: 'Wallets to import',
+    type: [BulkImportWalletItemDto],
+    example: [
+      { walletAddress: 'So11111111111111111111111111111111111111112', nickname: 'Whale 1', emoji: '🐋' }
+    ]
+  })
   wallets: BulkImportWalletItemDto[];
 
   @ApiProperty({
@@ -63,44 +69,10 @@ export class BulkImportFavoriteWalletsDto {
   overwriteNickname?: boolean;
 
   @ApiProperty({
-    description: 'Queue dashboard analysis after import',
+    description: 'Include job IDs in response (can be large, useful for debugging)',
     required: false,
-    example: true,
+    example: false
   })
-  analyze?: boolean;
-
-  @ApiProperty({
-    description: 'Dashboard analysis scope to queue',
-    required: false,
-    enum: ['flash', 'working', 'deep'],
-    example: 'deep',
-  })
-  analysisScope?: DashboardAnalysisScope;
-
-  @ApiProperty({
-    description: 'Limit number of wallets queued for analysis (useful for test runs)',
-    required: false,
-    example: 5,
-  })
-  analysisLimit?: number;
-
-  @ApiProperty({
-    description: 'Target signature count for dashboard analysis (capped by DASHBOARD_MAX_SIGNATURES)',
-    required: false,
-    example: 10000,
-  })
-  targetSignatureCount?: number;
-
-  @ApiProperty({ description: 'Force refresh for queued analysis jobs', required: false, example: false })
-  forceRefresh?: boolean;
-
-  @ApiProperty({ description: 'Queue follow-up working scope after flash', required: false, example: false })
-  queueWorkingAfter?: boolean;
-
-  @ApiProperty({ description: 'Queue follow-up deep scope after flash/working', required: false, example: false })
-  queueDeepAfter?: boolean;
-
-  @ApiProperty({ description: 'Include job IDs in response (can be large)', required: false, example: false })
   includeJobIds?: boolean;
 }
 

@@ -1375,6 +1375,27 @@ export class DatabaseService {
         return { added, updated, skipped: Math.max(0, skipped), overLimit, createdWallets };
     }
 
+    // --- User Methods ---
+
+    /**
+     * Get user by ID
+     */
+    async getUserById(userId: string): Promise<User | null> {
+        return this.prismaClient.user.findUnique({
+            where: { id: userId },
+        });
+    }
+
+    /**
+     * Update user's last bulk import timestamp
+     */
+    async updateUserLastBulkImport(userId: string): Promise<void> {
+        await this.prismaClient.user.update({
+            where: { id: userId },
+            data: { lastBulkImportAt: new Date() },
+        });
+    }
+
     // --- Wallet Methods ---
 
     /**
