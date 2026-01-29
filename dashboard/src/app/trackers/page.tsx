@@ -112,6 +112,7 @@ export default function TrackersPage() {
   const [editingWallet, setEditingWallet] = useState<FavoriteWallet | null>(null);
   const [deletingWallet, setDeletingWallet] = useState<FavoriteWallet | null>(null);
   const [showAddWalletModal, setShowAddWalletModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importCollection, setImportCollection] = useState('');
   const [importJobsInProgress, setImportJobsInProgress] = useState<string[]>([]);
@@ -343,45 +344,36 @@ export default function TrackersPage() {
       return;
     }
 
-    // Prepare CSV data
-    const csvHeader = 'walletAddress,nickname,collections\n';
-    const csvRows = favoriteWallets.map((wallet: FavoriteWallet) => {
-      const address = wallet.walletAddress;
-      const nickname = wallet.nickname || '';
-      const collections = (wallet.collections || []).join(';');
-      // Escape fields that contain commas or quotes
-      const escapedNickname = nickname.includes(',') || nickname.includes('"') ? `"${nickname.replace(/"/g, '""')}"` : nickname;
-      return `${address},${escapedNickname},${collections}`;
-    }).join('\n');
+    // Export as .txt file with JSON structure (competitors format)
+    const jsonData = favoriteWallets.map((wallet: FavoriteWallet) => ({
+      trackedWalletAddress: wallet.walletAddress,
+      name: wallet.nickname || '',
+      emoji: wallet.metadata?.emoji || '😀',
+      alertsOn: wallet.metadata?.alertsOn ?? true,
+      collections: wallet.collections || [],
+    }));
 
-    const csvContent = csvHeader + csvRows;
+    const jsonContent = JSON.stringify(jsonData, null, 2);
 
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    // Create blob and download as .txt
+    const blob = new Blob([jsonContent], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `tracked-wallets-${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `tracked-wallets-${new Date().toISOString().split('T')[0]}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
     toast.success('Wallets exported', {
-      description: `${favoriteWallets.length} wallets exported to CSV.`,
+      description: `${favoriteWallets.length} wallets exported to TXT.`,
     });
   }, [favoriteWallets]);
 
-  const handleImportWallets = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    // Reset file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-
+  const handleImportWallets = useCallback(async (file: File) => {
     setIsImporting(true);
+    setShowImportModal(false);
 
     try {
       const currentCount = favoriteWallets?.length ?? 0;
@@ -580,8 +572,17 @@ export default function TrackersPage() {
       });
     } finally {
       setIsImporting(false);
+      setImportCollection('');
     }
-  }, [favoriteWallets, importCollection, mutateFavorites]);
+  }, [favoriteWallets, importCollection, mutateFavorites, subscribeToJob, importJobsInProgress]);
+
+  const handleImportFileSelected = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Show modal for collection input
+    setShowImportModal(true);
+  }, []);
 
   // Loading state
   if (!favoriteWallets && !error) {
@@ -846,12 +847,6 @@ export default function TrackersPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="Collection for imported"
-                    value={importCollection}
-                    onChange={(e) => setImportCollection(e.target.value)}
-                    className="h-9 w-48"
-                  />
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -862,11 +857,15 @@ export default function TrackersPage() {
                         disabled={isImporting}
                       >
                         <Upload className="h-4 w-4 mr-1.5" />
-                        Import
+                        {isImporting ? 'Importing...' : 'Import'}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      Imports CSV or JSON and queues a quick flash analysis for up to {USER_FAVORITES_IMPORT_FLASH_BATCH} wallets.
+                      <div className="text-xs space-y-1">
+                        <div className="font-semibold">Import wallets from file</div>
+                        <div>Accepts: .json, .csv, .txt formats</div>
+                        <div className="text-muted-foreground">Auto-queues flash analysis for {USER_FAVORITES_IMPORT_FLASH_BATCH} wallets</div>
+                      </div>
                     </TooltipContent>
                   </Tooltip>
 
@@ -874,8 +873,8 @@ export default function TrackersPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv,.json"
-                    onChange={handleImportWallets}
+                    accept=".csv,.json,.txt"
+                    onChange={handleImportFileSelected}
                     className="hidden"
                   />
 
@@ -892,7 +891,7 @@ export default function TrackersPage() {
                         Export
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Export tracked wallets to CSV</TooltipContent>
+                    <TooltipContent>Export tracked wallets to TXT (JSON format, compatible with import)</TooltipContent>
                   </Tooltip>
 
                   <Button
@@ -912,7 +911,7 @@ export default function TrackersPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Wallet</TableHead>
-                      <TableHead className="w-32">PnL</TableHead>
+                      <TableHead className="w-32">Total PnL</TableHead>
                       <TableHead className="w-24">Winrate</TableHead>
                       <TableHead className="w-32">Last Active</TableHead>
                       <TableHead className="w-32 text-right">SOL Balance</TableHead>
@@ -1061,6 +1060,50 @@ export default function TrackersPage() {
             onSave={handleAddWallet}
             title="Add Wallet to Tracked"
           />
+
+          {/* Import Modal */}
+          {showImportModal && (
+            <AlertDialog open={showImportModal} onOpenChange={setShowImportModal}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Import Wallets</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-4 pt-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">
+                          Collection name <span className="text-muted-foreground font-normal">(optional)</span>
+                        </label>
+                        <Input
+                          placeholder="all wallets from the list will be asigned to this collection"
+                          value={importCollection}
+                          onChange={(e) => setImportCollection(e.target.value)}
+                          className="h-10 bg-background/50"
+                          autoFocus
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                  
+                        {importCollection && (
+                          <>
+                            <br />• All wallets tagged with <span className="font-semibold text-foreground">"{importCollection}"</span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => {
+                    const file = fileInputRef.current?.files?.[0];
+                    if (file) handleImportWallets(file);
+                  }}>
+                    Import
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
 
           {/* Edit Modal */}
           {editingWallet && (

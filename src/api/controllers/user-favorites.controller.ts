@@ -44,6 +44,29 @@ export class UserFavoritesController {
       throw new ForbiddenException('User not authenticated');
     }
     await this.userFavoritesService.addFavorite(userId, addFavoriteWalletDto);
+
+    // Auto-queue flash analysis for newly added wallet
+    const scope = 'flash' as const;
+    const flashTargetSignatures = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS.flash.targetSignatureCount;
+    const requestId = `add-favorite-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const jobData: DashboardWalletAnalysisJobData = {
+      walletAddress: addFavoriteWalletDto.walletAddress,
+      userId,
+      requestId,
+      analysisScope: scope,
+      triggerSource: 'auto',
+      targetSignatureCount: flashTargetSignatures,
+      forceRefresh: false,
+      queueWorkingAfter: false,
+      queueDeepAfter: false,
+    };
+
+    await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
+      priority: JobPriority.NORMAL,
+      delay: 0,
+    });
+
     res.status(HttpStatus.CREATED).end();
   }
 
