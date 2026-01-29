@@ -8,6 +8,8 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| 🔄 | **P0: Historical Mode Bug - Flash/Working Scopes Not Persisting Data** | 🔹 | CRITICAL: Dashboard flash/working analysis completes but doesn't persist WalletPnlSummary (frontend shows "unanalyzed"). Root cause: `timeRange` always set for non-deep scopes → triggers historical mode → skips DB persistence. **Planned solution in `pnl-balance-fixes` branch:** Separate period-key snapshots for time-range results vs canonical all-time data. See `.ai/context/wallet-analysis-snapshots/README.md` for full analysis. |
+| 🔄 | Tracked wallets backend-frontend wiring completion | 🔸 | Complete integration: import flow, WebSocket job tracking, cache invalidation, compare with other job flows |
 | 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
 | 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
 | 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |

@@ -211,13 +211,12 @@ For deep analysis, use the batch-analyze endpoint after import.`
         })
       );
 
-      if (dto.includeJobIds) {
-        jobs.forEach(job => {
-          if (job.id) {
-            jobIds.push(String(job.id));
-          }
-        });
-      }
+      // Always include job IDs so frontend can track progress
+      jobs.forEach(job => {
+        if (job.id) {
+          jobIds.push(String(job.id));
+        }
+      });
     }
 
     // Queue background batch (LOW priority, staggered delays)
@@ -243,20 +242,19 @@ For deep analysis, use the batch-analyze endpoint after import.`
         })
       );
 
-      if (dto.includeJobIds) {
-        jobs.forEach(job => {
-          if (job.id) {
-            jobIds.push(String(job.id));
-          }
-        });
-      }
+      // Always include job IDs so frontend can track progress
+      jobs.forEach(job => {
+        if (job.id) {
+          jobIds.push(String(job.id));
+        }
+      });
     }
 
     return {
       ...publicResult,
       analysisQueued: immediateWallets.length + backgroundWallets.length,
       analysisRequestId: requestId,
-      ...(dto.includeJobIds ? { analysisJobIds: jobIds } : {}),
+      analysisJobIds: jobIds,
     };
   }
 
