@@ -398,14 +398,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     let enrichmentJob: Job | undefined;
     const followUpJobsQueued: Array<{ scope: DashboardAnalysisScope; jobId: string }> = [];
 
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const timeRange =
-      scope === 'deep'
-        ? undefined
-        : {
-            startTs: Math.max(0, nowSeconds - Math.round((effectiveHistoryWindowDays ?? 7) * 86400)),
-            endTs: nowSeconds,
-          };
+    // Dashboard scopes (flash/working/deep) are progressive all-time snapshots, NOT time windows.
+    // They differ only in depth (targetSignatureCount: 250/2000/3000), not time filtering.
+    //
+    // CRITICAL: Do NOT set timeRange for dashboard scopes to avoid incorrectly triggering
+    // "historical view" mode in PnL service, which would skip persistence and corrupt FIFO lots.
+    //
+    // The historyWindowDays config is just a heuristic hint for pagination, but analysis should
+    // always process ALL fetched transactions to maintain cumulative FIFO lot state.
+    const timeRange = undefined;
 
     try {
       await job.updateProgress(5);
