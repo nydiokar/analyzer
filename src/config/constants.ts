@@ -174,8 +174,8 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
-  DEFAULT_RPS: 40, // ⚡ OPTIMIZED: Using full Developer tier capacity (was 25, wasting 50% of available RPS!)
-  INTERNAL_CONCURRENCY: 10, // Sequential processing to avoid burst detection
+  DEFAULT_RPS: 40, // ⚡ OPTIMIZED: Using 80% of 50 RPS limit (10% safety buffer for burst protection)
+  INTERNAL_CONCURRENCY: 8, // BALANCED: Allows parallel fetching while respecting rate limits
   BATCH_SIZE: 100, // Reduced batch size
   SIGNATURE_FETCH_SAFETY_MULTIPLIER: getEnvNumber('HELIUS_SIGNATURE_SAFETY_MULTIPLIER', 5), // Stop pagination if we massively overshoot requested maxSignatures
 } as const;

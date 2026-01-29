@@ -69,7 +69,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 4,              // ⚡ OPTIMIZED: Increased from 3 to 5 to utilize 50 RPS better
+      concurrency: 4,              // ⚡ BALANCED: 4 workers with internal rate limiting handles bulk imports safely
       lockDuration: 120000,        // 🔒 2 minutes lock duration for wallet sync operations
       lockRenewTime: 60000,        // 🔒 Renew lock every 60 seconds
     }
@@ -89,17 +89,17 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 12,              // ⚡ Total concurrent jobs across all types
+      concurrency: 10,              // ⚡ BALANCED: 10 workers provides good throughput with proper rate limiting
       maxStalledCount: 3,           // Prevent stuck jobs during scaling
       stalledInterval: 30000,       // 30 seconds check for stalled jobs
       lockDuration: 180000,         // 🔒 3 minutes lock duration for analysis jobs (PnL, behavior, dashboard)
       lockRenewTime: 90000,         // 🔒 Renew lock every 90 seconds
       // 🛡️ SAFETY NET: High limiter to prevent extreme bursts only
-      // Normal operation: 12 workers × ~3 jobs/sec = ~36 jobs/sec (well below limit)
+      // Normal operation: 10 workers × ~3 jobs/sec = ~30 jobs/sec (safe for 45 RPS)
       // This only activates during pathological scenarios (mass queue dumps, etc.)
       // Primary rate limiting still handled by HeliusApiClient exponential backoff
       limiter: {
-        max: 50,                    // 50 jobs/sec - well above normal load, prevents catastrophic bursts
+        max: 40,                    // 40 jobs/sec - balanced between throughput and safety
         duration: 1000,             // per second
       },
     }
@@ -119,7 +119,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 6,              // ⚡ OPTIMIZED: Increased from 5 to 7 for better 50-wallet similarity performance
+      concurrency: 5,              // ⚡ BALANCED: 5 workers for similarity operations
       lockDuration: 180000,        // 🔒 3 minutes lock duration for long-running similarity jobs
       lockRenewTime: 90000,        // 🔒 Renew lock every 90 seconds to prevent expiry during processing
     }

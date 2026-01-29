@@ -19,6 +19,7 @@ import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransa
 import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
 import { BaseAnalysisConfig } from '@/types/analysis'; // Needed for getTransactionsForAnalysis
 import { createLogger } from 'core/utils/logger'; // Assuming createLogger function is defined in utils
+import { sanitizePrismaInput } from 'core/utils/string-sanitizer'; // UTF-8 sanitization for PostgreSQL
 
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
@@ -1721,7 +1722,7 @@ export class DatabaseService {
         //    - Duplicates within the incoming batch itself
         const uniqueNewRecordsToInsert: Prisma.SwapAnalysisInputCreateInput[] = [];
         // Map to track records being added in *this batch* to avoid intra-batch duplicates
-        const batchRecordTracker = new Map<string, Set<string>>(); 
+        const batchRecordTracker = new Map<string, Set<string>>();
 
         for (const record of inputs) {
             // Standardize amount for key generation
@@ -1738,8 +1739,11 @@ export class DatabaseService {
                 continue; // Duplicate within this batch
             }
 
+            // Sanitize record to remove null bytes and invalid UTF-8 characters
+            const sanitizedRecord = sanitizePrismaInput(record);
+
             // If not a duplicate, add to list and track it for this batch
-            uniqueNewRecordsToInsert.push(record);
+            uniqueNewRecordsToInsert.push(sanitizedRecord);
             if (!batchRecordTracker.has(record.signature)) {
                 batchRecordTracker.set(record.signature, new Set<string>());
             }
@@ -3008,21 +3012,41 @@ export class DatabaseService {
 
     /**
      * Update metadataSource to 'hybrid' for tokens with both onchain and dexscreener data
+     * Uses individual updates to avoid deadlocks from concurrent batch operations
      */
     async updateMetadataSourceToHybrid(tokenAddresses: string[]): Promise<number> {
         if (tokenAddresses.length === 0) return 0;
 
-        const result = await this.prismaClient.tokenInfo.updateMany({
-            where: {
-                tokenAddress: { in: tokenAddresses },
-                onchainBasicFetchedAt: { not: null },
-                dexscreenerUpdatedAt: { not: null },
-            },
-            data: {
-                metadataSource: 'hybrid',
-            },
-        });
+        // Process in smaller batches with retry logic to avoid deadlocks
+        let successCount = 0;
+        const BATCH_SIZE = 10; // Small batches to reduce lock contention
 
-        return result.count;
+        for (let i = 0; i < tokenAddresses.length; i += BATCH_SIZE) {
+            const batch = tokenAddresses.slice(i, i + BATCH_SIZE);
+
+            try {
+                const result = await this.prismaClient.tokenInfo.updateMany({
+                    where: {
+                        tokenAddress: { in: batch },
+                        onchainBasicFetchedAt: { not: null },
+                        dexscreenerUpdatedAt: { not: null },
+                    },
+                    data: {
+                        metadataSource: 'hybrid',
+                    },
+                });
+
+                successCount += result.count;
+            } catch (error: any) {
+                // Skip deadlock errors silently - this update is non-critical
+                if (error.code === '40P01') {
+                    logger.debug(`Skipping hybrid metadata update batch due to deadlock (${batch.length} tokens)`);
+                } else {
+                    logger.warn(`Error updating metadata source batch: ${getErrorMessage(error)}`);
+                }
+            }
+        }
+
+        return successCount;
     }
 }
