@@ -22,9 +22,9 @@ import { createLogger } from 'core/utils/logger'; // Assuming createLogger funct
 
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
-import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger } from '@nestjs/common';
+import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger, ForbiddenException } from '@nestjs/common';
 import { WalletAnalysisStatus } from '@/types/wallet';
-import { DB_CONFIG } from '../../config/constants';
+import { DB_CONFIG, USER_FAVORITES_CONFIG } from '../../config/constants';
 import type { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
 import { getErrorMessage } from 'core/utils/error-utils';
 
@@ -986,6 +986,20 @@ export class DatabaseService {
             throw new NotFoundException(`User with ID "${userId}" not found.`);
         }
 
+        const existingFavorite = await this.prismaClient.userFavoriteWallet.findUnique({
+            where: { userId_walletAddress: { userId, walletAddress } },
+        });
+        if (existingFavorite) {
+            this.logger.warn(`Add favorite conflict: Wallet ${walletAddress} already in favorites for user ${userId}.`);
+            throw new ConflictException('This wallet is already in your favorites.');
+        }
+
+        const currentCount = await this.prismaClient.userFavoriteWallet.count({ where: { userId } });
+        if (currentCount >= USER_FAVORITES_CONFIG.MAX_FAVORITES) {
+            this.logger.warn(`Add favorite blocked: User ${userId} reached max favorites (${USER_FAVORITES_CONFIG.MAX_FAVORITES}).`);
+            throw new ForbiddenException(`Favorites limit reached (${USER_FAVORITES_CONFIG.MAX_FAVORITES}). Remove a wallet to add another.`);
+        }
+
         // Ensure wallet exists in DB; create a lightweight stub if missing.
         await this.prismaClient.wallet.upsert({
             where: { address: walletAddress },
@@ -1186,7 +1200,7 @@ export class DatabaseService {
         mergeCollections?: boolean;
         overwriteNickname?: boolean;
         mergeMetadata?: boolean;
-    }): Promise<{ added: number; updated: number; skipped: number }> {
+    }): Promise<{ added: number; updated: number; skipped: number; overLimit: number; createdWallets: string[] }> {
         const {
             userId,
             favorites,
@@ -1204,8 +1218,11 @@ export class DatabaseService {
         }
 
         if (!favorites.length) {
-            return { added: 0, updated: 0, skipped: 0 };
+            return { added: 0, updated: 0, skipped: 0, overLimit: 0, createdWallets: [] };
         }
+
+        const maxFavorites = USER_FAVORITES_CONFIG.MAX_FAVORITES;
+        const currentCount = await this.prismaClient.userFavoriteWallet.count({ where: { userId } });
 
         const uniqueFavorites = new Map<string, { walletAddress: string; nickname?: string; collections?: string[]; metadata?: any }>();
         for (const favorite of favorites) {
@@ -1237,13 +1254,8 @@ export class DatabaseService {
 
         const addresses = Array.from(uniqueFavorites.keys());
         if (!addresses.length) {
-            return { added: 0, updated: 0, skipped: 0 };
+            return { added: 0, updated: 0, skipped: 0, overLimit: 0, createdWallets: [] };
         }
-
-        await this.prismaClient.wallet.createMany({
-            data: addresses.map(address => ({ address })),
-            skipDuplicates: true,
-        });
 
         const existingFavorites = await this.prismaClient.userFavoriteWallet.findMany({
             where: { userId, walletAddress: { in: addresses } },
@@ -1321,10 +1333,22 @@ export class DatabaseService {
             }
         }
 
+        const availableSlots = Math.max(0, maxFavorites - currentCount);
+        const allowedCreates = availableSlots > 0 ? toCreate.slice(0, availableSlots) : [];
+        const overLimit = Math.max(0, toCreate.length - allowedCreates.length);
+        const createdWallets = allowedCreates.map(entry => entry.walletAddress);
+
+        if (allowedCreates.length > 0) {
+            await this.prismaClient.wallet.createMany({
+                data: allowedCreates.map(entry => ({ address: entry.walletAddress })),
+                skipDuplicates: true,
+            });
+        }
+
         let added = 0;
-        if (toCreate.length > 0) {
+        if (allowedCreates.length > 0) {
             const result = await this.prismaClient.userFavoriteWallet.createMany({
-                data: toCreate,
+                data: allowedCreates,
                 skipDuplicates: true,
             });
             added = result.count;
@@ -1348,7 +1372,7 @@ export class DatabaseService {
         const updated = updates.length;
         const skipped = addresses.length - added - updated;
 
-        return { added, updated, skipped: Math.max(0, skipped) };
+        return { added, updated, skipped: Math.max(0, skipped), overLimit, createdWallets };
     }
 
     // --- Wallet Methods ---

@@ -116,7 +116,9 @@ export class UserFavoritesService {
     added: number;
     updated: number;
     skipped: number;
+    overLimit: number;
     normalizedWallets: string[];
+    createdWallets: string[];
   }> {
     const wallets = Array.isArray(dto.wallets) ? dto.wallets : [];
     if (wallets.length === 0) {
@@ -127,7 +129,9 @@ export class UserFavoritesService {
         added: 0,
         updated: 0,
         skipped: 0,
+        overLimit: 0,
         normalizedWallets: [],
+        createdWallets: [],
       };
     }
 
@@ -183,7 +187,9 @@ export class UserFavoritesService {
         added: 0,
         updated: 0,
         skipped: 0,
+        overLimit: 0,
         normalizedWallets,
+        createdWallets: [],
       };
     }
 
@@ -202,7 +208,9 @@ export class UserFavoritesService {
       added: result.added,
       updated: result.updated,
       skipped: result.skipped,
+      overLimit: result.overLimit,
       normalizedWallets,
+      createdWallets: result.createdWallets,
     };
   }
 

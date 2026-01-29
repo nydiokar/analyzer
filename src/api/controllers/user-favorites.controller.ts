@@ -8,6 +8,7 @@ import { BulkImportFavoriteWalletsDto } from '../shared/dto/favorite-wallet-impo
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import type { DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
 import { JobPriority } from '../../queues/config/queue.config';
+import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, USER_FAVORITES_CONFIG } from '../../config/constants';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -143,6 +144,7 @@ export class UserFavoritesController {
     added: number;
     updated: number;
     skipped: number;
+    overLimit: number;
     analysisQueued?: number;
     analysisRequestId?: string;
     analysisJobIds?: string[];
@@ -153,14 +155,17 @@ export class UserFavoritesController {
     }
 
     const importResult = await this.userFavoritesService.importFavorites(userId, dto);
+    const { createdWallets, ...publicResult } = importResult;
 
-    if (!dto.analyze) {
-      return importResult;
+    const walletsToAnalyze = createdWallets;
+    const limit = Math.min(USER_FAVORITES_CONFIG.IMPORT_FLASH_BATCH, walletsToAnalyze.length);
+    const scope = 'flash' as const;
+    const flashTargetSignatures = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS.flash.targetSignatureCount;
+    const targetSignatureCount = Math.min(dto.targetSignatureCount ?? flashTargetSignatures, flashTargetSignatures);
+    if (limit === 0) {
+      return publicResult;
     }
 
-    const walletsToAnalyze = importResult.normalizedWallets;
-    const limit = dto.analysisLimit && dto.analysisLimit > 0 ? dto.analysisLimit : walletsToAnalyze.length;
-    const scope = dto.analysisScope ?? 'deep';
     const requestId = `bulk-import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     const jobIds: string[] = [];
@@ -177,13 +182,13 @@ export class UserFavoritesController {
             requestId,
             analysisScope: scope,
             triggerSource: 'system',
-            targetSignatureCount: dto.targetSignatureCount,
+            targetSignatureCount,
             forceRefresh: dto.forceRefresh ?? false,
-            queueWorkingAfter: dto.queueWorkingAfter ?? false,
-            queueDeepAfter: dto.queueDeepAfter ?? false,
+            queueWorkingAfter: false,
+            queueDeepAfter: false,
           };
           return this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
-            priority: JobPriority.NORMAL,
+            priority: JobPriority.LOW,
             delay: 0,
           });
         })
@@ -199,7 +204,7 @@ export class UserFavoritesController {
     }
 
     return {
-      ...importResult,
+      ...publicResult,
       analysisQueued: targetWallets.length,
       analysisRequestId: requestId,
       ...(dto.includeJobIds ? { analysisJobIds: jobIds } : {}),

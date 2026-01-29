@@ -19,6 +19,7 @@ import { getCollectionColorFilled } from '@/lib/color-utils';
 import EmptyState from '@/components/shared/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getErrorMessage } from '@/lib/error-messages';
+import { USER_FAVORITES_IMPORT_FLASH_BATCH, USER_FAVORITES_MAX } from '@/lib/constants';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -263,6 +264,13 @@ export default function TrackersPage() {
   }, [mutateFavorites]);
 
   const handleAddWallet = useCallback(async (formData: { walletAddress: string; nickname: string; collections: string[] }) => {
+    if ((favoriteWallets?.length ?? 0) >= USER_FAVORITES_MAX) {
+      toast.error('Favorites limit reached', {
+        description: `You can track up to ${USER_FAVORITES_MAX} wallets.`,
+      });
+      return;
+    }
+
     try {
       await fetcher('/users/me/favorites', {
         method: 'POST',
@@ -281,7 +289,7 @@ export default function TrackersPage() {
       const message = getErrorMessage('trackers-add', error);
       toast.error(message.title, { description: message.description });
     }
-  }, [mutateFavorites]);
+  }, [favoriteWallets, mutateFavorites]);
 
   const toggleCollectionFilter = (collection: string) => {
     setSelectedCollections(prev =>
@@ -349,6 +357,14 @@ export default function TrackersPage() {
     setIsImporting(true);
 
     try {
+      const currentCount = favoriteWallets?.length ?? 0;
+      if (currentCount >= USER_FAVORITES_MAX) {
+        toast.error('Favorites limit reached', {
+          description: `You can track up to ${USER_FAVORITES_MAX} wallets.`,
+        });
+        return;
+      }
+
       const text = await file.text();
       const trimmed = text.trim();
       const errors: string[] = [];
@@ -360,10 +376,6 @@ export default function TrackersPage() {
       const buildImportPayload = (wallets: Array<{ walletAddress: string; nickname?: string; collections?: string[]; metadata?: any }>) => ({
         wallets,
         defaultCollections: defaultCollections.length > 0 ? defaultCollections : undefined,
-        analyze: true,
-        analysisScope: 'deep',
-        analysisLimit: 5,
-        targetSignatureCount: 10000,
       });
 
       const tryParseJson = () => {
@@ -485,6 +497,17 @@ export default function TrackersPage() {
         }
       }
 
+      if (favoriteWallets?.length) {
+        walletsToImport = walletsToImport.filter(item => {
+          return !favoriteWallets.some((w: FavoriteWallet) => w.walletAddress === item.walletAddress);
+        });
+      }
+
+      const remainingSlots = Math.max(0, USER_FAVORITES_MAX - (favoriteWallets?.length ?? 0));
+      if (walletsToImport.length > remainingSlots) {
+        walletsToImport = walletsToImport.slice(0, remainingSlots);
+      }
+
       if (walletsToImport.length === 0) {
         if (errors.length > 0) {
           const message = getErrorMessage('trackers-import');
@@ -510,9 +533,11 @@ export default function TrackersPage() {
       const updated = response?.updated ?? 0;
       const skipped = response?.skipped ?? 0;
       const invalidCount = response?.invalidWallets?.length || 0;
+      const overLimit = response?.overLimit ?? 0;
+      const flashQueued = response?.analysisQueued ?? 0;
 
       toast.success('Wallets imported', {
-        description: `${added} added, ${updated} updated, ${skipped} skipped${invalidCount > 0 ? `, ${invalidCount} invalid` : ''}.`,
+        description: `${added} added, ${updated} updated, ${skipped} skipped${invalidCount > 0 ? `, ${invalidCount} invalid` : ''}${overLimit > 0 ? `, ${overLimit} over the ${USER_FAVORITES_MAX} cap` : ''}. ${flashQueued} queued for quick flash analysis. Open a wallet to run deep analysis.`,
       });
     } catch (error: unknown) {
       const message = getErrorMessage('trackers-import', error);
@@ -675,12 +700,17 @@ export default function TrackersPage() {
         <div className="w-full px-6 py-4 space-y-3">
           {/* Header Row - Title + Filters + Controls (Like Discover) */}
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Bookmark className="h-6 w-6 text-purple-500" />
-              <h1 className="text-2xl font-bold">Tracked Wallets</h1>
+          <div className="flex items-center gap-3">
+            <Bookmark className="h-6 w-6 text-purple-500" />
+            <h1 className="text-2xl font-bold">Tracked Wallets</h1>
+            {favoriteWallets && (
+              <Badge variant="outline" className="text-xs">
+                {favoriteWallets.length}/{USER_FAVORITES_MAX}
+              </Badge>
+            )}
 
-              {/* Filters - Priority to Active */}
-              <div className="flex items-center gap-2 ml-4">
+            {/* Filters - Priority to Active */}
+            <div className="flex items-center gap-2 ml-4">
                 {/* Active Filter (24h) - Priority Position with Visual Flair */}
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -775,7 +805,7 @@ export default function TrackersPage() {
 
                 <div className="flex items-center gap-2">
                   <Input
-                    placeholder="Import collection (optional)"
+                    placeholder="Collection for imported"
                     value={importCollection}
                     onChange={(e) => setImportCollection(e.target.value)}
                     className="h-9 w-48"
@@ -793,7 +823,9 @@ export default function TrackersPage() {
                         Import
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Import wallets from CSV or JSON</TooltipContent>
+                    <TooltipContent>
+                      Imports CSV or JSON and queues a quick flash analysis for up to {USER_FAVORITES_IMPORT_FLASH_BATCH} wallets.
+                    </TooltipContent>
                   </Tooltip>
 
                   {/* Hidden file input */}

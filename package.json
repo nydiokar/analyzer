@@ -35,6 +35,7 @@
     "clear:cache": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-wallet-cache.ts",
     "clean:logs": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clean-logs.ts",
     "auth:reset-sessions": "npx ts-node -r tsconfig-paths/register scripts/clear-auth-sessions.ts",
+    "god-mode:import": "npx ts-node -r tsconfig-paths/register scripts/god-mode-import-favorites.ts",
     "emergency-stop": "pm2 stop all && npm run clear:queues && npm run clear:locks",
     "reset-system": "npm run emergency-stop && pm2 start ecosystem.backend.config.js",
     "reset": "npm run build && pm2 restart all",

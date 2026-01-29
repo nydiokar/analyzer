@@ -1,0 +1,2 @@
+export const USER_FAVORITES_MAX = 300;
+export const USER_FAVORITES_IMPORT_FLASH_BATCH = 50;
