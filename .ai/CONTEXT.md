@@ -8,15 +8,14 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🔄 | **P0: Historical Mode Bug - Flash/Working Scopes Not Persisting Data** | 🔹 | CRITICAL: Dashboard flash/working analysis completes but doesn't persist WalletPnlSummary (frontend shows "unanalyzed"). Root cause: `timeRange` always set for non-deep scopes → triggers historical mode → skips DB persistence. **Planned solution in `pnl-balance-fixes` branch:** Separate period-key snapshots for time-range results vs canonical all-time data. See `.ai/context/wallet-analysis-snapshots/README.md` for full analysis. |
 | 🔄 | Tracked wallets backend-frontend wiring completion | 🔸 | Complete integration: import flow, WebSocket job tracking, cache invalidation, compare with other job flows |
 | 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
-| 🔄 | Summary card skeleton regression | 🔸 | Summary card in wallet profile turns into skeleton after some time - investigate state/cache issue |
 | 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |
-| 🔄 | WHEN password is reset we must send confirmation email! 
+| 🔄 | WHEN password is reset we must send confirmation email!
 
 
 **Recently Completed:**
+- ✅ **P0: Historical Mode Bug - Flash/Working Scopes Fixed** (Jan 29) - Removed timeRange from dashboard scopes to fix persistence
 - ✅ DexScreener rate limiting fix with in-flight token tracking (Jan 30)
 - ✅ Favorites import system with attack-resistant design (Jan 29)
 - ✅ P0: Database deadlock fix with prevention + retry (Jan 26)
@@ -27,6 +26,7 @@
 - ✅ Job subscription handling refactor (Jan 25)
 - ✅ TimeRangeSelector hydration fix (Jan 25)
 - ✅ Bulk favorites import + auto-analysis queueing (Jan 27)
+| ✅ | Summary card skeleton regression 
 
 
 
@@ -271,10 +271,13 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
 | 29.1 | 🟦 | Favorites import system - attack-resistant design | 🔸 | `user-favorites.controller.ts`, `user-favorites.service.ts`, `database-service.ts`, `constants.ts`, `batch-analyze-favorites.dto.ts` |
+| 29.2 | 🔧 | P0 Fix: Dashboard scopes (flash/working) persistence bug | 🔹 | `analysis-operations.processor.ts` |
 
 **Summary:**
 
 **29.1:** Implemented production-ready favorites import system with enterprise-grade protection. **Import Flow:** 50+250 batching (first 50 HIGH priority immediate, next 250 LOW priority staggered over 1 hour with 14.4sec delays). **Cooldown Protection:** User-level import cooldown (1 hour between bulk imports) via `User.lastBulkImportAt`. **Freshness Checking:** Wallet-level freshness (existing `AnalysisRun` table + processor logic) - prevents duplicate analysis when multiple users track same wallet. **New Endpoints:** `POST /batch-analyze` (up to 20 wallets, working/deep scope) and `POST /collections/:name/refresh` (flash analysis for collection, max 100 wallets). **Key Decision:** Did NOT add per-user analysis timestamps (would cause duplicate work problem) - instead rely on existing wallet-level freshness checks in processor. **DTO Cleanup:** Removed confusing unused params from import DTO (analyze, analysisScope, forceRefresh, etc). All jobs queue with `forceRefresh: false` to let processor decide based on wallet-level staleness. System correctly handles 100 users tracking same wallet - first queues analysis, subsequent requests skipped by processor.
+
+**29.2:** Fixed critical bug where flash/working scopes completed analysis but didn't persist data, causing frontend to show "unanalyzed" state. **Root Cause:** `timeRange` was set for non-deep scopes (7d/30d) to optimize data fetching, but this incorrectly triggered "historical view" mode in PnL service → skipped persistence to protect FIFO lots from corruption. **The Insight:** Dashboard scopes are **progressive all-time snapshots** (differing only in depth: 250/2000/3000 signatures), NOT time windows. Setting `timeRange` conflated two concepts: (1) data fetching optimization and (2) historical query detection. **The Fix:** Removed `timeRange` from dashboard scope initialization (set to `undefined` for all scopes). Flash/working now fetch transactions based purely on `targetSignatureCount`, process ALL fetched data chronologically, and persist complete FIFO lot state. User-triggered time ranges (via API `?startDate=...`) remain view-only via `isViewOnly: true` flag. See `.ai/context/HISTORICAL_VIEW_INVESTIGATION.md` for full analysis and test plan.
 
 ### January 27, 2026
 
