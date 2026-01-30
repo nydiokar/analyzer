@@ -1,12 +1,14 @@
 import type { HolderProfile } from '../types';
 import { SPEED_CATEGORY_COLORS } from '@/lib/strategy-colors';
 import { getBehaviorMeta } from './utils/behavior';
+import type { KnownWalletType } from '@/types/api';
 
 type DistributionBucket = {
   id: string;
   label: string;
   timeframe: string;
   count: number;
+  supplyPercent: number;
   color: string;
 };
 
@@ -21,11 +23,26 @@ const BEHAVIOR_ORDER = [
   'HODLER',
 ] as const;
 
+// System wallet types to exclude from distribution
+const SYSTEM_WALLET_TYPES: Set<KnownWalletType> = new Set([
+  'BURN',
+  'LP',
+  'PROTOCOL',
+  'EXCHANGE',
+  'SYSTEM',
+]);
+
 function buildDistribution(profiles: HolderProfile[]): DistributionBucket[] {
-  // Count wallets by behavior type
+  // Count wallets and sum supply by behavior type (excluding system wallets)
   const counts: Record<string, number> = {};
-  
+  const supplyPercents: Record<string, number> = {};
+
   profiles.forEach((profile) => {
+    // Skip system wallets and LP pools
+    if (profile.knownType && SYSTEM_WALLET_TYPES.has(profile.knownType as KnownWalletType)) {
+      return;
+    }
+
     let behaviorType = profile.behaviorType;
     // Normalize HOLDER to HODLER for consistency
     if (behaviorType === 'HOLDER') {
@@ -40,6 +57,8 @@ function buildDistribution(profiles: HolderProfile[]): DistributionBucket[] {
     }
     if (behaviorType) {
       counts[behaviorType] = (counts[behaviorType] || 0) + 1;
+      const supply = profile.supplyPercent ?? 0;
+      supplyPercents[behaviorType] = (supplyPercents[behaviorType] || 0) + supply;
     }
   });
 
@@ -47,11 +66,13 @@ function buildDistribution(profiles: HolderProfile[]): DistributionBucket[] {
   return BEHAVIOR_ORDER.map((behaviorType) => {
     const meta = getBehaviorMeta(behaviorType === 'HODLER' ? 'HOLDER' : behaviorType);
     const count = counts[behaviorType] || 0;
+    const supplyPercent = supplyPercents[behaviorType] || 0;
     return {
       id: behaviorType,
       label: behaviorType === 'HODLER' ? 'Holder (no exits yet)' : (meta?.label || behaviorType),
       timeframe: meta?.timeframe || '',
       count,
+      supplyPercent,
       color: SPEED_CATEGORY_COLORS[behaviorType]?.hex || '#9ca3af',
     };
   });
@@ -63,16 +84,17 @@ interface Props {
 
 export function TraderDistributionBar({ profiles }: Props) {
   const distribution = buildDistribution(profiles);
-  const total = distribution.reduce((sum, bucket) => sum + bucket.count, 0);
-  const maxCount = distribution.reduce((max, bucket) => Math.max(max, bucket.count), 0);
+  const totalWallets = distribution.reduce((sum, bucket) => sum + bucket.count, 0);
+  const totalSupply = distribution.reduce((sum, bucket) => sum + bucket.supplyPercent, 0);
+  const maxSupply = distribution.reduce((max, bucket) => Math.max(max, bucket.supplyPercent), 0);
   const displayBuckets = distribution;
   const axisSteps = (() => {
-    if (maxCount <= 0) return [0];
+    if (maxSupply <= 0) return [0];
     const raw = [
-      maxCount,
-      Math.round(maxCount * 0.75),
-      Math.round(maxCount * 0.5),
-      Math.round(maxCount * 0.25),
+      maxSupply,
+      maxSupply * 0.75,
+      maxSupply * 0.5,
+      maxSupply * 0.25,
       0,
     ];
     const unique = Array.from(new Set(raw)).sort((a, b) => b - a);
@@ -86,7 +108,7 @@ export function TraderDistributionBar({ profiles }: Props) {
           Trader Distribution
         </p>
       </div>
-      {total === 0 ? (
+      {totalWallets === 0 ? (
         <p className="text-xs text-muted-foreground">
           No completed hold history yet.
         </p>
@@ -94,7 +116,7 @@ export function TraderDistributionBar({ profiles }: Props) {
         <div className="grid grid-cols-[28px_1fr] gap-3">
           <div className="flex flex-col justify-between text-[10px] text-muted-foreground h-32 leading-none">
             {axisSteps.map((value, index) => (
-              <span key={`${value}-${index}`}>{value}</span>
+              <span key={`${value}-${index}`}>{value.toFixed(1)}%</span>
             ))}
           </div>
           <div className="flex flex-col">
@@ -112,13 +134,13 @@ export function TraderDistributionBar({ profiles }: Props) {
                 style={{ gridTemplateColumns: `repeat(${displayBuckets.length}, minmax(0, 1fr))` }}
               >
                 {displayBuckets.map((bucket) => {
-                  const height = maxCount > 0 ? Math.round((bucket.count / maxCount) * 100) : 0;
-                  const percentage = total > 0 ? Math.round((bucket.count / total) * 100) : 0;
+                  const height = maxSupply > 0 ? Math.round((bucket.supplyPercent / maxSupply) * 100) : 0;
+                  const supplyPercentFormatted = bucket.supplyPercent.toFixed(2);
                   return (
                     <div
                       key={bucket.id}
                       className="relative group cursor-pointer h-full flex items-end"
-                      title={`${bucket.label}: ${bucket.count} wallets (${percentage}%)`}
+                      title={`${bucket.label}: ${bucket.count} wallets • ${supplyPercentFormatted}% of supply`}
                     >
                       <div className="relative w-full h-full flex items-end">
                         <div
@@ -127,7 +149,7 @@ export function TraderDistributionBar({ profiles }: Props) {
                         />
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                           <span className="text-[10px] font-semibold text-white drop-shadow-lg">
-                            {percentage}%
+                            {supplyPercentFormatted}%
                           </span>
                         </div>
                       </div>

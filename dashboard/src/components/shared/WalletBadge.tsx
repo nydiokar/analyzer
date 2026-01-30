@@ -286,58 +286,85 @@ const WalletBadge = memo(({
           </Tooltip>
 
           {/* Compact icon row */}
-          {showActions && (
-            <div className="flex items-center gap-0.5">
-              {visibleActions.copy && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={handleCopyAddress}
-                      className="p-0.5 rounded text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
-                    >
-                      <Copy className="h-3 w-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Copy address</p></TooltipContent>
-                </Tooltip>
-              )}
+          <div className="flex items-center gap-0.5">
+            {/* Favorite toggle button */}
+            {onFavoriteToggle && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleFavoriteToggle}
+                    className={cn(
+                      "p-0.5 rounded transition-colors",
+                      isFavorite
+                        ? "text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                        : "text-muted-foreground hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                    )}
+                  >
+                    {isFavorite ? (
+                      <Bookmark className="h-3 w-3 fill-purple-500" />
+                    ) : (
+                      <Bookmark className="h-3 w-3" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent><p>{isFavorite ? "Remove from tracked" : "Add to tracked"}</p></TooltipContent>
+              </Tooltip>
+            )}
 
-              {visibleActions.solscan && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={`https://solscan.io/account/${address}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center justify-center p-0.5 rounded bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 transition-all"
-                    >
-                      <SolscanIcon className="h-3 w-3 text-muted-foreground hover:text-[#009978]" />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Solscan</p></TooltipContent>
-                </Tooltip>
-              )}
+            {showActions && (
+              <>
+                {visibleActions.copy && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={handleCopyAddress}
+                        className="p-0.5 rounded text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Copy address</p></TooltipContent>
+                  </Tooltip>
+                )}
 
-              {visibleActions.profile && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={`/wallets/${address}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
-                    >
-                      <User className="h-3 w-3" />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Wallet Profile</p></TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          )}
+                {visibleActions.solscan && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={`https://solscan.io/account/${address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center justify-center p-0.5 rounded bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 transition-all"
+                      >
+                        <SolscanIcon className="h-3 w-3 text-muted-foreground hover:text-[#009978]" />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Solscan</p></TooltipContent>
+                  </Tooltip>
+                )}
+
+                {visibleActions.profile && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={`/wallets/${address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
+                      >
+                        <User className="h-3 w-3" />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Wallet Profile</p></TooltipContent>
+                  </Tooltip>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </TooltipProvider>
     );

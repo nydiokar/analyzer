@@ -620,7 +620,7 @@ export class AnalysesController {
   }
 
   @Post('/holder-profiles/wallet')
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Throttle({ default: { limit: 100, ttl: 60000 } })
   @ApiOperation({
     summary: 'Analyze holder profile for a single wallet',
     description: 'Queues a job that computes the holding-risk profile for a specific wallet address.',
