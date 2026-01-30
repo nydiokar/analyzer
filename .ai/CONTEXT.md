@@ -1,6 +1,6 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-29 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-30 • **Status:** 🟢 Active Development
 
 ---
 
@@ -10,7 +10,7 @@
 |:------:|:-----|:-----:|:------|
 | 🔄 | Tracked wallets backend-frontend wiring completion | 🔸 | Complete integration: import flow, WebSocket job tracking, cache invalidation, compare with other job flows |
 | 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
-| 🔄 | Multiple token enrichment calls investigation | 🔸 | Multiple identical enrichment calls showing in logs - identify source component/flow |
+| 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
 | 🔄 | WHEN password is reset we must send confirmation email!
 
 
@@ -72,7 +72,7 @@ See [Recent Activity](#-recent-activity) for implementation details.
 <details>
 <summary><b>Implementation Recommendation</b></summary>
 
-**Phase 1: Quick Win**
+**Phase 1: Quick Win — ✅ Implemented (Jan 30, 2026)**
 1. Enable `changedSinceSlot` in V2 API calls
    - Store last checkpoint slot in Redis per wallet
    - Only fetch changed accounts on subsequent calls
@@ -254,6 +254,16 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 ---
 
 ## 📅 Recent Activity
+
+### January 30, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 30.2 | 🔧 | Similarity balances + token metadata stability pass | 🔸 | `dashboard/src/app/similarity-lab/page.tsx`, `dashboard/src/hooks/useTokenMetadata.ts`, `src/api/services/balance-cache.service.ts`, `src/core/services/wallet-balance-service.ts`, `src/core/services/helius-api-client.ts`, `src/config/constants.ts`, `src/queues/processors/enrichment-operations.processor.ts`, `dashboard/src/components/similarity-lab/results/MostCommonTokens.tsx` |
+
+**Summary:**
+
+**30.2:** Fixed TokenBadge metadata auto-refresh (forced post-enrichment refresh). Switched similarity lab persistence to job-pointer only (no giant localStorage payloads), deduped enrichment subscriptions, and trimmed enriched balances to meaningful tokens only. MostCommonTokens now builds metadata only for rendered mints (logs removed). Enabled V2 `changedSinceSlot` incremental balance updates centrally via BalanceCacheService with slot tracking + merge logic, added whale-aware cache TTLs in `constants.ts`, and centralized `MIN_UI_BALANCE` filtering.
 
 ### January 29, 2026
 

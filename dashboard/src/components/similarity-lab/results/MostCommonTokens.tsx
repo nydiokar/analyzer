@@ -1,13 +1,12 @@
 'use client';
 
-import { useMemo, memo, useState, useEffect } from 'react';
+import { useMemo, memo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { WalletBadge } from "@/components/shared/WalletBadge";
 import { CombinedSimilarityResult } from "./types";
-import { HelpCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { TokenBadge } from "@/components/shared/TokenBadge";
 
 interface MostCommonTokensProps {
@@ -15,77 +14,43 @@ interface MostCommonTokensProps {
   enrichedBalances: Record<string, any> | null;
 }
 
-// Custom TokenBadge with timeout fallback
 const TokenBadgeWithFallback = ({ mint, metadata, size }: { mint: string; metadata: any; size: "sm" | "md" | "lg" | undefined }) => {
-  const [showFallback, setShowFallback] = useState(false);
-
-  useEffect(() => {
-    if (!metadata) {
-      const timer = setTimeout(() => {
-        setShowFallback(true);
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [metadata]);
-
-  if (!metadata && showFallback) {
-    return (
-      <div className="flex items-center gap-2">
-        <Avatar className="h-6 w-6">
-          <AvatarFallback className="bg-muted">
-            <HelpCircle className="h-3 w-3 text-muted-foreground" />
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex flex-col">
-          <span className="font-medium text-sm">Unknown Token</span>
-          <span className="text-xs text-muted-foreground font-mono">
-            {mint.slice(0, 4)}...{mint.slice(-4)}
-          </span>
-        </div>
-      </div>
-    );
-  }
-
   return <TokenBadge mint={mint} metadata={metadata} variant="inline" size={size} />;
 };
 
-// Function to build a lookup map for token metadata from enriched balances
-const buildTokenMetadataMap = (enrichedBalances: Record<string, any> | null) => {
-    const map = new Map<string, { name?: string; symbol?: string; imageUrl?: string, websiteUrl?: string; twitterUrl?: string; telegramUrl?: string; }>();
-    if (!enrichedBalances) return map;
+// Build a lookup map for token metadata only for mints we plan to render
+const buildTokenMetadataMap = (
+  enrichedBalances: Record<string, any> | null,
+  targetMints: Set<string>
+) => {
+  const map = new Map<string, { name?: string; symbol?: string; imageUrl?: string; websiteUrl?: string; twitterUrl?: string; telegramUrl?: string; }>();
+  if (!enrichedBalances || targetMints.size === 0) return map;
 
-    for (const wallet of Object.values(enrichedBalances)) {
-        // Check if wallet exists and has tokenBalances array
-        if (!wallet || !wallet.tokenBalances || !Array.isArray(wallet.tokenBalances)) {
-            continue;
-        }
-        
-        for (const token of wallet.tokenBalances) {
-            if (token.mint && !map.has(token.mint)) {
-                map.set(token.mint, {
-                    name: token.name,
-                    symbol: token.symbol,
-                    imageUrl: token.imageUrl,
-                    websiteUrl: token.websiteUrl,
-                    twitterUrl: token.twitterUrl,
-                    telegramUrl: token.telegramUrl,
-                });
-            }
-        }
+  for (const wallet of Object.values(enrichedBalances)) {
+    if (!wallet || !wallet.tokenBalances || !Array.isArray(wallet.tokenBalances)) {
+      continue;
     }
-    return map;
+
+    for (const token of wallet.tokenBalances) {
+      if (!token.mint || !targetMints.has(token.mint) || map.has(token.mint)) {
+        continue;
+      }
+      map.set(token.mint, {
+        name: token.name,
+        symbol: token.symbol,
+        imageUrl: token.imageUrl,
+        websiteUrl: token.websiteUrl,
+        twitterUrl: token.twitterUrl,
+        telegramUrl: token.telegramUrl,
+      });
+    }
+  }
+  return map;
 };
 
 // Wrap the component in React.memo
 export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonTokensProps) => {
-    const tokenMetadataMap = buildTokenMetadataMap(enrichedBalances);
     const getWalletLabel = (address: string) => results.walletLabels?.[address];
-
-    // Debug logging
-    if (process.env.NODE_ENV === 'development') {
-        console.log('[MostCommonTokens] enrichedBalances:', enrichedBalances ? Object.keys(enrichedBalances).length + ' wallets' : 'null');
-        console.log('[MostCommonTokens] tokenMetadataMap size:', tokenMetadataMap.size);
-    }
 
     const commonTokens = useMemo(() => {
         const tokenMap = new Map<string, Set<string>>();
@@ -109,6 +74,13 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
             wallets: Array.from(walletsSet),
         })).sort((a, b) => b.count - a.count).slice(0, 20);
     }, [results.pairwiseSimilarities, enrichedBalances]);
+
+    const targetMints = useMemo(() => new Set(commonTokens.map(token => token.mint)), [commonTokens]);
+    const tokenMetadataMap = useMemo(
+      () => buildTokenMetadataMap(enrichedBalances, targetMints),
+      [enrichedBalances, targetMints]
+    );
+
     
     if (commonTokens.length === 0) {
         return (

@@ -30,6 +30,7 @@ const MemoizedSimilarityResultDisplay = memo(SimilarityResultDisplay);
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 
 export default function AnalysisLabPage() {
+  const PERSIST_KEY = 'similarityLab:lastJob';
   // Core state management - textarea + selected holders are source of truth
   const [inputText, setInputText] = useState<string>('');
   const [tokenInput, setTokenInput] = useState<string>('');
@@ -108,6 +109,28 @@ export default function AnalysisLabPage() {
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const subscribedEnrichmentJobsRef = useRef<Set<string>>(new Set());
+
+  const persistJobPointer = useCallback((jobId: string, walletCount: number) => {
+    try {
+      localStorage.setItem(PERSIST_KEY, JSON.stringify({
+        jobId,
+        walletCount,
+        vectorType: 'capital',
+        createdAt: Date.now(),
+      }));
+    } catch (error) {
+      console.warn('Failed to persist similarity job pointer', error);
+    }
+  }, []);
+
+  const clearJobPointer = useCallback(() => {
+    try {
+      localStorage.removeItem(PERSIST_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // Back to top button state
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -126,7 +149,7 @@ export default function AnalysisLabPage() {
       // Only update the main progress bar for the main analysis job (not enrichment)
       if (data.jobId === currentJobId && jobStatuses.analysis === 'running') {
         if (jobSocketDebug) {
-          console.log('📊 Main analysis progress:', data.jobId, data.progress);
+        //  console.log('📊 Main analysis progress:', data.jobId, data.progress);
         }
         setJobProgress(data.progress);
         setSyncMessage(`Analyzing similarities... ${data.status || 'processing'}`);
@@ -218,7 +241,7 @@ export default function AnalysisLabPage() {
           console.log('Ignoring completion for unrelated job:', data.jobId);
         }
       }
-    }, [toast, currentJobId, jobSocketDebug]),
+    }, [toast, currentJobId, jobSocketDebug, clearJobPointer]),
     
     onJobFailed: useCallback((data: JobFailedData) => {
       console.error('❌ Job failed (WebSocket):', data.jobId, data.error);
@@ -227,6 +250,7 @@ export default function AnalysisLabPage() {
         setJobProgress(0);
         setSyncMessage('');
         setCurrentJobId(null);
+        clearJobPointer();
         
         // Check if this is the "insufficient valid wallets" error
         const errorMessage = data.error;
@@ -257,10 +281,11 @@ export default function AnalysisLabPage() {
       }
       if (data.jobId === enrichmentJobId) {
         setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
+        setEnrichmentJobId(null);
         // Don't show toast for enrichment failures, they're non-critical
       }
       setError(data.error);
-    }, [toast, currentJobId, enrichmentJobId]),
+    }, [toast, currentJobId, enrichmentJobId, clearJobPointer]),
     
     onEnrichmentComplete: useCallback(async (data: EnrichmentCompletionData) => {
       if (jobSocketDebug) {
@@ -285,6 +310,7 @@ export default function AnalysisLabPage() {
         });
 
         setJobStatuses(prev => ({ ...prev, enrichment: 'completed' }));
+        setEnrichmentJobId(null);
         toast.success("Token Data Loaded", { description: "Prices and metadata have been updated." });
       } catch (error: any) {
         console.error('❌ Error processing enrichment data:', error);
@@ -308,34 +334,41 @@ export default function AnalysisLabPage() {
   }, [jobStatuses.enrichment]);
 
   useEffect(() => {
-    try {
-      const savedResult = localStorage.getItem('analysisResult');
-      if (savedResult) {
-        const parsedResult = JSON.parse(savedResult);
-        if (parsedResult?.pairwiseSimilarities?.[0] && parsedResult.pairwiseSimilarities[0].capitalAllocation === undefined) {
-          console.warn('Stale analysis result found in localStorage. Discarding.');
-          localStorage.removeItem('analysisResult');
-        } else {
-          setAnalysisResult(parsedResult);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to parse analysis result from localStorage", error);
-      localStorage.removeItem('analysisResult');
+    if (!enrichmentJobId) {
+      subscribedEnrichmentJobsRef.current.clear();
     }
-  }, []);
+  }, [enrichmentJobId]);
 
   useEffect(() => {
-    try {
-      if (analysisResult) {
-        localStorage.setItem('analysisResult', JSON.stringify(analysisResult));
-      } else {
-        localStorage.removeItem('analysisResult');
+    const hydrateFromLastJob = async () => {
+      try {
+        const saved = localStorage.getItem(PERSIST_KEY);
+        if (!saved) return;
+
+        const parsed = JSON.parse(saved) as { jobId?: string; createdAt?: number };
+        if (!parsed?.jobId) {
+          clearJobPointer();
+          return;
+        }
+
+        const jobStatus = await fetcher(`/jobs/${parsed.jobId}`);
+        if (jobStatus?.status === 'completed') {
+          const result = await fetcher(`/jobs/${parsed.jobId}/result`);
+          const resultData = result?.result;
+          const analysisData = resultData?.data ?? resultData;
+          if (analysisData?.pairwiseSimilarities?.length) {
+            setAnalysisResult(analysisData);
+          }
+        } else if (jobStatus?.status === 'failed' || jobStatus?.status === 'not_found') {
+          clearJobPointer();
+        }
+      } catch (error) {
+        console.warn('Failed to hydrate similarity result from last job pointer', error);
       }
-    } catch (error) {
-      console.warn('Failed to persist analysis result to localStorage', error);
-    }
-  }, [analysisResult]);
+    };
+
+    hydrateFromLastJob();
+  }, [clearJobPointer]);
 
 
 
@@ -345,7 +378,10 @@ export default function AnalysisLabPage() {
       if (jobSocketDebug) {
         console.log('🔔 Subscribing to enrichment job:', enrichmentJobId);
       }
-      subscribeToJob(enrichmentJobId);
+      if (!subscribedEnrichmentJobsRef.current.has(enrichmentJobId)) {
+        subscribedEnrichmentJobsRef.current.add(enrichmentJobId);
+        subscribeToJob(enrichmentJobId);
+      }
       setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
     }
   }, [enrichmentJobId, wsConnected, subscribeToJob, jobSocketDebug]);
@@ -396,7 +432,6 @@ export default function AnalysisLabPage() {
 
       if (job.jobId) {
         setEnrichmentJobId(job.jobId); // Set the ID to be tracked
-        subscribeToJob(job.jobId);     // Subscribe to its progress
       } else {
         throw new Error("Failed to queue enrichment job.");
       }
@@ -470,6 +505,7 @@ export default function AnalysisLabPage() {
       });
 
       setCurrentJobId(jobResponse.jobId);
+      persistJobPointer(jobResponse.jobId, walletList.length);
       setSyncMessage(`Job submitted! ID: ${jobResponse.jobId.slice(0, 8)}...`);
       
       if (wsConnected) {

@@ -158,12 +158,12 @@ class TokenMetadataBatcher {
       const timers: NodeJS.Timeout[] = [];
 
       const timer1 = setTimeout(() => {
-        this.refreshEnrichedData(mints, batchKey);
+        this.refreshEnrichedData(mints, batchKey, true);
       }, 2000);
       timers.push(timer1);
 
       const timer2 = setTimeout(() => {
-        this.refreshEnrichedData(mints, batchKey);
+        this.refreshEnrichedData(mints, batchKey, true);
       }, 5000);
       timers.push(timer2);
 
@@ -185,11 +185,11 @@ class TokenMetadataBatcher {
   }
 
   // Refresh data after enrichment completes
-  private async refreshEnrichedData(mints: string[], batchKey?: string) {
+  private async refreshEnrichedData(mints: string[], batchKey?: string, force = false) {
     try {
-      // CRITICAL FIX: Check if any tokens are actually stale before making API call
+      // Avoid unnecessary calls unless explicitly forced (e.g., post-enrichment refresh)
       const now = Date.now();
-      const staleMints = mints.filter(mint => {
+      const staleMints = force ? mints : mints.filter(mint => {
         const cached = this.cache.get(mint);
         if (!cached) return true; // Not cached = fetch it
         const age = now - cached.fetchedAt;

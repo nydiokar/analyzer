@@ -147,7 +147,7 @@ export function TraderDistributionBar({ profiles }: Props) {
                   </div>
                   <div className="text-[9px] text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
                     {bucket.id === 'HODLER' || bucket.timeframe === 'Holds until it is not'
-                      ? 'No exits yet'
+                      ? ''
                       : bucket.timeframe || '-'}
                   </div>
                 </div>

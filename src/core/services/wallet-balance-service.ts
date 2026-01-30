@@ -2,7 +2,7 @@ import { HeliusApiClient } from './helius-api-client';
 import { TokenBalanceDetails, WalletBalance } from '@/types/wallet';
 import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, TokenAccount } from '@/types/helius-api';
 import { createLogger } from 'core/utils/logger';
-import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '../../config/constants';
+import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, BALANCE_CACHE_CONFIG } from '../../config/constants';
 import { formatLargeNumber } from 'core/utils/number-formatting';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenInfo } from '@prisma/client';
@@ -54,7 +54,12 @@ export class WalletBalanceService {
     walletAddresses: string[],
     commitment?: string,
     preFetchedTokenCounts?: Record<string, number>,
-    preFetchedTokenData?: Record<string, any[]>
+    preFetchedTokenData?: Record<string, any[]>,
+    options?: {
+      changedSinceSlotByAddress?: Record<string, number>;
+      includeLowBalances?: boolean;
+      slotByAddress?: Record<string, number>;
+    }
   ): Promise<Map<string, WalletBalance>> {
     if (!walletAddresses || walletAddresses.length === 0) {
       return new Map();
@@ -110,6 +115,8 @@ export class WalletBalanceService {
     for (const address of walletAddresses) {
       try {
         let currentTokenAccounts: TokenAccount[] = [];
+        let contextSlot = 0;
+        const changedSinceSlot = options?.changedSinceSlotByAddress?.[address];
 
         // Check if we have pre-fetched token data
         if (preFetchedTokenData && preFetchedTokenData[address]) {
@@ -127,11 +134,16 @@ export class WalletBalanceService {
             undefined, // No specific mint, fetch all tokens
             SPL_TOKEN_PROGRAM_ID, // Standard SPL Token Program ID
             commitment,
-            'jsonParsed' // Crucial for getting structured token data
+            'jsonParsed', // Crucial for getting structured token data
+            undefined,
+            Number.isFinite(changedSinceSlot) ? { changedSinceSlot } : undefined
           );
 
           if (splTokenAccountsResult && splTokenAccountsResult.value) {
             currentTokenAccounts.push(...splTokenAccountsResult.value);
+          }
+          if (splTokenAccountsResult?.context?.slot) {
+            contextSlot = Math.max(contextSlot, splTokenAccountsResult.context.slot);
           }
         }
         
@@ -145,11 +157,16 @@ export class WalletBalanceService {
               TOKEN_2022_PROGRAM_ID,
               commitment,
               'jsonParsed',
+              undefined,
+              Number.isFinite(changedSinceSlot) ? { changedSinceSlot } : undefined
             );
 
             if (token2022AccountsResult && token2022AccountsResult.value) {
               logger.debug(`Address ${address}: Found ${token2022AccountsResult.value.length} Token-2022 accounts.`);
               currentTokenAccounts.push(...token2022AccountsResult.value);
+            }
+            if (token2022AccountsResult?.context?.slot) {
+              contextSlot = Math.max(contextSlot, token2022AccountsResult.context.slot);
             }
           } catch (error) {
             logger.warn(`Address ${address}: Failed to fetch Token-2022 accounts: ${getErrorMessage(error)}`);
@@ -187,12 +204,21 @@ export class WalletBalanceService {
                 if (parsedInfo && parsedInfo.tokenAmount) {
                     const uiAmount = parsedInfo.tokenAmount.uiAmount;
 
-                    // Skip tokens with zero, null, or dust balance (< 1000 tokens)
-                    // Increased from 200 to 1000 to filter spam/airdrop tokens more aggressively
-                    // This filters out: zero balances, incomplete sells, dust airdrops, spam tokens
-                    if (uiAmount === null || uiAmount < 1000) {
+                    // Skip tokens with null balance. For incremental updates, keep low balances
+                    // so the caller can remove them during merge if needed.
+                    if (uiAmount === null) {
                       filteredCount++;
                       return;
+                    }
+
+                    if (!options?.includeLowBalances) {
+                      // Skip tokens with zero or dust balance (< 1000 tokens)
+                      // Increased from 200 to 1000 to filter spam/airdrop tokens more aggressively
+                      // This filters out: zero balances, incomplete sells, dust airdrops, spam tokens
+                      if (uiAmount < BALANCE_CACHE_CONFIG.MIN_UI_BALANCE) {
+                        filteredCount++;
+                        return;
+                      }
                     }
 
                     tokenBalances.push({
@@ -263,6 +289,9 @@ export class WalletBalanceService {
         const existingBalance = walletBalances.get(address);
         if (existingBalance) {
           existingBalance.tokenBalances = tokenBalances;
+          if (options?.slotByAddress && contextSlot > 0) {
+            options.slotByAddress[address] = contextSlot;
+          }
         }
       } catch (error: any) {
         const errorMessage = error.message || 'Unknown error';

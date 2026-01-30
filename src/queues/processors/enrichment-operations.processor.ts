@@ -427,10 +427,13 @@ export class EnrichmentOperationsProcessor {
     const finalTokenMap = new Map(finalTokenInfos.map(t => [t.tokenAddress, t]));
     
     // Enrich the wallet balances with the final metadata and USD values
+    const meaningfulTokenSet = new Set(meaningfulTokens);
     const enrichedBalances = { ...walletBalances };
     for (const [walletAddress, balance] of Object.entries(enrichedBalances)) {
       if (balance.tokenBalances) {
-        balance.tokenBalances = balance.tokenBalances.map(token => {
+        balance.tokenBalances = balance.tokenBalances
+          .filter(token => meaningfulTokenSet.has(token.mint))
+          .map(token => {
           const metadata = finalTokenMap.get(token.mint);
           
           // Calculate USD value if we have price data

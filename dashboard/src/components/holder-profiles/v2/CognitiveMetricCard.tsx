@@ -47,7 +47,7 @@ function getCategoryTooltip(primitiveId: string, category: string): string {
     return qualityTooltips[category] || 'Data quality classification';
   }
   if (primitiveId === 'quality') {
-    return 'Wallets with 10+ exited tokens.';
+    return 'Usually low trust in the data.';
   }
   if (primitiveId === 'similarity') {
     return 'Low <25%, Moderate 25-49%, High 50-74%, Very high >=75%.';

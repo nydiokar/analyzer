@@ -98,10 +98,19 @@ const getEnvNumber = (key: string, fallback: number): number => {
 export const ANALYSIS_EXECUTION_CONFIG = {
   SIMILARITY_LAB_MAX_SIGNATURES: getEnvNumber('SIMILARITY_LAB_MAX_SIGNATURES', 500),
   DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 4000),
-  HOLDER_PROFILES_MAX_SIGNATURES: getEnvNumber('HOLDER_PROFILES_MAX_SIGNATURES', 2000), // Wallet sync cap for holder profiles
+  HOLDER_PROFILES_MAX_SIGNATURES: getEnvNumber('HOLDER_PROFILES_MAX_SIGNATURES', 1500), // Wallet sync cap for holder profiles
   HOLDER_PROFILES_TOKEN_CACHE_MAX_AGE_SECONDS: getEnvNumber('HOLDER_PROFILES_TOKEN_CACHE_MAX_AGE_SECONDS', 300),
   HOLDER_PROFILES_SNAPSHOT_MAX_AGE_MINUTES: getEnvNumber('HOLDER_PROFILES_SNAPSHOT_MAX_AGE_MINUTES', 60),
   HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS: getEnvNumber('HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS', 60),
+} as const;
+
+export const BALANCE_CACHE_CONFIG = {
+  DEFAULT_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_TTL_SECONDS', 300), // 5 minutes
+  MEDIUM_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_MEDIUM_TTL_SECONDS', 900), // 15 minutes
+  WHALE_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_WHALE_TTL_SECONDS', 2700), // 45 minutes
+  MEDIUM_TOKEN_THRESHOLD: getEnvNumber('BALANCE_CACHE_MEDIUM_TOKEN_THRESHOLD', 1000),
+  WHALE_TOKEN_THRESHOLD: getEnvNumber('BALANCE_CACHE_WHALE_TOKEN_THRESHOLD', 5000),
+  MIN_UI_BALANCE: getEnvNumber('BALANCE_CACHE_MIN_UI_BALANCE', 1000),
 } as const;
 
 export const USER_FAVORITES_CONFIG = {
@@ -175,7 +184,7 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
   DEFAULT_RPS: 40, // ⚡ OPTIMIZED: Using 80% of 50 RPS limit (10% safety buffer for burst protection)
-  INTERNAL_CONCURRENCY: 8, // BALANCED: Allows parallel fetching while respecting rate limits
+  INTERNAL_CONCURRENCY: 10, // BALANCED: Allows parallel fetching while respecting rate limits
   BATCH_SIZE: 100, // Reduced batch size
   SIGNATURE_FETCH_SAFETY_MULTIPLIER: getEnvNumber('HELIUS_SIGNATURE_SAFETY_MULTIPLIER', 5), // Stop pagination if we massively overshoot requested maxSignatures
 } as const;

@@ -1386,7 +1386,8 @@ export class HeliusApiClient {
     programId: string = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token Program ID
     commitment?: string,
     encoding: string = 'jsonParsed', // Default and recommended for token accounts
-    dataSlice?: { offset: number; length: number } // Optional: for lightweight checks
+    dataSlice?: { offset: number; length: number }, // Optional: for lightweight checks
+    v2Options?: { changedSinceSlot?: number }
     ): Promise<GetTokenAccountsByOwnerResult> {
     if (!ownerPubkey) {
       throw new Error('ownerPubkey is required for get.TokenAccountsByOwner.');
@@ -1401,6 +1402,7 @@ export class HeliusApiClient {
           commitment,
           encoding,
           dataSlice,
+          changedSinceSlot: v2Options?.changedSinceSlot,
         });
         // Only log if count exceeds threshold (5000+)
         if (v2.value.length >= 5000) {
