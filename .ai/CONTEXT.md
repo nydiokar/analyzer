@@ -1,6 +1,7 @@
 # Sova Intel - Project Context
 
 **Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-30 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-30 • **Status:** 🟢 Active Development
 
 ---
 
@@ -16,6 +17,7 @@
 
 **Recently Completed:**
 - ✅ **P0: Historical Mode Bug - Flash/Working Scopes Fixed** (Jan 29) - Removed timeRange from dashboard scopes to fix persistence
+- ✅ DexScreener rate limiting fix with in-flight token tracking (Jan 30)
 - ✅ Favorites import system with attack-resistant design (Jan 29)
 - ✅ P0: Database deadlock fix with prevention + retry (Jan 26)
 - ✅ Similarity Lab Frame 1: Wallet Input Area (Jan 23-25)
@@ -259,9 +261,12 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
+| 30.1 | 🔧 | DexScreener 429 rate limiting fix - in-flight token tracking | 🔹 | `token-info.service.ts`, `string-sanitizer.ts`, `database-service.ts`, `helius-api-client.ts`, `queue.config.ts`, `constants.ts` |
 | 30.2 | 🔧 | Similarity balances + token metadata stability pass | 🔸 | `dashboard/src/app/similarity-lab/page.tsx`, `dashboard/src/hooks/useTokenMetadata.ts`, `src/api/services/balance-cache.service.ts`, `src/core/services/wallet-balance-service.ts`, `src/core/services/helius-api-client.ts`, `src/config/constants.ts`, `src/queues/processors/enrichment-operations.processor.ts`, `dashboard/src/components/similarity-lab/results/MostCommonTokens.tsx` |
 
 **Summary:**
+
+**30.1:** Fixed cascading DexScreener 429 rate limit errors during bulk wallet analysis (138 concurrent jobs). **Root Cause:** Multiple enrichment jobs fetching same tokens simultaneously - with 95% token overlap across wallets (SOL, USDC, popular memes), system was making 138x redundant API calls. **Solution: In-Flight Token Tracking** - Redis-based deduplication system that marks tokens currently being fetched (`token:in-flight:{address}` with 30s TTL). When Job 2 starts while Job 1 is fetching SOL/USDC, Job 2's `getTokenEnrichmentPlan()` sees in-flight markers and skips those tokens. Markers automatically cleared after enrichment completes (with try/finally safety). **Additional Fixes:** (1) UTF-8 sanitization utility (`string-sanitizer.ts`) to strip null bytes from Solana transaction data before DB insert - prevents `invalid byte sequence for encoding "UTF8": 0x00` errors; (2) Batched metadata updates with deadlock handling in `updateMetadataSourceToHybrid()` to reduce lock contention; (3) Reduced Helius RPS from 40→40 (kept), internal concurrency 10→8, enrichment queue concurrency recommendations (user handling config). **Expected Impact:** 90%+ reduction in duplicate token fetches, zero 429 errors, 20-30 min for 138-wallet imports (down from 10-15 min with retries/failures). **Implementation Details:** Check-then-set pattern with 2-5ms race window (acceptable - goal is 95% reduction not 100%). TTL failsafe prevents stuck markers if cleanup fails. Non-blocking design - no polling or waiting. Bug fixed in `enrichTokensBackground()` missing cleanup call.
 
 **30.2:** Fixed TokenBadge metadata auto-refresh (forced post-enrichment refresh). Switched similarity lab persistence to job-pointer only (no giant localStorage payloads), deduped enrichment subscriptions, and trimmed enriched balances to meaningful tokens only. MostCommonTokens now builds metadata only for rendered mints (logs removed). Enabled V2 `changedSinceSlot` incremental balance updates centrally via BalanceCacheService with slot tracking + merge logic, added whale-aware cache TTLs in `constants.ts`, and centralized `MIN_UI_BALANCE` filtering.
 

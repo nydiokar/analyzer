@@ -208,16 +208,22 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       return;
     }
     this.logger.debug(`[Background] Enriching ${plan.needsEnrichment.length} tokens`);
-    await this.priceProvider.fetchAndSaveTokenInfo(plan.needsEnrichment);
+
+    try {
+      await this.priceProvider.fetchAndSaveTokenInfo(plan.needsEnrichment);
+    } finally {
+      // 🔥 CLEAR IN-FLIGHT MARKERS: Clean up after background enrichment
+      await this.clearInFlightMarkers(plan.needsEnrichment);
+    }
   }
 
   async getTokenEnrichmentPlan(tokenAddresses: string[]): Promise<TokenEnrichmentPlan> {
     const deduped = [...new Set(tokenAddresses)].filter(isValidSolanaAddress);
     const existingTokens = await this.findMany(deduped);
-    return this.buildTokenEnrichmentPlan(deduped, existingTokens);
+    return await this.buildTokenEnrichmentPlan(deduped, existingTokens);
   }
 
-  private buildTokenEnrichmentPlan(tokenAddresses: string[], existingTokens: TokenInfo[]): TokenEnrichmentPlan {
+  private async buildTokenEnrichmentPlan(tokenAddresses: string[], existingTokens: TokenInfo[]): Promise<TokenEnrichmentPlan> {
     const metadataStaleBefore = new Date(Date.now() - TOKEN_INFO_REFRESH_CONFIG.metadataStaleMs);
     const priceStaleBefore = new Date(Date.now() - TOKEN_INFO_REFRESH_CONFIG.priceStaleMs);
     const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
@@ -227,8 +233,24 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     const newTokens: string[] = [];
     const staleTokens: string[] = [];
 
+    // 🔥 IN-FLIGHT TRACKING: Check which tokens are currently being fetched by other jobs
+    const inFlightChecks = await Promise.all(
+      tokenAddresses.map(async (address) => {
+        const inFlight = await this.redis.get(`token:in-flight:${address}`);
+        return { address, inFlight: !!inFlight };
+      })
+    );
+    const inFlightMap = new Map(inFlightChecks.map(({ address, inFlight }) => [address, inFlight]));
+
     tokenAddresses.forEach(address => {
       const existing = existingTokenMap.get(address);
+
+      // 🔥 Skip tokens that are currently being fetched by another job
+      if (inFlightMap.get(address)) {
+        this.logger.debug(`Token ${address} is being fetched by another job, skipping`);
+        return;
+      }
+
       if (!existing) {
         newTokens.push(address);
         needsEnrichment.add(address);
@@ -273,6 +295,17 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     this.logger.warn(
       `Token enrichment plan: total=${tokenAddresses.length}, new=${newTokens.length}, stale=${staleTokens.length}, refresh=${needsEnrichment.size}`
     );
+
+    // 🔥 MARK TOKENS AS IN-FLIGHT: Set Redis keys for tokens we're about to fetch
+    if (needsEnrichment.size > 0) {
+      const pipeline = this.redis.pipeline();
+      for (const token of needsEnrichment) {
+        // Set with 30s TTL - auto-expires if job crashes
+        pipeline.setex(`token:in-flight:${token}`, 30, Date.now().toString());
+      }
+      await pipeline.exec();
+      this.logger.debug(`Marked ${needsEnrichment.size} tokens as in-flight`);
+    }
 
     return {
       tokenAddresses,
@@ -331,6 +364,12 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       } catch (error) {
         this.logger.error(`Stage 1 (DAS) failed: ${getErrorMessage(error)}`);
         // Continue anyway - DexScreener might still work
+      } finally {
+        // 🔥 CLEAR IN-FLIGHT MARKERS: For tokens that only needed onchain data (not price data)
+        const onlyOnchainTokens = needsOnchainData.filter(t => !needsPriceData.includes(t));
+        if (onlyOnchainTokens.length > 0) {
+          await this.clearInFlightMarkers(onlyOnchainTokens);
+        }
       }
     }
 
@@ -346,6 +385,9 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
           this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed - Frontend can refresh to see updated images`);
         } catch (err) {
           this.logger.error(`Stage 2 (DexScreener) failed: ${getErrorMessage(err)}`);
+        } finally {
+          // 🔥 CLEAR IN-FLIGHT MARKERS: Remove Redis keys after enrichment completes
+          await this.clearInFlightMarkers(needsPriceData);
         }
       });
     }
@@ -487,6 +529,26 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       this.logger.log(`Successfully upserted ${data.length} token info records.`);
     } catch (error) {
       this.logger.error(`Error during bulk upsert of token info: ${getErrorMessage(error)}`);
+    }
+  }
+
+  /**
+   * 🔥 Clear in-flight markers for tokens after enrichment completes
+   * This allows other jobs to fetch these tokens if they become stale again
+   */
+  private async clearInFlightMarkers(tokens: string[]): Promise<void> {
+    if (tokens.length === 0) return;
+
+    try {
+      const pipeline = this.redis.pipeline();
+      for (const token of tokens) {
+        pipeline.del(`token:in-flight:${token}`);
+      }
+      await pipeline.exec();
+      this.logger.debug(`Cleared in-flight markers for ${tokens.length} tokens`);
+    } catch (error) {
+      // Non-critical error - markers will auto-expire via TTL anyway
+      this.logger.warn(`Failed to clear in-flight markers: ${getErrorMessage(error)}`);
     }
   }
 
