@@ -139,7 +139,7 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 5,              // ⚡ OPTIMIZED: Increased from 3 to 5 for faster metadata enrichment
+      concurrency: 4,              // ⚡ OPTIMIZED: Increased from 3 to 5 for faster metadata enrichment
       lockDuration: 180000,        // 🔒 3 minutes lock duration for enrichment jobs
       lockRenewTime: 90000,        // 🔒 Renew lock every 90 seconds to prevent expiry during processing
     }
