@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
-import { Card, Text, Title, Flex } from '@tremor/react';
 import { AlertTriangle, Hourglass, LineChart, Users, ShieldCheck, HelpCircle, Info } from 'lucide-react';
 import EChartComponent, { ECOption } from '../charts/EChartComponent'; // Import the new chart component
 import { VisualMapComponent, CalendarComponent } from 'echarts/components'; // Import VisualMap and Calendar
@@ -17,7 +16,8 @@ import { Label } from "@/components/ui/label";   // Added Label
 import { fetcher } from '@/lib/fetcher'; // Ensure global fetcher is used
 import EmptyState from '@/components/shared/EmptyState'; // Added EmptyState
 import { Skeleton } from "@/components/ui/skeleton";
-import { useApiKeyStore } from '@/store/api-key-store'; // Import the key store
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 // Register VisualMap and Calendar components
 echarts.use([VisualMapComponent, CalendarComponent]);
@@ -25,12 +25,72 @@ echarts.use([VisualMapComponent, CalendarComponent]);
 // Helper function to format hold time nicely
 const formatHoldTime = (hours: number): string => {
   if (hours < 1) {
-    return `${(hours * 60).toFixed(0)}m`;
-  } else if (hours < 24) {
-    return `${hours.toFixed(1)}h`;
-  } else {
-    return `${(hours / 24).toFixed(1)}d`;
+    const minutes = hours * 60;
+    if (minutes < 1) return `${Math.round(minutes * 60)}s`;
+    return `${Math.round(minutes)}min`;
   }
+
+  if (hours < 24) {
+    const wholeHours = Math.floor(hours);
+    const mins = Math.round((hours - wholeHours) * 60);
+    return mins ? `${wholeHours}h ${mins}min` : `${wholeHours}h`;
+  }
+
+  const days = hours / 24;
+  if (days < 30) return `${days.toFixed(1)}d`;
+
+  const months = days / 30;
+  return `${months.toFixed(1)}mo`;
+};
+
+// Minimal replacements for removed Tremor primitives
+const Title = ({ className, children }: { className?: string; children: React.ReactNode }) => (
+  <h3 className={cn("font-semibold text-foreground", className)}>{children}</h3>
+);
+
+const Text = ({ className, children }: { className?: string; children: React.ReactNode }) => (
+  <p className={cn("text-sm text-muted-foreground", className)}>{children}</p>
+);
+
+const Flex = ({
+  className,
+  children,
+  alignItems,
+  justifyContent,
+  flexDirection,
+}: {
+  className?: string;
+  children: React.ReactNode;
+  alignItems?: "start" | "center" | "end" | "stretch";
+  justifyContent?: "start" | "center" | "end" | "between";
+  flexDirection?: "row" | "col";
+}) => {
+  const alignMap: Record<string, string> = {
+    start: "items-start",
+    center: "items-center",
+    end: "items-end",
+    stretch: "items-stretch",
+  };
+  const justifyMap: Record<string, string> = {
+    start: "justify-start",
+    center: "justify-center",
+    end: "justify-end",
+    between: "justify-between",
+  };
+
+  return (
+    <div
+      className={cn(
+        "flex",
+        flexDirection === "col" ? "flex-col" : "flex-row",
+        alignItems ? alignMap[alignItems] : "",
+        justifyContent ? justifyMap[justifyContent] : "",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
 };
 
 export interface BehavioralPatternsTabProps {
@@ -108,22 +168,21 @@ const formatHour = (hour: number | undefined | null): string => {
 
 export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: BehavioralPatternsTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
-  const { apiKey, isInitialized } = useApiKeyStore(); // Get key and init status
   const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false);
 
   const behaviorApiUrlBase = walletAddress ? `/wallets/${walletAddress}/behavior-analysis` : null;
   let swrKeyBehavior: (string | null)[] | null = null;
 
-  if (behaviorApiUrlBase && isInitialized && apiKey) { // Check for key and init status
+  if (behaviorApiUrlBase) {
     const behaviorParams = new URLSearchParams();
     if (startDate && endDate) {
       behaviorParams.append('startDate', startDate.toISOString());
       behaviorParams.append('endDate', endDate.toISOString());
       const url = `${behaviorApiUrlBase}?${behaviorParams.toString()}`;
-      swrKeyBehavior = [url, apiKey];
+      swrKeyBehavior = [url];
     } else {
       const url = behaviorApiUrlBase; 
-      swrKeyBehavior = [url, apiKey];
+      swrKeyBehavior = [url];
     }
   }
   
@@ -160,7 +219,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
 
   if (behaviorIsLoading && !isAnalyzingGlobal) {
     return (
-      <Card className="h-full p-4 md:p-6 space-y-6 flex flex-col">
+      <Card className="h-full p-4 md:p-6 space-y-6 flex flex-col rounded-xl shadow-base">
         <Tabs defaultValue="summary" className="w-full flex-1 flex flex-col">
           <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
             <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
@@ -342,7 +401,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
   const activeTradingPeriodsData = behaviorData?.activeTradingPeriods;
 
   return (
-    <Card className="h-full max-h-full p-4 md:p-6 space-y-6 flex flex-col overflow-hidden">
+    <Card className="h-full max-h-full p-4 md:p-6 space-y-6 flex flex-col overflow-hidden rounded-xl shadow-base">
       <Tabs defaultValue="summary" className="w-full flex-1 flex flex-col min-h-0">
         <TabsList className="grid w-full grid-cols-2 mb-4 border-b border-border">
           <TabsTrigger value="summary">Summary & Metrics</TabsTrigger>
@@ -474,7 +533,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
                       <MetricDisplay
                         label="Exit Pattern"
                         value={behaviorData.historicalPattern.exitPattern.replace('_', ' ')}
-                        tooltipText="How they typically exit positions: GRADUAL (multiple sells) or ALL_AT_ONCE (single sell)."
+                        tooltipText="How they typically exit positions: GRADUAL (multiple sells) or ALL AT ONCE (single sell)."
                       />
                       <MetricDisplay
                         label="Data Quality"

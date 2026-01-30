@@ -81,10 +81,20 @@ export class TokenHoldersService {
       if (!owner) return true; // If no owner resolved, keep; frontend can toggle ownersOnly
       if (knownSystemSet.has(owner)) return false;
       const info = ownerAccountInfo[owner];
-      if (!info) return true; // If we couldn't fetch, be conservative
-      // External wallets are owned by System Program with empty data
+      if (!info) return true; // If we couldn't fetch, be conservative but still drop obvious system wallets above
+
       const isProgramOwned = info.owner && info.owner !== SYSTEM_PROGRAM_ID;
-      return !isProgramOwned;
+      const hasNonEmptyData = Array.isArray((info as any).data) && typeof (info as any).data[0] === 'string'
+        ? (info as any).data[0].length > 0
+        : false;
+      const isExecutable = Boolean((info as any).executable);
+
+      // Wallets should be system-owned, non-executable, and have empty data
+      if (isProgramOwned || hasNonEmptyData || isExecutable) {
+        return false;
+      }
+
+      return true;
     });
 
     return {
@@ -94,5 +104,4 @@ export class TokenHoldersService {
     };
   }
 }
-
 

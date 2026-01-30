@@ -8,6 +8,7 @@ interface TokenMetadata {
   websiteUrl?: string;
   twitterUrl?: string;
   telegramUrl?: string;
+  marketCapUsd?: number | null;
   onchainName?: string;
   onchainSymbol?: string;
   onchainImageUrl?: string;
@@ -53,6 +54,15 @@ class TokenMetadataBatcher {
     this.scheduleBatch();
   }
 
+  // Subscribe for enrichment updates WITHOUT triggering initial fetch
+  // Used when component already has metadata from parent
+  subscribeOnly(mint: string, callback: (metadata: TokenMetadata | null) => void) {
+    if (!this.subscribers.has(mint)) {
+      this.subscribers.set(mint, new Set());
+    }
+    this.subscribers.get(mint)!.add(callback);
+  }
+
   // Unsubscribe from updates
   unsubscribe(mint: string, callback: (metadata: TokenMetadata | null) => void) {
     const subs = this.subscribers.get(mint);
@@ -95,15 +105,16 @@ class TokenMetadataBatcher {
       const resultMap = new Map<string, TokenMetadata>();
       if (response && Array.isArray(response)) {
         response.forEach((tokenData: any) => {
-          const metadata: TokenMetadata = {
-            name: tokenData.name,
-            symbol: tokenData.symbol,
-            imageUrl: tokenData.imageUrl,
-            onchainName: tokenData.onchainName,
-            onchainSymbol: tokenData.onchainSymbol,
-            onchainImageUrl: tokenData.onchainImageUrl,
-            websiteUrl: tokenData.websiteUrl,
-            twitterUrl: tokenData.twitterUrl,
+      const metadata: TokenMetadata = {
+        name: tokenData.name,
+        symbol: tokenData.symbol,
+        imageUrl: tokenData.imageUrl,
+        marketCapUsd: tokenData.marketCapUsd,
+        onchainName: tokenData.onchainName,
+        onchainSymbol: tokenData.onchainSymbol,
+        onchainImageUrl: tokenData.onchainImageUrl,
+        websiteUrl: tokenData.websiteUrl,
+        twitterUrl: tokenData.twitterUrl,
             telegramUrl: tokenData.telegramUrl,
             onchainWebsiteUrl: tokenData.onchainWebsiteUrl,
             onchainTwitterUrl: tokenData.onchainTwitterUrl,
@@ -162,15 +173,16 @@ class TokenMetadataBatcher {
       // Update cache with enriched data AND notify all subscribers
       if (response && Array.isArray(response)) {
         response.forEach((tokenData: any) => {
-          const metadata: TokenMetadata = {
-            name: tokenData.name,
-            symbol: tokenData.symbol,
-            imageUrl: tokenData.imageUrl,
-            onchainName: tokenData.onchainName,
-            onchainSymbol: tokenData.onchainSymbol,
-            onchainImageUrl: tokenData.onchainImageUrl,
-            websiteUrl: tokenData.websiteUrl,
-            twitterUrl: tokenData.twitterUrl,
+      const metadata: TokenMetadata = {
+        name: tokenData.name,
+        symbol: tokenData.symbol,
+        imageUrl: tokenData.imageUrl,
+        marketCapUsd: tokenData.marketCapUsd,
+        onchainName: tokenData.onchainName,
+        onchainSymbol: tokenData.onchainSymbol,
+        onchainImageUrl: tokenData.onchainImageUrl,
+        websiteUrl: tokenData.websiteUrl,
+        twitterUrl: tokenData.twitterUrl,
             telegramUrl: tokenData.telegramUrl,
             onchainWebsiteUrl: tokenData.onchainWebsiteUrl,
             onchainTwitterUrl: tokenData.onchainTwitterUrl,
@@ -212,12 +224,7 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
   const [isLoading, setIsLoading] = useState(!providedMetadata);
 
   useEffect(() => {
-    // If metadata was provided, don't fetch
-    if (providedMetadata) {
-      setMetadata(providedMetadata);
-      setIsLoading(false);
-      return;
-    }
+    setMetadata(providedMetadata || null);
 
     // Callback for updates
     const updateCallback = (fetchedMetadata: TokenMetadata | null) => {
@@ -225,9 +232,20 @@ export function useTokenMetadata(mint: string, providedMetadata?: TokenMetadata)
       setIsLoading(false);
     };
 
-    // Request metadata (will be batched automatically)
-    setIsLoading(true);
-    globalBatcher.request(mint, updateCallback);
+    // Skip batch request if provided metadata is "complete enough"
+    // Complete = has name/symbol (essential fields)
+    const isMetadataComplete = providedMetadata && (providedMetadata.name || providedMetadata.onchainName);
+
+    if (isMetadataComplete) {
+      // Metadata provided and sufficient - skip fetch, just subscribe for enrichment updates
+      setIsLoading(false);
+      // Still subscribe for potential enrichment updates (but don't trigger initial fetch)
+      globalBatcher.subscribeOnly(mint, updateCallback);
+    } else {
+      // No metadata or incomplete - request from API (will be batched automatically)
+      setIsLoading(!providedMetadata);
+      globalBatcher.request(mint, updateCallback);
+    }
 
     // Cleanup: unsubscribe on unmount
     return () => {

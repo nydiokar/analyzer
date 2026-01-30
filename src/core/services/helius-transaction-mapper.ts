@@ -804,10 +804,10 @@ export function mapHeliusTransactionsToIntermediateRecords(
                           if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
                               // CONFIRMED: This was raw lamports, not human-readable SOL
                               wsolAmount = scaledAmount;
-                              logger.warn(
-                                  `Tx ${tx.signature}: Helius API bug detected - WSOL tokenAmount provided as raw lamports (${currentAbsTransferAmount}). ` +
-                                  `Auto-corrected to ${wsolAmount.toFixed(9)} SOL (validated against native change: ${expectedSolChange.toFixed(9)} SOL)`
-                              );
+                              // logger.warn(
+                              //     `Tx ${tx.signature}: Helius API bug detected - WSOL tokenAmount provided as raw lamports (${currentAbsTransferAmount}). ` +
+                              //     `Auto-corrected to ${wsolAmount.toFixed(9)} SOL (validated against native change: ${expectedSolChange.toFixed(9)} SOL)`
+                              // );
                           } else {
                               // Value is genuinely large (whale transfer) - keep as-is but log for visibility
                               logger.info(

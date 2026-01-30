@@ -1,8 +1,5 @@
 import {
   WebSocketGateway,
-  SubscribeMessage,
-  MessageBody,
-  ConnectedSocket,
   OnGatewayInit,
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -20,6 +17,7 @@ interface JobProgressEvent {
   details?: string;
   timestamp: number;
   queue: string;
+  userId?: string; // For room-based broadcasting
 }
 
 interface JobCompletedEvent {
@@ -29,6 +27,7 @@ interface JobCompletedEvent {
   queue: string;
   processingTime: number;
   totalTime?: number; // Total time from queue to completion
+  userId?: string; // For room-based broadcasting
 }
 
 interface JobFailedEvent {
@@ -38,10 +37,7 @@ interface JobFailedEvent {
   queue: string;
   attempts: number;
   maxAttempts: number;
-}
-
-interface ClientSubscription {
-  jobIds: Set<string>;
+  userId?: string; // For room-based broadcasting
 }
 
 interface JobQueueToStartEvent {
@@ -49,7 +45,15 @@ interface JobQueueToStartEvent {
   queueToStartTime: number;
   timestamp: number;
   queue: string;
+  userId?: string; // For room-based broadcasting
 }
+
+type JobEventCounter = {
+  progress: number;
+  completed: number;
+  failed: number;
+  queueToStart: number;
+};
 
 @WebSocketGateway({
   cors: {
@@ -65,14 +69,38 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   server: Server;
 
   private readonly logger = new Logger(JobProgressGateway.name);
+  private readonly debugJobBridge = process.env.JOB_SOCKET_DEBUG === 'true';
   private readonly redisSubscriber: Redis;
-  private readonly clientSubscriptions = new Map<string, ClientSubscription>();
 
   constructor(@Inject(REDIS_CLIENT) private readonly redisPublisher: Redis) {
     // The publisher is injected. We create a dedicated subscriber from it.
     this.redisSubscriber = this.redisPublisher.duplicate();
-    
-    this.redisSubscriber.on('error', (err) => this.logger.error('Redis subscriber connection error:', err));
+
+    // Track subscriber errors to avoid spam
+    let lastSubscriberError: string | null = null;
+    let subscriberErrorCount = 0;
+
+    this.redisSubscriber.on('error', (err) => {
+      const errorMessage = err.message || 'Unknown Redis subscriber error';
+      const isConnectionError = errorMessage.includes('ECONNREFUSED') ||
+                               errorMessage.includes('ECONNRESET') ||
+                               errorMessage.includes('ECONNABORTED') ||
+                               errorMessage.includes('ENOTFOUND');
+
+      if (isConnectionError) {
+        // Only log subscriber connection errors once every 30 seconds
+        if (lastSubscriberError !== errorMessage || subscriberErrorCount === 0) {
+          this.logger.warn(`⚠️  WebSocket Redis subscriber: ${errorMessage}`);
+          lastSubscriberError = errorMessage;
+          subscriberErrorCount = 1;
+        } else {
+          subscriberErrorCount++;
+        }
+      } else {
+        // Non-connection errors still get full logging
+        this.logger.error(`🔥 Redis subscriber error: ${errorMessage}`, err.stack);
+      }
+    });
   }
 
   afterInit(server: Server) {
@@ -84,30 +112,62 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
       this.logger.error(`Socket.IO connection error: ${err.message}`, err);
     });
     
-    setImmediate(() => this.setupRedisSubscriptions());
+    // Set up Redis subscriptions with delay to ensure Redis connection is established
+    setTimeout(() => this.setupRedisSubscriptions(), 5000); // Wait 5 seconds for Redis
   }
 
   handleConnection(client: Socket) {
     const clientId = client.id;
-    this.logger.log(`Client connected: ${clientId}`);
-    this.clientSubscriptions.set(clientId, { jobIds: new Set() });
-    client.emit('connected', { message: 'Connected to job progress updates', clientId, timestamp: Date.now() });
+
+    // Extract userId from socket handshake auth (passed from frontend)
+    const userId = client.handshake.auth?.userId;
+
+    if (userId) {
+      // Join user-specific room for automatic job propagation
+      const userRoom = `user-${userId}`;
+      client.join(userRoom);
+      this.logger.log(`Client ${clientId} connected and joined room: ${userRoom}`);
+    } else {
+      this.logger.log(`Client connected: ${clientId} (no userId provided)`);
+    }
+
+    client.emit('connected', {
+      message: 'Connected to job progress updates',
+      clientId,
+      userId,
+      room: userId ? `user-${userId}` : null,
+      timestamp: Date.now()
+    });
   }
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-    this.clientSubscriptions.delete(client.id);
   }
 
   private setupRedisSubscriptions() {
     const pattern = 'job-events:*';
-    this.redisSubscriber.psubscribe(pattern, (err) => {
-      if (err) {
-        this.logger.error(`Failed to subscribe to ${pattern}:`, err);
+
+    try {
+      this.redisSubscriber.psubscribe(pattern, (err) => {
+        if (err) {
+          const errorMessage = err.message || 'Unknown subscription error';
+          if (errorMessage.includes('enableOfflineQueue') || errorMessage.includes('writeable')) {
+            this.logger.warn(`⚠️  Redis not ready for WebSocket subscriptions. Make sure Redis is running.`);
+          } else {
+            this.logger.error(`Failed to subscribe to ${pattern}:`, err);
+          }
+        } else {
+          this.logger.log(`📡 Subscribed to Redis pattern: ${pattern}`);
+        }
+      });
+    } catch (error) {
+      const errorMessage = (error as Error).message || 'Unknown error';
+      if (errorMessage.includes('enableOfflineQueue') || errorMessage.includes('writeable')) {
+        this.logger.warn(`⚠️  Cannot setup Redis subscriptions - Redis not connected. Will retry later.`);
       } else {
-        this.logger.log(`Subscribed to Redis pattern: ${pattern}`);
+        this.logger.error(`Failed to setup Redis subscriptions:`, error);
       }
-    });
+    }
 
     this.redisSubscriber.on('pmessage', (pattern, channel, message) => {
       try {
@@ -136,56 +196,31 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   }
 
   private broadcastToSubscribers(event: string, data: any, jobId?: string, queue?: string) {
-    for (const [clientId, subscription] of this.clientSubscriptions) {
-      if (jobId && subscription.jobIds.has(jobId)) {
-        this.server.to(clientId).emit(event, data);
-        // The following line is the source of the excessive log messages.
-        // this.logger.debug(`Broadcasted ${event} to client ${clientId} for job ${jobId}`);
-      }
-    }
-  }
-
-  @SubscribeMessage('subscribe-to-job')
-  handleSubscribeToJob(@MessageBody() data: { jobId: string }, @ConnectedSocket() client: Socket) {
-    const { jobId } = data;
-    if (jobId) {
-      const subscription = this.clientSubscriptions.get(client.id);
-      if (subscription) {
-        subscription.jobIds.add(jobId);
-        this.logger.log(`Client ${client.id} subscribed to job: ${jobId}`);
-      }
-    }
-  }
-
-  @SubscribeMessage('unsubscribe-from-job')
-  handleUnsubscribeFromJob(@MessageBody() data: { jobId: string }, @ConnectedSocket() client: Socket) {
-     const { jobId } = data;
-    if (jobId) {
-      const subscription = this.clientSubscriptions.get(client.id);
-      if (subscription) {
-        subscription.jobIds.delete(jobId);
-        this.logger.log(`Client ${client.id} unsubscribed from job: ${jobId}`);
-      }
+    if (data.userId) {
+      const userRoom = `user-${data.userId}`;
+      this.server.to(userRoom).emit(event, data);
+    } else {
+      this.logger.warn(`Received ${event} without userId; event dropped (job: ${jobId}, queue: ${queue})`);
     }
   }
   
-  async publishProgressEvent(jobId: string, queue: string, progress: number | object, details?: string) {
-    const event: JobProgressEvent = { jobId, queue, progress, details, timestamp: Date.now() };
+  async publishProgressEvent(jobId: string, queue: string, progress: number | object, details?: string, userId?: string) {
+    const event: JobProgressEvent = { jobId, queue, progress, details, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:progress', JSON.stringify(event));
   }
 
-  async publishCompletedEvent(jobId: string, queue: string, result: any, processingTime: number, totalTime?: number) {
-    const event: JobCompletedEvent = { jobId, queue, result, processingTime, totalTime, timestamp: Date.now() };
+  async publishCompletedEvent(jobId: string, queue: string, result: any, processingTime: number, totalTime?: number, userId?: string) {
+    const event: JobCompletedEvent = { jobId, queue, result, processingTime, totalTime, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:completed', JSON.stringify(event));
   }
 
-  async publishFailedEvent(jobId: string, queue: string, error: string, attempts: number, maxAttempts: number) {
-    const event: JobFailedEvent = { jobId, queue, error, attempts, maxAttempts, timestamp: Date.now() };
+  async publishFailedEvent(jobId: string, queue: string, error: string, attempts: number, maxAttempts: number, userId?: string) {
+    const event: JobFailedEvent = { jobId, queue, error, attempts, maxAttempts, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:failed', JSON.stringify(event));
   }
 
-  async publishQueueToStartEvent(jobId: string, queue: string, queueToStartTime: number) {
-    const event: JobQueueToStartEvent = { jobId, queue, queueToStartTime, timestamp: Date.now() };
+  async publishQueueToStartEvent(jobId: string, queue: string, queueToStartTime: number, userId?: string) {
+    const event: JobQueueToStartEvent = { jobId, queue, queueToStartTime, userId, timestamp: Date.now() };
     await this.redisPublisher.publish('job-events:queue-to-start', JSON.stringify(event));
   }
   

@@ -14,10 +14,25 @@ const MAX_STRING_LENGTH = 10000; // Maximum string length
 const ALLOWED_URI_SCHEMES = ['https:', 'http:'];
 const TRUSTED_GATEWAYS = [
   'ipfs.io',
+  'ipfs.filebase.io',
   'gateway.ipfs.io',
   'cloudflare-ipfs.com',
   'arweave.net',
   'gateway.arweave.net',
+  'gateway.irys.xyz',
+  'metadata.retlie.com',
+  'moonitcdn.io',
+  'actionapp.mypinata.cloud',
+  'metadata.rapidlaunch.io',
+  'metadata.j7tracker.com',
+  'metadata.uxento.io',
+  'cdn-aibackrooms.s3.amazonaws.com',
+  'cdn.dexscreener.com',
+  'dexscreener.com',
+  'degencdn.com',
+  'gateway.pinata.cloud',
+  'raw.githubusercontent.com',
+  'api.zeralabs.org'
 ];
 
 // Security error types (should not trigger retries)
@@ -111,7 +126,7 @@ function validateUri(uri: string): void {
 
   // Log warning for non-trusted gateways
   if (!TRUSTED_GATEWAYS.some(gateway => hostname.includes(gateway))) {
-    logger.warn(`Non-trusted gateway: ${sanitizeUriForLogging(uri)}`);
+    // logger.warn(`Non-trusted gateway: ${sanitizeUriForLogging(uri)}`);
   }
 }
 

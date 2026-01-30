@@ -643,6 +643,104 @@ export class TestDataFactory {
 
 ---
 
+## 🌐 API Architecture Implementation
+
+### NestJS Framework Implementation
+
+**Framework Selection**: NestJS over Express/Fastify for structured, enterprise-grade API development
+
+**Key Architectural Benefits**:
+- **Built-in Module System**: Dependency injection and organized code structure
+- **TypeScript First**: Full TypeScript support with decorators and metadata
+- **Middleware Ecosystem**: Rich plugin ecosystem for authentication, validation, logging
+- **Testing Support**: Built-in testing utilities and patterns
+
+**Implementation Structure**:
+```typescript
+// Module-based architecture
+@Module({
+  imports: [ConfigModule, DatabaseModule],
+  controllers: [WalletController, AnalysisController],
+  providers: [WalletService, AnalysisService],
+  exports: [WalletService]
+})
+export class WalletModule {}
+```
+
+**Trade-offs**:
+- ✅ **Pros**: Structured architecture, excellent TypeScript integration, rich ecosystem
+- ❌ **Cons**: Learning curve, opinionated design, additional abstraction layer
+
+### REST API Design Principles
+
+**Endpoint Structure**: RESTful API with structured resource hierarchies
+
+**Key Design Decisions**:
+- **Resource-Based URLs**: `/api/v1/wallets/{address}/analysis`
+- **HTTP Methods**: Standard REST verbs (GET, POST, PUT, DELETE)
+- **Status Codes**: Proper HTTP status codes (200, 201, 400, 401, 403, 404, 429, 500)
+- **Content Negotiation**: JSON responses with consistent structure
+
+**Response Patterns**:
+```typescript
+// Success responses
+{ data: T, message?: string }
+
+// Error responses
+{ error: string, statusCode: number, details?: any }
+
+// Paginated responses
+{ data: T[], pagination: PaginationInfo }
+```
+
+### JWT Refresh Token Strategy Implementation
+
+**Security-First Token Management**:
+
+#### Token Specifications
+- **Access Token**: 30-minute TTL for short-lived authentication
+- **Refresh Token**: 7-day sliding window for session management
+- **Token Rotation**: Each refresh generates new access + refresh pair
+- **Redis Storage**: Hashed refresh tokens for secure storage
+
+#### Implementation Details
+```typescript
+// Access token claims
+{
+  kid: "key-id",           // Key identifier
+  iss: "wallet-analyzer",  // Issuer
+  aud: "api-clients",      // Audience
+  sub: "user-id",          // Subject (user ID)
+  email: "user@email.com", // User email
+  iat: timestamp,          // Issued at
+  exp: timestamp + 1800,   // Expires (30 min)
+  nbf: timestamp           // Not before
+}
+```
+
+#### Security Features
+- **Replay Protection**: Token reuse detection and session revocation
+- **Session Management**: Per-user session tracking with device labels
+- **Password Reset**: Automatic revocation of all user sessions
+- **Absolute Expiration**: 7-day hard limit for defense-in-depth
+
+#### Session Control Endpoints
+- `POST /auth/refresh` - Rotate tokens and extend session
+- `POST /auth/logout` - Revoke current session
+- `POST /auth/logout-all` - Revoke all user sessions
+
+**Benefits**:
+- ✅ Strong security with replay detection and session control
+- ✅ Better UX (automatic refresh without re-login)
+- ✅ Device management and session visibility
+
+**Trade-offs**:
+- ❌ Redis dependency for token storage
+- ❌ More complex authentication flow
+- ❌ Additional infrastructure requirements
+
+---
+
 ## 📚 **Related Documentation**
 
 - **[Core Analysis Engine](./../core/README.md)** - Business logic implementation

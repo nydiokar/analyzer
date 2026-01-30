@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { DatabaseService } from '../services/database.service';
 import { Prisma } from '@prisma/client';
@@ -7,6 +7,7 @@ import { IPriceProvider } from '../../types/price-provider.interface';
 import { ITokenInfoService } from '../../types/token-info-service.interface';
 import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
@@ -21,7 +22,7 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
  * to swap data sources (Dexscreener, Bird.io, CoinGecko, etc.)
  */
 @Injectable()
-export class TokenInfoService implements ITokenInfoService {
+export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
   private readonly logger = new Logger(TokenInfoService.name);
   private redis: Redis;
 
@@ -31,12 +32,9 @@ export class TokenInfoService implements ITokenInfoService {
     @Inject('IPriceProvider') private readonly priceProvider: IPriceProvider,
     private readonly onchainMetadataService: OnchainMetadataService, // NEW: Onchain metadata enrichment
     private readonly heliusApiClient: HeliusApiClient, // For fetching token supply
+    @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      maxRetriesPerRequest: 3,
-    });
+    this.redis = redisClient;
     this.logger.log('TokenInfoService initialized with price caching (30s TTL) and onchain metadata enrichment');
   }
 
@@ -52,20 +50,35 @@ export class TokenInfoService implements ITokenInfoService {
     // Try cache first
     const cached = await this.redis.get(cacheKey);
     if (cached) {
-      const price = parseFloat(cached);
-      this.logger.debug(`[SOL Price] Cache hit: $${price}`);
-      return price;
+      return parseFloat(cached);
     }
 
     // Cache miss - fetch from provider
-    this.logger.log('[SOL Price] Cache miss, fetching from provider');
-    const price = await this.priceProvider.fetchSolPrice();
+    let price: number;
+    try {
+      price = await this.priceProvider.fetchSolPrice();
+    } catch (err) {
+      this.logger.error(`[SOL Price] Provider fetch failed`, err);
+      throw err;
+    }
     
     // Cache with 30-second TTL
     await this.redis.set(cacheKey, price.toString(), 'EX', 30);
     this.logger.log(`[SOL Price] Fetched and cached: $${price} (TTL: 30s)`);
     
     return price;
+  }
+
+  /**
+   * Get SOL price from cache only (no network call).
+   * Returns null if not cached or parse fails.
+   */
+  async getCachedSolPrice(): Promise<number | null> {
+    const cacheKey = 'sol_price_usd';
+    const cached = await this.redis.get(cacheKey);
+    if (!cached) return null;
+    const price = parseFloat(cached);
+    return Number.isFinite(price) && price > 0 ? price : null;
   }
 
   /**
@@ -261,7 +274,7 @@ export class TokenInfoService implements ITokenInfoService {
 
         if (onchainMetadata.length > 0) {
           await this.saveOnchainBasicMetadata(onchainMetadata);
-          this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
+          // this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
         }
       } catch (error) {
         this.logger.error('Stage 1 (DAS) failed:', error);
@@ -427,5 +440,10 @@ export class TokenInfoService implements ITokenInfoService {
         this.logger.error('An unknown error occurred during bulk upsert of token info:', error);
       }
     }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    // Shared Redis connection managed centrally
+    return;
   }
 } 

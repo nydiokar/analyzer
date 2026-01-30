@@ -1,4 +1,4 @@
-export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+export type DataQualityTier = 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT';
 export type HoldTimeSource = 'CURRENT' | 'EXITED' | 'MIXED';
 
 export interface HoldTimeDistribution {
@@ -61,6 +61,13 @@ export interface HolderProfile {
   currentHoldAverageHours?: number | null;
   percentValueInCurrentHoldings?: number | null;
   currentHoldingsCount?: number | null;
+  currentHoldings?: Array<{
+    tokenAddress: string;
+    uiBalance: number | null;
+    decimals: number | null;
+  }>;
+  oldestTransactionTimestamp?: number;
+  newestTransactionTimestamp?: number;
 }
 
 export interface HolderProfilesResult {

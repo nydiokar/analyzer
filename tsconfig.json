@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2017",
+    "target": "ES2022",
     "module": "commonjs",
+    "lib": ["ES2022"],
     "rootDir": "./src",
     "outDir": "./dist",
     "strict": true,
@@ -12,6 +13,9 @@
     "sourceMap": true,
     "declaration": true,
     "moduleResolution": "node",
+    "jsx": "react",
+    "jsxFactory": "React.createElement",
+    "jsxFragmentFactory": "React.Fragment",
     "baseUrl": "./src",
     "paths": {
       "@config/*": ["config/*"],

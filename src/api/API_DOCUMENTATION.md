@@ -6,22 +6,77 @@ Sova Intel is a comprehensive Solana wallet analysis platform that provides deta
 
 ## Base Information
 
-- **Application**: Sova Intel v0.14.6
+- **Application**: Sova Intel v0.18.0
 - **Technology Stack**: NestJS, TypeScript, BullMQ, Prisma, Redis
 - **Base URL**: `/api` (configurable)
-- **Authentication**: API Key based authentication
+- **Authentication**: Dual system - JWT (primary) + API Keys (services/legacy)
 - **Rate Limiting**: Applied per endpoint (varies by endpoint)
 
 ## API Modules
 
 ### 1. Health Module (`/health`)
 
-Basic health check endpoint for monitoring system status.
+Tiered health monitoring system with security-conscious endpoint design.
 
 **Endpoints:**
-- `GET /health` - System health check
+- `GET /health` - **Public** basic operational status (safe for external monitoring)
+- `GET /health/detailed` - **Admin-only** comprehensive health metrics (database, cache, performance)
+- `GET /health/queues` - **Admin-only** BullMQ queue health and Redis status
+- `GET /health/cache-metrics` - **Admin-only** cache statistics for monitoring
+- `GET /health/metrics` - **Admin-only** Prometheus text format metrics
 
-### 2. Users Module (`/users`)
+**Security Model:**
+- Public endpoint (`/health`) returns minimal status information (operational/down only)
+- Admin-protected endpoints require authentication AND administrator privileges
+- **Critical Security (2025-12-03)**: Prevents infrastructure enumeration attacks
+  - Regular authenticated users (JWT) cannot access detailed metrics
+  - Only admins (via `ADMIN_USER_IDS`/`ADMIN_EMAILS`) can see internal details
+  - Attackers cannot register → get JWT → scrape infrastructure metrics
+
+**Authentication:**
+- `/health` - Public (no auth required)
+- All other endpoints - Admin privileges required (configured via `ADMIN_USER_IDS` and `ADMIN_EMAILS` environment variables)
+
+**Prometheus Integration:**
+- Use API key with `'admin'` or `'full'` scope for Prometheus scraper
+- Configure in `prometheus.yml` with `Authorization` header or `X-API-Key`
+- See `docs/monitoring/PROMETHEUS_SETUP.md` for complete guide
+
+**Rate Limiting:** Standard throttling applied
+
+### 2. Authentication Module (`/auth`)
+
+Complete JWT-based authentication system with refresh tokens, email verification, and security features.
+
+**Endpoints:**
+- `POST /auth/register` - Register new user account (returns access + refresh tokens)
+- `POST /auth/login` - Login with email and password (returns access + refresh tokens)
+- `POST /auth/refresh` - Refresh access token using refresh token (rotating refresh)
+- `GET /auth/me` - Get current user profile
+- `POST /auth/logout` - Logout user (revokes refresh session, clears cookies if enabled)
+- `POST /auth/logout-all` - Logout all sessions (revokes all user's refresh tokens)
+- `POST /auth/request-verification` - Request email verification
+- `POST /auth/verify-email` - Verify email with token
+- `POST /auth/forgot-password` - Request password reset token (generic 200 response, token emailed)
+- `POST /auth/reset-password` - Reset password with emailed token
+
+**Security Features:**
+- **Short-lived access tokens**: 30-minute TTL (configurable via `JWT_EXPIRES_IN`)
+- **Rotating refresh tokens**: 7-day sliding window, hashed in Redis with replay detection
+- **Enhanced JWT signing**: Includes `kid`, `iss`, `aud`, `nbf` claims for validation
+- **Password security**: bcrypt (12 rounds) + pepper (32+ chars required)
+- **Timing attack protection**: Constant-time user lookups prevent enumeration
+- **Password reset**: Generic 200 response, tokens only emailed (never in API response)
+
+**Authentication:** Registration/Login/Forgot Password are public, others require authentication
+**Rate Limiting:**
+- Registration: 5 requests/minute
+- Login: 10 requests/minute
+- Email verification request: 10 requests per 5 minutes
+- Email verification: 3 attempts per 5 minutes
+- Profile access: No rate limiting
+
+### 3. Users Module (`/users`)
 
 User profile management for authenticated users.
 
@@ -33,7 +88,22 @@ User profile management for authenticated users.
 
 ---
 
-### 3. Wallets Module (`/wallets`) - Core Analysis
+### 4. Security Module (`/security`)
+
+Security monitoring, metrics, and alert management for system administrators.
+
+**Endpoints:**
+- `GET /security/metrics` - Get security metrics and monitoring data
+- `GET /security/health` - Security system health check
+- `GET /security/alerts` - Get active security alerts
+- `POST /security/alerts/{id}/resolve` - Resolve a security alert
+
+**Authentication:** Required (restricted to non-demo users)  
+**Rate Limiting:** 10-20 requests/minute
+
+---
+
+### 5. Wallets Module (`/wallets`) - Core Analysis
 
 The primary module for wallet analysis and data retrieval.
 
@@ -117,7 +187,7 @@ The primary module for wallet analysis and data retrieval.
 
 ---
 
-### 4. Analyses Module (`/analyses`) - Job Management
+### 6. Analyses Module (`/analyses`) - Job Management
 
 High-level analysis operations that queue background jobs.
 
@@ -155,7 +225,7 @@ High-level analysis operations that queue background jobs.
 
 ---
 
-### 5. Jobs Module (`/jobs`) - Queue Monitoring
+### 7. Jobs Module (`/jobs`) - Queue Monitoring
 
 Comprehensive job management and monitoring system.
 
@@ -193,64 +263,61 @@ Comprehensive job management and monitoring system.
 
 ---
 
-### 6. Additional Modules
+### 8. Additional Modules
 
-#### Token Info (`/token-info`)
-- Token metadata retrieval and caching
-- Integration with external token data providers
+#### User Favorites Module (`/users/me/favorites`)
+Personal wallet favorites management and organization.
 
-##### Top Token Holders
-- `GET /token-info/{mint}/top-holders` – Returns up to the 20 largest token accounts for a given SPL token mint, with owner resolution when available.
-  - Path Parameters:
-    - `mint` (string, required): Base-58 SPL token mint address. Validated by SolanaAddressPipe.
-  - Query Parameters:
-    - `commitment` (string, optional): One of `finalized`, `confirmed`, or `processed`. Defaults to `finalized`.
-  - Response:
-    - `mint` (string): Echoed token mint
-    - `context` (object): `{ slot: number, apiVersion?: string }` from RPC
-    - `holders` (array): Up to 20 entries sorted by balance desc
-      - `rank` (number): 1-based rank
-      - `tokenAccount` (string): Token account public key
-      - `ownerAccount` (string, optional): Resolved wallet owner; may be absent for program/unknown accounts
-      - `amount` (string): Raw token balance
-      - `decimals` (number): Token mint decimals
-      - `uiAmount` (number | null): Balance as number (may be null)
-      - `uiAmountString` (string): Balance as string (preferred for display)
-  - Notes:
-    - Backed by Helius RPC `getTokenLargestAccounts` (fixed top 20). Owner addresses are resolved via `getMultipleAccounts` with `jsonParsed` encoding.
-    - Read-only; does not enqueue jobs or touch the database.
-  - Example cURL:
-```
-curl -s \
-  -H "x-api-key: $API_KEY" \
-  "http://localhost:3001/api/v1/token-info/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/top-holders?commitment=finalized"
-```
-  - Example Response (truncated):
-```
-{
-  "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-  "context": { "slot": 123456789 },
-  "holders": [
-    {
-      "rank": 1,
-      "tokenAccount": "TokenAccountPubkey1",
-      "ownerAccount": "WalletOwnerPubkey1",
-      "amount": "1000000000000",
-      "decimals": 6,
-      "uiAmount": 1000000,
-      "uiAmountString": "1000000.0"
-    }
-  ]
-}
-```
+**Endpoints:**
+- `POST /users/me/favorites` - Add wallet to favorites
+- `DELETE /users/me/favorites/{walletAddress}` - Remove wallet from favorites
+- `PUT /users/me/favorites/{walletAddress}` - Update favorite wallet
+- `POST /users/me/favorites/{walletAddress}/viewed` - Mark wallet as viewed
+- `GET /users/me/favorites` - Get all favorite wallets
+- `GET /users/me/favorites/tags` - Get favorite tags
+- `GET /users/me/favorites/collections` - Get favorite collections
 
-#### User Favorites (`/user-favorites`)  
-- Personal wallet favorites management
-- User-specific collections and tags
+**Authentication:** Required  
+**Rate Limiting:** Standard
 
-#### Test Controller (`/test`)
-- Development and testing endpoints
-- System validation utilities
+#### Token Info Module (`/token-info`)
+Token metadata retrieval and caching system.
+
+**Endpoints:**
+- `POST /token-info` - Request token metadata enrichment
+
+**Authentication:** Required  
+**Rate Limiting:** Standard
+
+#### Bot Integration Module (`/bot`)
+External bot integration and monitoring endpoints.
+
+**Endpoints:**
+- `GET /bot/health` - Bot health check endpoint
+- `GET /bot/security-summary` - Security summary for bot reporting
+- `GET /bot/critical-alerts` - Get critical security alerts
+- `POST /bot/acknowledge` - Acknowledge alerts from external bot
+
+**Authentication:** Required  
+**Rate Limiting:** 10-60 requests/minute (varies by endpoint)
+
+#### Test Controller (`/test-auth`)
+Development and testing endpoints for authentication validation.
+
+**Endpoints:**
+- Various test endpoints for development
+
+**Authentication:** Varies by endpoint  
+**Rate Limiting:** Standard
+
+#### Health Module (`/health`)
+System health monitoring and status checks.
+
+**Endpoints:**
+- `GET /health` - Basic system health check
+
+**Authentication:** Not required  
+**Rate Limiting:** Standard
 
 ---
 
@@ -313,6 +380,48 @@ All analysis endpoints return job IDs that can be monitored via the Jobs API. Th
 }
 ```
 
+### Authentication Error Responses
+
+#### Invalid Credentials
+```json
+{
+  "statusCode": 401,
+  "message": "Invalid email or password",
+  "error": "Unauthorized",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+#### Token Expired
+```json
+{
+  "statusCode": 401,
+  "message": "Token has expired",
+  "error": "Unauthorized",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+#### Demo User Restriction
+```json
+{
+  "statusCode": 403,
+  "message": "This wallet is not available in the Demo account.",
+  "error": "Forbidden",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
+#### Email Already Verified
+```json
+{
+  "statusCode": 409,
+  "message": "Email is already verified",
+  "error": "Conflict",
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
 ---
 
 ## Rate Limiting & Caching
@@ -331,10 +440,265 @@ All analysis endpoints return job IDs that can be monitored via the Jobs API. Th
 
 ## Authentication & Security
 
-### API Key Authentication
-All endpoints (except health) require API key authentication via:
-- Header: `Authorization: Bearer {api_key}`
-- Header: `X-API-Key: {api_key}`
+### Dual Authentication System
+The API supports two authentication methods via `CompositeAuthGuard` (tries JWT first, falls back to API key):
+
+#### 1. JWT Authentication (Primary - For Human Users)
+- **Header:** `Authorization: Bearer {access_token}`
+- **Cookie:** If cookie mode is enabled (`AUTH_COOKIE_MODE=true`), an HTTP-only cookie carries the short-lived access token
+- **Token Type:** JWT (JSON Web Token)
+- **Expiration:** 30 minutes by default (configurable via `JWT_EXPIRES_IN`)
+- **Refresh:** Rotating refresh tokens (7-day sliding window) stored hashed in Redis
+- **Features:**
+  - Stateless authentication with identity only (`sub`, `email` - NO scopes)
+  - Built-in expiration handling with automatic refresh flow
+  - User context caching (15 minutes)
+  - Enhanced claims: `kid`, `iss`, `aud`, `nbf` for validation
+  - Replay detection on refresh token reuse (revokes entire session chain)
+  - Optional HTTP-only cookie support with CSRF protection
+
+**Why No Scopes in JWT?**
+- ✅ Instant admin revocation (change `ADMIN_USER_IDS` env → restart)
+- ✅ Simpler for human users (no scope management UI needed)
+- ✅ Smaller token payload (faster transmission)
+- ✅ Separation of concerns: Identity (JWT) vs Permissions (API keys)
+
+#### 2. API Key Authentication (For Services & Legacy)
+- **Header:** `X-API-Key: {api_key}`
+- **Format:** Prefixed keys (`ak_live_*` for production, `ak_test_*` for development)
+- **Scopes:** `'read' | 'report' | 'analysis' | 'admin' | 'full'`
+- **Features:**
+  - Permission-based access control (scopes embedded in key)
+  - Backward compatibility with legacy integrations
+  - API key caching (5 minutes)
+  - Used for services: Prometheus scraping, CI/CD, external integrations
+  - Scope validation via `ApiKeyService.hasScope()`
+
+**Use Cases:**
+- **JWT**: Human users with browser/Postman, admin checks via `ADMIN_USER_IDS`
+- **API Keys**: Services with specific scopes (Prometheus = `admin`, CI/CD = `read`)
+
+### Cookie Authentication Support
+
+The API supports optional HTTP-only cookie authentication for enhanced security:
+
+#### Configuration
+- **Environment Variable:** `AUTH_COOKIE_MODE=true`
+- **Cookie Name:** `analyzer.sid` (configurable via `AUTH_COOKIE_NAME`)
+- **Security:** HTTP-only, Secure, SameSite=strict
+- **Expiration:** Matches access token TTL (default 30 minutes)
+
+#### Cookie Behavior
+- **Auto-Set:** Cookies are automatically set on successful login/registration
+- **Auto-Clear:** Cookies are cleared on logout
+- **Fallback:** Header authentication still works when cookies are disabled
+- **Security:** Prevents XSS attacks via HTTP-only flag; CSRF protection is enforced for mutating requests when cookie mode is enabled
+
+### Authentication Flow
+
+#### Registration
+```http
+POST /api/auth/register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123"
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "isDemo": false,
+    "emailVerified": false
+  }
+}
+```
+
+**Note:** API key is created internally but NOT returned (intentional design - use API key management endpoints if needed)
+
+#### Login
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123"
+}
+```
+
+**Response:** Same as registration
+
+#### Token Refresh
+```http
+POST /api/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "isDemo": false,
+    "emailVerified": true
+  }
+}
+```
+
+**Note:** Refresh token is rotated on each refresh (old token revoked, new token issued)
+
+#### Profile Access
+```http
+GET /api/auth/me
+Authorization: Bearer {jwt_token}
+```
+
+**Response:**
+```json
+{
+  "id": "user_123",
+  "email": "user@example.com",
+  "isDemo": false,
+  "emailVerified": true,
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "lastLoginAt": "2024-01-01T12:00:00.000Z"
+}
+```
+
+### Email Verification System
+
+#### Request Verification
+```http
+POST /api/auth/request-verification
+Authorization: Bearer {jwt_token}
+```
+
+#### Verify Email
+```http
+POST /api/auth/verify-email
+Authorization: Bearer {jwt_token}
+Content-Type: application/json
+
+{
+  "token": "verification_token_here"
+}
+```
+
+### User Types & Permissions
+
+#### Administrator Users
+- **Configuration:** Set via `ADMIN_USER_IDS` (comma-separated user IDs) or `ADMIN_EMAILS` (comma-separated emails)
+- **Access:** All regular user features PLUS admin-only endpoints
+- **Admin-Only Endpoints:**
+  - `/health/detailed` - Comprehensive health metrics
+  - `/health/queues` - Queue and Redis status
+  - `/health/cache-metrics` - Cache statistics
+  - `/health/metrics` - Prometheus metrics
+- **Revocation:** Change env vars + restart = instant access removal (no token refresh needed)
+- **Check:** `AdminGuard` verifies user against admin lists on each request
+
+#### Regular Users
+- Full access to all wallet analysis features
+- Can create, edit, and delete notes
+- Can manage favorites
+- Access to all wallet addresses
+- **Cannot** access admin-only health/monitoring endpoints
+
+#### Demo Users
+- **Restricted Access:** Limited to predefined demo wallets
+- **Read-Only:** Cannot perform write operations (except favorites)
+- **Notes:** Can only read notes, cannot create/edit/delete
+- **Wallet Access:** Only demo wallets from `DEMO_WALLETS` environment variable
+
+### Security Features
+
+#### Password Security
+- **Minimum Length:** 8 characters
+- **Requirements:** Uppercase, lowercase, and number
+- **Hashing:** bcrypt with 12 salt rounds
+- **Pepper:** Additional secret pepper for enhanced security
+
+#### JWT Security
+- **Secret Validation:** JWT secret must meet security requirements
+- **Token Structure:** Contains user ID and email
+- **Expiration:** Automatic token expiration
+- **Validation:** Database user validation on each request
+
+#### Rate Limiting
+- **Registration:** 5 requests/minute
+- **Login:** 10 requests/minute
+- **Email Verification Request:** 10 requests per 5 minutes
+- **Email Verification:** 3 attempts per 5 minutes
+- **Profile Access (`/users/me`):** 30 requests/minute
+- **Profile Access (`/auth/me`):** No rate limiting
+- **Security Metrics:** 10 requests/minute
+- **Security Health:** 20 requests/minute
+- **Security Alerts:** 20 requests/minute
+
+### Security Monitoring
+
+#### Security Metrics
+```http
+GET /api/security/metrics?timeRange=hour
+Authorization: Bearer {jwt_token}
+```
+
+**Response:**
+```json
+{
+  "securityEvents": {
+    "totalEvents": 150,
+    "eventsBySeverity": {
+      "LOW": 100,
+      "MEDIUM": 40,
+      "HIGH": 8,
+      "CRITICAL": 2
+    },
+    "eventsByType": {
+      "AUTH_FAILURE": 50,
+      "RATE_LIMIT": 30,
+      "SUSPICIOUS_ACTIVITY": 20
+    },
+    "uniqueIpsWithIssues": 15,
+    "recentSuspiciousActivity": [...],
+    "topRiskIps": [...]
+  },
+  "throttlerStats": {
+    "blockedIps": 5,
+    "recentEvents": 25,
+    "topViolatingIps": [...]
+  },
+  "timestamp": "2024-01-01T12:00:00.000Z",
+  "timeRange": "hour"
+}
+```
+
+#### Security Health Check
+```http
+GET /api/security/health
+Authorization: Bearer {jwt_token}
+```
+
+#### Active Alerts
+```http
+GET /api/security/alerts
+Authorization: Bearer {jwt_token}
+```
 
 ### User Context
 Authenticated requests include user context for:
@@ -342,6 +706,7 @@ Authenticated requests include user context for:
 - User-specific data (notes, favorites)
 - Rate limiting per user
 - Access control and permissions
+- Demo user restrictions
 
 ---
 
@@ -371,11 +736,13 @@ Authenticated requests include user context for:
 
 ### Common HTTP Status Codes
 - `200` - Success
+- `201` - Created (user registration)
 - `202` - Accepted (async operation queued)
 - `400` - Bad Request (validation errors)
-- `401` - Unauthorized (missing/invalid API key)
-- `403` - Forbidden (access denied)
+- `401` - Unauthorized (missing/invalid credentials)
+- `403` - Forbidden (access denied, demo user restrictions)
 - `404` - Not Found (wallet/resource not found)
+- `409` - Conflict (user already exists, email already verified)
 - `429` - Too Many Requests (rate limit exceeded)
 - `500` - Internal Server Error
 - `503` - Service Unavailable (system overload)

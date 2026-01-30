@@ -1,7 +1,7 @@
 // Default number of recent transactions to analyze per wallet
 export const DEFAULT_RECENT_TRANSACTION_COUNT = 500;
 
-// Mints to exclude from analysis (common tokens, system tokens, etc.)
+// Mints to exclude from analysis (common tokens, system tokens, wrapped tokens, etc.)
 export const DEFAULT_EXCLUDED_MINTS = [
   'So11111111111111111111111111111111111111112', // Wrapped SOL
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
@@ -10,15 +10,37 @@ export const DEFAULT_EXCLUDED_MINTS = [
   '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', // stSOL
   'rndrizKT3MK1iimdxRdWabcF7Zb7nx9Vi3CY6A5J9NK', // rndr
   '8888xhvqnTWZ6tNbfAyP8mLLfaKsqfiW33tgA8RZ8888', // memeSOL - fake/scam token
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // usdc1
+
+  // Wrapped tokens (Wormhole, Sollet, Allbridge, etc.)
+  'KgV1GvrHQmRBY8sHQQeUKwTm2r2h8t4C8qt12Cw1HVE', // Wrapped AVAX (Wormhole)
+  'eqKJTf1Do4MDPyKisMYqVaUFpkEFAs3riGF3ceDH2Ca', // Wrapped USDC (Allbridge from Polygon)
+  'WFRGB49tP8CdKubqCdt5Spo2BdGS4BpgoinNER5TYUm', // Wrapped Fragmetric Staked BTC
+  'CWE8JPTUYhdCTZYWPTe1o5DFqfdjzWKc9WKz6rSjQUdG', // Wrapped Chainlink (Sollet)
+  '6VYF5jXq6rfq4QRgGMG6c07b1Ev1Lj7KSbHBxfQ9e1L3', // Wrapped Dingocoin
+  'AGFEad2et2ZJif9jaGpdMixQqvW5i81aBdvKe7PHNfz3', // Wrapped FTT (Sollet)
+  'GXMvfY2jpQctDqZ9RoU3oWPhufKiCcFEfchvYumtX7jd', // Wrapped TOMO (Sollet)
+  'CsZ5LZkDS7h9TDKjrbL7VAWQZ9nsRu8vJLhRYfmGaN8K', // Wrapped ALEPH (Sollet)
+  '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh', // Wrapped BTC (Wormhole)
+  'cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij', // Coinbase Wrapped BTC
+  '5XZw2LKTyrfvfiskJ78AMpackRjPcyCif1WhUsPDuVqQ', // Wrapped BTC
+  '7vfCXTUXX5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // Wrapped Ether (Wormhole)
+  'CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn', // OKX Wrapped BTC
+  'BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4', // Wrapped USDT (Sollet)
+  '2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk', // Wrapped Ethereum (Sollet)
+  '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E', // Wrapped Bitcoin (Sollet)
+  '9gP2kCy3wA1ctvYWQk75guqXuHfrEomqydHLtcTCqiLa', // Wrapped BNB (Wormhole)
+  'AR1Mtgh7zAtxuxGd2XPovXPVjcSdY3i4rQYisNadjfKy', // Wrapped SUSHI (Sollet)
+  'JEFFSQ3s8T3wKsvp4tnRASUBW7Cqgnf8ukBZC4C8XBm1', // Saber Wrapped USD Coin (9 decimals)
 ];
 
 // Define specific program IDs
 export const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxAPds';
+export const TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
 // Consider if SOL_TOKEN_PROGRAM_ID is still needed or if its usages should be updated.
 // For now, I'll leave it commented out or you can decide to remove it if it's fully replaced.
-// export const SOL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA, TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxAPds';
+// export const SOL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA, TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
 export const ASSOCIATED_TOKEN_PROGRAM_ID = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 
@@ -67,6 +89,7 @@ const getEnvNumber = (key: string, fallback: number): number => {
 export const ANALYSIS_EXECUTION_CONFIG = {
   SIMILARITY_LAB_MAX_SIGNATURES: getEnvNumber('SIMILARITY_LAB_MAX_SIGNATURES', 500),
   DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 4000),
+  HOLDER_PROFILES_MAX_SIGNATURES: getEnvNumber('HOLDER_PROFILES_MAX_SIGNATURES', 2000), // Wallet sync cap for holder profiles
 } as const;
 
 export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
@@ -113,9 +136,10 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
-  DEFAULT_RPS: 25, // Conservative rate limit
+  DEFAULT_RPS: 40, // ⚡ OPTIMIZED: Using full Developer tier capacity (was 25, wasting 50% of available RPS!)
   INTERNAL_CONCURRENCY: 10, // Sequential processing to avoid burst detection
   BATCH_SIZE: 100, // Reduced batch size
+  SIGNATURE_FETCH_SAFETY_MULTIPLIER: getEnvNumber('HELIUS_SIGNATURE_SAFETY_MULTIPLIER', 5), // Stop pagination if we massively overshoot requested maxSignatures
 } as const;
 
 // --- Helius V2 Pagination Feature Flag & Tuning ---
@@ -147,7 +171,7 @@ export const HELIUS_V2_CONFIG = {
 
 // Queue and processing configuration
 export const PROCESSING_CONFIG = {
-  WALLET_SYNC_CONCURRENCY: getEnvNumber('WALLET_SYNC_CONCURRENCY', 3),
+  WALLET_SYNC_CONCURRENCY: getEnvNumber('WALLET_SYNC_CONCURRENCY', 5), // ⚡ OPTIMIZED: Increased from 3 to better utilize 50 RPS (2x more parallel wallet syncs)
   BATCH_PROCESSING_TIMEOUT_MS: getEnvNumber('BATCH_PROCESSING_TIMEOUT_MS', 30 * 60 * 1000),
   FAILURE_THRESHOLD: Number.isFinite(Number(process.env.FAILURE_THRESHOLD)) ? Math.min(Math.max(Number(process.env.FAILURE_THRESHOLD), 0), 1) : 0.8,
   RETRY_ATTEMPTS: getEnvNumber('RETRY_ATTEMPTS', 1),
@@ -256,10 +280,103 @@ export const KNOWN_SYSTEM_WALLETS = [
   // Add more as they're discovered
 ] as const;
 
+// =============================================================================
+// BEHAVIORAL ANALYSIS CONFIGURATION
+// =============================================================================
+
+// Holder Profile Analysis - Token Categorization Thresholds
+export const BEHAVIOR_ANALYSIS_CONFIG = {
+  // Token lifecycle completion criteria
+  HISTORICAL_PATTERN: {
+    MINIMUM_COMPLETED_CYCLES: 1,        // Accept tokens with at least 1 complete buy-sell cycle (was: 3)
+    MAXIMUM_DATA_AGE_DAYS: 10000,       // Include all historical data, no time limit (was: 90)
+    MIN_VALID_HOLD_HOURS: 0.0001,       // ~0.36 seconds minimum (prevents true zero/corruption) - from analyzer.ts:231
+    MAX_VALID_HOLD_HOURS: 18760,        // 1 year maximum - from analyzer.ts:232
+  },
+
+  // Position exit detection thresholds
+  HOLDING_THRESHOLDS: {
+    EXIT_THRESHOLD: 0.80,               // Position considered "exited" when <=80% of peak remains (was: 0.20) - creates binary split
+    MINIMUM_SOL_VALUE: 0.001,           // Minimum SOL value for dust filtering - from analyzer.ts:1212
+    MINIMUM_PERCENTAGE_REMAINING: 0.05, // Minimum % of original for dust filtering - from analyzer.ts:1213
+    MINIMUM_HOLDING_TIME_SECONDS: 60,   // Minimum time held for dust filtering - from analyzer.ts:1214
+  },
+
+  // Scam token filtering
+  SCAM_FILTERING: {
+    ENABLED: true,                      // Enable scam token filtering
+    LOG_FILTERED_TOKENS: false,         // Log details about filtered tokens
+    STRICT_MODE: false,                 // Use stricter thresholds
+    THRESHOLDS: {
+      MIN_TRADE_COUNT: 100,             // Minimum trade count for scam detection - from analyzer.ts:1957
+      MIN_TOTAL_VALUE: 0.001,           // Minimum total SOL value - from analyzer.ts:1958
+      MIN_TOTAL_USDC_VALUE: 5,          // Minimum total USDC value - from analyzer.ts:1959
+    },
+  },
+
+  // Session analysis parameters
+  SESSION_ANALYSIS: {
+    SESSION_GAP_THRESHOLD_HOURS: 2,     // Gap > 2 hours creates new session
+  },
+
+  // Trading analysis thresholds
+  TRADING_ANALYSIS: {
+    MIN_TRADES_FOR_ANALYSIS: 5,         // Minimum trades for reliable analysis - from analyzer.ts:1550
+    MIN_TOKENS_WITH_TRADES: 2,          // Minimum tokens with both buys/sells - from analyzer.ts:1550
+  },
+
+  // Time-based bucket boundaries (in hours) - shared between different analyses
+  TIME_BUCKETS: {
+    INSTANT: 0.0001,     // < 0.36 seconds (same transaction)
+    ULTRA_FAST: 1/60,    // < 1 minute
+    VERY_FAST: 1/60,     // < 1 minute (alias for consistency)
+    FAST: 5/60,          // 1-5 minutes
+    MOMENTUM: 0.5,       // 5-30 minutes / < 30 min for trading speed
+    MODERATE: 1,         // 30-60 min / 1 hour
+    INTRADAY: 4,         // 1-4 hours
+    DAY_TRADER: 8,       // 4-8 hours
+    DAY: 24,             // 8-24 hours / 4-24 hours for hold times
+    SWING: 168,          // 1-7 days (24*7)
+    // POSITION: > 168 hours (7+ days)
+  },
+
+  // Behavior classification thresholds
+  BEHAVIOR_CLASSIFICATION: {
+    FULL_HOLDER_THRESHOLD: 0.75,  // Position >75% remaining = FULL_HOLDER
+    BALANCED_SYMMETRY_MIN: 0.7,   // Min symmetry for BALANCED classification
+    BALANCED_CONSISTENCY_MIN: 0.7, // Min consistency for BALANCED classification
+    ACCUMULATOR_RATIO_MIN: 2.5,    // Buy/sell ratio >2.5 = ACCUMULATOR
+    DISTRIBUTOR_RATIO_MAX: 0.4,    // Buy/sell ratio <0.4 = DISTRIBUTOR
+    HOLDER_RATIO_MIN: 1.5,         // Buy/sell ratio >1.5 = HOLDER
+  },
+
+  // Flipper score calculation weights - from analyzer.ts:1514-1529
+  FLIPPER_SCORE: {
+    ULTRA_FAST_WEIGHT: 0.85,    // Weight for ultra-fast trading
+    VERY_FAST_WEIGHT: 0.10,     // Weight for very fast trading
+    FAST_WEIGHT: 0.05,          // Weight for fast trading
+    SPEED_WEIGHT: 0.7,          // Overall speed weight in final score
+    BALANCE_WEIGHT: 0.3,        // Balance weight in final score
+    ULTRA_FAST_DOMINANCE_MIN: 0.5, // Min ultra-fast % to trigger bonus
+    DOMINANCE_BONUS: 0.2,       // Bonus added when ultra-fast dominates
+  },
+
+  // Confidence score calculation weights - from analyzer.ts:1600-1617
+  CONFIDENCE_SCORE: {
+    DATA_QUALITY_WEIGHT: 0.4,   // Weight for data quality in confidence
+    DEFAULT_DATA_QUALITY: 0.5,  // Default data quality when not available
+    SAMPLE_SIZE_BONUS_10: 0.3,  // Bonus for 10+ completed cycles
+    SAMPLE_SIZE_BONUS_5: 0.2,   // Bonus for 5+ completed cycles
+    SAMPLE_SIZE_BONUS_3: 0.1,   // Bonus for 3+ completed cycles
+    BALANCE_WEIGHT: 0.3,        // Weight for balance consistency
+    MAX_CONFIDENCE: 1.0,        // Maximum confidence score
+  },
+} as const;
+
 // Wallet classification types for database tagging
 export const WALLET_CLASSIFICATIONS = {
   NORMAL: 'NORMAL',           // Regular user wallet
-  SYSTEM: 'SYSTEM',           // System/protocol account  
+  SYSTEM: 'SYSTEM',           // System/protocol account
   JUPITER: 'JUPITER',         // Jupiter aggregator account
   EXCHANGE: 'EXCHANGE',       // CEX deposit/withdrawal account
   BOT: 'BOT',                 // Trading bot account

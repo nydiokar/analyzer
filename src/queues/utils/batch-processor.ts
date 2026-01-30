@@ -157,7 +157,8 @@ export class BatchProcessor {
     jobGetter: (jobId: string) => Promise<{ isCompleted(): boolean; isFailed(): boolean; returnvalue?: T } | null>,
     failureThreshold = 0.8,
     timeoutMs = 30 * 60 * 1000,
-    pollIntervalMs = 1000
+    pollIntervalMs = 1000,
+    onJobResult?: (result: BatchResult<T>) => Promise<void> | void
   ): Promise<BatchSummary<T>> {
     const startTime = Date.now();
     const results: BatchResult<T>[] = [];
@@ -172,31 +173,43 @@ export class BatchProcessor {
           
           if (!job) {
             // Job not found - consider it failed
-            results.push({
+            const result: BatchResult<T> = {
               success: false,
               error: 'Job not found',
               processingTimeMs: Date.now() - startTime,
               itemId: jobId
-            });
+            };
+            results.push(result);
+            if (onJobResult) {
+              await onJobResult(result);
+            }
             pendingJobs.delete(jobId);
             return;
           }
 
           if (job.isCompleted()) {
-            results.push({
+            const result: BatchResult<T> = {
               success: true,
               data: job.returnvalue,
               processingTimeMs: Date.now() - startTime,
               itemId: jobId
-            });
+            };
+            results.push(result);
+            if (onJobResult) {
+              await onJobResult(result);
+            }
             pendingJobs.delete(jobId);
           } else if (job.isFailed()) {
-            results.push({
+            const result: BatchResult<T> = {
               success: false,
               error: 'Job failed',
               processingTimeMs: Date.now() - startTime,
               itemId: jobId
-            });
+            };
+            results.push(result);
+            if (onJobResult) {
+              await onJobResult(result);
+            }
             pendingJobs.delete(jobId);
           }
         } catch (error) {
@@ -213,14 +226,18 @@ export class BatchProcessor {
 
     // Handle timeout - mark remaining jobs as failed
     if (pendingJobs.size > 0) {
-      pendingJobs.forEach(jobId => {
-        results.push({
-          success: false,
-          error: 'Job timeout',
-          processingTimeMs: Date.now() - startTime,
-          itemId: jobId
-        });
-      });
+    for (const jobId of pendingJobs) {
+      const result: BatchResult<T> = {
+        success: false,
+        error: 'Job timeout',
+        processingTimeMs: Date.now() - startTime,
+        itemId: jobId
+      };
+      results.push(result);
+      if (onJobResult) {
+        await onJobResult(result);
+      }
+    }
     }
 
     const processingTimeMs = Date.now() - startTime;

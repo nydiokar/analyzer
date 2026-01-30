@@ -112,7 +112,7 @@ export interface HistoricalPattern {
   historicalAverageHoldTimeHours: number;      // Weighted average (economic impact)
   completedCycleCount: number;                 // Sample size
   behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
-  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
+  exitPattern: 'GRADUAL' | 'ALL AT ONCE';
   dataQuality: number;                         // 0-1 confidence score
   observationPeriodDays: number;
   holdTimeTokenMap?: {

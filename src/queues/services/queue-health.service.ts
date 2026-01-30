@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { Redis, RedisOptions } from 'ioredis';
+import { Redis } from 'ioredis';
 import { redisConfig } from '../config/redis.config';
+import { REDIS_CLIENT } from '../config/redis.provider';
 
 export interface QueueHealthStatus {
   queueName: string;
@@ -79,19 +80,8 @@ export class QueueHealthService implements OnModuleInit {
   private readonly BATCH_SIZE = 100; // Limit job fetching
   private healthCheckTimer?: NodeJS.Timeout;
 
-  constructor() {
-    // Create Redis instance using environment variables directly for type safety
-    const ioredisOptions: RedisOptions = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379', 10),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0', 10),
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: false,
-      lazyConnect: true,
-    };
-    
-    this.redis = new Redis(ioredisOptions);
+  constructor(@Inject(REDIS_CLIENT) redisClient: Redis) {
+    this.redis = redisClient;
   }
 
   /**
@@ -122,88 +112,56 @@ export class QueueHealthService implements OnModuleInit {
     }
 
     try {
-      // Get queue statistics (optimized with batch limits)
-      const [waiting, active, completed, failed, delayed] = await Promise.all([
-        queue.getWaiting(0, this.BATCH_SIZE), // Limit to first 100 waiting jobs
-        queue.getActive(0, 50), // Limit to first 50 active jobs
-        queue.getCompleted(0, 20), // Limit to first 20 completed jobs for metrics
-        queue.getFailed(0, 20), // Limit to first 20 failed jobs for metrics
-        queue.getDelayed(0, 10), // Limit to first 10 delayed jobs
+      // Get queue statistics using lightweight count methods (no job objects loaded!)
+      const [waiting, active, completed, failed, delayed, isPaused] = await Promise.all([
+        queue.getWaitingCount(),
+        queue.getActiveCount(),
+        queue.getCompletedCount(),
+        queue.getFailedCount(),
+        queue.getDelayedCount(),
+        queue.isPaused(),
       ]);
 
       const stats = {
-        waiting: waiting.length,
-        active: active.length,
-        completed: completed.length,
-        failed: failed.length,
-        delayed: delayed.length,
-        paused: await queue.isPaused() ? 1 : 0,
+        waiting,
+        active,
+        completed,
+        failed,
+        delayed,
+        paused: isPaused ? 1 : 0,
       };
 
       // Calculate health metrics
       const totalJobs = stats.waiting + stats.active + stats.completed + stats.failed;
       const failureRate = totalJobs > 0 ? stats.failed / totalJobs : 0;
-      const isPaused = stats.paused > 0;
 
       // Check for issues
       const issues: string[] = [];
-      
+
       if (stats.waiting > this.QUEUE_HEALTH_THRESHOLDS.maxWaitingJobs) {
         issues.push(`Too many waiting jobs: ${stats.waiting}`);
       }
-      
+
       if (stats.active > this.QUEUE_HEALTH_THRESHOLDS.maxActiveJobs) {
         issues.push(`Too many active jobs: ${stats.active}`);
       }
-      
+
       if (failureRate > this.QUEUE_HEALTH_THRESHOLDS.maxFailureRate) {
         issues.push(`High failure rate: ${(failureRate * 100).toFixed(1)}%`);
       }
-      
+
       if (isPaused) {
         issues.push('Queue is paused');
-      }
-
-      // Check for stale active jobs (optimized - check only first 20 jobs)
-      const now = Date.now();
-      let staleJobs = 0;
-      let lastJobProcessed: Date | undefined;
-
-      const jobsToCheck = active.slice(0, 20); // Only check first 20 active jobs for performance
-      for (const job of jobsToCheck) {
-        if (job.processedOn && (now - job.processedOn) > this.STALE_JOB_THRESHOLD) {
-          staleJobs++;
-        }
-        if (job.processedOn && (!lastJobProcessed || job.processedOn > lastJobProcessed.getTime())) {
-          lastJobProcessed = new Date(job.processedOn);
-        }
-      }
-
-      if (staleJobs > 0) {
-        issues.push(`${staleJobs} stale active jobs detected`);
       }
 
       // Determine overall status
       let status: 'healthy' | 'degraded' | 'unhealthy';
       if (issues.length === 0) {
         status = 'healthy';
-      } else if (issues.some(issue => issue.includes('paused') || issue.includes('stale'))) {
+      } else if (issues.some(issue => issue.includes('paused'))) {
         status = 'unhealthy';
       } else {
         status = 'degraded';
-      }
-
-      // Calculate average processing time from recent completed jobs (optimized sample size)
-      let avgProcessingTime: number | undefined;
-      if (completed.length > 0) {
-        const recentCompleted = completed.slice(0, 5); // Only last 5 jobs for performance
-        const processingTimes = recentCompleted
-          .filter(job => job.processedOn && job.finishedOn)
-          .map(job => job.finishedOn! - job.processedOn!);
-        
-        if (processingTimes.length > 0) {
-          avgProcessingTime = processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length;
-        }
       }
 
       return {
@@ -214,9 +172,8 @@ export class QueueHealthService implements OnModuleInit {
           isRunning: !isPaused && stats.active >= 0,
           isPaused,
           processingCapacity: this.QUEUE_HEALTH_THRESHOLDS.maxActiveJobs,
-          avgProcessingTime,
           errorRate: failureRate,
-          lastJobProcessed,
+          // avgProcessingTime and lastJobProcessed removed (would require fetching job objects)
         },
         issues,
       };
@@ -411,8 +368,16 @@ export class QueueHealthService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    this.healthCheckTimer = setInterval(async () => {
-      await this.getOverallHealth();
-    }, this.HEALTH_CHECK_INTERVAL);
+    // Health checks now run ON-DEMAND only (via API endpoint)
+    // Removed automatic polling to prevent memory accumulation from fetching 760+ job objects every 30s
+    this.logger.log('QueueHealthService initialized (on-demand mode). Access via /health/queues endpoint.');
   }
-} 
+
+  async onModuleDestroy() {
+    // Cleanup timer if it was ever set (future-proofing)
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+    }
+    // Shared Redis connection is managed centrally
+  }
+}

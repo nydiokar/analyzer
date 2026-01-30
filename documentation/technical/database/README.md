@@ -748,6 +748,94 @@ export async function monitorQueryPerformance() {
 
 ---
 
+## 🗄️ Database Architecture Implementation
+
+### SQLite vs PostgreSQL Strategy
+
+**Current Implementation**: SQLite for development and initial production, planned migration to PostgreSQL
+
+**SQLite Benefits (Current)**:
+- Zero-config deployment - single file database
+- Excellent for development and testing
+- No server management required
+- Perfect for single-writer, read-heavy workloads
+
+**PostgreSQL Migration Plan**:
+- Triggered by concurrency limits or complex query performance issues
+- Expected scale: 50k+ transactions per wallet analysis
+- Advanced features needed: complex aggregations, advanced indexing, connection pooling
+
+**Trade-offs**:
+- ✅ **SQLite Pros**: Simple setup, fast development, sufficient for current scale
+- ❌ **SQLite Cons**: Limited concurrency, no advanced enterprise features
+- ✅ **PostgreSQL Pros**: Enterprise-grade, advanced indexing, better concurrency
+- ❌ **PostgreSQL Cons**: Complex setup, resource requirements, operational overhead
+
+### Prisma ORM Implementation
+
+**Type Safety First**:
+```typescript
+// Generated types ensure compile-time safety
+const wallet = await prisma.wallet.findUnique({
+  where: { address: 'wallet_address' },
+  include: {
+    pnlSummary: true,        // Type-safe includes
+    behaviorProfile: true,   // Compile-time validation
+    AnalysisResult: true     // IntelliSense support
+  }
+});
+```
+
+**Migration System**:
+```bash
+# Generate and apply migrations
+npx prisma migrate dev --name add-bot-detection
+npx prisma generate  # Update TypeScript types
+```
+
+**Query Builder Features**:
+- Type-safe database operations
+- Automatic SQL injection prevention
+- Optimized query generation
+- Built-in connection pooling
+
+**Performance Characteristics**:
+- Minimal overhead for simple queries
+- Excellent for complex joins and aggregations
+- Connection pooling for high concurrency
+- Automatic query optimization
+
+### Database Schema Design Principles
+
+**Normalized Structure**:
+- Clear entity relationships (Wallet → AnalysisResult)
+- Foreign key constraints for data integrity
+- Cascading deletes to prevent orphaned records
+- Unique constraints to prevent duplicate data
+
+**Indexing Strategy**:
+```sql
+-- Performance indexes for common queries
+CREATE INDEX idx_wallet_classification ON Wallet(classification);
+CREATE INDEX idx_wallet_confidence ON Wallet(classificationConfidence);
+CREATE INDEX idx_analysis_wallet_pnl ON AnalysisResult(walletAddress, netSolProfitLoss);
+CREATE INDEX idx_swap_wallet_time ON SwapAnalysisInput(walletAddress, timestamp);
+```
+
+**Data Integrity Constraints**:
+- Foreign key relationships prevent invalid references
+- Unique constraints on critical fields
+- Check constraints for data validation
+- Transaction support for multi-table operations
+
+**Scalability Considerations**:
+- Efficient for current scale (up to 50k transactions/wallet)
+- Optimized query patterns for common analysis operations
+- Batch processing support for large datasets
+- Connection pooling ready for PostgreSQL migration
+
+---
+
 ## 📚 **Related Documentation**
 
 - **[Core Analysis Engine](./../core/README.md)** - Business logic implementation

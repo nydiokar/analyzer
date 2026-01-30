@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Job, Worker, QueueEvents } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
 import { ComprehensiveSimilarityFlowData, SimilarityFlowResult } from '../jobs/types';
@@ -13,21 +13,22 @@ import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
 import { BehaviorService } from '../../api/services/behavior.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
-import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { generateJobId } from '../utils/job-id-generator';
 import { WalletBalance } from '../../types/wallet';
 import { Wallet } from '@prisma/client';
 import { BatchProcessor } from '../utils/batch-processor';
 import { ANALYSIS_EXECUTION_CONFIG, PROCESSING_CONFIG } from '../../config/constants';
-import { join } from 'path';
-import { pathToFileURL } from 'url';
 import { KNOWN_SYSTEM_WALLETS, WALLET_CLASSIFICATIONS, SPL_TOKEN_PROGRAM_ID } from '../../config/constants';
+import { REDIS_CLIENT } from '../config/redis.provider';
+import Redis from 'ioredis';
 
 @Injectable()
 export class SimilarityOperationsProcessor implements OnModuleDestroy {
   private readonly logger = new Logger(SimilarityOperationsProcessor.name);
   private readonly worker: Worker;
   private readonly walletBalanceService: WalletBalanceService;
+  private readonly resultTtlSeconds = 15 * 60; // 15 minutes for clients to fetch results
+  private readonly PAYLOAD_WARN_BYTES = 5 * 1024 * 1024; // 5MB threshold
 
   constructor(
     private readonly redisLockService: RedisLockService,
@@ -40,25 +41,25 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly behaviorService: BehaviorService,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
-    private readonly websocketGateway: JobProgressGateway,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {
     // Note: In a proper NestJS setup, WalletBalanceService would be injected via constructor
     // For now, we'll keep the manual instantiation for the processor
     this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
-    
-    // RESTORED: Use proper worker architecture for production scalability
-    // The worker runs the logic from a separate file in a sandboxed process.
-    // We must convert the file path to a URL for ESM compatibility on Windows.
-    const workerPath = join(__dirname, '..', 'workers', 'similarity.worker.js');
-    const workerUrl = pathToFileURL(workerPath);
 
+    // FIXED: Run processor in main process instead of sandboxed worker
+    // This eliminates massive memory overhead from bootstrapping full NestJS app per job
+    // The sandboxed architecture was causing 500MB+ memory per job + 5 second cleanup delays
+    // Running in main process is standard BullMQ pattern and perfectly safe for I/O-bound work
     this.worker = new Worker(
       QueueNames.SIMILARITY_OPERATIONS,
-      workerUrl,
+      async (job: Job<ComprehensiveSimilarityFlowData>) => {
+        return await this.processSimilarityFlow(job);
+      },
       {
         ...config.workerOptions,
-        concurrency: 2, // Production concurrency
+        concurrency: 5, // Increased from 2 - inline processing eliminates 500MB overhead per job
       }
     );
 
@@ -76,8 +77,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * This method is now public so it can be called by the sandboxed worker process.
-   * It contains the core logic for the similarity analysis flow.
+   * Core logic for the similarity analysis flow.
+   * Runs directly in the main process for optimal memory efficiency.
    */
   public async processSimilarityFlow(job: Job<ComprehensiveSimilarityFlowData>): Promise<SimilarityFlowResult> {
     const { walletAddresses, requestId, walletsNeedingSync = [], enrichMetadata = true, failureThreshold = 0.8, timeoutMinutes = 45, similarityConfig } = job.data;
@@ -108,7 +109,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     try {
       this.logger.log(`Starting ADVANCED similarity analysis for ${walletAddresses.length} wallets.`);
       await job.updateProgress(5);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 5);
+      // Publish progress via bridge (centralized userId extraction)
+      // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Analysis initialization');
       
       // 🏷️ UNIFIED SYSTEM WALLET HANDLING: Handle both pre-tagged and dynamic detection
@@ -180,8 +182,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       
       // Log progress but don't block
       await job.updateProgress(10);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 10);
-
+      // BullMQ handles progress - bridge picks it up automatically
+      
       // ⚡ STEP 2: WAIT FOR BOTH TO COMPLETE
       this.logger.log('⏳ Waiting for BOTH sync and balance fetch to complete...');
       const [syncResult, balanceResult] = await Promise.allSettled([syncPromise, balancePromise]);
@@ -238,6 +240,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           enrichmentJob = await this.enrichmentOperationsQueue.addParallelEnrichmentJob({
             walletBalances: validWalletBalances,
             requestId,
+            userId: job.data.userId,
           });
           this.logger.log(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
           // DON'T wait for enrichment - keep it truly parallel!
@@ -249,7 +252,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       }
 
       await job.updateProgress(60);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 60);
+      // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Parallel operations completed');
 
       // STEP 3.5: Use only valid wallets that have balances for similarity calculation
@@ -289,21 +292,21 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         },
         balancesMap,
       );
-      
+
       await job.updateProgress(90);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 90);
+      // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
       // STEP 5: PREPARE RESULTS (The result from the service is now complete)
       this.logger.log('Similarity analysis completed successfully.');
 
       await job.updateProgress(100);
-      await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, 100);
+      // BullMQ handles progress - bridge picks it up automatically
       this.checkTimeout(startTime, timeoutMs, 'Final result preparation');
 
       const result: SimilarityFlowResult = {
         success: true,
-        data: similarityResult,
+        data: similarityResult, // Return the actual data, not just a resultKey
         requestId: requestId,
         timestamp: Date.now(),
         processingTimeMs: Date.now() - startTime,
@@ -320,7 +323,21 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       };
       
       const mode = 'full_sync_raw_balances_with_background_enrichment';
-      
+      const serialized = JSON.stringify(similarityResult);
+      const payloadSize = Buffer.byteLength(serialized, 'utf8');
+      if (payloadSize > this.PAYLOAD_WARN_BYTES) {
+        this.logger.warn(`Similarity result is large (${(payloadSize / 1024 / 1024).toFixed(2)} MB) for request ${requestId}`);
+      }
+
+      try {
+        await this.redisClient.set(this.buildResultKey(requestId), serialized, 'EX', this.resultTtlSeconds);
+        this.logger.debug(`Stored similarity result for ${requestId} with TTL ${this.resultTtlSeconds}s`);
+      } catch (storeError) {
+        this.logger.error(`Failed to store similarity result for ${requestId}:`, storeError);
+        // As a fallback, include the data directly if Redis storage fails
+        result.data = similarityResult as any;
+      }
+
       this.logger.log(`Advanced similarity analysis completed successfully in ${Date.now() - startTime}ms. Mode: ${mode}`);
       return result;
 
@@ -348,6 +365,10 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         this.logger.warn(`Failed to release lock ${lockKey}:`, lockError);
       }
     }
+  }
+
+  private buildResultKey(requestId: string) {
+    return `similarity:result:${requestId}`;
   }
 
 
@@ -396,7 +417,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           currentProgress += progressStep;
           const progress = Math.floor(currentProgress);
           await job.updateProgress(progress);
-          await this.websocketGateway.publishProgressEvent(job.id!, job.queueName, progress);
+          // BullMQ handles progress - bridge picks it up automatically
 
           return { walletAddress, status: 'completed' };
 
@@ -606,21 +627,22 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Cleanup worker when module is destroyed
+   * Shutdown the worker gracefully
    */
-  async onModuleDestroy() {
-    this.logger.log('Shutting down SimilarityOperationsProcessor...');
-    if (this.worker) {
-      await this.worker.close();
-    }
+  async shutdown(): Promise<void> {
+    this.logger.log('Shutting down SimilarityOperationsProcessor worker...');
+    await this.worker.close();
   }
 
   /**
-   * Shutdown the worker gracefully
+   * Cleanup worker when module is destroyed
    */
-  async onApplicationShutdown(): Promise<void> {
-    this.logger.log('Shutting down SimilarityOperationsProcessor...');
-    await this.worker.close();
+  async onModuleDestroy() {
+    try {
+      await this.shutdown();
+    } catch (err) {
+      this.logger.warn('Error shutting down SimilarityOperationsProcessor worker', err as Error);
+    }
   }
 
 

@@ -54,7 +54,7 @@ export interface WalletHistoricalPattern {
 
   // Behavioral classification (granular memecoin trading patterns)
   behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
-  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';  // Based on sell distribution
+  exitPattern: 'GRADUAL' | 'ALL AT ONCE';  // Based on sell distribution
 
   // Confidence metrics
   dataQuality: number;                     // 0-1, based on sample size
@@ -127,7 +127,7 @@ export interface WalletTokenPrediction {
   historicalMedianHoldHours: number;        // Wallet's typical median hold time
   historicalSampleSize: number;             // Number of completed cycles
   behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
-  exitPattern: 'GRADUAL' | 'ALL_AT_ONCE';
+  exitPattern: 'GRADUAL' | 'ALL AT ONCE';
 
   // Current position (for THIS specific token)
   entryTimestamp: number;                   // When they bought THIS token

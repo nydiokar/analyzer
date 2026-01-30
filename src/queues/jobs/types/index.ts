@@ -3,6 +3,7 @@ import type { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../
 // Wallet Operations Job Data
 export interface SyncWalletJobData {
   walletAddress: string;
+  userId?: string;           // User who triggered the job (for room-based WebSocket)
   syncOptions: {
     fetchAll?: boolean;
     forceRefresh?: boolean;
@@ -14,12 +15,14 @@ export interface SyncWalletJobData {
 
 export interface FetchBalanceJobData {
   walletAddress: string;
+  userId?: string;           // User who triggered the job (for room-based WebSocket)
   requestId?: string;
 }
 
 // Analysis Operations Job Data
 export interface AnalyzePnlJobData {
   walletAddress: string;
+  userId?: string;           // User who triggered the job (for room-based WebSocket)
   dependsOnSyncJob?: string; // Job ID dependency
   forceRefresh?: boolean;
   requestId?: string;
@@ -27,6 +30,7 @@ export interface AnalyzePnlJobData {
 
 export interface AnalyzeBehaviorJobData {
   walletAddress: string;
+  userId?: string;           // User who triggered the job (for room-based WebSocket)
   dependsOnSyncJob?: string; // Job ID dependency
   config?: {
     timeRange?: {
@@ -41,15 +45,21 @@ export interface AnalyzeBehaviorJobData {
 
 export interface AnalyzeHolderProfilesJobData {
   mode: 'token' | 'wallet';
+  userId?: string;           // User who triggered the job (for room-based WebSocket)
   tokenMint?: string;
   topN?: number;              // Number of top holders to analyze (default: 10) when token mode
   walletAddress?: string;     // Specific wallet to analyze when wallet mode
   requestId: string;
+  _holderContext?: {
+    rank: number;
+    supplyPercent: number;
+  };
 }
 
 // Dashboard Wallet Analysis Job Data
 export interface DashboardWalletAnalysisJobData {
   walletAddress: string;
+  userId?: string;           // User who triggered the job (for room-based WebSocket)
   requestId: string;
   analysisScope: DashboardAnalysisScope;
   triggerSource: DashboardAnalysisTriggerSource;
@@ -68,6 +78,7 @@ export interface DashboardWalletAnalysisJobData {
 // Comprehensive Similarity Flow with Dual Queues
 export interface ComprehensiveSimilarityFlowData {
   walletAddresses: string[];
+  userId?: string;              // User who triggered the job (for room-based WebSocket)
   requestId: string;
   walletsNeedingSync?: string[]; // Specific wallets that need sync (empty array = no sync needed)
   enrichMetadata?: boolean;     // Whether to enrich token metadata (default true)
@@ -89,6 +100,7 @@ export interface ComprehensiveSimilarityFlowData {
 // Enrichment Operations Job Data
 export interface EnrichTokenBalancesJobData {
   walletBalances: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;
+  userId?: string;              // User who triggered the job (for room-based WebSocket)
   requestId: string;
   priority?: number;
   optimizationHint?: 'small' | 'large' | 'massive'; // For smart batching
@@ -146,7 +158,7 @@ export interface EnrichTokenBalancesResult extends JobResult {
 }
 
 // Holder Profiles Types
-export type DataQualityTier = 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT';
+export type DataQualityTier = 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT';
 export type HoldTimeSource = 'CURRENT' | 'EXITED' | 'MIXED';
 
 export interface HoldTimeDistribution {
@@ -190,7 +202,7 @@ export interface HolderProfile {
   dailyFlipRatio: number | null;        // Percentage of completed positions held <5min
   dailyFlipRatioConfidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';  // Based on sample size
   behaviorType: string | null;          // SNIPER, SCALPER, MOMENTUM, INTRADAY, DAY_TRADER, SWING, POSITION, HOLDER
-  exitPattern: string | null;           // GRADUAL, ALL_AT_ONCE
+  exitPattern: string | null;           // GRADUAL, ALL AT ONCE
   dataQualityTier: DataQualityTier;
   completedCycleCount: number;
   confidence: number;
@@ -209,6 +221,18 @@ export interface HolderProfile {
   currentHoldAverageHours?: number | null;
   percentValueInCurrentHoldings?: number | null;
   currentHoldingsCount?: number | null;
+  currentHoldings?: Array<{
+    tokenAddress: string;
+    uiBalance: number | null;
+    decimals: number | null;
+    valueSol?: number | null;
+    valueUsd?: number | null;
+  }>;
+  unresolvedTokensCount?: number | null;
+  activeHoldingsFilteredOut?: number | null;
+  heldValueThresholdSol?: number | null;
+  oldestTransactionTimestamp?: number;
+  newestTransactionTimestamp?: number;
 }
 
 export interface HolderProfilesResult extends JobResult {
@@ -221,5 +245,6 @@ export interface HolderProfilesResult extends JobResult {
     totalHoldersAnalyzed: number;
     totalProcessingTimeMs: number;
     avgProcessingTimePerWalletMs: number;
+    failedHolders?: number;
   };
 }

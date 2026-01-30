@@ -151,7 +151,7 @@ export class PnlOverviewService {
     let solPriceUsd = 0;
     try {
       solPriceUsd = await this.tokenInfoService.getSolPrice();
-      this.logger.log(`[PnlOverview] Fetched SOL price: $${solPriceUsd}`);
+      // this.logger.log(`[PnlOverview] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
       this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
     }
@@ -200,9 +200,9 @@ export class PnlOverviewService {
     let solPriceUsd: number | undefined;
     try {
       solPriceUsd = await this.tokenInfoService.getSolPrice();
-      this.logger.log(`[PnlAnalysisForSummary] Fetched SOL price: $${solPriceUsd}`);
+      // this.logger.log(`[PnlAnalysisForSummary] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
-      this.logger.warn(`[PnlAnalysisForSummary] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
+      // this.logger.warn(`[PnlAnalysisForSummary] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
     }
 
     const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(

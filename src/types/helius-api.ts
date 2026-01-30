@@ -199,6 +199,8 @@ export interface OnChainAnalysisResult {
   currentUiBalanceString?: string; // NEW: Current UI-friendly token balance as a string
   balanceDecimals?: number;          // Decimals for the current balance fields
   balanceFetchedAt?: Date;           // Timestamp when this specific token balance was part of a WalletState fetch
+  currentHoldingsValueSol?: number | null; // Current value in SOL (if price was available)
+  currentHoldingsValueUsd?: number | null; // Current value in USD (if price was available)
 }
 
 /**

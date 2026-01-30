@@ -4,6 +4,7 @@ import { QueueNames, QueueConfigs, JobTimeouts, JobPriority } from '../config/qu
 import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult, HolderProfile } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { buildHolderProfilesJobId } from '../utils/holder-profiles-job-id';
+import { BatchProcessor, BatchResult } from '../utils/batch-processor';
 import { RedisLockService } from '../services/redis-lock.service';
 import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
 import { BehaviorService } from '../../api/services/behavior.service';
@@ -15,7 +16,6 @@ import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
-import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
@@ -23,7 +23,6 @@ import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
 import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
-import { DexscreenerService } from '../../api/services/dexscreener.service';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
 
@@ -41,12 +40,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly analysisQueueService: AnalysisOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly heliusApiClient: HeliusApiClient,
-    private readonly jobProgressGateway: JobProgressGateway,
     private readonly tokenInfoService: TokenInfoService,
     private readonly tokenHoldersService: TokenHoldersService,
     private readonly holderProfilesCacheService: HolderProfilesCacheService,
     private readonly telegramAlerts: TelegramAlertsService,
-    private readonly dexscreenerService: DexscreenerService,
     private readonly balanceCacheService: BalanceCacheService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
@@ -370,9 +367,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       let solPriceUsd: number | undefined;
       try {
         solPriceUsd = await this.tokenInfoService.getSolPrice();
-        this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
+        // this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
       } catch (error) {
-        this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
+        // this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
+      }
+      if (!solPriceUsd || solPriceUsd <= 0) {
+        try {
+          const cachedSol = await this.tokenInfoService.getCachedSolPrice();
+          if (cachedSol && cachedSol > 0) {
+            solPriceUsd = cachedSol;
+            this.logger.log(`Using cached SOL price fallback for PNL analysis: $${solPriceUsd}`);
+          } else {
+            this.logger.warn('No cached SOL price available; unrealized PNL/SOL conversions will be skipped.');
+          }
+        } catch (fallbackError) {
+          this.logger.warn(`Failed to read cached SOL price fallback: ${fallbackError}`);
+        }
       }
       await job.updateProgress(55);
 
@@ -435,6 +445,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
             enrichmentJob = await this.enrichmentOperationsQueue.addEnrichTokenBalances({
               walletBalances: walletBalancesForEnrichment,
+              userId: job.data.userId,
               requestId: job.data.requestId,
               priority: JobPriority.LOW,
               enrichmentContext: 'dashboard-analysis',
@@ -490,6 +501,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           scope: 'working',
           parentRequestId: job.data.requestId,
           forceRefresh: job.data.forceRefresh ?? false,
+          userId: job.data.userId,
         });
         if (queuedJobId) {
           followUpJobsQueued.push({ scope: 'working', jobId: queuedJobId });
@@ -502,6 +514,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           scope: 'deep',
           parentRequestId: job.data.requestId,
           forceRefresh: job.data.forceRefresh ?? false,
+          userId: job.data.userId,
         });
         if (queuedJobId) {
           followUpJobsQueued.push({ scope: 'deep', jobId: queuedJobId });
@@ -531,7 +544,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }`,
       );
 
-      await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+      // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+      // No need to manually publish here to avoid duplicate events
+      // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
 
       return result;
     } catch (error) {
@@ -567,6 +582,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     scope: DashboardAnalysisScope;
     parentRequestId: string;
     forceRefresh: boolean;
+    userId?: string;
   }): Promise<string | null> {
     if (params.scope === 'flash') {
       return null;
@@ -601,6 +617,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     const jobData: DashboardWalletAnalysisJobData = {
       walletAddress: params.walletAddress,
+      userId: params.userId,
       requestId,
       analysisScope: params.scope,
       triggerSource: 'system',
@@ -627,13 +644,75 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
-   * Process holder profiles analysis job
-   * Supports analyzing top holders for a token or an individual wallet
+   * Process holder profiles analysis job with progressive streaming architecture.
+   *
+   * ARCHITECTURE OVERVIEW:
+   * =====================
+   * This implements a tiered caching strategy with progressive loading:
+   *
+   * TIER 1 (Redis - HolderProfilesCacheService):
+   *   - Caches complete HolderProfilesResult objects
+   *   - TTL: 1 hour (hot cache for repeated requests)
+   *   - Use case: Avoid re-querying DB for same token/topN within 1 hour
+   *
+   * TIER 2 (PostgreSQL - HolderProfileSnapshot table):
+   *   - Persists individual HolderProfile records as JSON
+   *   - TTL: Until wallet re-syncs (smart freshness check)
+   *   - Use case: Instant streaming of cached profiles while analyzing stale ones
+   *
+   * PROGRESSIVE STREAMING FLOW:
+   * ==========================
+   * Example: Request top 10 holders of Token X
+   *
+   * 1. Check Redis cache → Cache miss (or expired after 1 hour)
+   * 2. Query DB for all 10 wallet snapshots (batched)
+   *    ├─ Found 7 fresh profiles (wallets analyzed today)
+   *    └─ 3 wallets are stale/missing
+   *
+   * 3. IMMEDIATELY stream 7 cached profiles to frontend ⚡
+   *    └─ User sees data in <1 second
+   *
+   * 4. Sync 3 stale wallets in background (parallel)
+   *
+   * 5. Analyze 3 stale wallets, save to DB, stream to frontend
+   *    └─ User sees remaining 3 profiles after ~30 seconds
+   *
+   * FRESHNESS GUARANTEE:
+   * ===================
+   * Snapshot considered fresh if:
+   *   - snapshot.computedAt >= wallet.lastSuccessfulFetchTimestamp (primary)
+   *   - OR snapshot.computedAt within last hour (fallback)
+   *
+   * This ensures profiles are only reused when underlying wallet data unchanged.
+   *
+   * MEMORY EFFICIENCY:
+   * =================
+   * - Redis holds full results for 1 hour → Prevents pressure on frequent requests
+   * - PostgreSQL persists individual profiles → Survives Redis eviction
+   * - Wallets analyzed 7-8 hours ago can be served instantly from DB
+   *
+   * @param job - Job data containing mode ('token' | 'wallet'), tokenMint, topN, walletAddress
+   * @returns HolderProfilesResult with profiles array and metadata
    */
   async processAnalyzeHolderProfiles(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
-    const { mode = 'token', tokenMint, topN = 10, walletAddress } = job.data;
+    const { mode = 'token', tokenMint, topN = 10, walletAddress, requestId } = job.data;
     const startTime = Date.now();
     const timeoutMs = 5 * 60 * 1000;
+
+    /**
+     * TOKEN MODE OVERVIEW (new orchestrator pattern)
+     * -------------------------------------------------
+     * 1. Check Redis cache (kept identical to legacy flow).
+     * 2. Fetch top holders + token supply metadata -> build rank/supply map.
+     * 3. Use Tier-2 cache (Postgres snapshots) exactly as before:
+     *    - Fresh snapshots are hydrated + streamed immediately.
+     *    - Stale wallets are queued as wallet-mode jobs which still perform their own
+     *      sync + PnL/behavior analysis before caching and returning a single profile.
+     * 4. BatchProcessor now emits per-job callbacks; every wallet completion streams to
+     *    clients right away so UX stays progressive without the 60k-record memory load.
+     * 5. Once tolerance criteria met, aggregate the cached wallet profiles, cache the
+     *    combined token result, and emit the same final payload the frontend expects.
+     */
 
     const expectedJobId = buildHolderProfilesJobId(job.data);
     if (job.id !== expectedJobId) {
@@ -652,7 +731,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       throw new Error('Token mint is required for token-mode holder profile analysis');
     }
 
-    this.logger.log(`Starting holder profiles analysis for token ${tokenMint} [topN=${topN}]`);
+    this.logger.log(`Starting token holder orchestration for ${tokenMint} [topN=${topN}]`);
 
     try {
       const cachedResult = await this.holderProfilesCacheService.getTokenResult(tokenMint, topN);
@@ -667,9 +746,31 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       this.logger.debug(`Fetching top ${topN} holders for ${tokenMint}...`);
       const topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
+      const topHolders = topHoldersResponse.holders.slice(0, topN);
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching top holders');
       await job.updateProgress(10);
+
+      const holderEntries = topHolders.filter((holder) => !!holder.ownerAccount);
+      if (holderEntries.length === 0) {
+        const processingTimeMs = Date.now() - startTime;
+        await job.updateProgress(100);
+        return {
+          success: true,
+          mode: 'token',
+          tokenMint,
+          profiles: [],
+          metadata: {
+            totalHoldersRequested: topN,
+            totalHoldersAnalyzed: 0,
+            totalProcessingTimeMs: processingTimeMs,
+            avgProcessingTimePerWalletMs: 0,
+            failedHolders: 0,
+          },
+          timestamp: Date.now(),
+          processingTimeMs,
+        };
+      }
 
       this.logger.debug(`Fetching actual token supply for ${tokenMint}...`);
       let actualTotalSupply: number;
@@ -680,23 +781,36 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           this.logger.debug(`Token ${tokenMint} total supply (cached): ${actualTotalSupply}`);
         } else {
           this.logger.warn(`Failed to fetch token supply for ${tokenMint}, falling back to sum of holders`);
-          actualTotalSupply = topHoldersResponse.holders.reduce((sum, h) => sum + (h.uiAmount || 0), 0);
+          actualTotalSupply = holderEntries.reduce((sum, h) => sum + (h.uiAmount || 0), 0);
         }
       } catch (supplyError) {
         this.logger.warn(`Error fetching token supply for ${tokenMint}, falling back to sum of holders:`, supplyError);
-        actualTotalSupply = topHoldersResponse.holders.reduce((sum, h) => sum + (h.uiAmount || 0), 0);
+        actualTotalSupply = holderEntries.reduce((sum, h) => sum + (h.uiAmount || 0), 0);
       }
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching token supply');
-      await job.updateProgress(15);
 
-      const topHolders = topHoldersResponse.holders.slice(0, topN);
-      const walletAddresses = topHolders
-        .map(h => h.ownerAccount)
-        .filter((addr): addr is string => addr !== undefined);
+      const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number }>();
+      const walletAddresses: string[] = [];
+      holderEntries.forEach((holder, index) => {
+        if (!holder.ownerAccount) {
+          return;
+        }
+        walletAddresses.push(holder.ownerAccount);
+        const rank = typeof holder.rank === 'number' ? holder.rank : index + 1;
+        const supplyPercent =
+          actualTotalSupply > 0 && typeof holder.uiAmount === 'number'
+            ? (holder.uiAmount / actualTotalSupply) * 100
+            : 0;
+        holderMetadataByWallet.set(holder.ownerAccount, {
+          rank,
+          supplyPercent,
+        });
+      });
 
       if (walletAddresses.length === 0) {
-        this.logger.warn(`No holder wallet addresses found for ${tokenMint}`);
+        const processingTimeMs = Date.now() - startTime;
+        await job.updateProgress(100);
         return {
           success: true,
           mode: 'token',
@@ -705,160 +819,203 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           metadata: {
             totalHoldersRequested: topN,
             totalHoldersAnalyzed: 0,
-            totalProcessingTimeMs: Date.now() - startTime,
+            totalProcessingTimeMs: processingTimeMs,
             avgProcessingTimePerWalletMs: 0,
+            failedHolders: 0,
           },
           timestamp: Date.now(),
-          processingTimeMs: Date.now() - startTime,
+          processingTimeMs,
         };
       }
 
-      this.logger.log(`Analyzing ${walletAddresses.length} holder wallets for ${tokenMint}...`);
+      const orderLookup = new Map(walletAddresses.map((addr, index) => [addr, index]));
+      const aggregatedProfiles = new Map<string, HolderProfile>();
+      const failedWallets = new Set<string>();
+
+      const publishProgressUpdate = async () => {
+        const analyzedCount = aggregatedProfiles.size;
+        const orderedProfiles = [...aggregatedProfiles.values()].sort(
+          (a, b) => (orderLookup.get(a.walletAddress) ?? 0) - (orderLookup.get(b.walletAddress) ?? 0),
+        );
+        const percent = Math.min(95, 20 + Math.floor((analyzedCount / walletAddresses.length) * 70));
+        // BullMQ handles rich progress objects - bridge picks it up automatically
+        await job.updateProgress({
+          percent,
+          mode: 'token',
+          tokenMint,
+          totalHoldersRequested: walletAddresses.length,
+          analyzedCount,
+          profiles: orderedProfiles,
+        });
+      };
+
+      const streamProfile = async (wallet: string, profile: HolderProfile) => {
+        if (aggregatedProfiles.has(wallet)) {
+          return;
+        }
+        aggregatedProfiles.set(wallet, profile);
+        await publishProgressUpdate();
+      };
+
       await job.updateProgress(20);
 
-      // Sync stale/missing holders first (same as wallet-mode flow)
-      this.logger.debug(`Checking wallet statuses for top holders of ${tokenMint}`);
-      const holderStatuses = await this.databaseService.getWalletsStatus(walletAddresses);
-      const walletsNeedingSync = holderStatuses.statuses
-        .filter(status => status.status === 'STALE' || status.status === 'MISSING')
-        .map(status => status.walletAddress);
+      const { snapshots, readyWallets, staleWallets } = await this.holderProfilesCacheService.getTokenSnapshots(
+        tokenMint,
+        walletAddresses,
+      );
 
-      if (walletsNeedingSync.length > 0) {
-        this.logger.log(`Syncing ${walletsNeedingSync.length} holder wallets for ${tokenMint}`);
-        const syncOptions: SyncOptions = {
-          limit: 100,
-          fetchAll: true,
-          skipApi: false,
-          fetchOlder: true,
-          maxSignatures: 2000,
-          smartFetch: true,
-        };
-        for (const addr of walletsNeedingSync) {
+      if (readyWallets.length > 0) {
+        this.logger.log(`Streaming ${readyWallets.length} cached holder profiles immediately`);
+        for (const wallet of readyWallets) {
+          const snapshot = snapshots.get(wallet);
+          const metadata = holderMetadataByWallet.get(wallet);
+          if (!snapshot || !metadata) {
+            continue;
+          }
           try {
-            await this.heliusSyncService.syncWalletData(addr, syncOptions);
-          } catch (syncErr) {
-            this.logger.warn(`Sync failed for holder wallet ${addr}:`, syncErr);
+            const hydrated = this.holderProfilesCacheService.hydrateSnapshot(snapshot, metadata);
+            await streamProfile(wallet, hydrated);
+          } catch (error) {
+            this.logger.warn(`Failed to hydrate cached holder profile for ${wallet}:`, error);
           }
         }
+      }
+
+      const walletsNeedingJobs = staleWallets.filter(addr => holderMetadataByWallet.has(addr));
+
+      const childJobIds: string[] = [];
+      const jobIdToWallet = new Map<string, string>();
+
+      // 🎯 Dynamic priority: Smaller jobs get higher priority to prevent starvation
+      // Priority calculation: Smaller topN = higher priority (lower number)
+      // Examples: topN=5 → priority=1, topN=10 → priority=2, topN=20 → priority=4
+      const jobPriority = Math.max(1, Math.min(5, Math.ceil(topN / 5)));
+      this.logger.log(`Using priority ${jobPriority} for topN=${topN} (lower=higher priority)`);
+
+      for (const wallet of walletsNeedingJobs) {
+        const metadata = holderMetadataByWallet.get(wallet);
+        const childJob = await this.analysisQueueService.addHolderProfilesJob({
+          mode: 'wallet',
+          userId: job.data.userId,
+          walletAddress: wallet,
+          requestId: `${requestId}-wallet-${wallet}`,
+          _holderContext: {
+            rank: metadata?.rank ?? childJobIds.length + 1,
+            supplyPercent: metadata?.supplyPercent ?? 0,
+          },
+        }, {
+          priority: jobPriority,  // Pass priority to ensure fair processing
+        });
+
+        if (childJob?.id) {
+          childJobIds.push(childJob.id);
+          jobIdToWallet.set(childJob.id, wallet);
+        } else {
+          this.logger.warn(`Wallet analysis job for ${wallet} did not return an ID`);
+        }
+      }
+
+      if (childJobIds.length > 0) {
+        this.logger.log(`Queueing ${childJobIds.length} wallet analysis jobs for token ${tokenMint}`);
+        this.logger.log(`Waiting for ${childJobIds.length} wallet jobs to complete (80% threshold)...`);
+        const batchProcessor = new BatchProcessor();
+        const queue = this.analysisQueueService.getQueue();
+
+        const handleJobResult = async (result: BatchResult<HolderProfilesResult>) => {
+          const wallet = jobIdToWallet.get(result.itemId);
+          if (!wallet) {
+            return;
+          }
+
+          if (!result.success) {
+            failedWallets.add(wallet);
+            return;
+          }
+
+          if (aggregatedProfiles.has(wallet)) {
+            return;
+          }
+
+          let walletResult: HolderProfilesResult | null = null;
+          if (result.data && typeof result.data === 'object') {
+            walletResult = result.data as HolderProfilesResult;
+          } else {
+            walletResult = await this.holderProfilesCacheService.getWalletResult(wallet);
+          }
+
+          if (walletResult && walletResult.profiles.length > 0) {
+            const metadata = holderMetadataByWallet.get(wallet);
+            const profile = { ...walletResult.profiles[0] };
+            if (metadata) {
+              profile.rank = metadata.rank;
+              profile.supplyPercent = metadata.supplyPercent;
+            }
+            await streamProfile(wallet, profile);
+          } else {
+            failedWallets.add(wallet);
+          }
+        };
+
+        await batchProcessor.waitForJobsWithTolerance<HolderProfilesResult>(
+          childJobIds,
+          async (jobId) => {
+            const jobRef = await queue.getJob(jobId);
+            if (!jobRef) {
+              return null;
+            }
+            const [completed, failed] = await Promise.all([jobRef.isCompleted(), jobRef.isFailed()]);
+            return {
+              isCompleted: () => completed,
+              isFailed: () => failed,
+              returnvalue: jobRef.returnvalue as HolderProfilesResult | undefined,
+            };
+          },
+          0.8,
+          timeoutMs,
+          2000,
+          handleJobResult,
+        );
+
+        this.checkTimeout(startTime, timeoutMs, 'Waiting for wallet analysis jobs');
       } else {
-        this.logger.debug(`All holder wallets for ${tokenMint} appear current (status check)`);
-      }
-      await job.updateProgress(30);
-
-      this.logger.debug(`Batch fetching swap records for ${walletAddresses.length} wallets...`);
-      let allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletAddresses);
-
-      this.checkTimeout(startTime, timeoutMs, 'Fetching swap records');
-      await job.updateProgress(40);
-
-      const swapRecordsByWallet: Record<string, typeof allSwapRecords> = {};
-      for (const record of allSwapRecords) {
-        if (!swapRecordsByWallet[record.walletAddress]) {
-          swapRecordsByWallet[record.walletAddress] = [];
-        }
-        swapRecordsByWallet[record.walletAddress].push(record);
+        this.logger.log('All holder profiles served from cache; no wallet jobs queued');
       }
 
-      // If any wallets have no swap records, force a fresh sync + refetch to align with wallet-mode behavior
-      const walletsMissingData = walletAddresses.filter(addr => !swapRecordsByWallet[addr] || swapRecordsByWallet[addr].length === 0);
-      if (walletsMissingData.length > 0) {
-        this.logger.log(`Detected ${walletsMissingData.length} holder wallets with no swap records; forcing sync (tokenMode)`);
-        const syncOptions: SyncOptions = {
-          limit: 100,
-          fetchAll: true,
-          skipApi: false,
-          fetchOlder: true,
-          maxSignatures: 2000,
-          smartFetch: true,
-        };
-        for (const addr of walletsMissingData) {
-          try {
-            await this.heliusSyncService.syncWalletData(addr, syncOptions);
-          } catch (syncErr) {
-            this.logger.warn(`Sync failed for holder wallet ${addr}:`, syncErr);
-          }
-        }
+      await job.updateProgress(Math.min(95, 20 + Math.floor((aggregatedProfiles.size / walletAddresses.length) * 70)));
 
-        // Refetch swap records for the missing wallets only
-        allSwapRecords = await this.databaseService.getSwapAnalysisInputsBatch(walletAddresses);
-        for (const record of allSwapRecords) {
-          if (!swapRecordsByWallet[record.walletAddress]) {
-            swapRecordsByWallet[record.walletAddress] = [];
-          }
-          swapRecordsByWallet[record.walletAddress].push(record);
-        }
-        this.logger.debug(`Refetched swap records for ${walletsMissingData.length} wallets after sync`);
-      }
-
-      this.logger.debug(`Grouped swap records: ${Object.keys(swapRecordsByWallet).length} wallets with data`);
-
-      const progressStep = 50 / walletAddresses.length;
-      let completedCount = 0;
-      const partialProfiles: HolderProfile[] = [];
-      const profiles: HolderProfile[] = [];
-
-      for (const holder of topHolders) {
-        if (!holder.ownerAccount) continue;
-
-        const walletSwapRecords = swapRecordsByWallet[holder.ownerAccount] || [];
-        const supplyPercent = actualTotalSupply > 0 ? ((holder.uiAmount || 0) / actualTotalSupply) * 100 : 0;
-
-        try {
-          const profile = await this.analyzeWalletProfile(
-            holder.ownerAccount,
-            holder.rank,
-            supplyPercent,
-            walletSwapRecords,
-          );
-
-          completedCount++;
-          const percent = 40 + Math.floor(completedCount * progressStep);
-          await job.updateProgress(percent);
-          partialProfiles.push(profile);
-          profiles.push(profile);
-
-          const progressPayload = {
-            mode: 'token',
-            tokenMint,
-            totalHoldersRequested: walletAddresses.length,
-            analyzedCount: partialProfiles.length,
-            profiles: [...partialProfiles],
-          };
-          this.logger.log(
-            `Streaming partial holder profile (${partialProfiles.length}/${walletAddresses.length}) for token ${tokenMint}: ${holder.ownerAccount}`
-          );
-          await this.jobProgressGateway.publishProgressEvent(job.id!, job.queueName, progressPayload);
-        } catch (error) {
-          this.logger.warn(`Failed to analyze wallet ${holder.ownerAccount}:`, error);
-        }
-      }
-
-      this.checkTimeout(startTime, timeoutMs, 'Completing analysis');
-      await job.updateProgress(95);
-
-      this.logger.log(`Completed analyzing ${profiles.length}/${walletAddresses.length} holders for ${tokenMint}`);
+      const processingTimeMs = Date.now() - startTime;
+      const finalProfiles = [...aggregatedProfiles.values()].sort(
+        (a, b) => (orderLookup.get(a.walletAddress) ?? 0) - (orderLookup.get(b.walletAddress) ?? 0),
+      );
+      const analyzedCount = finalProfiles.length;
+      const totalRequested = walletAddresses.length;
+      const failedCount = Math.max(failedWallets.size, totalRequested - analyzedCount);
 
       const result: HolderProfilesResult = {
         success: true,
         mode: 'token',
         tokenMint,
-        profiles,
+        profiles: finalProfiles,
         metadata: {
-          totalHoldersRequested: topN,
-          totalHoldersAnalyzed: profiles.length,
-          totalProcessingTimeMs: Date.now() - startTime,
-          avgProcessingTimePerWalletMs: profiles.length > 0
-            ? Math.round((Date.now() - startTime) / profiles.length)
-            : 0,
+          totalHoldersRequested: totalRequested,
+          totalHoldersAnalyzed: analyzedCount,
+          totalProcessingTimeMs: processingTimeMs,
+          avgProcessingTimePerWalletMs: analyzedCount > 0 ? Math.round(processingTimeMs / analyzedCount) : 0,
+          failedHolders: failedCount,
         },
         timestamp: Date.now(),
-        processingTimeMs: Date.now() - startTime,
+        processingTimeMs,
       };
 
-      await job.updateProgress(100);
-      this.logger.log(`Holder profiles analysis for ${tokenMint} completed in ${result.processingTimeMs}ms`);
-
       await this.holderProfilesCacheService.cacheTokenResult(tokenMint, topN, result);
+      await job.updateProgress(100);
+
+      // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+      // No need to manually publish here to avoid duplicate events
+      // await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs);
+      this.logger.log(
+        `Token holder orchestration for ${tokenMint} completed: ${analyzedCount}/${walletAddresses.length} profiles in ${processingTimeMs}ms`,
+      );
 
       return result;
     } catch (error) {
@@ -878,11 +1035,38 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   ): Promise<HolderProfilesResult> {
     this.logger.log(`Starting holder profile analysis for wallet ${walletAddress}`);
 
+    const holderContext = job.data._holderContext;
+    const inferredRank = holderContext?.rank ?? 1;
+    const inferredSupplyPercent = holderContext?.supplyPercent ?? 0;
+
+    // Try Tier 1 cache (Redis) first
     const cached = await this.holderProfilesCacheService.getWalletResult(walletAddress);
     if (cached) {
       this.logger.log(`Returning cached holder profile for wallet ${walletAddress}`);
       await job.updateProgress(100);
       return cached;
+    }
+
+    // Try Tier 2 cache (DB snapshots)
+    const cachedProfile = await this.holderProfilesCacheService.getWalletSnapshot(walletAddress);
+    if (cachedProfile) {
+      const processingTimeMs = Date.now() - startTime;
+      const result: HolderProfilesResult = {
+        success: true,
+        mode: 'wallet',
+        targetWallet: walletAddress,
+        profiles: [cachedProfile],
+        metadata: {
+          totalHoldersRequested: 1,
+          totalHoldersAnalyzed: 1,
+          totalProcessingTimeMs: processingTimeMs,
+          avgProcessingTimePerWalletMs: processingTimeMs,
+        },
+        timestamp: Date.now(),
+        processingTimeMs,
+      };
+      await job.updateProgress(100);
+      return result;
     }
 
     this.checkTimeout(startTime, timeoutMs, 'Starting wallet holder profile analysis');
@@ -905,7 +1089,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         fetchAll: true,
         skipApi: false,
         fetchOlder: true,
-        maxSignatures: 2000, // Reasonable default for holder analysis
+        maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES, // Reasonable default for holder analysis
         smartFetch: true,
       };
       await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
@@ -923,12 +1107,28 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(40);
 
     // Aggregate SwapAnalysisInput → AnalysisResult (PnL calculation)
+    // PnL analysis now fetches SOL price internally when not provided
     this.logger.debug(`Running PnL aggregation for ${walletAddress} [holder-profile mode]`);
     await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
     await job.updateProgress(50);
 
-    const profile = await this.analyzeWalletProfile(walletAddress, 1, 0, swapRecords);
+    const profile = await this.analyzeWalletProfile(walletAddress, inferredRank, inferredSupplyPercent, swapRecords);
+    await this.holderProfilesCacheService.saveSnapshot({
+      walletAddress,
+      tokenMint: null,
+      analysisMode: 'wallet',
+      holderRank: profile.rank,
+      supplyPercent: profile.supplyPercent,
+      topN: 1,
+      jobId: job.id?.toString() ?? null,
+      requestId: job.data.requestId,
+      profile,
+      metadata: {
+        mode: 'wallet',
+      },
+    });
 
+    const processingTimeMs = Date.now() - startTime;
     const result: HolderProfilesResult = {
       success: true,
       mode: 'wallet',
@@ -937,15 +1137,21 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       metadata: {
         totalHoldersRequested: 1,
         totalHoldersAnalyzed: profile ? 1 : 0,
-        totalProcessingTimeMs: Date.now() - startTime,
-        avgProcessingTimePerWalletMs: profile ? Date.now() - startTime : 0,
+        totalProcessingTimeMs: processingTimeMs,
+        avgProcessingTimePerWalletMs: profile ? processingTimeMs : 0,
       },
       timestamp: Date.now(),
-      processingTimeMs: Date.now() - startTime,
+      processingTimeMs,
     };
 
     await job.updateProgress(100);
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
+
+    // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
+    // No need to manually publish here to avoid duplicate events
+    // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
+
+    this.logger.log(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
 
     return result;
   }
@@ -1049,6 +1255,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   ): Promise<HolderProfile> {
     const walletStartTime = Date.now();
 
+    const oldestTransactionTimestamp =
+      swapRecords.length > 0 ? swapRecords.reduce((min, r) => Math.min(min, r.timestamp), Infinity) : null;
+    const newestTransactionTimestamp =
+      swapRecords.length > 0 ? swapRecords.reduce((max, r) => Math.max(max, r.timestamp), -Infinity) : null;
+
     // If no swap records, return insufficient data
     if (swapRecords.length === 0) {
       return {
@@ -1079,11 +1290,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         percentValueInCurrentHoldings: null,
         dailyFlipRatioConfidence: 'NONE',
         currentHoldingsCount: null,
+        currentHoldings: [],
+        oldestTransactionTimestamp,
+        newestTransactionTimestamp,
       };
     }
 
     // Query pre-computed PnL from AnalysisResult table (source of truth)
     let pnlMap: Map<string, { pnl: number; capital: number }> | undefined;
+    let currentHoldings: Array<{ tokenAddress: string; uiBalance: number | null; decimals: number | null; valueSol?: number | null; valueUsd?: number | null }> = [];
     try {
       const pnlResults = await this.databaseService.getAnalysisResults({
         where: { walletAddress },
@@ -1099,6 +1314,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             },
           ])
         );
+        currentHoldings = pnlResults
+          .filter(r => typeof r.currentUiBalance === 'number' && (r.currentUiBalance ?? 0) > 0)
+          .map(r => ({
+            tokenAddress: r.tokenAddress,
+            uiBalance: r.currentUiBalance,
+            decimals: typeof r.balanceDecimals === 'number' ? r.balanceDecimals : null,
+            valueSol: r.currentHoldingsValueSol,
+            valueUsd: r.currentHoldingsValueUsd,
+          }));
         this.logger.debug(
           `Loaded PnL for ${pnlResults.length} tokens for wallet ${walletAddress}`
         );
@@ -1138,9 +1362,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const percentValueInCurrentHoldings = typeof behaviorResult?.percentOfValueInCurrentHoldings === 'number'
         ? behaviorResult.percentOfValueInCurrentHoldings
         : null;
-      const currentHoldingsCount = typeof behaviorResult?.tokensWithOnlyBuys === 'number'
-        ? behaviorResult.tokensWithOnlyBuys
-        : null;
+      const HOLD_VALUE_THRESHOLD_SOL = 0.01;
+      const valueFilteredHoldings = currentHoldings.filter((holding) => {
+        if (typeof holding.valueSol === 'number') {
+          return holding.valueSol >= HOLD_VALUE_THRESHOLD_SOL;
+        }
+        return (holding.uiBalance ?? 0) > 0;
+      });
+      const rawHoldingsCount = currentHoldings.length;
+      const currentHoldingsCount = valueFilteredHoldings.length;
       const currentHoldMedianHours = hasCurrentHoldingsData
         ? (behaviorResult?.medianCurrentHoldingDurationHours ?? null)
         : null;
@@ -1183,6 +1413,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           percentValueInCurrentHoldings,
           dailyFlipRatioConfidence: 'NONE',
           currentHoldingsCount,
+          currentHoldings,
+          oldestTransactionTimestamp,
+          newestTransactionTimestamp,
         };
       }
 
@@ -1219,6 +1452,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const totalTokensTraded = behaviorResult?.uniqueTokensTraded ?? 0;
       const exitedTokensCount = historicalPattern?.completedCycleCount ?? 0;
       const exitRate = totalTokensTraded > 0 ? (exitedTokensCount / totalTokensTraded) * 100 : 0;
+      const unresolvedTokensCount = Math.max(totalTokensTraded - exitedTokensCount - (currentHoldingsCount ?? 0), 0);
 
       // Determine data quality tier
       const dataQualityTier = hasEnoughExitedData
@@ -1226,7 +1460,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             historicalPattern.completedCycleCount,
             historicalPattern.dataQuality,
           )
-        : 'LOW' as const; // Current holdings data = lower quality
+        : 'BRONZE' as const; // Current holdings data = lower quality
+
+      // Fallback classification for holders with no exits
+      const behaviorType =
+        historicalPattern?.behaviorType ??
+        ((currentHoldingsCount ?? 0) > 0 ? 'HOLDER' : null);
 
       return {
         walletAddress,
@@ -1236,7 +1475,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         avgHoldTimeHours,
         dailyFlipRatio: flipRatioResult.ratio,
         dailyFlipRatioConfidence: flipRatioResult.confidence,
-        behaviorType: historicalPattern?.behaviorType ?? null,
+        behaviorType,
         exitPattern: historicalPattern?.exitPattern ?? null,
         dataQualityTier,
         completedCycleCount: exitedTokensCount,
@@ -1255,6 +1494,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         currentHoldAverageHours,
         percentValueInCurrentHoldings,
         currentHoldingsCount,
+        currentHoldings: valueFilteredHoldings,
+        unresolvedTokensCount,
+        activeHoldingsFilteredOut: Math.max(rawHoldingsCount - (currentHoldingsCount ?? 0), 0),
+        heldValueThresholdSol: HOLD_VALUE_THRESHOLD_SOL,
+        oldestTransactionTimestamp,
+        newestTransactionTimestamp,
       };
     } catch (error) {
       this.logger.warn(`Error analyzing wallet ${walletAddress}:`, error);
@@ -1286,6 +1531,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         currentHoldAverageHours: null,
         percentValueInCurrentHoldings: null,
         currentHoldingsCount: null,
+        currentHoldings: currentHoldings,
+        oldestTransactionTimestamp,
+        newestTransactionTimestamp,
       };
     }
   }
@@ -1422,12 +1670,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   /**
    * Determine data quality tier based on cycle count and confidence
    */
-  private determineDataQualityTier(cycles: number, confidence: number): 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' {
-    if (cycles >= 30 && confidence >= 0.8) return 'HIGH';
-    if (cycles >= 10 && confidence >= 0.6) return 'MEDIUM';
-    if (cycles >= 3) return 'LOW';
+  private determineDataQualityTier(cycles: number, confidence: number): 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT' {
+    if (cycles >= 30 && confidence >= 0.8) return 'GOLD';
+    if (cycles >= 10 && confidence >= 0.6) return 'SILVER';
+    if (cycles >= 3) return 'BRONZE';
     return 'INSUFFICIENT';
   }
+
 
   /**
    * Check if operation has exceeded timeout

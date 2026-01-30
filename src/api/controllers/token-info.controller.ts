@@ -1,4 +1,4 @@
-import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException, Get, Param, Query, UsePipes } from '@nestjs/common';
+import { Controller, Post, Body, ValidationPipe, Logger, Req, ForbiddenException, Get, Param, Query, UsePipes, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { TokenInfoService } from '../services/token-info.service';
 import { GetTokenInfoRequestDto } from '../shared/dto/get-token-info.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiQuery } from '@nestjs/swagger';

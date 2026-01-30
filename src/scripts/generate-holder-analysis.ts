@@ -141,11 +141,16 @@ async function analyzeWallet(
     };
   }
 
-  // Get active positions
-  const sequences = (analyzer as any).buildTokenSequences(swapRecords);
-  const lifecycles = (analyzer as any).buildTokenLifecycles(sequences, Date.now() / 1000);
-  const activeTokens = lifecycles.filter((lc: any) => lc.positionStatus === 'ACTIVE');
-  const completedTokens = lifecycles.filter((lc: any) => lc.positionStatus === 'EXITED');
+  // Get active positions using public API (from AnalysisResult table)
+  const activeTokens = await dbService.getAnalysisResults({
+    where: { walletAddress },
+  }).then(results =>
+    results.filter(r => typeof r.currentUiBalance === 'number' && (r.currentUiBalance ?? 0) > 0)
+  );
+
+  // For completed tokens, we need to use the behavior analyzer's historical pattern
+  // which already includes completed cycles data
+  const completedTokens = []; // We'll use pattern.completedCycleCount instead
 
   const medianMinutes = pattern.medianCompletedHoldTimeHours * 60;
   const averageMinutes = pattern.historicalAverageHoldTimeHours * 60;
@@ -154,7 +159,7 @@ async function analyzeWallet(
   // Generate predictions
   const predictions = [];
   for (const lifecycle of activeTokens) {
-    const prediction = analyzer.predictTokenExit(walletAddress, lifecycle.mint, swapRecords);
+    const prediction = analyzer.predictTokenExit(walletAddress, lifecycle.tokenAddress, swapRecords);
     if (prediction) {
       const ageMinutes = prediction.currentPositionAgeHours * 60;
       const exitMinutes = prediction.estimatedExitHours * 60;
@@ -174,7 +179,7 @@ async function analyzeWallet(
       }
 
       predictions.push({
-        tokenMint: lifecycle.mint,
+        tokenMint: lifecycle.tokenAddress,
         positionAgeMinutes: ageMinutes,
         estimatedExitMinutes: exitMinutes,
         riskLevel: prediction.riskLevel,
@@ -186,22 +191,13 @@ async function analyzeWallet(
   }
 
   // Calculate time buckets if requested
+  // Note: Time buckets require access to completed token lifecycles which is not
+  // available via public APIs. This feature is temporarily disabled until
+  // a public API is added to BehaviorAnalyzer for completed position data.
   let timeBuckets = undefined;
   if (includeTimeBuckets) {
-    const holdingTimes = completedTokens.map((lc: any) =>
-      lc.weightedHoldingTimeHours * 60
-    );
-
-    timeBuckets = TIME_BUCKETS.map(bucket => {
-      const count = holdingTimes.filter(
-        t => t >= bucket.minMinutes && t < bucket.maxMinutes
-      ).length;
-      return {
-        label: bucket.label,
-        count,
-        percentage: holdingTimes.length > 0 ? (count / holdingTimes.length) * 100 : 0,
-      };
-    });
+    console.log('   ⚠️ Time buckets calculation temporarily disabled (requires private API access)');
+    // TODO: Add public method to BehaviorAnalyzer to expose completed position holding times
   }
 
   return {
@@ -270,7 +266,7 @@ function generateMarkdownReport(
     md += `| Active Positions | ${report.activePositions} |\n`;
     md += `| Data Quality | ${(report.dataQuality * 100).toFixed(0)}% |\n\n`;
 
-    // Time buckets (if requested)
+    // Time buckets (if requested and available)
     if ((reportType === 'time-buckets' || reportType === 'combined') && report.timeBuckets) {
       md += `### Time Distribution (Completed Positions)\n\n`;
       md += `| Time Range | Count | Percentage |\n`;

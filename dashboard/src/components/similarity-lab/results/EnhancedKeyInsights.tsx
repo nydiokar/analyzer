@@ -601,10 +601,11 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                   return (
                     <TableRow key={token.mint} className="border-border">
                       <TableCell className="font-medium">
-                        <TokenBadge 
-                          mint={token.mint} 
-                          metadata={getTokenMetadata(token.mint, results.walletBalances)} 
-                          size="sm" 
+                        <TokenBadge
+                          mint={token.mint}
+                          metadata={getTokenMetadata(token.mint, results.walletBalances)}
+                          variant="inline"
+                          size="sm"
                         />
                       </TableCell>
                       <TableCell className="text-right">

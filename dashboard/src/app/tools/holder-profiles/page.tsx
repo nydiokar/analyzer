@@ -6,8 +6,6 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useJobProgress } from '@/hooks/useJobProgress';
@@ -20,8 +18,7 @@ import {
   WalletClassifier,
   WalletClassifierEntry,
 } from '@/components/holder-profiles/v2/WalletClassifier';
-
-const MAX_WALLETS = 6;
+import { AppShell } from '@/components/layout/AppShell';
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 type AnalysisMode = 'token' | 'wallet';
@@ -44,8 +41,8 @@ function parseWalletList(raw: string): WalletParseResult {
       ordered.push(token);
     }
   });
-  const list = ordered.slice(0, MAX_WALLETS);
-  return { list, truncated: Math.max(0, ordered.length - list.length) };
+  // No limit - allow unlimited wallets
+  return { list: ordered, truncated: 0 };
 }
 
 export default function HolderProfilesPage() {
@@ -63,6 +60,9 @@ export default function HolderProfilesPage() {
 
   const parsedWallets = useMemo(() => parseWalletList(walletInput), [walletInput]);
 
+  // Use a ref to store unsubscribeFromJob so we can call it from callbacks
+  const unsubscribeFromJobRef = useRef<((jobId: string) => void) | null>(null);
+
   const updateWalletEntryByJob = useCallback((jobId: string, updater: (entry: WalletClassifierEntry) => WalletClassifierEntry) => {
     setWalletEntries((prev) => prev.map((entry) => (entry.jobId === jobId ? updater(entry) : entry)));
   }, []);
@@ -74,7 +74,7 @@ export default function HolderProfilesPage() {
     []
   );
 
-  const { subscribeToJob } = useJobProgress({
+  const { subscribeToJob, unsubscribeFromJob } = useJobProgress({
     onJobProgress: useCallback(
       (data: JobProgressData) => {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
@@ -87,14 +87,6 @@ export default function HolderProfilesPage() {
             const total = payload.totalHoldersRequested ?? payload.profiles?.length ?? 0;
             const analyzed = payload.analyzedCount ?? payload.profiles?.length ?? 0;
             const percent = total > 0 ? Math.min(100, Math.round((analyzed / total) * 100)) : 0;
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[Token holder progress payload]', {
-                holders: analyzed,
-                total,
-                profilesLen: payload.profiles?.length ?? 0,
-                sampleProfile: payload.profiles?.[0]?.walletAddress,
-              });
-            }
             setTokenProgress(percent);
             setTokenPartialResult({
               mode: 'token',
@@ -108,9 +100,6 @@ export default function HolderProfilesPage() {
               },
             });
           } else if (typeof data.progress === 'number') {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[Token holder numeric progress]', data.progress);
-            }
             setTokenProgress(data.progress);
           }
           return;
@@ -135,6 +124,10 @@ export default function HolderProfilesPage() {
             setTokenStatus('completed');
             setTokenProgress(100);
             setTokenMessage('Analysis complete');
+            // Unsubscribe from the completed job
+            if (unsubscribeFromJobRef.current) {
+              unsubscribeFromJobRef.current(tokenJobIdRef.current);
+            }
             tokenJobIdRef.current = null;
             toast.success('Holder profiles ready', {
               description: `Analyzed ${resultData.metadata.totalHoldersAnalyzed} holders`,
@@ -159,6 +152,10 @@ export default function HolderProfilesPage() {
           setTokenStatus('failed');
           setTokenProgress(0);
           setTokenMessage('Analysis failed');
+          // Unsubscribe from the failed job
+          if (unsubscribeFromJobRef.current) {
+            unsubscribeFromJobRef.current(tokenJobIdRef.current);
+          }
           tokenJobIdRef.current = null;
           toast.error('Token analysis failed', { description: data.error });
           return;
@@ -176,6 +173,9 @@ export default function HolderProfilesPage() {
     onEnrichmentComplete: () => {},
     onConnectionChange: () => {},
   });
+
+  // Store the unsubscribe function in the ref so callbacks can use it
+  unsubscribeFromJobRef.current = unsubscribeFromJob;
 
   const handleTokenAnalyze = async () => {
     if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
@@ -226,6 +226,7 @@ export default function HolderProfilesPage() {
       progress: 0,
     })));
 
+    // Queue all jobs and subscribe via WebSocket
     for (const walletAddress of parsedWallets.list) {
       try {
         const response = await fetcher('/analyses/holder-profiles/wallet', {
@@ -238,6 +239,7 @@ export default function HolderProfilesPage() {
           jobId: response.jobId,
           message: 'Queued',
         }));
+        // WebSocket subscription happens immediately, HTTP poll is delayed in the hook
         subscribeToJob(response.jobId);
       } catch (error: any) {
         updateWalletEntryByAddress(walletAddress, (entry) => ({
@@ -264,84 +266,84 @@ export default function HolderProfilesPage() {
   const disableAnalyze = analysisMode === 'token' ? isTokenRunning : isWalletRunning || parsedWallets.list.length === 0;
 
   return (
-    <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Holder Profiles</h1>
-        <p className="text-sm text-muted-foreground">Outcome-first analysis for token cohorts and wallet scouts.</p>
-      </header>
+    <AppShell>
+      <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8">
+      <Card className="max-w-5xl mx-auto p-5 space-y-4">
+        <p className="text-[13px] text-foreground/90 leading-relaxed text-center">
+          Analyze holder behavior patterns to understand trading styles and conviction levels across token cohorts or wallet lists.
+        </p>
 
-      <div className="flex flex-col md:flex-row items-start md:items-center gap-3 p-3 rounded-lg border bg-card">
-        <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
-          <TabsList className="h-9">
-            <TabsTrigger value="token" className="text-xs">Token</TabsTrigger>
-            <TabsTrigger value="wallet" className="text-xs">Wallet</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pb-3 border-b">
+          <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
+            <TabsList className="h-9 grid w-[260px] grid-cols-2">
+              <TabsTrigger value="token" className="text-sm">Token Cohort</TabsTrigger>
+              <TabsTrigger value="wallet" className="text-sm">Wallet List</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <Button onClick={handleAnalyze} disabled={disableAnalyze} size="sm" className="min-w-[160px] h-9">
+            {analysisMode === 'token' && isTokenRunning ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tokenProgress}%
+              </>
+            ) : analysisMode === 'wallet' && isWalletRunning ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing
+              </>
+            ) : (
+              <>
+                <Search className="mr-2 h-4 w-4" /> Analyze
+              </>
+            )}
+          </Button>
+        </div>
 
         {analysisMode === 'token' ? (
-          <>
-            <Input
-              id="tokenMint"
-              placeholder="Token mint address"
-              value={tokenMint}
-              onChange={(e) => setTokenMint(e.target.value)}
-              disabled={tokenStatus === 'running'}
-              className="h-9 flex-1"
-            />
-            <Input
-              id="topN"
-              type="number"
-              min={1}
-              max={50}
-              value={topN}
-              onChange={(e) => setTopN(parseInt(e.target.value, 10) || 10)}
-              disabled={tokenStatus === 'running'}
-              className="h-9 w-20"
-              placeholder="Top N"
-            />
-          </>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex-1">
+              <Label htmlFor="tokenMint" className="text-xs text-muted-foreground mb-1.5 block">Token mint address</Label>
+              <Input
+                id="tokenMint"
+                placeholder="e.g., EhzVcKmGjLk6pD5gL..."
+                value={tokenMint}
+                onChange={(e) => setTokenMint(e.target.value)}
+                disabled={tokenStatus === 'running'}
+                className="h-9"
+              />
+            </div>
+            <div className="w-full sm:w-24">
+              <Label htmlFor="topN" className="text-xs text-muted-foreground mb-1.5 block">Top N</Label>
+              <Input
+                id="topN"
+                type="number"
+                min={1}
+                max={50}
+                value={topN}
+                onChange={(e) => setTopN(parseInt(e.target.value, 10) || 10)}
+                disabled={tokenStatus === 'running'}
+                className="h-9"
+                placeholder="10"
+              />
+            </div>
+          </div>
         ) : (
-          <div className="flex-1 flex items-center gap-2">
+          <div>
+            <Label htmlFor="walletAddresses" className="text-xs text-muted-foreground mb-1.5 block">Wallet addresses (comma or space separated)</Label>
             <Input
               id="walletAddresses"
-              placeholder="Paste wallet addresses (comma separated)"
+              placeholder="Paste wallet addresses here..."
               value={walletInput}
               onChange={(e) => setWalletInput(e.target.value)}
-              className="h-9 flex-1"
+              className="h-9"
             />
             {parsedWallets.list.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {parsedWallets.list.slice(0, 3).map((address) => (
-                  <Badge key={address} variant="secondary" className="h-6 text-xs px-2">
-                    {address.slice(0, 4)}...{address.slice(-4)}
-                  </Badge>
-                ))}
-                {parsedWallets.list.length > 3 && (
-                  <Badge variant="secondary" className="h-6 text-xs px-2">
-                    +{parsedWallets.list.length - 3}
-                  </Badge>
-                )}
-              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                {parsedWallets.list.length} wallet{parsedWallets.list.length !== 1 ? 's' : ''} detected
+              </p>
             )}
           </div>
         )}
-
-        <Button onClick={handleAnalyze} disabled={disableAnalyze} size="sm" className="h-9">
-          {analysisMode === 'token' && isTokenRunning ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing... {tokenProgress}%
-            </>
-          ) : analysisMode === 'wallet' && isWalletRunning ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing wallets
-            </>
-          ) : (
-            <>
-              <Search className="mr-2 h-4 w-4" /> {analysisMode === 'token' ? 'Analyze token' : 'Analyze wallets'}
-            </>
-          )}
-        </Button>
-      </div>
+      </Card>
 
       {analysisMode === 'token' && isTokenRunning && tokenMessage && (
         <p className="text-xs text-muted-foreground px-3">{tokenMessage}</p>
@@ -352,9 +354,8 @@ export default function HolderProfilesPage() {
       )}
 
       {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
-    </div>
+      </div>
+    </AppShell>
   );
 }
-
-
 

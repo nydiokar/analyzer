@@ -1,9 +1,11 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { Queue, QueueEvents } from 'bullmq';
 import { QueueNames } from '../config/queue.config';
 import { redisConfig } from '../config/redis.config';
 import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { RedisLockService } from './redis-lock.service';
+import { REDIS_CLIENT } from '../config/redis.provider';
+import { Redis } from 'ioredis';
 
 @Injectable()
 export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
@@ -13,7 +15,8 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly jobProgressGateway: JobProgressGateway,
-    private readonly redisLockService: RedisLockService
+    private readonly redisLockService: RedisLockService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {}
 
   async onModuleInit() {
@@ -27,14 +30,26 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Job Events Bridge active for ${Object.keys(QueueNames).length} queues`);
     
     // 🧹 TARGETED FIX: Cleanup orphaned locks from previous restart
-    try {
-      const orphanedLocks = await this.redisLockService.cleanupOrphanedLocksOnStartup();
-      if (orphanedLocks > 0) {
-        this.logger.log(`🧹 Startup cleanup: Removed ${orphanedLocks} orphaned locks from previous restart`);
+    // Attempt cleanup after a longer delay to let Redis fully initialize
+    setTimeout(async () => {
+      try {
+        const orphanedLocks = await this.redisLockService.cleanupOrphanedLocksOnStartup();
+        if (orphanedLocks > 0) {
+          this.logger.log(`🧹 Startup cleanup: Removed ${orphanedLocks} orphaned locks from previous restart`);
+        } else {
+          this.logger.log('🧹 Startup cleanup: No orphaned locks found');
+        }
+      } catch (error) {
+        const errorMessage = (error as Error).message || 'Unknown error';
+        if (errorMessage.includes('Redis not connected') ||
+            errorMessage.includes('enableOfflineQueue') ||
+            errorMessage.includes('writeable')) {
+          this.logger.warn('⚠️  Redis not ready for cleanup - skipping. Make sure Redis is running for lock management.');
+        } else {
+          this.logger.error('Error during startup lock cleanup:', error);
+        }
       }
-    } catch (error) {
-      this.logger.error('Error during startup lock cleanup:', error);
-    }
+    }, 10000); // Wait 10 seconds for Redis to be fully ready
   }
 
   async onModuleDestroy() {
@@ -42,24 +57,36 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     for (const queueEvents of this.queueEventsMap.values()) {
       await queueEvents.close();
     }
+    for (const queue of this.queueMap.values()) {
+      try {
+        await queue.close();
+      } catch (error) {
+        this.logger.warn(`Error closing queue ${queue.name} during shutdown`, error as Error);
+      }
+    }
     this.queueEventsMap.clear();
+    this.queueMap.clear();
   }
 
   private async setupQueueEvents(queueName: string) {
     const queueEvents = new QueueEvents(queueName, { connection: redisConfig });
 
     queueEvents.on('progress', async ({ jobId, data }) => {
+      // Extract userId from job data for room-based broadcasting
+      const job = await this.queueMap.get(queueName)?.getJob(jobId);
+      const userId = await this.resolveUserId(job, jobId);
+
       let progressData: number | object;
       if (typeof data === 'string') {
         const num = parseInt(data, 10);
         progressData = isNaN(num) ? { status: data } : num;
       } else if (typeof data === 'boolean') {
         progressData = { status: data ? 'active' : 'inactive' };
-      } 
+      }
       else {
         progressData = data;
       }
-      await this.jobProgressGateway.publishProgressEvent(jobId, queueName, progressData);
+      await this.jobProgressGateway.publishProgressEvent(jobId, queueName, progressData, undefined, userId);
     });
 
     // Track when job starts processing (queue-to-start time)
@@ -67,16 +94,19 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
       if (job && job.processedOn && job.timestamp) {
         const queueToStartTime = job.processedOn - job.timestamp;
+        const userId = await this.resolveUserId(job, jobId);
+
         this.logger.log(`Job started processing: ${jobId} after ${queueToStartTime}ms in queue`);
-        
-        // Publish queue-to-start timing event
-        await this.jobProgressGateway.publishQueueToStartEvent(jobId, queueName, queueToStartTime);
+
+        // Publish queue-to-start timing event with userId for room-based broadcasting
+        await this.jobProgressGateway.publishQueueToStartEvent(jobId, queueName, queueToStartTime, userId);
       }
     });
 
     queueEvents.on('completed', async ({ jobId, returnvalue }) => {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
-      
+      const userId = await this.resolveUserId(job, jobId);
+
       // Use manual processing time from job result if available, otherwise fallback to BullMQ timing
       let processingTime = 0;
       const result = returnvalue as any;
@@ -86,21 +116,25 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
         // Fallback: use actual finish time - start time (not queue time)
         processingTime = job.finishedOn - job.processedOn;
       }
-      
+
       // Calculate total time (queue to completion)
       let totalTime = 0;
       if (job && job.finishedOn && job.timestamp) {
         totalTime = job.finishedOn - job.timestamp;
       }
-      
+
       this.logger.log(`Job completed: ${jobId} - Processing: ${processingTime}ms, Total: ${totalTime}ms`);
-      await this.jobProgressGateway.publishCompletedEvent(jobId, queueName, result || {}, processingTime, totalTime);
+      await this.jobProgressGateway.publishCompletedEvent(jobId, queueName, result || {}, processingTime, totalTime, userId);
+      await this.cleanupUserMapping(jobId);
     });
 
     queueEvents.on('failed', async ({ jobId, failedReason }) => {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
+      const userId = await this.resolveUserId(job, jobId);
+
       this.logger.warn(`Job failed: ${jobId} - ${failedReason}`);
-      await this.jobProgressGateway.publishFailedEvent(jobId, queueName, failedReason, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0);
+      await this.jobProgressGateway.publishFailedEvent(jobId, queueName, failedReason, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
+      await this.cleanupUserMapping(jobId);
     });
 
     queueEvents.on('error', (err) => {
@@ -109,5 +143,27 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
 
     this.queueEventsMap.set(queueName, queueEvents);
     this.logger.log(`Set up queue events for: ${queueName}`);
+  }
+
+  private async resolveUserId(job: any, jobId: string): Promise<string | undefined> {
+    const fromData = (job?.data as any)?.userId;
+    if (fromData) {
+      return fromData;
+    }
+    try {
+      const cached = await this.redisClient.get(`job:user:${jobId}`);
+      return cached || undefined;
+    } catch (error) {
+      this.logger.warn(`Failed to resolve userId for job ${jobId}:`, error as Error);
+      return undefined;
+    }
+  }
+
+  private async cleanupUserMapping(jobId: string) {
+    try {
+      await this.redisClient.del(`job:user:${jobId}`);
+    } catch (error) {
+      this.logger.warn(`Failed to clean user mapping for job ${jobId}:`, error as Error);
+    }
   }
 }

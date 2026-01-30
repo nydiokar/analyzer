@@ -95,31 +95,38 @@ This document provides a comprehensive overview of all React components in the W
 ### 4. `AccountStatsPnlTab.tsx`
 
 -   **File Path:** `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
--   **Purpose:** Displays detailed Profit and Loss (PNL) overview statistics for the selected wallet, including both period-specific and all-time data.
--   **Current State:** Implemented as a client component. Accepts `walletAddress`, `isAnalyzingGlobal`, `triggerAnalysisGlobal`, and `lastAnalysisTimestamp`. Uses SWR to fetch data from `/api/v1/wallets/{walletAddress}/pnl-overview`.
-    -   **Loading States:** 
-        -   If `isAnalyzingGlobal` is true, shows an `EmptyState` with `Loader2` and "Analyzing Wallet..." message.
-        -   Otherwise, if `isLoading` (SWR loading) is true, shows an `EmptyState` with `Loader2` and "Loading PNL Data..." message.
-    -   **Error States:** 
-        -   If `error` occurs, it checks if `error.status` is 404; if so, shows an `EmptyState` (variant `info`, icon `SearchX`) with "PNL Data Not Yet Available" and an "Analyze Wallet" button.
-        -   For other errors, shows an `EmptyState` (variant `error`, icon `AlertTriangle`) with "Error Fetching PNL Data" and a "Retry Analysis" button.
-    -   **Empty/No Data States:** 
-        -   If `!pnlData && !isLoading && !error` (no data after load, no error), shows `EmptyState` (variant `info`, icon `SearchX`) with "PNL Data Not Generated" and "Analyze Wallet" button.
-        -   A final `!pnlData && !isAnalyzingGlobal` check shows `EmptyState` (variant `info`, icon `Info`) with "PNL Data Unavailable".
-        -   Detailed `EmptyState` messages are rendered for `periodCardContent` and `allTimeCardContent` based on data availability and `lastAnalysisTimestamp`, providing specific guidance and CTAs.
-    Uses `AccountStatsPnlDisplay.tsx` for rendering metric groups.
+-   **Purpose:** Displays detailed Profit and Loss (PNL) overview statistics for the selected wallet, including both period-specific and all-time data with tabbed view (Period/All-Time/Both).
+-   **Current State:** Implemented as a client component. Accepts `walletAddress`, `isAnalyzingGlobal`, `triggerAnalysisGlobal`, and `lastAnalysisTimestamp`. Uses SWR to fetch data from `/wallets/{walletAddress}/pnl-overview`. Features three display modes via TabGroup: Period only (index 0), All-Time only (index 1), or Both side-by-side (index 2, default).
+    -   **Internal Components:**
+        -   `AccountStatsPnlDisplay` - Renders PNL metrics grouped by sections (Core Trading Metrics, Volume & Capital Flow, Advanced Token Analytics). Includes tooltips explaining each metric, color-coded profit/loss indicators, and collapsible accordion for advanced analytics.
+        -   `PnlDisplaySkeleton` - Loading skeleton matching the structure of AccountStatsPnlDisplay for smooth loading transitions.
+    -   **Loading States:**
+        -   If `isLoading` is true (not analyzing), shows `PnlDisplaySkeleton` for current display mode with skeleton TabGroup.
+        -   Skeleton preserves current `displayMode` state for better UX continuity.
+    -   **Error States:**
+        -   If `error.status === 404`, shows `EmptyState` (variant `info`, icon `SearchX`) with "PNL Data Not Yet Available" and "Analyze Wallet" button.
+        -   For other errors, shows `EmptyState` (variant `error`, icon `AlertTriangle`) with error message and "Retry Analysis" button.
+    -   **Empty/No Data States:**
+        -   If `!pnlData && !isLoading && !error`, shows `EmptyState` with "PNL Data Not Generated" and "Analyze Wallet" button.
+        -   Detailed context-aware `EmptyState` messages for `periodCardContent` and `allTimeCardContent`:
+          - Checks if `startDate > lastAnalysisTimestamp` → suggests "Refresh Wallet Data"
+          - Checks if wallet never analyzed → shows "Analyze Wallet"
+          - Checks if last analysis > 3 hours ago → offers "Refresh Wallet Data"
+          - Otherwise shows informational message about data unavailability
+    -   **Metrics Displayed:**
+        - **Core Trading:** Realized PNL, Unrealized PNL, Avg P/L per Trade, Token Win Rate (with profitable/unprofitable token counts)
+        - **Volume & Capital Flow:** Total Volume Traded, Total SOL Spent, Total SOL Received
+        - **Advanced Analytics (Accordion):** Median P/L per Token, PNL Standard Deviation, Trimmed Mean PNL, Median PNL/Volatility Ratio, Avg PNL/Day Active, Weighted Efficiency Score
+    -   **Special Features:**
+        - Color-coded metrics (green for positive, red for negative, blue for volume)
+        - Arrow indicators (▲/▼) for profit/loss direction
+        - Extensive tooltips via TooltipProvider explaining each metric's meaning
+        - Responsive grid layouts (2/4 columns for core, 2/3 for volume, 2x3 grid for advanced)
+        - `dataFrom` timestamp display showing when data was calculated
 -   **Key Props:** `walletAddress: string`, `isAnalyzingGlobal?: boolean`, `triggerAnalysisGlobal?: () => void`, `lastAnalysisTimestamp?: Date | null`.
--   **Planned Next Steps:** Considered largely complete in terms of state handling.
-
-### 5. `AccountStatsPnlDisplay.tsx`
-
--   **File Path:** `dashboard/src/components/dashboard/AccountStatsPnlDisplay.tsx`
--   **Purpose:** A sub-component responsible for rendering groups of PNL metrics within the `AccountStatsPnlTab.tsx`.
--   **Current State:** Receives `data` and `title`. If `!data`, it renders a simple "No data available for this period." within a Card. It does not manage its own loading/error states as it expects processed data from its parent.
--   **Key Props:** `data: PnlOverviewResponseData | null`, `title: string`.
 -   **Planned Next Steps:** Considered complete.
 
-### 6. `ReviewerLogTab.tsx`
+### 5. `ReviewerLogTab.tsx`
 
 -   **File Path:** `dashboard/src/components/dashboard/ReviewerLogTab.tsx`
 -   **Purpose:** Wallet notes management interface for reviewers and analysts.
@@ -329,14 +336,32 @@ These components implement the wallet baseball card UI pattern for behavioral an
     - `primitive: CognitivePrimitive` (required) - Metric data (label, value, category, description, color)
 -   **Planned Next Steps:** Considered complete.
 
-### 8. Other v2 Components
+### 8. `TransactionDateRange.tsx`
+
+-   **File Path:** `dashboard/src/components/holder-profiles/v2/TransactionDateRange.tsx`
+-   **Purpose:** Small utility component for displaying transaction date range in holder profiles.
+-   **Current State:** Simple presentational component that formats and displays the oldest and newest transaction timestamps for a wallet's analyzed period. Uses `date-fns` for date formatting (MMM d, yyyy format). Returns null if timestamps are not provided.
+-   **Key Props:**
+    - `oldestTimestamp?: number` (optional) - Unix timestamp of oldest transaction
+    - `newestTimestamp?: number` (optional) - Unix timestamp of newest transaction
+-   **Display Format:** "Transactions from Oct 15, 2024 to Dec 9, 2024"
+-   **Planned Next Steps:** Considered complete.
+
+### 9. Other v2 Components
 
 Additional helper components in `holder-profiles/v2/`:
-- **TokenPulse.tsx** - Token-specific behavioral indicators
+- **TokenPulse.tsx** - Token-specific behavioral indicators and holder cohort visualization
 - **OutcomeStrip.tsx** - Visual strip showing outcome distribution
 - **BehaviorCompositionBar.tsx** - Bar chart for behavior type composition
 - **CognitivePrimitivesRow.tsx** - Row layout for cognitive metrics
 - **MinimalHoldersTable.tsx** - Compact table for holder lists
+
+Utility files in `holder-profiles/v2/utils/`:
+- **behavior.ts** - Behavior classification logic and utilities
+- **cognitive-primitives.ts** - Cognitive primitive calculations
+- **formatters.ts** - Formatting utilities for holder profile data
+- **group-insights.ts** - Multi-wallet group analysis calculations
+- **outcome-logic.ts** - Token outcome classification logic
 
 ## Similarity Lab Components
 
@@ -414,15 +439,35 @@ These components power the wallet similarity analysis features.
     - `results: CombinedSimilarityResult` (required)
 -   **Planned Next Steps:** Considered complete.
 
-### 7. Other Similarity Components
+### 7. `WalletInputForm.tsx`
 
-Additional components in `similarity-lab/`:
-- **GlobalMetricsCard.tsx** - Overall similarity metrics
+- **File Path:** `dashboard/src/components/similarity-lab/WalletInputForm.tsx`
+- **Purpose:** Main input form for entering wallet addresses in Similarity Lab.
+- **Current State:** Textarea-based form for entering/pasting multiple wallet addresses. Supports comma or newline separation. Shows real-time parsing feedback with wallet count badge. Displays live progress bar during analysis. Integrates with parent state for external wallet injection (from TopHoldersPanel).
+- **Key Props:**
+  - `onWalletsChange: (wallets: string[]) => void` (required) - Callback when wallet list changes
+  - `onAnalyze: () => void` (required) - Callback to trigger analysis
+  - `isRunning: boolean` (required) - Whether analysis is currently running
+  - `jobProgress: number` (required) - Progress percentage (0-100)
+  - `progressMessage: string` (required) - Status message during analysis
+  - `externalWallets?: string[]` (optional) - Wallets injected from other sources
+- **Special Features:**
+  - **Smart Parsing:** Auto-deduplicates, validates format, supports multi-line paste
+  - **Real-time Feedback:** Badge showing wallet count, validation indicators
+  - **Progress Display:** Linear progress bar with percentage and status message
+  - **External Integration:** Syncs with `externalWallets` prop for bulk addition
+- **Planned Next Steps:** Considered complete.
+
+### 8. Other Similarity Components
+
+Additional components in `similarity-lab/results/`:
+- **GlobalMetricsCard.tsx** - Overall similarity metrics card
 - **OverlapHeatmap.tsx** - Heatmap visualization of wallet overlaps
 - **HistoricalVsLiveComparison.tsx** - Compares historical vs current holdings
 - **TokenHoldingRow.tsx** - Row component for token holdings display
-- **WalletSelector.tsx** - Wallet selection interface
-- **WalletInputForm.tsx** - Form for entering wallet addresses
+
+Additional components in `similarity-lab/`:
+- **WalletSelector.tsx** - Wallet selection interface (deprecated/legacy)
 
 ## Page Components (App Router)
 
@@ -448,6 +493,50 @@ Additional components in `similarity-lab/`:
 - **Current State:** Primarily static content with mock data for "Recently Analyzed Wallets" and "Featured Wallet". Does not currently implement SWR or `EmptyState.tsx` for these sections as data is not dynamically fetched from an API. Input for wallet search navigates to the wallet page.
 - **Planned Next Steps:** If recent/featured wallets were to be fetched from an API, loading/empty/error states would need to be added.
 
+### 5. `dashboard/src/app/similarity-lab/page.tsx`
+
+- **File Path:** `dashboard/src/app/similarity-lab/page.tsx`
+- **Purpose:** Wallet similarity analysis tool - discovers hidden connections between wallets based on trading behavior and capital allocation.
+- **Current State:** Full-featured analysis page with WebSocket-based job tracking. Uses `WalletInputForm` for multi-wallet input, `TopHoldersPanel` dialog for adding wallets from token holders, and `SimilarityResultDisplay` for showing analysis results. Implements two-job flow: main similarity analysis + background token enrichment. Features "Back to Top" button for long result pages, localStorage persistence for analysis results, and refresh prices functionality.
+- **Key Features:**
+  - **Dual Input Methods:** Direct wallet address input via form + bulk addition from token top holders
+  - **WebSocket Job Tracking:** Real-time progress updates for both analysis and enrichment jobs
+  - **Two-Phase Flow:** Phase 1 returns raw balances instantly, Phase 2 enriches with prices/metadata in background
+  - **Invalid Wallet Handling:** Smart error messages showing which specific wallets failed validation
+  - **Price Refresh:** Manual refresh button to update token prices after analysis
+  - **Result Persistence:** Auto-saves to localStorage, loads on page refresh
+  - **Polling Fallback:** Gracefully falls back to HTTP polling if WebSocket unavailable
+- **Job States:** Tracks separate states for analysis job (main) and enrichment job (metadata/pricing)
+- **Integration:** Links to `/tools/top-holders` standalone utility
+- **Planned Next Steps:** Considered complete.
+
+### 6. `dashboard/src/app/tools/holder-profiles/page.tsx`
+
+- **File Path:** `dashboard/src/app/tools/holder-profiles/page.tsx`
+- **Purpose:** Outcome-first behavioral analysis tool for token cohorts and individual wallet scouts.
+- **Current State:** Dual-mode analysis interface (token mode + wallet mode). Token mode analyzes top N holders of a token mint (using `/analyses/holder-profiles` endpoint). Wallet mode analyzes custom list of wallets (using `/analyses/holder-profiles/wallet` endpoint). Uses `WalletClassifier` component for displaying wallet analysis results and `TokenPulse` for token holder cohort visualization. Implements incremental progress updates via WebSocket with partial results display.
+- **Key Features:**
+  - **Token Mode:** Input token mint + top N (1-50) → analyzes behavior of top holders
+  - **Wallet Mode:** Paste/input comma-separated wallet addresses → individual wallet behavioral profiles
+  - **Incremental Display:** Shows partial results as they arrive (live streaming of holder profiles)
+  - **WebSocket Progress:** Real-time job tracking with percentage and status messages
+  - **Wallet Parsing:** Smart deduplication and validation of pasted wallet lists
+  - **Result Components:** `TokenPulse` for token cohorts, `WalletClassifier` for wallet grids
+- **Job Tracking:** Separate job IDs and states for each wallet in wallet mode, single job for token mode
+- **Planned Next Steps:** Considered complete.
+
+### 7. `dashboard/src/app/tools/top-holders/page.tsx`
+
+- **File Path:** `dashboard/src/app/tools/top-holders/page.tsx`
+- **Purpose:** Standalone utility page for exploring token top holders.
+- **Current State:** Simple wrapper around `TopHoldersPanel` component. Provides dedicated full-page interface for fetching and exploring top holders of any token mint. No additional logic beyond rendering the panel.
+- **Key Features:**
+  - **Standalone Tool:** Accessible via `/tools/top-holders` route
+  - **Full Page Layout:** Uses container layout with card wrapper
+  - **Consistent UI:** Reuses same `TopHoldersPanel` component from Similarity Lab
+- **Integration:** Linked from Similarity Lab page as alternative tool
+- **Planned Next Steps:** Considered complete.
+
 ## Root Layout
 
 ### 1. `dashboard/src/app/layout.tsx`
@@ -455,6 +544,38 @@ Additional components in `similarity-lab/`:
 -   **Purpose:** The main root layout for the entire dashboard application.
 -   **Current State:** It's a client component (`"use client"`) to manage the sidebar's collapsed state. Integrates the `Sidebar` component and passes down the state and toggle function. Provides a main content area whose `marginLeft` adjusts based on the sidebar's collapsed state (`12rem` for expanded, `5rem` for collapsed). Sets up global styles, fonts (Geist Sans/Mono), and `ThemeProvider`. Includes `suppressHydrationWarning`. The `metadata` export has been moved to `page.tsx`.
 -   **Key Props:** `children: React.ReactNode`.
+
+## UI Components (shadcn/ui)
+
+The dashboard uses shadcn/ui components located in `dashboard/src/components/ui/`. These are pre-built, customizable components that follow Radix UI primitives:
+
+- **accordion.tsx** - Collapsible content sections
+- **alert.tsx** / **alert-dialog.tsx** - Alert messages and confirmation dialogs
+- **avatar.tsx** - User avatar display
+- **badge.tsx** - Small status/label badges
+- **button.tsx** - Primary button component
+- **calendar.tsx** - Date picker calendar
+- **card.tsx** - Container card component
+- **dialog.tsx** - Modal dialog windows
+- **dropdown-menu.tsx** - Dropdown menu component
+- **input.tsx** - Text input field
+- **label.tsx** - Form label
+- **pagination.tsx** - Pagination controls
+- **popover.tsx** - Popover overlay
+- **progress.tsx** - Progress bar
+- **radio-group.tsx** - Radio button group
+- **scroll-area.tsx** - Scrollable container
+- **select.tsx** - Select dropdown
+- **separator.tsx** - Visual divider
+- **skeleton.tsx** - Loading skeleton
+- **switch.tsx** - Toggle switch
+- **table.tsx** - Table component
+- **tabs.tsx** - Tabbed interface
+- **textarea.tsx** - Multi-line text input
+- **toast.tsx** / **toaster.tsx** - Toast notifications
+- **tooltip.tsx** - Hover tooltips
+
+These components are built on top of Radix UI primitives and styled with Tailwind CSS. They are used throughout the dashboard for consistent UI patterns.
 
 ## Utility Files
 

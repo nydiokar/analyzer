@@ -863,6 +863,138 @@ import { Card } from '@/components/ui/card';
 
 ---
 
+## 🎨 Frontend Architecture Implementation
+
+### Next.js 14 App Router Implementation
+
+**Framework Choice**: Next.js 14 with App Router for modern React development
+
+**Key Features Utilized**:
+- **Server Components**: Improved performance and SEO
+- **App Router**: File-based routing with nested layouts
+- **TypeScript Integration**: Full type safety across the application
+- **Built-in Optimizations**: Automatic code splitting and image optimization
+
+**Routing Structure**:
+```
+app/
+├── layout.tsx          # Root layout with providers
+├── page.tsx            # Home/dashboard page
+├── wallets/
+│   └── [walletAddress]/
+│       └── page.tsx    # Dynamic wallet analysis
+├── similarity-lab/
+│   └── page.tsx        # Similarity analysis interface
+└── settings/
+    └── page.tsx        # User settings
+```
+
+**Trade-offs**:
+- ✅ **Pros**: Modern React features, excellent performance, great developer experience
+- ❌ **Cons**: Learning curve for App Router patterns, newer technology stack
+
+### Component Library Strategy Implementation
+
+**Technology Stack**: shadcn/ui + Tremor for comprehensive UI components
+
+#### shadcn/ui Implementation
+- **Unstyled Components**: Customizable base components
+- **Accessibility**: WCAG-compliant with proper ARIA labels
+- **Theme Integration**: CSS variable-based theming
+- **Bundle Optimization**: Tree-shakable imports
+
+```typescript
+// Usage example
+import { Button } from "@/components/ui/button";
+
+<Button variant="default" size="lg">
+  Analyze Wallet
+</Button>
+```
+
+#### Tremor Integration
+- **Data Visualization**: Specialized components for charts and metrics
+- **Dashboard Components**: Pre-built dashboard widgets
+- **Consistent Design**: Unified visual language with shadcn/ui
+
+### State Management Implementation
+
+**Hybrid Approach**: SWR for server state, Zustand for client state
+
+#### SWR Configuration
+```typescript
+// Global SWR config (lib/swr-config.ts)
+export const defaultSWRConfig: SWRConfiguration = {
+  fetcher,
+  revalidateOnFocus: false,        // Prevent unnecessary refetches
+  revalidateOnReconnect: false,    // Stable offline experience
+  revalidateOnMount: true,         // Always fresh on mount
+  dedupingInterval: 5000,          // 5s deduplication window
+  keepPreviousData: false,         // Show loading, not stale data
+  revalidateIfStale: true,         // Allow stale data updates
+  refreshInterval: 0,              // No auto-refresh
+};
+```
+
+#### Zustand Stores
+```typescript
+// API Key store
+interface ApiKeyStore {
+  apiKey: string | null;
+  setApiKey: (key: string) => void;
+  clearApiKey: () => void;
+  isValid: boolean;
+}
+
+// Time range store
+interface TimeRangeStore {
+  timeRange: TimeRange;
+  setTimeRange: (range: TimeRange) => void;
+  customRange: CustomTimeRange | null;
+  setCustomRange: (range: CustomTimeRange | null) => void;
+}
+```
+
+#### Custom Hooks
+```typescript
+// Favorites management
+export function useFavorites() {
+  const [favorites, setFavorites] = useState<Wallet[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const addFavorite = useCallback(async (walletAddress: string) => {
+    // Implementation
+  }, []);
+
+  const removeFavorite = useCallback(async (walletAddress: string) => {
+    // Implementation
+  }, []);
+
+  return { favorites, isLoading, addFavorite, removeFavorite };
+}
+
+// Job progress tracking
+export function useJobProgress(jobId: string | null) {
+  const [progress, setProgress] = useState<JobProgress | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // WebSocket connection logic
+  useEffect(() => {
+    if (!jobId) return;
+    const socket = new WebSocket(`ws://localhost:3001/jobs/${jobId}`);
+    // Connection handling
+  }, [jobId]);
+
+  return { progress, isConnected };
+}
+```
+
+**Trade-offs**:
+- ✅ **Pros**: Simple, performant, excellent server state management
+- ❌ **Cons**: Limited complex client state patterns, learning SWR behavior
+
+---
+
 ## 📚 **Related Documentation**
 
 - **[Core Analysis Engine](./../core/README.md)** - Business logic implementation

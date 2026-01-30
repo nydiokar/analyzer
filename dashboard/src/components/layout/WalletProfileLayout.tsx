@@ -10,22 +10,20 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import EmptyState from '@/components/shared/EmptyState'
 import { 
-  CopyIcon, 
-  WalletIcon, 
-  ChevronUp, 
-  ChevronDown, 
-  LayoutDashboard, // Overview
-  ListChecks,      // Token Performance (could also be BarChartHorizontal or similar)
+  CopyIcon,
+  WalletIcon,
+  ChevronUp,
+  ChevronDown,
+  ListChecks,      // Token Performance
   Calculator,      // Account Stats & PNL
-  Users,           // Behavioral Patterns (could also be Zap or ActivitySquare)
+  Users,           // Behavioral Patterns
   FileText,        // Notes
-  RefreshCw,     // Added for the refresh button
-  Star,          // Added Star icon for favorites
-
+  RefreshCw,       // Refresh button
+  Star,            // Favorites icon
   Tags,
   FolderOpen,
   Edit2,
-  Bot,          // Edit icon for wallet data
+  Bot,             // Edit icon for wallet data
   Loader2
 } from 'lucide-react' 
 import { toast } from 'sonner';
@@ -128,7 +126,7 @@ const ReviewerLogTabLazy = dynamic<ReviewerLogTabProps>(
   },
 );
 
-const TAB_VALUES = new Set<string>(['overview', 'token-performance', 'account-stats', 'behavioral-patterns', 'notes']);
+const TAB_VALUES = new Set<string>(['token-performance', 'account-stats', 'behavioral-patterns', 'notes']);
 const DEFAULT_TAB = 'token-performance';
 
 function truncateWalletAddress(address: string, startChars = 6, endChars = 4): string {
@@ -160,7 +158,7 @@ export default function WalletProfileLayout({
   walletAddress,
 }: WalletProfileLayoutProps) {
   const { mutate: globalMutate, cache } = useSWRConfig();
-  const { apiKey, isDemo: isDemoAccount } = useApiKeyStore();
+  const { isDemo: isDemoAccount } = useApiKeyStore();
   const { startDate, endDate } = useTimeRangeStore();
   const [isHeaderExpanded, setIsHeaderExpanded] = useState(true); // Start with true for SSR consistency
   const [isHydrated, setIsHydrated] = useState(false); // Track hydration state
@@ -898,7 +896,7 @@ export default function WalletProfileLayout({
   }, [triggerDashboardScope, isDemoAccount]);
 
   const handleToggleFavorite = async () => {
-    if (!walletAddress || !apiKey || isTogglingFavorite) {
+    if (!walletAddress || isTogglingFavorite) {
       return;
     }
   
@@ -914,7 +912,7 @@ export default function WalletProfileLayout({
   };
 
   const confirmRemoveFavorite = async () => {
-    if (!walletAddress || !apiKey) return;
+    if (!walletAddress) return;
     
     setIsTogglingFavorite(true);
     
@@ -1009,16 +1007,25 @@ export default function WalletProfileLayout({
 
     return (
       <div className="flex flex-col items-start gap-1 w-full md:w-auto">
-        <Button
-          onClick={handleTriggerAnalysis}
-          variant="outline"
-          size="sm"
-          className="w-full md:w-auto"
-          disabled={ctaDisabled}
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${ctaBusy ? 'animate-spin' : ''}`} />
-          {ctaLabel}
-        </Button>
+        <TooltipProvider delayDuration={100}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleTriggerAnalysis}
+                variant="outline"
+                size="sm"
+                className="w-full md:w-auto"
+                disabled={ctaDisabled}
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${ctaBusy ? 'animate-spin' : ''}`} />
+                {ctaLabel}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Trigger full wallet analysis to refresh all data</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         {!ctaBusy && !isRestrictedWallet && !isDemoAccount && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
           <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
@@ -1066,7 +1073,7 @@ export default function WalletProfileLayout({
                       </span>
                     )}
                     
-                    {apiKey && (
+                    {(
                       <>
                         <TooltipProvider delayDuration={100}>
                           <Tooltip>
@@ -1173,29 +1180,48 @@ export default function WalletProfileLayout({
                     </span>
                   )}
                   
-                  {apiKey && (
+                  {(
                     <>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={handleToggleFavorite} 
-                        disabled={isTogglingFavorite}
-                        className="h-6 w-6 flex-shrink-0"
-                      >
-                        <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
-                      </Button>
-                      
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={handleToggleFavorite}
+                              disabled={isTogglingFavorite}
+                              className="h-6 w-6 flex-shrink-0"
+                            >
+                              <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
+                              <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+
                       {/* Edit button for favorites */}
                       {isCurrentWalletFavorite && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={openEditModal} 
-                          className="h-6 w-6 flex-shrink-0"
-                        >
-                          <Edit2 className="h-3 w-3" />
-                          <span className="sr-only">Edit wallet data</span>
-                        </Button>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={openEditModal}
+                                className="h-6 w-6 flex-shrink-0"
+                              >
+                                <Edit2 className="h-3 w-3" />
+                                <span className="sr-only">Edit wallet data</span>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">
+                              <p>Edit wallet data</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                     </>
                   )}
@@ -1218,27 +1244,58 @@ export default function WalletProfileLayout({
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
-                    <div className={cn(
-                        "h-2.5 w-2.5 rounded-full", 
-                        lastAnalysisStatus === 'success' && "bg-green-500",
-                        lastAnalysisStatus === 'error' && "bg-red-500",
-                        lastAnalysisStatus === 'idle' && "bg-yellow-500",
-                        "cursor-help hidden sm:block"
-                      )}
-                    />
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className={cn(
+                              "h-2.5 w-2.5 rounded-full",
+                              lastAnalysisStatus === 'success' && "bg-green-500",
+                              lastAnalysisStatus === 'error' && "bg-red-500",
+                              lastAnalysisStatus === 'idle' && "bg-yellow-500",
+                              "cursor-help hidden sm:block"
+                            )}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>
+                            {lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
+                             lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
+                             lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? (
-                     <div className="h-2.5 w-2.5 rounded-full bg-gray-400 cursor-help hidden sm:block" title="Not yet analyzed" />
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="h-2.5 w-2.5 rounded-full bg-gray-400 cursor-help hidden sm:block" />
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          <p>Not yet analyzed</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   ) : null}
-                  <Button 
-                    onClick={handleTriggerAnalysis} 
-                    variant="outline"
-                    size="sm"
-                    className="px-2 py-1 h-auto text-xs"
-                    disabled={isAnalyzing || !walletAddress}
-                  >
-                    <RefreshCw className={`mr-1 h-3.5 w-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                    {lastAnalysisTimestamp ? 'Refresh' : 'Analyze'}
-                  </Button>
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          onClick={handleTriggerAnalysis}
+                          variant="outline"
+                          size="sm"
+                          className="px-2 py-1 h-auto text-xs"
+                          disabled={isAnalyzing || !walletAddress}
+                        >
+                          <RefreshCw className={`mr-1 h-3.5 w-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                          {lastAnalysisTimestamp ? 'Refresh' : 'Analyze'}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p>Trigger full wallet analysis to refresh all data</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </div>
             )}
@@ -1251,7 +1308,7 @@ export default function WalletProfileLayout({
             )}>
               <AccountSummaryCard
                 walletAddress={walletAddress}
-                className="w-full sm:w-auto md:max-w-none"
+                className=""
                 triggerAnalysis={handleTriggerAnalysis}
                 isAnalyzingGlobal={isAnalyzing}
                 walletSummary={walletSummary}
@@ -1268,7 +1325,6 @@ export default function WalletProfileLayout({
                 {isHeaderExpanded ? <ChevronUp className="h-4 w-4 md:h-5 md:w-5" /> : <ChevronDown className="h-4 w-4 md:h-5 md:w-5" />}
                 <span className="sr-only">{isHeaderExpanded ? 'Collapse Summary' : 'Expand Summary'}</span>
               </Button>
-              <ThemeToggleButton />
             </div>
           </div>
         </div>
@@ -1291,37 +1347,17 @@ export default function WalletProfileLayout({
             <Users className="h-3.5 w-3.5" />
             Behavioral Patterns
           </TabsTrigger>
-          <TabsTrigger 
-            value="notes" 
+          <TabsTrigger
+            value="notes"
             className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
             <FileText className="h-3.5 w-3.5" />
             Notes
-          </TabsTrigger>
-          <TabsTrigger 
-            value="overview" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <LayoutDashboard className="h-3.5 w-3.5" />
-            Overview
           </TabsTrigger>
         </TabsList>
       </header>
 
       <main className="flex-1 overflow-hidden p-0 flex flex-col">
         <div className="w-full h-full flex flex-col min-h-0">
-          <LazyTabContent value="overview" activeTab={activeTab} className="flex-1 flex flex-col overflow-hidden" defer={false}>
-            <div className="h-full flex flex-col p-4 overflow-auto">
-              {children}
-              <div className="flex-1 flex flex-col border rounded-lg p-6 bg-card shadow-sm mt-4">
-                <h3 className="text-2xl font-bold mb-4">AI Overview Coming Soon</h3>
-                <div className="flex-1 bg-muted rounded-md flex items-center justify-center text-sm text-muted-foreground min-h-[300px]">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                    <p>AI-powered wallet insights are being developed...</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </LazyTabContent>
 
           <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} onMutateReady={handleTokenPerformanceMutateReady} />

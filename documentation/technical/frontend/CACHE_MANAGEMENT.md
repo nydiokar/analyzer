@@ -553,6 +553,89 @@ When adding new data fetching:
 
 ---
 
+## 💾 Two-Tier Cache Architecture Implementation
+
+### Holder Profiles Cache Service
+
+The system implements a sophisticated **two-tier caching strategy** for holder profile data to balance performance and data freshness:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Two-Tier Cache System                    │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐  ┌─────────────────────────────────┐  │
+│  │   Tier 1        │  │          Tier 2                 │  │
+│  │   (Redis)       │  │          (PostgreSQL)          │  │
+│  │                 │  │                                 │  │
+│  │ • Hot cache     │  │ • Long-term persistence        │  │
+│  │ • 1h TTL        │  │ • Survives Redis restarts      │  │
+│  │ • <50ms access  │  │ • ~100-200ms for 7/10 wallets  │  │
+│  │ • Same query    │  │ • Progressive streaming UX     │  │
+│  │   within 1h     │  │                                 │  │
+│  └─────────────────┘  └─────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Implementation Details
+
+#### HolderProfilesCacheService Architecture
+```typescript
+class HolderProfilesCacheService {
+  // Tier 1: Redis operations
+  async getTokenResult(walletAddress: string, tokenAddress: string): Promise<CachedTokenResult | null>
+  async cacheTokenResult(walletAddress: string, tokenAddress: string, result: TokenResult): Promise<void>
+
+  // Tier 2: PostgreSQL operations
+  async getTokenSnapshots(walletAddress: string): Promise<TokenSnapshot[]>
+  async saveSnapshot(snapshot: TokenSnapshot): Promise<void>
+  async hydrateSnapshot(snapshot: TokenSnapshot): Promise<TokenResult>
+}
+```
+
+#### Smart Freshness Check Logic
+```typescript
+// Only recompute when underlying wallet data has changed
+const shouldRefresh = (snapshot: TokenSnapshot, wallet: Wallet): boolean => {
+  const snapshotAge = Date.now() - snapshot.computedAt;
+  const walletLastSync = wallet.lastSuccessfulFetchTimestamp * 1000;
+
+  // Snapshot is fresh if wallet hasn't synced since snapshot was computed
+  return walletLastSync > snapshot.computedAt;
+};
+```
+
+### Performance Characteristics
+
+- **Tier 1 Hit**: <50ms response time
+- **Tier 2 Hit**: ~100-200ms (serves 7 of 10 cached wallets)
+- **Progressive UX**: Users see partial results immediately, not waiting 30+ seconds
+- **Memory Efficient**: Redis handles hot data, PostgreSQL persists everything
+
+### Trade-offs & Considerations
+
+#### Benefits
+- **Instant Partial Results**: Progressive streaming prevents empty loading states
+- **Resilience**: Survives Redis restarts without full recomputation
+- **Performance**: Hot data served from Redis, cold data from PostgreSQL
+
+#### Challenges
+- **Complexity**: Two storage systems to manage and synchronize
+- **Storage Growth**: Tier 2 grows indefinitely (requires cleanup jobs)
+- **Freshness Logic**: Complex timestamp comparisons between snapshots and wallet sync times
+
+### Service Delegation Pattern
+
+**Architecture Decision**: Single service handles all caching logic (both tiers)
+
+**Rationale**:
+- Follows existing patterns (`PnlAnalysisService`, `BehaviorService` delegate to core)
+- Clean separation of concerns
+- Processor stays thin (orchestration only)
+
+**Future Consideration**: May need dedicated `HolderProfileAnalysisService` if complexity grows
+
+---
+
 ## Changelog
 
 ### October 31, 2025

@@ -5,11 +5,14 @@ services:
     image: redis:latest
     container_name: analyzer-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     restart: unless-stopped
+    mem_limit: 2g          # Generous limit for heavy workloads (not enforced on Pi, will work on VPS)
+    mem_reservation: 512m  # Soft limit (not enforced on Pi)
+    cpus: 1.0              # Actually enforced
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

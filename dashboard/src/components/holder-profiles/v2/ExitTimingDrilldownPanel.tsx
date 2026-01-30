@@ -278,7 +278,7 @@ export function ExitTimingDrilldownPanel({
                     key={mint}
                     className="p-2 rounded-md border border-white/5 bg-slate-900/85 hover:bg-muted/60 transition-colors flex items-center gap-2"
                   >
-                    <TokenBadge mint={mint} size="sm" />
+                    <TokenBadge mint={mint} variant="inline" size="sm" className="min-w-0" />
                   </div>
                 ))}
               </div>

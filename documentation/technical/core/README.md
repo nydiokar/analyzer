@@ -352,6 +352,120 @@ interface SimilarityAnalysisConfig {
 
 ---
 
+## 🔧 Analysis Engine Implementation Patterns
+
+### Service Layer Pattern Implementation
+
+**Architecture**: Business logic separated into dedicated service classes
+
+**Key Principles**:
+- **Reusability**: Services used by CLI scripts, API endpoints, and background workers
+- **Testability**: Easy unit testing of isolated business logic
+- **Maintainability**: Clear separation of concerns and responsibilities
+
+**Implementation Structure**:
+```typescript
+// Service layer architecture
+export class PnlAnalysisService {
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly heliusApiClient: HeliusApiClient
+  ) {}
+
+  async analyzeWalletPnl(walletAddress: string): Promise<PnlResult> {
+    // Business logic implementation
+  }
+}
+
+export class BehaviorAnalysisService {
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly behaviorAnalyzer: BehaviorAnalyzer
+  ) {}
+
+  async analyzeWalletBehavior(walletAddress: string): Promise<BehavioralMetrics> {
+    // Business logic implementation
+  }
+}
+```
+
+### Analyzer Classes Design Implementation
+
+**Single Responsibility**: Each analyzer handles one specific analysis type
+
+**Core Analyzer Classes**:
+- **BehaviorAnalyzer**: Trading pattern and behavioral analysis (1084 lines)
+- **SimilarityAnalyzer**: Vector-based wallet similarity calculations
+- **CorrelationAnalyzer**: Trading activity correlation analysis
+- **SwapAnalyzer**: Token flow and sequencing analysis
+- **StatsAnalyzer**: Statistical metrics and trend analysis
+
+**Design Benefits**:
+- **Focused Scope**: Each analyzer has a clear, single purpose
+- **Independent Testing**: Easy to unit test individual analysis logic
+- **Modular Changes**: Updates to one analyzer don't affect others
+- **Extensible Architecture**: New analyzers can be added without modifying existing code
+
+### Data Processing Strategy Implementation
+
+#### Batch Processing Implementation
+```typescript
+// Configurable batch processing for memory management
+interface BatchProcessingConfig {
+  batchSize: number;        // Transactions per batch
+  maxMemoryUsage: number;   // Memory limit before processing
+  progressCallback?: (progress: number) => void;
+}
+
+class BatchProcessor {
+  async processWalletTransactions(
+    walletAddress: string,
+    config: BatchProcessingConfig
+  ): Promise<AnalysisResult> {
+    // Batch processing logic
+  }
+}
+```
+
+**Key Features**:
+- **Memory Management**: Prevents memory issues with large datasets
+- **Progress Tracking**: Real-time progress updates for users
+- **Error Recovery**: Failed batches don't lose all progress
+- **Configurable Sizing**: Adaptable to different data volumes
+
+#### Caching Strategy Implementation
+```typescript
+// Minimal caching focused on data accuracy
+interface CacheConfig {
+  enableCaching: boolean;
+  cacheTTL: number;         // Time to live in seconds
+  cacheKeyPrefix: string;
+  forceRefresh?: boolean;   // Bypass cache option
+}
+
+class AnalysisCache {
+  async getCachedResult(key: string): Promise<AnalysisResult | null> {
+    // Cache retrieval logic
+  }
+
+  async cacheResult(key: string, result: AnalysisResult): Promise<void> {
+    // Cache storage logic
+  }
+}
+```
+
+**Design Decisions**:
+- **Fresh Data Priority**: Blockchain data requires current information
+- **Simplicity First**: Avoid complex cache invalidation logic
+- **Performance Balance**: Minimal caching reduces API call frequency
+- **Accuracy Guarantee**: Stale data is worse than slower responses
+
+**Trade-offs**:
+- ✅ **Pros**: Always fresh blockchain data, simpler architecture
+- ❌ **Cons**: More API calls, potentially slower response times
+
+---
+
 ## 📚 **Related Documentation**
 
 - **[API Layer](./../api/README.md)** - How the core engine is exposed via REST API
