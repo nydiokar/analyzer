@@ -26,7 +26,7 @@ export function useFavoriteToggle() {
         description: "Wallet has been added to your tracked list.",
       });
     } catch (err: unknown) {
-      const message = getErrorMessage("add-favorite", err);
+      const message = getErrorMessage("discover-add-favorite", err);
       toast.error(message.title, {
         description: message.description,
       });
@@ -43,7 +43,7 @@ export function useFavoriteToggle() {
         description: "Wallet has been removed from your tracked list.",
       });
     } catch (err: unknown) {
-      const message = getErrorMessage("remove-favorite", err);
+      const message = getErrorMessage("discover-remove-favorite", err);
       toast.error(message.title, {
         description: message.description,
       });
