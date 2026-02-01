@@ -202,7 +202,8 @@ export default function WalletProfileLayout({
   const [hasInitialTokenSnapshot, setHasInitialTokenSnapshot] = useState(false);
   const isAutoTriggeringRef = useRef(false);
 
-  const jobIdToScopeRef = useRef<Record<string, DashboardAnalysisScope>>({});
+  // REMOVED: jobIdToScopeRef - scope is now read directly from job completion event
+  // const jobIdToScopeRef = useRef<Record<string, DashboardAnalysisScope>>({});
 
   const isAnalyzing = React.useMemo(
     () => Object.values(scopeStates).some((state) => state.status === 'queued' || state.status === 'running'),
@@ -230,7 +231,7 @@ export default function WalletProfileLayout({
 
   const registerJobSubscription = useCallback(
     async (scope: DashboardAnalysisScope, jobId: string) => {
-      jobIdToScopeRef.current[jobId] = scope;
+      // No more ref tracking - scope will be read from job completion event
 
       setScopeStates((prev) => ({
         ...prev,
@@ -255,10 +256,7 @@ export default function WalletProfileLayout({
   );
   const clearJobSubscription = useCallback(
     async (jobId: string) => {
-      const hadScope = !!jobIdToScopeRef.current[jobId];
-      if (jobIdToScopeRef.current[jobId]) {
-        delete jobIdToScopeRef.current[jobId];
-      }
+      // No more ref cleanup needed
 
       const unsubscribeFn = unsubscribeFromJobRef.current;
       if (!unsubscribeFn) {
@@ -279,7 +277,11 @@ export default function WalletProfileLayout({
 
   useEffect(() => {
     const jobIdFromUrl = searchParams.get('jobId');
-    if (jobIdFromUrl && !jobIdToScopeRef.current[jobIdFromUrl]) {
+
+    // Check if this job is already being tracked
+    const isJobTracked = Object.values(scopeStates).some(state => state.jobId === jobIdFromUrl);
+
+    if (jobIdFromUrl && !isJobTracked) {
       // Validate job exists before subscribing (prevents phantom job subscriptions)
       const validateAndSubscribe = async () => {
         try {
@@ -301,15 +303,20 @@ export default function WalletProfileLayout({
 
       validateAndSubscribe();
     }
-  }, [searchParams, registerJobSubscription]);
+  }, [searchParams, registerJobSubscription, scopeStates]);
 
   // Job progress callbacks
   const jobProgressCallbacks: UseJobProgressCallbacks = {
     onJobProgress: (data: JobProgressData) => {
-      const scope = jobIdToScopeRef.current[data.jobId];
+      // Find scope from current state by matching jobId
+      const scope = Object.entries(scopeStates).find(
+        ([_, state]) => state.jobId === data.jobId
+      )?.[0] as DashboardAnalysisScope | undefined;
+
       if (!scope) {
-        return;
+        return; // Job not tracked in this component
       }
+
       if (typeof data.progress === 'number') {
         setScopeProgress((prev) => {
           const current = prev[scope];
@@ -325,16 +332,14 @@ export default function WalletProfileLayout({
       }));
     },
     onJobCompleted: async (data: JobCompletionData) => {
-      // Read scope reference BEFORE cleanup to avoid race condition
-      const scope = jobIdToScopeRef.current[data.jobId];
+      // Read scope from job result (backend includes this in the return value)
+      const resultData = data.result;
+      const scope = resultData?.analysisScope as DashboardAnalysisScope | undefined;
 
       if (!scope) {
         console.warn(
-          `[WalletProfile] Job completed but scope not found in ref. JobId: ${data.jobId}`,
-          `Available scopes in ref:`,
-          Object.keys(jobIdToScopeRef.current),
-          `Current scopeStates:`,
-          Object.entries(scopeStates).map(([s, state]) => ({ scope: s, status: state.status, jobId: state.jobId }))
+          `[WalletProfile] Job completed without scope in result. JobId: ${data.jobId}`,
+          `Result:`, resultData
         );
 
         // Fallback: try to find scope by matching jobId in scopeStates
@@ -348,7 +353,6 @@ export default function WalletProfileLayout({
         if (matchingScope) {
           console.log(`[WalletProfile] Recovered scope from state: ${matchingScope}`);
 
-          const resultData = data.result;
           const wasSkipped = resultData?.analysisSkipped === true;
           const finalStatus = wasSkipped ? 'skipped' : 'completed';
 
@@ -369,7 +373,7 @@ export default function WalletProfileLayout({
         return;
       }
 
-      const resultData = data.result;
+      // Scope found in result - proceed with normal completion handling
       const followUpQueue = Array.isArray(resultData?.followUpJobsQueued)
         ? resultData.followUpJobsQueued
         : [];
@@ -478,10 +482,15 @@ export default function WalletProfileLayout({
       await clearJobSubscription(data.jobId);
     },
     onJobFailed: (data: JobFailedData) => {
-      const scope = jobIdToScopeRef.current[data.jobId];
+      // Find scope from current state by matching jobId
+      const scope = Object.entries(scopeStates).find(
+        ([_, state]) => state.jobId === data.jobId
+      )?.[0] as DashboardAnalysisScope | undefined;
+
       if (!scope) {
-        return;
+        return; // Job not tracked in this component
       }
+
       clearJobSubscription(data.jobId);
       setScopeStates((prev) => ({
         ...prev,
@@ -518,8 +527,13 @@ export default function WalletProfileLayout({
       });
     },
     onJobQueueToStart: (data: JobQueueToStartData) => {
-      const scope = jobIdToScopeRef.current[data.jobId];
-      if (!scope) return;
+      // Find scope from current state by matching jobId
+      const scope = Object.entries(scopeStates).find(
+        ([_, state]) => state.jobId === data.jobId
+      )?.[0] as DashboardAnalysisScope | undefined;
+
+      if (!scope) return; // Job not tracked in this component
+
       setScopeStates((prev) => ({
         ...prev,
         [scope]: { ...prev[scope], status: 'running' },
@@ -638,12 +652,16 @@ export default function WalletProfileLayout({
   // Cleanup job subscription when component unmounts or job completes
   useEffect(() => {
     return () => {
-      Object.keys(jobIdToScopeRef.current).forEach((jobId) => {
-        const unsubscribeFn = unsubscribeFromJobRef.current;
-        if (unsubscribeFn) {
-          try { unsubscribeFn(jobId); } catch { /* ignore unsubscribe failures */ }
+      // Cleanup active scope jobs
+      Object.entries(scopeStates).forEach(([_, state]) => {
+        if (state.jobId) {
+          const unsubscribeFn = unsubscribeFromJobRef.current;
+          if (unsubscribeFn) {
+            try { unsubscribeFn(state.jobId); } catch { /* ignore unsubscribe failures */ }
+          }
         }
       });
+
       if (enrichmentJobId) {
         const unsubscribeFn = unsubscribeFromJobRef.current;
         if (unsubscribeFn) {
@@ -652,7 +670,7 @@ export default function WalletProfileLayout({
       }
       setSubscribedEnrichmentJobId(null);
     };
-  }, [enrichmentJobId]);
+  }, [enrichmentJobId, scopeStates]);
 
   // Subscribe to enrichment job when it's set (with duplicate prevention)
   const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);
@@ -754,7 +772,7 @@ export default function WalletProfileLayout({
           });
 
         if (response.alreadyRunning && response.jobId) {
-          jobIdToScopeRef.current[response.jobId] = scope;
+          // Job already running - just subscribe to track it
           const subscribeFn = subscribeToJobRef.current;
           if (subscribeFn) {
             await subscribeFn(response.jobId);

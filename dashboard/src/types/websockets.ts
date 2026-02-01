@@ -21,6 +21,13 @@ export interface JobCompletionData {
   processingTime: number;
   totalTime?: number; // Total time from queue to completion
   enrichmentJobId?: string;
+  // Metadata extracted from result for convenience
+  // These fields are ALSO available in result.analysisScope, result.walletAddress, etc.
+  metadata?: {
+    scope?: DashboardAnalysisScope;
+    walletAddress?: string;
+    triggerSource?: string;
+  };
 }
 
 export interface JobQueueToStartData {
