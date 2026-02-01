@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Loader2 } from 'lucide-react';
+import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Loader2, Trash2 } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback, useRef } from 'react';
@@ -114,7 +114,9 @@ export default function TrackersPage() {
   const [deletingWallet, setDeletingWallet] = useState<FavoriteWallet | null>(null);
   const [showAddWalletModal, setShowAddWalletModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
   const [importCollection, setImportCollection] = useState('');
   const [importJobsInProgress, setImportJobsInProgress] = useState<string[]>([]);
 
@@ -577,6 +579,24 @@ export default function TrackersPage() {
     }
   }, [favoriteWallets, importCollection, mutateFavorites, subscribeToJob, importJobsInProgress]);
 
+  const handleClearAllWallets = useCallback(async () => {
+    setIsClearingAll(true);
+    try {
+      const response = await fetcher('/users/me/favorites', { method: 'DELETE' });
+      clearFilters();
+      await mutateFavorites();
+      toast.success('Tracked wallets cleared', {
+        description: `${response?.removed ?? 0} wallets removed.`,
+      });
+      setShowClearAllModal(false);
+    } catch (error: unknown) {
+      const message = getErrorMessage('trackers-clear', error);
+      toast.error(message.title, { description: message.description });
+    } finally {
+      setIsClearingAll(false);
+    }
+  }, [clearFilters, mutateFavorites]);
+
   const handleImportFileSelected = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -871,6 +891,20 @@ export default function TrackersPage() {
                     <TooltipContent>Export tracked wallets to TXT (JSON format, compatible with import)</TooltipContent>
                   </Tooltip>
 
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="h-9"
+                        onClick={() => setShowClearAllModal(true)}
+                        disabled={!favoriteWallets || favoriteWallets.length === 0}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1.5" />
+                     </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Remove all tracked wallets</TooltipContent>
+                  </Tooltip>
                   <Button
                     size="sm"
                     className="h-9 bg-purple-600 hover:bg-purple-700"
@@ -1099,6 +1133,37 @@ export default function TrackersPage() {
               </AlertDialogContent>
             </AlertDialog>
           )}
+
+          {/* Clear All Confirmation */}
+          <AlertDialog open={showClearAllModal} onOpenChange={(open) => !open && setShowClearAllModal(false)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove all tracked wallets?</AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2">
+                    <div>
+                      This will permanently remove all tracked wallets, including nicknames and collections.
+                    </div>
+                    {favoriteWallets?.length ? (
+                      <div className="text-sm text-muted-foreground">
+                        {favoriteWallets.length} wallet{favoriteWallets.length === 1 ? '' : 's'} will be removed.
+                      </div>
+                    ) : null}
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isClearingAll}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleClearAllWallets}
+                  className="bg-red-600 hover:bg-red-700"
+                  disabled={isClearingAll}
+                >
+                  {isClearingAll ? 'Clearing...' : 'Remove All'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* Edit Modal */}
           {editingWallet && (

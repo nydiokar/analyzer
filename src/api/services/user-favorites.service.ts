@@ -28,6 +28,10 @@ export class UserFavoritesService {
     await this.databaseService.removeFavoriteWallet(userId, walletAddress);
   }
 
+  async clearFavorites(userId: string): Promise<number> {
+    return this.databaseService.clearFavoriteWallets(userId);
+  }
+
   async updateFavorite(userId: string, walletAddress: string, updateFavoriteWalletDto: UpdateFavoriteWalletDto): Promise<void> {
     // We'll add this method to DatabaseService
     await this.databaseService.updateFavoriteWallet(userId, walletAddress, {

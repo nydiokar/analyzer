@@ -87,6 +87,21 @@ export class UserFavoritesController {
     res.status(HttpStatus.NO_CONTENT).end();
   }
 
+  @Delete()
+  @ApiOperation({ summary: "Remove all wallets from the authenticated user's favorites" })
+  @ApiResponse({ status: HttpStatus.OK, description: 'All favorites removed.' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized (API key missing or invalid).' })
+  async clearFavorites(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<{ removed: number }> {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
+    const removed = await this.userFavoritesService.clearFavorites(userId);
+    return { removed };
+  }
+
   @Patch(':walletAddress')
   @ApiOperation({ summary: "Update a favorite wallet's metadata" })
   @ApiParam({ name: 'walletAddress', description: 'The wallet address to update', type: String })

@@ -6,6 +6,7 @@ type ErrorContext =
   | "trackers-add"
   | "trackers-update"
   | "trackers-remove"
+  | "trackers-clear"
   | "trackers-import"
   | "trackers-export";
 
@@ -43,9 +44,13 @@ const baseMessages: Record<ErrorContext, ErrorMessage> = {
     title: "Unable to remove wallet",
     description: "We couldn't remove this wallet from your tracked list. Please try again.",
   },
+  "trackers-clear": {
+    title: "Unable to clear tracked wallets",
+    description: "We couldn't remove your tracked wallets. Please try again.",
+  },
   "trackers-import": {
     title: "Unable to import wallets",
-    description: "We couldn't import your CSV. Please review it and try again.",
+    description: "We couldn't import your list.",
   },
   "trackers-export": {
     title: "Unable to export wallets",

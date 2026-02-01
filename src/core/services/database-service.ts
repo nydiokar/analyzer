@@ -1062,6 +1062,27 @@ export class DatabaseService {
     }
 
     /**
+     * Removes all favorite wallets for a user.
+     *
+     * @param userId The ID of the user.
+     * @returns The number of favorites removed.
+     * @throws InternalServerErrorException for database errors.
+     */
+    async clearFavoriteWallets(userId: string): Promise<number> {
+        this.logger.warn(`Clearing all favorite wallets for user ${userId}`);
+        try {
+            const result = await this.prismaClient.userFavoriteWallet.deleteMany({
+                where: { userId },
+            });
+            this.logger.info(`Cleared ${result.count} favorite wallets for user ${userId}`);
+            return result.count;
+        } catch (error) {
+            this.logger.error(`Error clearing favorite wallets for user ${userId}:`, { error });
+            throw new InternalServerErrorException('Could not clear favorites due to an unexpected error.');
+        }
+    }
+
+    /**
      * Retrieves all favorite wallets for a given user.
      * Includes the related Wallet object for each favorite.
      *
