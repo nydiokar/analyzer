@@ -58,6 +58,7 @@ import QuickAddForm from './QuickAddForm';
 import LazyTabContent from './LazyTabContent';
 import { FavoriteWallet } from '@/types/api';
 import { WalletBadge } from '@/components/shared/WalletBadge';
+import { WalletHeroStats } from '@/components/dashboard/WalletHeroStats';
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
@@ -1118,16 +1119,15 @@ export default function WalletProfileLayout({
 
   return (
     <div className="flex flex-col w-full bg-muted/40">
-      {/* Header - wallet info, summary, filters */}
+      {/* Header - wallet info and actions */}
       <div className="bg-background border-b shadow-sm">
-        <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-3 px-1 md:py-4">
-
-          <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'>
-            {walletAddress && (
-              <>
-                <div className="flex flex-col gap-2">
+        <div className="container mx-auto py-3 px-4">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            {/* Left: Wallet Badge + Collections */}
+            <div className='flex flex-col items-start gap-2'>
+              {walletAddress && (
+                <>
                   <div className="flex items-center gap-2">
-                    {/* Use WalletBadge component with favorite data, toggle, and edit */}
                     <WalletBadge
                       address={walletAddress}
                       className="text-sm"
@@ -1171,28 +1171,27 @@ export default function WalletProfileLayout({
                       ))}
                     </div>
                   )}
-                </div>
-                <ExpandedAnalysisControl />
-              </>
-            )}
-          </div>
+                </>
+              )}
+            </div>
 
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-end gap-x-2 gap-y-2 mt-2 md:mt-0 flex-grow">
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-x-2 gap-y-2">
-              <AccountSummaryCard
-                walletAddress={walletAddress}
-                className=""
-                triggerAnalysis={handleTriggerAnalysis}
-                isAnalyzingGlobal={isAnalyzing}
-                walletSummary={walletSummary}
-                summaryError={summaryError}
-                summaryIsLoading={!walletSummary && !summaryError}
-              />
+            {/* Right: Refresh + Time Range Selector (subtle) */}
+            <div className="flex items-center gap-2">
+              <ExpandedAnalysisControl />
               <TimeRangeSelector />
             </div>
           </div>
         </div>
       </div>
+
+      {/* Hero Stats Section */}
+      {isValidData && walletSummary && (
+        <div className="bg-background border-b">
+          <div className="container mx-auto py-4 px-4">
+            <WalletHeroStats walletSummary={walletSummary} />
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col">

@@ -32,15 +32,21 @@ export class WalletSummaryResponse {
   })
   lastAnalyzedAt?: string | null;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: "Timestamp of the wallet's last known transaction (Unix seconds).",
-    example: 1684663200 
+    example: 1684663200
   })
   lastActiveTimestamp?: number | null;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
+    description: "Timestamp of the wallet's first known transaction (Unix seconds).",
+    example: 1684577000
+  })
+  firstTradeTimestamp?: number | null;
+
+  @ApiPropertyOptional({
     description: 'Number of days the wallet has been active.',
-    example: 42 
+    example: 42
   })
   daysActive?: number | string;
 
@@ -119,9 +125,57 @@ export class WalletSummaryResponse {
   })
   totalTradesCount?: number | null;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'ISO 8601 timestamp of when the balance was last fetched.',
-    example: '2023-05-21T10:00:00.000Z' 
+    example: '2023-05-21T10:00:00.000Z'
   })
   balancesFetchedAt?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Average number of trades per day',
+    example: 5.2
+  })
+  tradesPerDay?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Average position size in SOL',
+    example: 2.5
+  })
+  averagePositionSizeSol?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Average position size in USD',
+    example: 250.00
+  })
+  averagePositionSizeUsd?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Largest single win in SOL',
+    example: 10.5
+  })
+  largestWinSol?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Largest single win in USD',
+    example: 1050.00
+  })
+  largestWinUsd?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Largest single loss in SOL',
+    example: -5.2
+  })
+  largestLossSol?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Largest single loss in USD',
+    example: -520.00
+  })
+  largestLossUsd?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Median hold time in hours',
+    example: 14.5
+  })
+  medianHoldTimeHours?: number | null;
 } 

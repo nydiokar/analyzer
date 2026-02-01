@@ -151,6 +151,83 @@ const formatLastActive = (isoString?: string | null) => {
   };
 };
 
+// ===== SHARED ACTION BUTTONS - SINGLE SOURCE OF TRUTH =====
+interface ActionButtonsProps {
+  address: string;
+  iconSize: string;
+  visibleActions: { copy?: boolean; solscan?: boolean; profile?: boolean };
+  onCopyAddress: (e: MouseEvent) => void;
+  buttonSize?: "sm" | "md" | "lg";
+}
+
+const ActionButtons = memo(({ address, iconSize, visibleActions, onCopyAddress, buttonSize = "md" }: ActionButtonsProps) => {
+  const sizeClass = buttonSize === "sm" ? "h-5 w-5" : buttonSize === "lg" ? "h-7 w-7" : "h-6 w-6";
+  const iconSizeClass = buttonSize === "sm" ? "h-2.5 w-2.5" : buttonSize === "lg" ? "h-4 w-4" : iconSize;
+
+  return (
+    <>
+      {visibleActions.copy && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onCopyAddress}
+              className={cn(
+                "inline-flex items-center justify-center rounded-md bg-muted/30 hover:bg-blue-500/10 border border-border/40 hover:border-blue-500/20 text-muted-foreground hover:text-blue-500 transition-all flex-shrink-0",
+                sizeClass
+              )}
+            >
+              <Copy className={iconSizeClass} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent><p>Copy address</p></TooltipContent>
+        </Tooltip>
+      )}
+
+      {visibleActions.solscan && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={`https://solscan.io/account/${address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={cn(
+                "inline-flex items-center justify-center rounded-md bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 text-muted-foreground hover:text-[#009978] transition-all flex-shrink-0",
+                sizeClass
+              )}
+            >
+              <SolscanIcon className={iconSizeClass} />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent><p>View on Solscan</p></TooltipContent>
+        </Tooltip>
+      )}
+
+      {visibleActions.profile && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={`/wallets/${address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={cn(
+                "inline-flex items-center justify-center rounded-md bg-muted/30 hover:bg-indigo-500/10 border border-border/40 hover:border-indigo-500/20 text-muted-foreground hover:text-indigo-500 transition-all flex-shrink-0",
+                sizeClass
+              )}
+            >
+              <User className={iconSizeClass} />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent><p>Wallet Profile</p></TooltipContent>
+        </Tooltip>
+      )}
+    </>
+  );
+});
+ActionButtons.displayName = "ActionButtons";
+
 const WalletBadge = memo(({
   address,
   metrics,
@@ -313,56 +390,13 @@ const WalletBadge = memo(({
             )}
 
             {showActions && (
-              <>
-                {visibleActions.copy && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={handleCopyAddress}
-                        className="p-0.5 rounded text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
-                      >
-                        <Copy className="h-3 w-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Copy address</p></TooltipContent>
-                  </Tooltip>
-                )}
-
-                {visibleActions.solscan && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <a
-                        href={`https://solscan.io/account/${address}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center justify-center p-0.5 rounded bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 transition-all"
-                      >
-                        <SolscanIcon className="h-3 w-3 text-muted-foreground hover:text-[#009978]" />
-                      </a>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Solscan</p></TooltipContent>
-                  </Tooltip>
-                )}
-
-                {visibleActions.profile && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <a
-                        href={`/wallets/${address}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
-                      >
-                        <User className="h-3 w-3" />
-                      </a>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Wallet Profile</p></TooltipContent>
-                  </Tooltip>
-                )}
-              </>
+              <ActionButtons
+                address={address}
+                iconSize="h-3 w-3"
+                visibleActions={visibleActions}
+                onCopyAddress={handleCopyAddress}
+                buttonSize="sm"
+              />
             )}
           </div>
         </div>
@@ -399,52 +433,13 @@ const WalletBadge = memo(({
           {/* Icons below horizontally */}
           {showActions && (
             <div className="flex items-center gap-0.5">
-              {visibleActions.copy && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={handleCopyAddress}
-                      className="p-0.5 rounded text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
-                    >
-                      <Copy className="h-2.5 w-2.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Copy</p></TooltipContent>
-                </Tooltip>
-              )}
-
-              {visibleActions.solscan && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={`https://solscan.io/account/${address}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center justify-center p-0.5 rounded bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 transition-all"
-                    >
-                      <SolscanIcon className="h-2.5 w-2.5 text-muted-foreground hover:text-[#009978]" />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Solscan</p></TooltipContent>
-                </Tooltip>
-              )}
-
-              {visibleActions.profile && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link
-                      href={`/wallets/${address}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
-                    >
-                      <User className="h-2.5 w-2.5" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Profile</p></TooltipContent>
-                </Tooltip>
-              )}
+              <ActionButtons
+                address={address}
+                iconSize="h-2.5 w-2.5"
+                visibleActions={visibleActions}
+                onCopyAddress={handleCopyAddress}
+                buttonSize="sm"
+              />
             </div>
           )}
         </div>
@@ -548,52 +543,13 @@ const WalletBadge = memo(({
           {/* Icons section stacked below */}
           {showActions && (
             <div className="flex items-center justify-center gap-1 px-2 py-1 bg-muted/20 border-t border-border/40">
-              {visibleActions.copy && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={handleCopyAddress}
-                      className="p-0.5 rounded text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
-                    >
-                      <Copy className="h-3 w-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Copy</p></TooltipContent>
-                </Tooltip>
-              )}
-
-              {visibleActions.solscan && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={`https://solscan.io/account/${address}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center justify-center p-0.5 rounded bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20 transition-all"
-                    >
-                      <SolscanIcon className="h-3 w-3 text-muted-foreground hover:text-[#009978]" />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Solscan</p></TooltipContent>
-                </Tooltip>
-              )}
-
-              {visibleActions.profile && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link
-                      href={`/wallets/${address}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
-                    >
-                      <User className="h-3 w-3" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent><p>Profile</p></TooltipContent>
-                </Tooltip>
-              )}
+              <ActionButtons
+                address={address}
+                iconSize="h-3 w-3"
+                visibleActions={visibleActions}
+                onCopyAddress={handleCopyAddress}
+                buttonSize="sm"
+              />
             </div>
           )}
         </div>
@@ -704,70 +660,15 @@ const WalletBadge = memo(({
                 </Tooltip>
               )}
 
-              {/* Copy icon */}
-              {showActions && visibleActions.copy && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={handleCopyAddress}
-                      className={cn(
-                        "inline-flex items-center gap-0.5 rounded-md bg-background/70 px-1.5 py-0.5 transition flex-shrink-0",
-                        "text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/20",
-                        resolvedSize.metric
-                      )}
-                    >
-                      <Copy className={cn(resolvedSize.icon)} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Copy address</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
-              {/* Solscan link */}
-              {showActions && visibleActions.solscan && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={`https://solscan.io/account/${address}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={cn(
-                        "inline-flex items-center justify-center rounded-md transition-all flex-shrink-0",
-                        "bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20",
-                        "h-6 w-6"
-                      )}
-                    >
-                      <SolscanIcon className={cn("text-muted-foreground hover:text-[#009978] transition-colors", resolvedSize.icon)} />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>View on Solscan</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-
-              {/* Profile link */}
-              {showActions && visibleActions.profile && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 hover:bg-indigo-500/10 transition-colors"
-                      asChild
-                    >
-                      <a href={`/wallets/${address}`} target="_blank" rel="noopener noreferrer">
-                        <User className={cn("text-muted-foreground hover:text-indigo-500 transition-colors", resolvedSize.icon)} />
-                      </a>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Wallet Profile</p>
-                  </TooltipContent>
-                </Tooltip>
+              {/* Action buttons - shared component */}
+              {showActions && (
+                <ActionButtons
+                  address={address}
+                  iconSize={resolvedSize.icon}
+                  visibleActions={visibleActions}
+                  onCopyAddress={handleCopyAddress}
+                  buttonSize="md"
+                />
               )}
             </div>
           </div>
@@ -983,38 +884,13 @@ const WalletBadge = memo(({
             )}
             style={{ marginTop: "-4px" }}
           >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <a
-                  href={`https://solscan.io/account/${address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cn(
-                    "inline-flex items-center justify-center rounded-md transition-all",
-                    "bg-muted/30 hover:bg-[#009978]/10 border border-border/40 hover:border-[#009978]/20",
-                    "h-8 w-8"
-                  )}
-                >
-                  <SolscanIcon className={cn("text-muted-foreground hover:text-[#009978] transition-colors", resolvedSize.icon)} />
-                </a>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>View on Solscan</p>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                  <a href={`/wallets/${address}`} target="_blank" rel="noopener noreferrer">
-                    <Info className={cn("text-muted-foreground", resolvedSize.icon)} />
-                  </a>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>View profile page</p>
-              </TooltipContent>
-            </Tooltip>
+            <ActionButtons
+              address={address}
+              iconSize={resolvedSize.icon}
+              visibleActions={visibleActions}
+              onCopyAddress={handleCopyAddress}
+              buttonSize="lg"
+            />
           </div>
         )}
       </div>

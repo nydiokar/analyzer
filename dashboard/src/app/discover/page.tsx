@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { WalletBadge } from "@/components/shared/WalletBadge";
 import { useFavorites } from "@/hooks/useFavorites";
+import { useFavoriteActions } from "@/providers/FavoriteModalProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { buildSpeedNarrative, buildFlowNarrative } from "@/lib/behavior-narratives";
 import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
 import { FavoriteWallet } from "@/types/api";
-import QuickAddForm from "@/components/layout/QuickAddForm";
+// QuickAddForm removed - using global FavoriteModalProvider
 import { getSpeedColor, getFlowColor, getSpeedColorHex, getFlowColorHex, getSpeedLabel, getFlowLabel } from "@/lib/strategy-colors";
 import EmptyState from "@/components/shared/EmptyState";
 import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
@@ -157,6 +158,7 @@ export default function DiscoverPage() {
 
   // Get user's favorite wallets
   const { favorites, mutate: mutateFavorites } = useFavorites();
+  const { openFavoriteDialog, isFavorite: checkIsFavorite } = useFavoriteActions();
   const favoriteAddresses = useMemo(() => new Set(favorites.map(f => f.walletAddress)), [favorites]);
   const favoritesMap = useMemo(() => {
     const map = new Map();
@@ -165,9 +167,7 @@ export default function DiscoverPage() {
   }, [favorites]);
 
   // Favorite management modals
-  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [currentWallet, setCurrentWallet] = useState<{ address: string; nickname?: string } | null>(null);
+  // Removed local modal state - now using global FavoriteModalProvider
 
   const cacheKey = useMemo(
     () =>
@@ -222,62 +222,17 @@ export default function DiscoverPage() {
   }, [cacheKey, fetchWallets]);
 
   // Handle favorite add - opens modal
+  // Use global favorite dialog - single source of truth
   const handleAddFavorite = (address: string) => {
-    setCurrentWallet({ address });
-    setShowQuickAddModal(true);
+    openFavoriteDialog(address);
   };
 
-  // Handle favorite remove - opens confirmation dialog
   const handleRemoveFavorite = (address: string, nickname?: string) => {
-    setCurrentWallet({ address, nickname });
-    setShowDeleteConfirm(true);
+    openFavoriteDialog(address);
   };
 
-  // Quick add save handler
-  const handleQuickAddSave = async (formData: { walletAddress: string; nickname: string; collections: string[] }) => {
-    try {
-      await fetcher('/users/me/favorites', {
-        method: 'POST',
-        body: JSON.stringify({
-          walletAddress: formData.walletAddress,
-          nickname: formData.nickname.trim() || undefined,
-          collections: formData.collections,
-        }),
-      });
-      await mutateFavorites();
-      toast.success("Added to favorites", {
-        description: `${formData.nickname || 'Wallet'} added to your favorites.`,
-      });
-      // Close modal and clear state
-      setShowQuickAddModal(false);
-      setCurrentWallet(null);
-    } catch (err: unknown) {
-      const message = getErrorMessage("discover-add-favorite", err);
-      toast.error(message.title, {
-        description: message.description,
-      });
-    }
-  };
-
-  // Confirm remove handler
-  const confirmRemoveFavorite = async () => {
-    if (!currentWallet) return;
-    try {
-      await fetcher(`/users/me/favorites/${currentWallet.address}`, { method: 'DELETE' });
-      await mutateFavorites();
-      toast.success("Removed from favorites", {
-        description: `${currentWallet.nickname || 'Wallet'} removed from favorites.`,
-      });
-      // Close dialog and clear state
-      setShowDeleteConfirm(false);
-      setCurrentWallet(null);
-    } catch (err: unknown) {
-      const message = getErrorMessage("discover-remove-favorite", err);
-      toast.error(message.title, {
-        description: message.description,
-      });
-    }
-  };
+  // Removed local handlers - now using global FavoriteModalProvider
+  // All add/remove logic is handled by the provider with consistent modals
 
   const resetFilters = () => {
     setSort('interesting');
@@ -1220,39 +1175,7 @@ export default function DiscoverPage() {
         </div>
       </div>
 
-      {/* Quick Add Modal */}
-      {currentWallet && (
-        <QuickAddForm
-          isOpen={showQuickAddModal}
-          onClose={() => setShowQuickAddModal(false)}
-          onSave={handleQuickAddSave}
-          walletAddress={currentWallet.address}
-          title="Add to Tracked"
-        />
-      )}
-
-      {/* Remove Confirmation Dialog */}
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove from Tracked?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to remove{' '}
-              <span className="font-medium">{currentWallet?.nickname || 'this wallet'}</span>{' '}
-              from your favorites? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmRemoveFavorite}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Modals removed - now using global FavoriteModalProvider */}
     </AppShell>
   );
 }

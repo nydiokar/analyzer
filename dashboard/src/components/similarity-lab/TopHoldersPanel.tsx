@@ -12,7 +12,7 @@ import type { TopHolderItem } from '@/types/api';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { toast } from 'sonner';
-import { useFavoriteToggle } from '@/hooks/useFavoriteToggle';
+import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
 
 interface Props {
   onAddToSet?: (wallets: string[]) => void;
@@ -25,7 +25,7 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
   const [commitment, setCommitment] = useState<'finalized' | 'confirmed' | 'processed' | undefined>('finalized');
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [ownersOnly, setOwnersOnly] = useState<boolean>(true);
-  const { isFavorite, handleToggle } = useFavoriteToggle();
+  const { isFavorite, openFavoriteDialog } = useFavoriteActions();
 
   // Debounce mint input to avoid firing requests on every keystroke
   const [debouncedMint, setDebouncedMint] = useState('');
@@ -187,7 +187,7 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
                         variant="minimal"
                         showActions={true}
                         isFavorite={isFavorite(h.ownerAccount || h.tokenAccount)}
-                        onFavoriteToggle={() => handleToggle(h.ownerAccount || h.tokenAccount)}
+                        onFavoriteToggle={() => openFavoriteDialog(h.ownerAccount || h.tokenAccount)}
                       />
                     </div>
                     <div className="text-right tabular-nums">{formatAmount(h.uiAmountString, h.amount)}</div>

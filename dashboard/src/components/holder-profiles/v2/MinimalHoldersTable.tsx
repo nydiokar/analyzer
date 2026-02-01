@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { InfoIcon, Link2 } from 'lucide-react';
 import { CONNECTION_THRESHOLD } from './SimilaritySidebar';
-import { useFavoriteToggle } from '@/hooks/useFavoriteToggle';
+import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
 
 interface Props {
   profiles: HolderProfile[];
@@ -85,7 +85,7 @@ function hasSignificantHoldings(profile: HolderProfile) {
 }
 
 export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highlightedWallets, connectionCounts }: Props) {
-  const { isFavorite, handleToggle } = useFavoriteToggle();
+  const { isFavorite, openFavoriteDialog } = useFavoriteActions();
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -195,7 +195,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                       knownType={profile.knownType}
                       knownLabel={profile.knownLabel}
                       isFavorite={isFavorite(profile.walletAddress)}
-                      onFavoriteToggle={() => handleToggle(profile.walletAddress)}
+                      onFavoriteToggle={() => openFavoriteDialog(profile.walletAddress)}
                     />
                     {connectionCounts && connectionCounts.get(profile.walletAddress) ? (
                       <Tooltip>
