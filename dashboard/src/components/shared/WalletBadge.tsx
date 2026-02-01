@@ -435,7 +435,7 @@ const WalletBadge = memo(({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Link
-                      href={`/wallet/${address}`}
+                      href={`/wallets/${address}`}
                       onClick={(e) => e.stopPropagation()}
                       className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
                     >
@@ -506,7 +506,7 @@ const WalletBadge = memo(({
                   asChild
                   className="flex-1 h-7"
                 >
-                  <Link href={`/wallet/${address}`}>
+                  <Link href={`/wallets/${address}`}>
                     <User className="h-3 w-3 mr-1" />
                     Profile
                   </Link>
@@ -584,7 +584,7 @@ const WalletBadge = memo(({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Link
-                      href={`/wallet/${address}`}
+                      href={`/wallets/${address}`}
                       onClick={(e) => e.stopPropagation()}
                       className="p-0.5 rounded text-muted-foreground hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition-colors"
                     >
