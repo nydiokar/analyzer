@@ -159,8 +159,10 @@ const TokenBadge = memo(({
   }, [providedMetadata, fetchedMetadata]);
 
   // ===== CENTRALIZED METADATA PRIORITY LOGIC =====
-  const tokenName = metadata?.onchainName || metadata?.name || "Unknown Token";
-  const tokenSymbol = metadata?.onchainSymbol || metadata?.symbol || "";
+  const isDexNameUnknown = !metadata?.name || metadata.name === "Unknown Token";
+  const isDexSymbolUnknown = !metadata?.symbol || metadata.symbol === "Unknown Token";
+  const tokenName = metadata?.onchainName || (isDexNameUnknown ? undefined : metadata?.name) || "Unknown Token";
+  const tokenSymbol = metadata?.onchainSymbol || (isDexSymbolUnknown ? undefined : metadata?.symbol) || "";
   const tokenImage = metadata?.imageUrl || metadata?.onchainImageUrl;
   const tokenWebsite = metadata?.websiteUrl || metadata?.onchainWebsiteUrl;
   const tokenTwitter = metadata?.twitterUrl || metadata?.onchainTwitterUrl;
