@@ -288,6 +288,22 @@ export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata
   const [metadata, setMetadata] = useState<TokenMetadata | null>(providedMetadata || null);
   const [isLoading, setIsLoading] = useState(!providedMetadata);
 
+  const getMetaScore = (meta?: TokenMetadata | null) => {
+    if (!meta) return 0;
+    const hasOnchainName = !!meta.onchainName;
+    const hasOnchainSymbol = !!meta.onchainSymbol;
+    const hasDexName = !!(meta.name && meta.name !== "Unknown Token");
+    const hasDexSymbol = !!(meta.symbol && meta.symbol !== "Unknown Token");
+    const hasImage = !!(meta.imageUrl || meta.onchainImageUrl);
+    return (hasOnchainName ? 4 : 0) + (hasOnchainSymbol ? 2 : 0) + (hasDexName ? 3 : 0) + (hasDexSymbol ? 1 : 0) + (hasImage ? 1 : 0);
+  };
+
+  const pickBetter = (current?: TokenMetadata | null, incoming?: TokenMetadata | null) => {
+    if (!current) return incoming ?? null;
+    if (!incoming) return current;
+    return getMetaScore(incoming) >= getMetaScore(current) ? { ...current, ...incoming } : current;
+  };
+
   useEffect(() => {
     if (!mint) {
       setMetadata(providedMetadata || null);
@@ -295,11 +311,11 @@ export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata
       return;
     }
 
-    setMetadata(providedMetadata || null);
+    setMetadata(prev => pickBetter(prev, providedMetadata));
 
     // Callback for updates
     const updateCallback = (fetchedMetadata: TokenMetadata | null) => {
-      setMetadata(prev => fetchedMetadata ?? prev ?? providedMetadata ?? null);
+      setMetadata(prev => pickBetter(prev, fetchedMetadata ?? providedMetadata ?? null));
       setIsLoading(false);
     };
 
