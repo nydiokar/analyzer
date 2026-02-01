@@ -1,15 +1,18 @@
-import { IsArray, IsIn, IsOptional, IsString, ArrayNotEmpty, ArrayMinSize, IsBoolean } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString, ArrayNotEmpty, ArrayMinSize, ArrayMaxSize, IsBoolean } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class SimilarityAnalysisRequestDto {
   @ApiProperty({
-    description: 'An array of wallet addresses to be compared.',
+    description: 'An array of wallet addresses to be compared (max 30).',
     type: [String],
     example: ['5LEhdhS7aP8vW2gD12c2a3ZjK3Y6f7gH9jM8b6N2k3d4', 'GyqKuTj3bF5c6dE7f8gH9jM8b6N2k3d4c2a3ZjK3Y6f7'],
+    minItems: 2,
+    maxItems: 30,
   })
   @IsArray()
   @ArrayNotEmpty()
   @ArrayMinSize(2)
+  @ArrayMaxSize(30)
   @IsString({ each: true })
   walletAddresses: string[];
 

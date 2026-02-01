@@ -1,5 +1,6 @@
-import { Controller, Post, Delete, Patch, Get, Body, Param, Req, HttpCode, HttpStatus, Res, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Delete, Patch, Get, Body, Param, Req, HttpCode, HttpStatus, Res, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Response } from 'express';
 import { User } from '@prisma/client';
 import { UserFavoritesService } from '../services/user-favorites.service';
@@ -169,20 +170,22 @@ export class UserFavoritesController {
   }
 
   @Post('import')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 3600000 } }) // 10 imports per hour
   @ApiOperation({
     summary: 'Bulk import wallets into favorites with auto-analysis',
     description: `Imports up to 300 wallets and automatically queues flash analysis:
-- First 50 wallets: Analyzed immediately (HIGH priority)
+- First 50 wallets: Analyzed immediately (NORMAL priority)
 - Remaining 250: Queued for background analysis over 1 hour (LOW priority)
 
-Rate Limit: 1 import per hour per user
+Rate Limit: 10 imports per hour
 
 For deep analysis, use the batch-analyze endpoint after import.`
   })
   @ApiBody({ type: BulkImportFavoriteWalletsDto })
   @ApiResponse({ status: HttpStatus.CREATED, description: 'Wallets imported and analysis queued successfully.' })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid input.' })
-  @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Import cooldown active (must wait 1 hour between imports).' })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded. Max 10 imports per hour.' })
   @HttpCode(HttpStatus.CREATED)
   async importFavorites(
     @Body() dto: BulkImportFavoriteWalletsDto,
@@ -227,7 +230,7 @@ For deep analysis, use the batch-analyze endpoint after import.`
 
     const jobIds: string[] = [];
 
-    // Queue immediate batch (HIGH priority, no delay)
+    // Queue immediate batch (NORMAL priority, no delay)
     if (immediateWallets.length > 0) {
       const jobs = await Promise.all(
         immediateWallets.map(walletAddress => {
@@ -243,7 +246,7 @@ For deep analysis, use the batch-analyze endpoint after import.`
             queueDeepAfter: false,
           };
           return this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
-            priority: JobPriority.HIGH,
+            priority: JobPriority.NORMAL,
             delay: 0,
           });
         })
@@ -297,6 +300,8 @@ For deep analysis, use the batch-analyze endpoint after import.`
   }
 
   @Post('batch-analyze')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 15, ttl: 3600000 } }) // 15 batch requests per hour (max 300 wallets)
   @ApiOperation({
     summary: 'Queue analysis for multiple favorite wallets',
     description: `Analyze up to 20 favorite wallets at once.
@@ -306,11 +311,13 @@ For deep analysis, use the batch-analyze endpoint after import.`
 - Use 'working' for medium depth (30 days, 2000 sigs)
 - Use 'deep' for full history (all time, 3000 sigs)
 
-Max: 20 wallets per request`
+Max: 20 wallets per request
+Rate Limit: 15 requests per hour`
   })
   @ApiBody({ type: BatchAnalyzeFavoritesDto })
   @ApiResponse({ status: HttpStatus.CREATED, description: 'Analysis jobs queued successfully.' })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid input or too many wallets.' })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded. Max 15 batch requests per hour.' })
   @HttpCode(HttpStatus.CREATED)
   async batchAnalyze(
     @Body() dto: BatchAnalyzeFavoritesDto,
@@ -356,6 +363,8 @@ Max: 20 wallets per request`
   }
 
   @Post('collections/:name/refresh')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 3600000 } }) // 10 collection refreshes per hour
   @ApiOperation({
     summary: 'Refresh all wallets in a collection',
     description: `Queue flash analysis for all wallets in a collection.
@@ -363,11 +372,14 @@ Max: 20 wallets per request`
 - Max 100 wallets per collection
 - Uses flash scope (7 days, 250 sigs)
 - Wallets analyzed recently will be skipped automatically (processor checks freshness)
-- Jobs queued with LOW priority to avoid overwhelming system`
+- Jobs queued with LOW priority to avoid overwhelming system
+
+Rate Limit: 10 refreshes per hour`
   })
   @ApiParam({ name: 'name', description: 'Collection name', type: String })
   @ApiResponse({ status: HttpStatus.CREATED, description: 'Collection refresh queued successfully.' })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Collection not found or empty.' })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Rate limit exceeded. Max 10 collection refreshes per hour.' })
   @HttpCode(HttpStatus.CREATED)
   async refreshCollection(
     @Param('name') collectionName: string,

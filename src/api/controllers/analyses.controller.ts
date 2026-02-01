@@ -144,9 +144,9 @@ export class AnalysesController {
 
   @Post('/similarity/queue')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Queue a similarity analysis job',
-    description: 'Adds a similarity analysis job to the BullMQ queue for background processing. Returns job ID and status for monitoring via the Jobs API.'
+    description: 'Adds a similarity analysis job to the BullMQ queue for background processing. Max 30 wallets per request. Returns job ID and status for monitoring via the Jobs API.'
   })
   @ApiBody({ 
     type: SimilarityAnalysisRequestDto,

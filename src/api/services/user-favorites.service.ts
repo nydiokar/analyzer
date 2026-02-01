@@ -3,7 +3,6 @@ import { DatabaseService } from '../services/database.service';
 import { FavoriteWalletDetailDto, UpdateFavoriteWalletDto, AddFavoriteWalletDto } from '../shared/dto/favorite-wallet-detail.dto';
 import { BulkImportFavoriteWalletsDto, BulkImportWalletItemDto } from '../shared/dto/favorite-wallet-import.dto';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
-import { USER_FAVORITES_CONFIG } from '../../config/constants';
 // Prisma types like UserFavoriteWallet are now handled by DatabaseService return types
 
 @Injectable()
@@ -125,8 +124,8 @@ export class UserFavoritesService {
     normalizedWallets: string[];
     createdWallets: string[];
   }> {
-    // Check import cooldown before processing
-    await this.checkImportCooldown(userId);
+    // No import cooldown - users can organize favorites freely
+    // Rate limiting is enforced at analysis job queueing level instead
 
     const wallets = Array.isArray(dto.wallets) ? dto.wallets : [];
     if (wallets.length === 0) {
@@ -209,10 +208,8 @@ export class UserFavoritesService {
       mergeMetadata: true,
     });
 
-    // Update last bulk import timestamp on success
-    if (result.added > 0 || result.updated > 0) {
-      await this.databaseService.updateUserLastBulkImport(userId);
-    }
+    // No longer tracking lastBulkImportAt - cooldown removed
+    // Users can import favorites freely, analysis jobs are rate-limited separately
 
     return {
       requested: wallets.length,
@@ -271,26 +268,4 @@ export class UserFavoritesService {
       .map(fav => fav.walletAddress);
   }
 
-  /**
-   * Check if user can perform bulk import (enforces cooldown)
-   */
-  private async checkImportCooldown(userId: string): Promise<void> {
-    const user = await this.databaseService.getUserById(userId);
-    if (!user) {
-      throw new NotFoundException(`User not found`);
-    }
-
-    if (user.lastBulkImportAt) {
-      const cooldownMs = USER_FAVORITES_CONFIG.IMPORT_COOLDOWN_SECONDS * 1000;
-      const elapsed = Date.now() - user.lastBulkImportAt.getTime();
-
-      if (elapsed < cooldownMs) {
-        const remainingSec = Math.ceil((cooldownMs - elapsed) / 1000);
-        const remainingMin = Math.ceil(remainingSec / 60);
-        throw new ConflictException(
-          `Import available in ${remainingMin} minute${remainingMin !== 1 ? 's' : ''} (${remainingSec} seconds)`
-        );
-      }
-    }
-  }
-} 
+}

@@ -1,6 +1,6 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-30 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-02-01 • **Status:** 🟢 Active Development
 
 ---
 
@@ -8,13 +8,12 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🔄 | Tracked wallets backend-frontend wiring completion | 🔸 | Complete integration: import flow, WebSocket job tracking, cache invalidation, compare with other job flows |
-| 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
-| 🔄 | Similarity Lab Frame 3: Pair Insights UX improvements | 🔸 | Next priority: improve wallet pairs display, shared tokens structure, and color schema |
-| 🔄 | WHEN password is reset we must send confirmation email!
-
+| 🔄 | Password reset confirmation email | 🔹 | Send confirmation email when password is reset |
+| 🔄 | Import bulk cooldown redesign | 🔸 | Move from user-level import cooldown to analysis job rate limiting - allow unlimited favorites import, throttle analysis jobs only |
 
 **Recently Completed:**
+- ✅ Tracked wallets backend-frontend wiring completion (Jan 30)
+- ✅ Similarity Lab Frame 3: Pair Insights UX improvements (Jan 30)
 - ✅ **P0: Historical Mode Bug - Flash/Working Scopes Fixed** (Jan 29) - Removed timeRange from dashboard scopes to fix persistence
 - ✅ DexScreener rate limiting fix with in-flight token tracking (Jan 30)
 - ✅ Favorites import system with attack-resistant design (Jan 29)
@@ -26,7 +25,7 @@
 - ✅ Job subscription handling refactor (Jan 25)
 - ✅ TimeRangeSelector hydration fix (Jan 25)
 - ✅ Bulk favorites import + auto-analysis queueing (Jan 27)
-| ✅ | Summary card skeleton regression 
+- ✅ Summary card skeleton regression 
 
 
 
@@ -137,6 +136,22 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 ## 📅 Recent Activity
 
+### February 1, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 01.1 | 🔵 | Password reset confirmation email | 🔹 | `email.service.ts`, `auth.service.ts` |
+| 01.2 | ⚖️ | Import bulk cooldown redesign - remove user-level restrictions | 🔹 | `user-favorites.service.ts` |
+| 01.3 | 🔧 | Comprehensive job throttling and priority fixes | 🔸 | `user-favorites.controller.ts`, `similarity-analysis.dto.ts`, `analyses.controller.ts` |
+
+**Summary:**
+
+**01.1:** Added security confirmation email sent after successful password reset. New `sendPasswordResetConfirmationEmail()` method in EmailService sends user-friendly confirmation with timestamp, security warning for unauthorized changes, and security tips. Called from `AuthService.resetPassword()` after password update (non-blocking - won't fail password reset if email fails). Email includes green success banner, amber warning box for unauthorized changes, and security best practices. Helps users detect account compromise and reinforces security awareness.
+
+**01.2:** Removed user-level import cooldown that was blocking all favorites imports for 1 hour. **Problem:** Users importing even 2 wallets were locked out for 1 hour - too restrictive for organizing favorites. **Solution:** Removed `checkImportCooldown()` and `lastBulkImportAt` tracking from import flow. Users can now import/organize favorites freely without time restrictions. **Rate limiting strategy:** Analysis job queueing is naturally limited by (1) wallet-level freshness checks (existing `AnalysisRun` table), (2) queue concurrency limits, and (3) job processor skip logic for recently-analyzed wallets. Import is now purely organizational - analysis jobs remain protected against abuse. **Files modified:** `user-favorites.service.ts` (removed cooldown check, removed `USER_FAVORITES_CONFIG` import, removed `checkImportCooldown()` method, removed `updateUserLastBulkImport()` call).
+
+**01.3:** Comprehensive audit and fixes for job throttling across all analysis endpoints. **Problems identified:** (1) Favorites endpoints had NO throttling, (2) Favorites import used HIGH priority for first 50 wallets (inappropriate for non-critical operations), (3) Similarity analysis had no max wallet limit, (4) Inconsistent protection across endpoints. **Solution implemented:** Added HTTP rate limiting to favorites endpoints (import: 10/hour, batch-analyze: 15/hour, collection-refresh: 10/hour), changed favorites import priority from HIGH → NORMAL (first 50 wallets), added 30-wallet max to similarity analysis DTO validation, updated API documentation. **Rate limits chosen:** Conservative for free users (~500 analysis jobs/hour realistic accounting for freshness skips), extensible for power users (future `User.rateLimitMultiplier` field). **Files modified:** `user-favorites.controller.ts` (added `@Throttle` decorators and `@UseGuards(ThrottlerGuard)`, changed JobPriority.HIGH → JobPriority.NORMAL, updated API docs), `similarity-analysis.dto.ts` (added `@ArrayMaxSize(30)`), `analyses.controller.ts` (updated API docs). Created comprehensive audit document at `.ai/context/JOB_THROTTLING_AUDIT.md` documenting all job-creating endpoints, hidden job multiplication patterns, and rate limiting strategy.
+
 ### January 30, 2026
 
 | ID | T | Title | Scope | Components |
@@ -167,10 +182,10 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
-| 27.1 | ?? | Similarity Lab: Holder picker tracking flow + UI refactor | ?? | `similarity-lab/page.tsx`, `TokenHolderPicker.tsx`, `BulkTrackModal.tsx`, `WalletBadge.tsx`, tracking hooks |
-| 27.2 | ?? | Favorites: Allow tracking wallets without prior analysis (stub wallet upsert) | ?? | `database-service.ts` |
-| 27.3 | 🛠 | P0 Fix: Invalid address auto-trigger spam | 🔹 | `dashboard/src/lib/solana-utils.ts`, `WalletProfileLayout.tsx`, `WalletSearch.tsx` |
-| 27.4 | 🟦 | Bulk favorites import + auto-analysis queueing | 🔸 | `user-favorites.controller.ts`, `user-favorites.service.ts`, `database-service.ts`, `trackers/page.tsx` |
+| 27.1 | ✅ | Similarity Lab: Holder picker tracking flow + UI refactor | ?? | `similarity-lab/page.tsx`, `TokenHolderPicker.tsx`, `BulkTrackModal.tsx`, `WalletBadge.tsx`, tracking hooks |
+| 27.2 | ✅ | Favorites: Allow tracking wallets without prior analysis (stub wallet upsert) | ?? | `database-service.ts` |
+| 27.3 | ✅ | P0 Fix: Invalid address auto-trigger spam | 🔹 | `dashboard/src/lib/solana-utils.ts`, `WalletProfileLayout.tsx`, `WalletSearch.tsx` |
+| 27.4 | ✅ | Bulk favorites import + auto-analysis queueing | 🔸 | `user-favorites.controller.ts`, `user-favorites.service.ts`, `database-service.ts`, `trackers/page.tsx` |
 
 **Summary:**
 
@@ -312,6 +327,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-01-27 • **Branch:** `discover-analytics-ux`
+**Last Updated:** 2026-02-01 • **Branch:** `discover-analytics-ux`
 
 
