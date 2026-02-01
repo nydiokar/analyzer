@@ -1,7 +1,6 @@
 # Sova Intel - Project Context
 
 **Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-30 • **Status:** 🟢 Active Development
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-01-30 • **Status:** 🟢 Active Development
 
 ---
 
@@ -43,30 +42,6 @@
 
 ## 🎯 Current Focus & Priorities
 
-### P0: Invalid address triggering spam (DDoS ourselves ... ) ✅ FIXED
-
-5intercept-console-error.ts:44 Failed to trigger flash analysis Error: Invalid Solana address: 8LUtQLSVoKewkXXHSsWJA9sio9cH7Q4hSfKVm5cR
-    at fetcher (fetcher.ts:116:19)
-    at async WalletProfileLayout.useCallback[triggerDashboardScope] (WalletProfileLayout.tsx:746:53)
-error @ intercept-console-error.ts:44
-intercept-console-error.ts:44 API Error: Error: You're going a bit too fast! Please wait a moment before trying again.
-
-
-**Status:** ✅ Fixed (Jan 27, 2026)
-**Fix Summary:**
-- Hardened Solana address validation (base58 decode → 32 bytes)
-- Blocked auto-trigger on invalid wallet address
-- Added auto-trigger cooldown on failed requests to prevent retry storms
- 
-### P0: Database Deadlock ✅ FIXED
-**Issue:** PostgreSQL deadlocks during parallel token metadata upserts
-**Status:** ✅ Fixed with two-pronged approach (Jan 26, 2026)
-**Solution:**
-- **Prevention (95% reduction):** Sort token addresses alphabetically before transaction to ensure consistent lock acquisition order across all processes
-- **Recovery (remaining 5%):** Exponential backoff retry with jitter for rare deadlock cases
-**Impact:** Eliminates intermittent enrichment failures during similarity/holder-profiles analysis
-**Next Step:** Monitor production logs to verify fix effectiveness
-See [Recent Activity](#-recent-activity) for implementation details.
 
 ### P1: Helius API Optimization (Mandatory, Not Urgent)
 **Goal:** Reduce redundant RPC calls from 29k account fetches to ~10-50 per check (95%+ reduction)
@@ -131,15 +106,6 @@ Working through Similarity Lab in detailed "frames" - treating each major sectio
   - Token prices appearing stale/not using already-fetched metadata
   - Need better visual hierarchy and context for shared tokens
 
-**Frame 4: Token Analysis** 📝 Planned
-- Most Common Tokens component
-- Historical vs Live Holdings (2 components, 1 frame)
-- **Goal:** Balanced horizontal space, proper visual separation
-
-**Frame 5: Contextual Holdings** 📝 Planned
-- Standalone contextual holdings component
-- **Goal:** Review & ensure consistency with other frames
-
 ### Working Protocol for Frames
 
 **When discussing a frame, AI must:**
@@ -154,92 +120,6 @@ Working through Similarity Lab in detailed "frames" - treating each major sectio
 - Align explicitly with the vision
 - Check holistically - not components, but clusters
 - Maintain visual consistency across frames
-
-### Detailed Frame Progress Tracker
-
-**Frame 1: Wallet Input Area** - Status: 🔄 In Progress
-```
-Component Graph:
-page.tsx (lines 554-591)
-├─ Card container with flex layout
-│  ├─ LEFT: SmartWalletInput.tsx (lg:w-[500px])
-│  │  ├─ Label + "Clear All" button
-│  │  ├─ Textarea (min-h-[180px], font-mono, resize-y)
-│  │  └─ Status Row (status message + [ANALYZE] button)
-│  └─ RIGHT: TokenHolderPicker.tsx (when token detected)
-│     ├─ Token Badge header
-│     ├─ Selection controls (count + All/Clear)
-│     ├─ System wallet warning
-│     └─ Scrollable table (checkbox | # | Wallet | % Hold)
-└─ LOADING STATE (page.tsx lines 593-632)
-   └─ ✅ Modern pulsing animation with shimmer effect
-
-What's Done:
-✅ Modern loading animation (pulsing borders, shimmer, gradient)
-✅ Placeholder text verified ("Paste wallet or token addresses...")
-✅ Instructions display working (status message lines 74-108)
-✅ Checkbox column exists (TokenHolderPicker.tsx line 169)
-
-What's Pending:
-⏳ Table text size review (currently text-[10px], may be too small)
-⏳ Color schema refinement for better contrast
-⏳ Verify 10-15% side margins properly applied
-⏳ Test responsive behavior (desktop 2-column → mobile stacked)
-```
-
-**Frame 2: Global Analysis Metrics** - Status: ✅ Complete
-```
-Component: GlobalMetricsCard.tsx
-✅ 5-stat grid (wallets, top pairs sim, tokens, holdings value, largest holding)
-✅ Top 5 most similar pairs with WalletBadge integration
-✅ Score distribution chart (capital/behavioral/cumulative lines)
-✅ Comprehensive tooltips with contextual information
-✅ Responsive grid layout (2/3/5 columns based on screen size)
-✅ Proper visual hierarchy and spacing
-```
-
-**Frame 3: Pair Insights** - Status: 🔄 In Progress
-```
-Component Graph (To Be Discovered):
-- Wallet Pairs list component
-- Shared Tokens deep dive component
-- Color/category labeling logic
-
-Critical Issues to Fix:
-1. Wallet pairs expansion indicator unclear
-   - High number of shared tokens vs high ratio (% of portfolio)
-   - Need visual cue: "14 of 48 total" vs "14 of 15 total" = very different
-2. Shared tokens structure problems
-   - Tokens appear unstructured ("hanging in air")
-   - Percentages lack context (0.3% • 0.3% - of what?)
-   - No grouping/sorting/hierarchy
-   - Missing token metadata (prices appear stale)
-3. Token price staleness
-   - Already-fetched token metadata not being reused
-   - Need to trace data flow from analysis → display
-
-Next Steps:
-1. ✅ Update CONTEXT.md status
-2. Find wallet pairs component
-3. Find shared tokens component
-4. Trace token price data flow
-5. Design improved UX (visual hierarchy, ratio indicators)
-6. Implement improvements
-```
-
-**Frame 4: Token Analysis** - Status: 📝 Planned
-```
-Components:
-- Most Common Tokens
-- Historical vs Live Holdings
-
-Goal: Balance layout treating both as unified frame
-```
-
-**Frame 5: Contextual Holdings** - Status: 📝 Planned
-```
-Goal: Review standalone component for consistency
-```
 
 ### Task List Reference
 
@@ -301,88 +181,6 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 **27.3:** Fixed invalid address auto-trigger spam by enforcing base58 decode validation (32-byte public key), preventing auto-trigger when address is invalid, and adding an auto-trigger cooldown even on request failure to stop retry storms.
 
 **27.4:** Added bulk favorites import endpoint with schema normalization (trackedWalletAddress/name/emoji/alertsOn), batch upsert for favorites, and auto-queue dashboard analysis after import. Trackers UI now supports JSON/CSV import, optional import collection, and auto-queues deep analysis for the first 5 wallets (targetSignatureCount set to 10k but capped by DASHBOARD_MAX_SIGNATURES until raised).
-
-### January 26, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 26.1 | 🔧 | P0 Fix: Database deadlock resolution with prevention + retry | 🔹 | `database-service.ts` |
-
-**Summary:**
-
-**26.1:** Fixed PostgreSQL deadlock errors (code 40P01) in `upsertManyTokenInfo` with industry-standard two-pronged approach. **Prevention:** Sort token data alphabetically by address before transaction - ensures all concurrent processes acquire locks in the same order, reducing deadlock probability by ~95%. **Recovery:** Implemented exponential backoff retry with jitter (100ms base, 3 max retries) to handle rare remaining deadlocks. Added deadlock-specific error detection checking multiple error formats (error.code, error.meta.code, Prisma P2034). This is the PostgreSQL-recommended solution - deadlocks are impossible to prevent 100% in concurrent systems, so the correct approach is: (1) minimize probability with consistent lock ordering, (2) handle gracefully with retries. Alternative approaches (global locks, per-token locks, removing transactions) would sacrifice either performance or data consistency.
-
-### January 25, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 25.1 | ✅ | Similarity Lab Frame 2: Global Analysis Metrics complete | 🔸 | `GlobalMetricsCard.tsx`, `WalletBadge.tsx` |
-| 25.2 | ✅ | Similarity Lab Frame 3: Pair Insights improvements | 🔸 | `EnhancedKeyInsights.tsx`, `page.tsx` |
-| 25.3 | 🔧 | Job subscription handling refactor | 🔸 | `WalletProfileLayout.tsx`, `useJobProgress.ts`, `job-progress.gateway.ts` |
-| 25.4 | 🔧 | TimeRangeSelector hydration mismatch fix | 🔹 | `TimeRangeSelector.tsx` |
-| 25.5 | 🔧 | Error logging cleanup across services | 🔸 | `token-info.service.ts`, processors, `database-service.ts` |
-
-**Summary:**
-
-**25.1:** Completed Frame 2 with comprehensive global metrics display. Implemented 5-stat grid (wallets analyzed, top pairs similarity, tokens analyzed, current holdings value, largest holding percentage). Added Top 5 most similar pairs section with WalletBadge integration for proper wallet display with known types/labels. Created score distribution chart with capital/behavioral bars and cumulative line. Added extensive tooltip system with contextual information. Responsive grid layout (2/3/5 columns).
-
-**25.2:** Enhanced Pair Insights component with improved clarity and functionality. Refined wallet pair display and shared tokens visualization. Updated color schema for better alignment with score distribution patterns.
-
-**25.3:** Refactored job subscription handling to improve WebSocket connection management and cleanup. Enhanced cache cleanup scripts. Updated DTOs for better type safety in dashboard analysis flow.
-
-**25.4:** Fixed React hydration mismatch in TimeRangeSelector by ensuring consistent server/client rendering. Prevents console warnings about mismatched content.
-
-**25.5:** Continued error logging cleanup initiative from Jan 22. Applied `getCleanErrorMessage()` utility across additional services including token-info service, queue processors, and database service. Added Redis URL configuration to .env.example.
-
-### January 23, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 23.1 | ✅  | Similarity Lab Frame 1: Modern loading animation | 🔹 | `similarity-lab/page.tsx`, `globals.css` |
-
-**Summary:**
-
-**23.1:** Replaced generic progress bar with modern multi-layer animated loading component. Features: (1) Dual pulsing borders with staggered timing (30%/50% opacity); (2) Pulsing dot indicator with ping effect; (3) Gradient progress bar with shimmer sweep animation; (4) Custom shimmer keyframe in globals.css; (5) Backdrop blur effects and tabular-nums for no layout shift. Component positioned below wallet input area as specified in Frame 1 design. Established "frame-by-frame" approach for Similarity Lab UX overhaul - treating each major section as cohesive visual/functional clusters rather than isolated components.
-
-### January 22, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 22.1 | 🔧 | Error logging cleanup & circular reference fix | 🔸 | Logger crash prevention + clean error messages in user-facing flows |
-
-**Summary:**
-
-**22.1:** Fixed cascading logger failures caused by circular references in error objects. Added `safeStringify()` to logger and auto-sanitization of error metadata. Created `error-utils.ts` for clean error messages. Automated cleanup of 88 error logs across 15 critical user-facing files (similarity, PnL, holder profiles, API controllers, queue processors). Logs reduced from 50+ lines per error to single actionable lines. Added whale wallet protection in enrichment processor: 5k token hard cap, 0.01 minimum balance threshold, balance-sorted prioritization to prevent system overload from wallets with 20k+ dust tokens.
-
-### January 17, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 17.1 | ✅ | Wallet type taxonomy simplification | 🔹 | Protocol wallet types (ORCA/JUPITER/RAYDIUM/METEORA) merged into unified PROTOCOL type with distinct labels |
-| 17.2 | ✅ | Holder Profiles v2 final review | 🔹 | Complete UX polish and validation of holder profiles feature |
-| 17.3 | ✅| Wallet refresh completion handling | ?? | `dashboard/src/components/layout/WalletProfileLayout.tsx`, `src/api/controllers/analyses.controller.ts`, `src/core/services/database-service.ts`, `dashboard/src/hooks/useTokenMetadata.ts` |
-| 17.4 | 🔧 | System wallet detection wiring + holder profiles filtering | 🔸 | `src/queues/processors/analysis-operations.processor.ts`, `src/api/services/system-wallet-detection.service.ts`, `src/core/services/helius-api-client.ts` |
-
-**Summary:**
-
-**17.1:** Simplified wallet classification taxonomy by merging specialized DEX protocol types (ORCA, JUPITER, RAYDIUM, METEORA) into a single PROTOCOL wallet type. Each maintains distinct labels for identification while reducing type proliferation in the system.
-
-**17.2:** Completed final review and validation of Holder Profiles v2 feature. All UX refinements, tooltip improvements, and bucket alignment work verified and ready for production use.
-
-**17.4:** Wired dynamic system wallet detection into holder profile wallet-mode entry, filtered all holders before queueing jobs, and persisted LP/Protocol tags from top holders into DB/Redis so similarity can skip them consistently. Added thin count-only helper in Helius API client for early-exit detection and documented its use in system wallet detection.
-
-### January 16, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 16.1 | ✅ | Wallet classification system: Defense-in-depth architecture | 🔶 | `constants.ts`, `system-wallet-detection.service.ts`, `helius-sync-service.ts`, `analysis-operations.processor.ts`, `pnl-analysis-service.ts`, `behavior.service.ts`, `WALLET_CLASSIFICATION_SYSTEM.md` |
-| 16.2 | ✅ | Wallet registry integration & token price refresh | 🔶 | `known-wallets.ts`, `analysis-operations.processor.ts`, `token-info.service.ts`, `similarity.service.ts` |
-
-**Summary:**
-
-**16.1:** Completed full defense-in-depth architecture for wallet detection. Removed shouldBlock/isSystemWallet/isLargeWallet boolean flags. Removed WALLET_CLASSIFICATIONS.INVALID and .JUPITER. Implemented three-layer protection: (1) Entry points do early RPC detection before queueing expensive jobs (dashboard, analyze-pnl, analyze-behavior processors); (2) Sync service checks DB knownType and skips; (3) PnL/Behavior services check registry + DB knownType as safety net. 70k+ tokens auto-tagged with knownType='SYSTEM' during CURRENT run via RPC call. LARGE (15k-70k) uses isLarge flag, analyzed normally. All layers use SKIP_* exclusion sets for consistency. Registry + dynamic detection unified - same treatment whether wallet is in static registry or detected via RPC. DB query optimization: behavior service now fetches wallet once and reuses for both knownType and staleness checks (50% reduction). Comprehensive documentation with flow diagrams added.
-
-**16.2:** Registry now lives in src/config/known-wallets.ts and drives central wallet-type filtering for PnL, similarity, and holder profiles. Holder profiles and similarity now pull fresh token prices during analysis and recompute holding values. Known wallet labels flow through backend analysis and are surfaced in holder profile results.
 
 <details>
 <summary><b>Icon Legend</b></summary>

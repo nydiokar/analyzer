@@ -445,7 +445,9 @@ export class TokenPerformanceService {
       
       tokenPerformanceDataList = tokenPerformanceDataList.filter(token => {
         const riskLevel = token.spamRiskLevel ?? this.analyzeTokenSpamRisk(token).riskLevel;
-        const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
+        const hasName = !!(token.name && token.name !== 'Unknown Token') || !!token.onchainName;
+        const hasSymbol = !!(token.symbol && token.symbol !== 'Unknown Token') || !!token.onchainSymbol;
+        const isUnknown = !hasName || !hasSymbol;
 
         switch (spamFilter) {
           case SpamFilterType.SAFE:
@@ -593,6 +595,7 @@ export class TokenPerformanceService {
       // No time filter in this method - mark all tokens as having activity
       const hasActivityInPeriod = (ar.transferCountIn || 0) + (ar.transferCountOut || 0) > 0;
 
+      const fallbackMetadata = getWellKnownTokenMetadata(ar.tokenAddress);
       const tokenData: TokenPerformanceDataDto = {
         walletAddress: ar.walletAddress,
         tokenAddress: ar.tokenAddress,
@@ -613,12 +616,18 @@ export class TokenPerformanceService {
         currentUiBalanceString: ar.currentUiBalanceString,
         balanceDecimals: ar.balanceDecimals,
         balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
-        name: tokenInfo?.name,
-        symbol: tokenInfo?.symbol,
+        name: tokenInfo?.name || fallbackMetadata?.name,
+        symbol: tokenInfo?.symbol || fallbackMetadata?.symbol,
         imageUrl: tokenInfo?.imageUrl,
         websiteUrl: tokenInfo?.websiteUrl,
         twitterUrl: tokenInfo?.twitterUrl,
         telegramUrl: tokenInfo?.telegramUrl,
+        onchainName: tokenInfo?.onchainName,
+        onchainSymbol: tokenInfo?.onchainSymbol,
+        onchainImageUrl: tokenInfo?.onchainImageUrl,
+        onchainWebsiteUrl: tokenInfo?.onchainWebsiteUrl,
+        onchainTwitterUrl: tokenInfo?.onchainTwitterUrl,
+        onchainTelegramUrl: tokenInfo?.onchainTelegramUrl,
       };
 
       const spamAnalysis = this.analyzeTokenSpamRisk(tokenData);
@@ -641,6 +650,7 @@ export class TokenPerformanceService {
     }
     return tokenInfoMap;
   }
+
 
   async getAllTokenAddressesForWallet(walletAddress: string): Promise<string[]> {
     this.logger.debug(
@@ -688,7 +698,9 @@ export class TokenPerformanceService {
     }
 
     // Check if token has name/symbol (unknown tokens)
-    const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
+    const hasName = !!(token.name && token.name !== 'Unknown Token') || !!token.onchainName;
+    const hasSymbol = !!(token.symbol && token.symbol !== 'Unknown Token') || !!token.onchainSymbol;
+    const isUnknown = !hasName || !hasSymbol;
     const totalSpent = token.totalSolSpent || 0;
     const totalReceived = token.totalSolReceived || 0;
     const netPnl = token.totalPnlSol ?? token.netSolProfitLoss ?? 0;

@@ -299,13 +299,15 @@ export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata
 
     // Callback for updates
     const updateCallback = (fetchedMetadata: TokenMetadata | null) => {
-      setMetadata(fetchedMetadata);
+      setMetadata(prev => fetchedMetadata ?? prev ?? providedMetadata ?? null);
       setIsLoading(false);
     };
 
     // Skip batch request if provided metadata is "complete enough"
-    // Complete = has name/symbol (essential fields)
-    const isMetadataComplete = providedMetadata && (providedMetadata.name || providedMetadata.onchainName);
+    // Complete = has a real name (not "Unknown Token") or onchain name.
+    const hasValidName = !!(providedMetadata?.name && providedMetadata.name !== 'Unknown Token');
+    const hasOnchainName = !!providedMetadata?.onchainName;
+    const isMetadataComplete = !!providedMetadata && (hasOnchainName || hasValidName);
     setIsLoading(!isMetadataComplete && !providedMetadata);
 
     // CRITICAL FIX: Only request if metadata is incomplete

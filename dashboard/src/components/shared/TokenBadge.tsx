@@ -132,7 +132,30 @@ const TokenBadge = memo(({
   // Merge provided + fetched so upstream partial metadata still benefits from enrichment
   const metadata = useMemo(() => {
     if (!providedMetadata && !fetchedMetadata) return null;
-    return { ...(fetchedMetadata || {}), ...(providedMetadata || {}) };
+    const pickString = (base?: string, incoming?: string | null) => {
+      if (incoming !== undefined && incoming !== null && incoming !== "") return incoming;
+      return base ?? undefined;
+    };
+    const pickValue = <T,>(base?: T | null, incoming?: T | null) => {
+      if (incoming !== undefined && incoming !== null) return incoming;
+      return base ?? undefined;
+    };
+    return {
+      name: pickString(providedMetadata?.name, fetchedMetadata?.name),
+      symbol: pickString(providedMetadata?.symbol, fetchedMetadata?.symbol),
+      imageUrl: pickString(providedMetadata?.imageUrl, fetchedMetadata?.imageUrl),
+      websiteUrl: pickString(providedMetadata?.websiteUrl, fetchedMetadata?.websiteUrl),
+      twitterUrl: pickString(providedMetadata?.twitterUrl, fetchedMetadata?.twitterUrl),
+      telegramUrl: pickString(providedMetadata?.telegramUrl, fetchedMetadata?.telegramUrl),
+      onchainName: pickString(providedMetadata?.onchainName, fetchedMetadata?.onchainName),
+      onchainSymbol: pickString(providedMetadata?.onchainSymbol, fetchedMetadata?.onchainSymbol),
+      onchainImageUrl: pickString(providedMetadata?.onchainImageUrl, fetchedMetadata?.onchainImageUrl),
+      onchainWebsiteUrl: pickString(providedMetadata?.onchainWebsiteUrl, fetchedMetadata?.onchainWebsiteUrl),
+      onchainTwitterUrl: pickString(providedMetadata?.onchainTwitterUrl, fetchedMetadata?.onchainTwitterUrl),
+      onchainTelegramUrl: pickString(providedMetadata?.onchainTelegramUrl, fetchedMetadata?.onchainTelegramUrl),
+      marketCapUsd: pickValue(providedMetadata?.marketCapUsd, fetchedMetadata?.marketCapUsd),
+      priceUsd: pickValue(providedMetadata?.priceUsd, fetchedMetadata?.priceUsd),
+    };
   }, [providedMetadata, fetchedMetadata]);
 
   // ===== CENTRALIZED METADATA PRIORITY LOGIC =====

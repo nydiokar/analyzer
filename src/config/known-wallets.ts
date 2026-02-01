@@ -152,7 +152,7 @@ export const KNOWN_WALLETS: Record<string, KnownWalletEntry> = {
   },
   'FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM': {
     type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
+    label: 'BAGS VAULT',
     shortLabel: 'Jupiter',
   },
 
