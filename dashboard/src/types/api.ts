@@ -33,7 +33,6 @@ export interface WalletSummaryData {
   totalVolume: number;
   lastAnalyzedAt?: string | null;
   lastActiveTimestamp: number | null; // Unix timestamp in seconds or null
-  firstTradeTimestamp?: number | null; // Unix timestamp in seconds or null - when they first traded
   daysActive: number | string | null; // Backend seems to send string or number
   latestPnl?: number | null; // Realized PNL only for summary display
   latestPnlUsd?: number | null; // USD equivalent of realized PNL
@@ -53,15 +52,6 @@ export interface WalletSummaryData {
   currentSolBalanceUsd?: number | null; // New USD field
   profitableTradesCount?: number | null;
   totalTradesCount?: number | null;
-  // Trading activity metrics
-  tradesPerDay?: number | null;
-  averagePositionSizeSol?: number | null;
-  averagePositionSizeUsd?: number | null;
-  largestWinSol?: number | null;
-  largestWinUsd?: number | null;
-  largestLossSol?: number | null;
-  largestLossUsd?: number | null;
-  medianHoldTimeHours?: number | null;
 }
 
 export interface WalletSummaryError {

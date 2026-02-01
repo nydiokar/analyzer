@@ -250,7 +250,6 @@ export class WalletsController {
         knownLabel: wallet?.knownLabel ?? null,
         lastAnalyzedAt: lastAnalyzedAt.toISOString(),
         lastActiveTimestamp: finalLastActiveTimestamp,
-        firstTradeTimestamp: firstProcessedOverallTs,
         daysActive: finalDaysActive,
         latestPnl: latestPnl, // Realized PNL only for summary display
         latestPnlUsd: latestPnlUsd,

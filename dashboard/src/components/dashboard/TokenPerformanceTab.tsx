@@ -315,7 +315,7 @@ const createColumns = (): ColumnDef<TokenPerformanceDataDto>[] => [
   },
   {
     accessorKey: 'transferCountIn',
-    header: 'Trades',
+    header: 'TXs',
     cell: ({ row }) => {
       const inCount = row.original.transferCountIn || 0;
       const outCount = row.original.transferCountOut || 0;
