@@ -7,7 +7,7 @@ import { generateKeyInsights } from '@/lib/similarity-report-parser';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Handshake, Scale, Users2, ArrowUpRightFromSquare, TrendingDown, Lightbulb } from "lucide-react";
+import { Handshake, Scale, Users2, ArrowUpRightFromSquare, TrendingDown, Lightbulb, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WalletBadge } from '@/components/shared/WalletBadge';
@@ -590,18 +590,49 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
     return null; // Return null for zero values instead of "$0.00"
   };
 
-  // Render token group section
+  // State to track expanded groups
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['major'])); // Major expanded by default
+
+  const toggleGroup = (groupKey: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
+
+  // Render token group section with collapsible ScrollArea for large lists
   const renderTokenGroup = (
     tokens: typeof majorHoldings,
     title: string,
     description: string,
-    badgeColor: string
+    badgeColor: string,
+    groupKey: string,
+    maxItems: number = 50 // Default limit for performance
   ) => {
     if (tokens.length === 0) return null;
 
+    const isExpanded = expandedGroups.has(groupKey);
+    const displayTokens = tokens.slice(0, maxItems);
+    const hasMore = tokens.length > maxItems;
+
     return (
       <div className="space-y-2">
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity"
+          onClick={() => toggleGroup(groupKey)}
+        >
+          <div className="shrink-0">
+            {isExpanded ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
           <h4 className="text-xs font-semibold text-foreground/80">{title}</h4>
           <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-medium", badgeColor)}>
             {tokens.length}
@@ -615,91 +646,102 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
             </TooltipContent>
           </Tooltip>
         </div>
-        <div className="space-y-1">
-          {tokens.map((token) => {
-            const metadata = getTokenMetadata(token.mint, results.walletBalances);
+        {isExpanded && (
+          <ScrollArea className={cn("w-full", tokens.length > 10 ? "h-[400px]" : "h-auto")}>
+            <div className="space-y-1 pr-3">
+              {displayTokens.map((token) => {
+                const metadata = getTokenMetadata(token.mint, results.walletBalances);
 
-            return (
-              <div key={token.mint} className="flex items-center gap-2 p-2 rounded-md bg-muted/20 hover:bg-muted/40 transition-colors border border-border/40">
-                <div className="flex-1 min-w-0">
-                  <TokenBadge
-                    mint={token.mint}
-                    metadata={metadata}
-                    variant="inline"
-                    size="sm"
-                  />
-                </div>
-                <div className="flex items-center gap-3 text-xs font-mono shrink-0">
-                  {/* Wallet A */}
-                  <div className="flex flex-col items-end gap-0.5 min-w-[60px]">
-                    {token.weightA > 0 ? (
-                      <>
-                        <span className="text-foreground/70 font-semibold">
-                          {(token.weightA * 100).toFixed(1)}%
-                        </span>
-                        <span className="text-muted-foreground text-[10px]">
-                          {formatUSD(token.valueA) || (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="text-orange-400 cursor-help">No data</span>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                <p>Allocation % exists but no USD value available</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </span>
-                      </>
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="text-muted-foreground/40 text-[10px] cursor-help">Exited</span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
-                          <p>Wallet A no longer holds this token</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
+                return (
+                  <div key={token.mint} className="flex items-center gap-2 p-2 rounded-md bg-muted/20 hover:bg-muted/40 transition-colors border border-border/40">
+                    <div className="flex-1 min-w-0">
+                      <TokenBadge
+                        mint={token.mint}
+                        metadata={metadata}
+                        variant="inline"
+                        size="sm"
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 text-xs font-mono shrink-0">
+                      {/* Wallet A */}
+                      <div className="flex flex-col items-end gap-0.5 min-w-[60px]">
+                        {token.weightA > 0 ? (
+                          <>
+                            <span className="text-foreground/70 font-semibold">
+                              {(token.weightA * 100).toFixed(1)}%
+                            </span>
+                            <span className="text-muted-foreground text-[10px]">
+                              {formatUSD(token.valueA) || (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="text-orange-400 cursor-help">No data</span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs">
+                                    <p>Allocation % exists but no USD value available</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </span>
+                          </>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="text-muted-foreground/40 text-[10px] cursor-help">Exited</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              <p>Wallet A no longer holds this token</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+
+                      <span className="text-muted-foreground/50">•</span>
+
+                      {/* Wallet B */}
+                      <div className="flex flex-col items-end gap-0.5 min-w-[60px]">
+                        {token.weightB > 0 ? (
+                          <>
+                            <span className="text-foreground/70 font-semibold">
+                              {(token.weightB * 100).toFixed(1)}%
+                            </span>
+                            <span className="text-muted-foreground text-[10px]">
+                              {formatUSD(token.valueB) || (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="text-orange-400 cursor-help">No data</span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="text-xs">
+                                    <p>Allocation % exists but no USD value available</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </span>
+                          </>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="text-muted-foreground/40 text-[10px] cursor-help">Exited</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              <p>Wallet B no longer holds this token</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
                   </div>
-
-                  <span className="text-muted-foreground/50">•</span>
-
-                  {/* Wallet B */}
-                  <div className="flex flex-col items-end gap-0.5 min-w-[60px]">
-                    {token.weightB > 0 ? (
-                      <>
-                        <span className="text-foreground/70 font-semibold">
-                          {(token.weightB * 100).toFixed(1)}%
-                        </span>
-                        <span className="text-muted-foreground text-[10px]">
-                          {formatUSD(token.valueB) || (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="text-orange-400 cursor-help">No data</span>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                <p>Allocation % exists but no USD value available</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </span>
-                      </>
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="text-muted-foreground/40 text-[10px] cursor-help">Exited</span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
-                          <p>Wallet B no longer holds this token</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
+                );
+              })}
+              {hasMore && (
+                <div className="text-center py-2">
+                  <span className="text-xs text-muted-foreground">
+                    Showing {maxItems} of {tokens.length} tokens
+                  </span>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              )}
+            </div>
+          </ScrollArea>
+        )}
       </div>
     );
   };
@@ -784,19 +826,25 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
               majorHoldings,
               "Major Holdings",
               "Tokens representing ≥5% of portfolio value in at least one wallet",
-              "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+              "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
+              "major",
+              100 // Show up to 100 major holdings
             )}
             {renderTokenGroup(
               meaningfulHoldings,
               "Meaningful Holdings",
               "Tokens representing 1-5% of portfolio value",
-              "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+              "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+              "meaningful",
+              50 // Show up to 50 meaningful holdings
             )}
             {renderTokenGroup(
-              minorHoldings.slice(0, 10),
+              minorHoldings,
               "Minor Holdings",
-              "Tokens representing <1% of portfolio value (showing top 10)",
-              "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30"
+              "Tokens representing <1% of portfolio value",
+              "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
+              "minor",
+              30 // Show only top 30 minor holdings to prevent page elongation
             )}
           </div>
         </div>
@@ -885,7 +933,7 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
   return (
     <Card className="h-full border" aria-label="Key insights and pairwise analysis">
       <CardHeader>
-        <CardTitle>Key Insights & Pairwise Deep Dive</CardTitle>
+        <CardTitle>Pair insights</CardTitle>
         <CardDescription>
           Automatically generated insights from the similarity analysis, with a detailed breakdown for each pair.
         </CardDescription>
