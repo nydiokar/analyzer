@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Compass,
   Info,
   Loader2,
   RefreshCcw,
@@ -41,6 +42,7 @@ import { FavoriteWallet } from "@/types/api";
 // QuickAddForm removed - using global FavoriteModalProvider
 import { getSpeedColor, getFlowColor, getSpeedColorHex, getFlowColorHex, getSpeedLabel, getFlowLabel } from "@/lib/strategy-colors";
 import EmptyState from "@/components/shared/EmptyState";
+import { PageTitle } from "@/components/shared/PageTitle";
 import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -429,9 +431,7 @@ export default function DiscoverPage() {
     <AppShell>
       <div className="w-full px-6 py-4 space-y-3">
         {/* Header row */}
-        <div className="flex items-center">
-          <h1 className="text-xl font-semibold">Discover</h1>
-        </div>
+        <PageTitle title="Discover" icon={Compass} />
 
         {/* Filter row */}
         <div className="flex items-center gap-2">

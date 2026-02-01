@@ -13,12 +13,13 @@ import { fetcher } from '@/lib/fetcher';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import type { JobProgressData, JobFailedData, JobCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, Users } from 'lucide-react';
 import type { HolderProfilesResult } from '@/components/holder-profiles/types';
 import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import type { SimilarityStatus } from '@/components/holder-profiles/v2/SimilaritySidebar';
 import type { JobResult } from '@/types/websockets';
 import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
+import { PageTitle } from '@/components/shared/PageTitle';
 import {
   WalletClassifier,
   WalletClassifierEntry,
@@ -578,10 +579,11 @@ function HolderProfilesContent() {
     <AppShell>
       <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8 pb-8">
         <div className="max-w-6xl mx-auto space-y-1">
-          <h1 className="text-2xl font-semibold">Holder Profiles</h1>
-          <p className="text-sm text-muted-foreground">
-            Scan holder behavior patterns and conviction signals across top wallets.
-          </p>
+          <PageTitle
+            title="Holder Profiles"
+            subtitle="Scan holder behavior patterns and conviction signals across top wallets."
+            icon={Users}
+          />
         </div>
         <Card className="max-w-6xl mx-auto p-3">
           <div className="flex flex-wrap items-center gap-2">

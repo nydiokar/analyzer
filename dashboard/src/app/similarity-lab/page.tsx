@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, memo, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ArrowUp, X } from 'lucide-react';
+import { ArrowUp, FlaskConical, X } from 'lucide-react';
 
 import { SmartWalletInput } from '@/components/similarity-lab/SmartWalletInput';
 import { TokenHolderPicker } from '@/components/similarity-lab/TokenHolderPicker';
@@ -17,6 +17,7 @@ import { JobProgressData, JobFailedData, EnrichmentCompletionData } from '@/type
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { AppShell } from '@/components/layout/AppShell';
 import { TokenBadge } from '@/components/shared/TokenBadge';
+import { PageTitle } from '@/components/shared/PageTitle';
 import { useFavorites } from '@/hooks/useFavorites';
 import { BulkTrackModal } from '@/components/shared/BulkTrackModal';
 import { useSimilarityLabTrackersFlow } from '@/hooks/similarity-lab/useSimilarityLabTrackersFlow';
@@ -702,12 +703,11 @@ export default function AnalysisLabPage() {
     <AppShell>
       <div className="w-full px-[10%] lg:px-[15%] space-y-6 pb-8">
         {/* Header */}
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">Similarity Lab</h1>
-          <p className="text-sm text-muted-foreground">
-            Discover hidden connections between wallets through trading behavior and capital allocation patterns.
-          </p>
-        </div>
+        <PageTitle
+          title="Similarity Lab"
+          subtitle="Discover hidden connections between wallets through trading behavior and capital allocation patterns."
+          icon={FlaskConical}
+        />
 
         {/* Main Input Card - 2-column layout with controlled widths */}
         <Card className="p-4">
