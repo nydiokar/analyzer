@@ -351,6 +351,13 @@ export default function AnalysisLabPage() {
           return;
         }
 
+        // Clear job pointers older than 24 hours (jobs may have expired from queue)
+        const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+        if (parsed.createdAt && Date.now() - parsed.createdAt > MAX_AGE_MS) {
+          clearJobPointer();
+          return;
+        }
+
         const jobStatus = await fetcher(`/jobs/${parsed.jobId}`);
         if (jobStatus?.status === 'completed') {
           const result = await fetcher(`/jobs/${parsed.jobId}/result`);
@@ -362,8 +369,13 @@ export default function AnalysisLabPage() {
         } else if (jobStatus?.status === 'failed' || jobStatus?.status === 'not_found') {
           clearJobPointer();
         }
-      } catch (error) {
-        console.warn('Failed to hydrate similarity result from last job pointer', error);
+      } catch (error: any) {
+        // If the job is not found (404) or any other error, clear the stale pointer
+        // to prevent repeated errors on every page load
+        if (error?.status === 404 || error?.message?.includes('not found')) {
+          clearJobPointer();
+        }
+        // Silently ignore hydration errors - they're non-critical
       }
     };
 
