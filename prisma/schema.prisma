@@ -136,8 +136,6 @@ model TokenLot {
   wallet            Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@index([walletAddress, tokenAddress, purchaseTimestamp])
-  @@index([walletAddress])
-  @@index([tokenAddress])
 }
 
 model WalletPnlSummary {

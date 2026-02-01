@@ -517,6 +517,13 @@ export class AuthService {
 
     this.logger.log(`Password reset: ${user.id}`);
 
+    // Send confirmation email (non-blocking - don't fail password reset if email fails)
+    try {
+      await this.emailService.sendPasswordResetConfirmationEmail(user.email!);
+    } catch (emailError) {
+      this.logger.warn(`Failed to send password reset confirmation email to ${user.email}: ${emailError instanceof Error ? emailError.message : 'Unknown error'}`);
+    }
+
     return { success: true, message: 'Password reset successfully' };
   }
 
