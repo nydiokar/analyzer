@@ -336,7 +336,7 @@ export default function HudDemoPage() {
               <ul className="list-disc list-inside text-muted-foreground space-y-1">
                 <li>Trimmed Mean PNL (outliers removed)</li>
                 <li>Median P/L per Token (true center)</li>
-                <li>Behavior Code (M/F/H/A/I/S/?)</li>
+                <li>Behavior Code (M/F/H/D/I/S/?)</li>
                 <li>Avg Trades/Day (activity intensity)</li>
                 <li>Win Rate (success percentage)</li>
                 <li>Data Quality Tier (🥇/🥈/🥉/❓)</li>

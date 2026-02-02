@@ -1,6 +1,6 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-02-02 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-02-03 • **Status:** 🟢 Active Development
 
 ---
 
@@ -138,6 +138,16 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 ---
 
 ## 📅 Recent Activity
+
+### February 3, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 03.1 | 🔧 | Critical fix: Stale token prices causing inflated P/L | 🔸 | `token-info.service.ts` |
+
+**Summary:**
+
+**03.1:** Fixed critical bug where token prices stuck at stale values (days old) caused wildly incorrect P/L calculations (e.g., 14,930x inflated: $0.235 vs actual $0.00001574). **Root Cause - Two Issues:** (1) **In-flight deadlock** - `buildTokenEnrichmentPlan()` marked tokens "in-flight" BEFORE fetching, causing subsequent enrichment to skip all tokens (thinking already processed). Created deadlock where tokens permanently marked in-flight but never enriched. (2) **Fire-and-forget race** - `setImmediate()` in `triggerTokenInfoEnrichment()` returned before DexScreener completed, so processors reading prices immediately got stale data. **The Fix:** (1) Moved in-flight markers from plan builder to actual fetch (`enrichTokensBackground`) - plan only checks staleness, markers set when actually fetching. (2) Removed `setImmediate()` - now awaits DexScreener completion, ensuring fresh prices. **Impact:** Enrichment properly updates prices, P/L uses fresh data, eliminates inflated portfolios from dead tokens with cached pump prices. **Design Note:** API controllers still don't await enrichment (fast response), but enrichment processor awaits (correct calculations). In-flight mechanism correctly prevents duplicate fetches but was set too early. **Files:** `token-info.service.ts` (moved markers, removed setImmediate, added set-before-fetch with cleanup).
 
 ### February 2, 2026
 
@@ -343,6 +353,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-02 • **Branch:** `discover-analytics-ux`
+**Last Updated:** 2026-02-03 • **Branch:** `discover-analytics-ux`
 
 

@@ -209,6 +209,15 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     }
     this.logger.debug(`[Background] Enriching ${plan.needsEnrichment.length} tokens`);
 
+    // Mark tokens as in-flight BEFORE fetching
+    if (plan.needsEnrichment.length > 0) {
+      const pipeline = this.redis.pipeline();
+      for (const token of plan.needsEnrichment) {
+        pipeline.setex(`token:in-flight:${token}`, 30, Date.now().toString());
+      }
+      await pipeline.exec();
+    }
+
     try {
       await this.priceProvider.fetchAndSaveTokenInfo(plan.needsEnrichment);
     } finally {
@@ -296,16 +305,8 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       `Token enrichment plan: total=${tokenAddresses.length}, new=${newTokens.length}, stale=${staleTokens.length}, refresh=${needsEnrichment.size}`
     );
 
-    // 🔥 MARK TOKENS AS IN-FLIGHT: Set Redis keys for tokens we're about to fetch
-    if (needsEnrichment.size > 0) {
-      const pipeline = this.redis.pipeline();
-      for (const token of needsEnrichment) {
-        // Set with 30s TTL - auto-expires if job crashes
-        pipeline.setex(`token:in-flight:${token}`, 30, Date.now().toString());
-      }
-      await pipeline.exec();
-      this.logger.debug(`Marked ${needsEnrichment.size} tokens as in-flight`);
-    }
+    // DON'T mark as in-flight here - let the actual fetch methods handle that
+    // This prevents deadlocks when multiple calls check the plan
 
     return {
       tokenAddresses,
@@ -374,22 +375,21 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // STAGE 2: DexScreener (FIRE-AND-FORGET - DON'T WAIT)
-    // Fetch fresh prices in background - frontend will show DAS data immediately
+    // STAGE 2: DexScreener (AWAIT COMPLETION)
+    // Fetch fresh prices and wait for completion to ensure data consistency
     // ═══════════════════════════════════════════════════════════
     if (needsPriceData.length > 0) {
-      // Fire-and-forget DexScreener enrichment
-      setImmediate(async () => {
-        try {
-          await this.priceProvider.fetchAndSaveTokenInfo(needsPriceData);
-          this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed - Frontend can refresh to see updated images`);
-        } catch (err) {
-          this.logger.error(`Stage 2 (DexScreener) failed: ${getErrorMessage(err)}`);
-        } finally {
-          // 🔥 CLEAR IN-FLIGHT MARKERS: Remove Redis keys after enrichment completes
-          await this.clearInFlightMarkers(needsPriceData);
-        }
-      });
+      try {
+        // CHANGED: Now waits for DexScreener to complete before returning
+        // This ensures downstream code (like P/L calculation) uses fresh prices
+        await this.priceProvider.fetchAndSaveTokenInfo(needsPriceData);
+        this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed with fresh prices`);
+      } catch (err) {
+        this.logger.error(`Stage 2 (DexScreener) failed: ${getErrorMessage(err)}`);
+      } finally {
+        // 🔥 CLEAR IN-FLIGHT MARKERS: Remove Redis keys after enrichment completes
+        await this.clearInFlightMarkers(needsPriceData);
+      }
     }
 
     // ═══════════════════════════════════════════════════════════

@@ -1,0 +1,9 @@
+[
+{
+    "trackedWalletAddress": "DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm",
+    "name": "MASTER",
+    "emoji": "😀",
+    "alertsOn": true
+  }
+]
+  
