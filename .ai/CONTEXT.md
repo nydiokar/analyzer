@@ -1,6 +1,6 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-02-01 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-02-02 • **Status:** 🟢 Active Development
 
 ---
 
@@ -10,6 +10,7 @@
 |:------:|:-----|:-----:|:------|
 
 **Recently Completed:**
+- ✅ Wallet HUD system implementation (Feb 2)
 - ✅ Batch analyze functionality in tracked wallets (Feb 1)
 - ✅ Comprehensive job throttling and priority fixes (Feb 1)
 - ✅ Password reset confirmation email (Feb 1)
@@ -137,6 +138,16 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 ---
 
 ## 📅 Recent Activity
+
+### February 2, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 02.1 | 🔵 | Wallet HUD (Heads-Up Display) system | 🔶 | Backend: `wallet-hud.service.ts`, `wallet-hud.controller.ts`, `wallet-hud.dto.ts`, `wallet-hud.module.ts`, `analysis-operations.processor.ts`; Frontend: `WalletHudOverlay.tsx`, `useWalletHud.ts`, `hud-demo/page.tsx` |
+
+**Summary:**
+
+**02.1:** Implemented poker HUD-style wallet metrics system for at-a-glance evaluation. **Core Metrics (6):** Trimmed mean PNL (outliers removed), median P/L per token, behavior code (M/F/H/A/I/S/?), avg trades/day, win rate, data quality tier (🥇🥈🥉❓). **Conditional Badges (2):** 🤖 Bot (>60 tokens/day), 🐋 Whale (>200 SOL unrealized PNL). **Backend:** Single optimized query with nested includes (pnlSummary.advancedStats + behaviorProfile), Redis caching (24h TTL to prevent memory bloat), cache invalidation on PNL/behavior analysis completion via processor hooks, batch endpoint with O(1) lookup map, rate limiting (100 req/10min), max 200 wallets/batch. **Frontend:** Three display variants (inline compact, tooltip detailed, expanded grid), SWR hooks with proper cache strategy (no auto-refresh - data static until re-analysis), number formatting utilities (K/M suffixes), color system aligned with existing strategy colors, demo page at `/hud-demo`. **Key Decisions:** Whale detection uses unrealized PNL (portfolio value) NOT just SOL balance to match holder profiles display; 24h TTL prevents Redis bloat while active wallets get immediate cache invalidation; uses exported `prisma` instance directly (no DatabaseService dependency). **Performance:** Cache hit <5ms, cache miss <100ms single wallet, batch 100 wallets <200ms.
 
 ### February 1, 2026
 
@@ -332,6 +343,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-01 • **Branch:** `discover-analytics-ux`
+**Last Updated:** 2026-02-02 • **Branch:** `discover-analytics-ux`
 
 

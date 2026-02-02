@@ -230,8 +230,8 @@ export class WalletHudService {
     const uniqueTokensPerDay =
       daysActive > 0 ? uniqueTokensTraded / daysActive : 0;
 
-    // Behavior classification
-    const behaviorCategory = behaviorProfile?.tradingStyle ?? 'UNKNOWN';
+    // Behavior classification - use speedCategory (enum) not tradingStyle (string description)
+    const behaviorCategory = behaviorProfile?.speedCategory ?? behaviorProfile?.strategyType ?? 'UNKNOWN';
     const behaviorCode = this.getBehaviorCode(behaviorCategory);
 
     // Whale detection: Use unrealized PNL (total portfolio value) instead of just SOL balance
@@ -307,13 +307,19 @@ export class WalletHudService {
     }
 
     // Fuzzy matching for variations
+    if (normalized.includes('SNIPER')) return 'S';
+    if (normalized.includes('SCALP')) return 'R';
     if (normalized.includes('MOMENTUM')) return 'M';
-    if (normalized.includes('FLIPPER') && normalized.includes('INSTANT'))
-      return 'I';
-    if (normalized.includes('FLIPPER')) return 'F';
-    if (normalized.includes('HOLDER')) return 'H';
+    if (normalized.includes('INTRADAY')) return 'I';
+    if (normalized.includes('DAY')) return 'D';
+    if (normalized.includes('SWING')) return 'W';
+    if (normalized.includes('POSITION')) return 'P';
+    if (normalized.includes('HODL') || normalized.includes('HOLDER')) return 'H';
+    if (normalized.includes('FAST')) return 'F';
     if (normalized.includes('ACCUMULATOR')) return 'A';
-    if (normalized.includes('SWING')) return 'S';
+    if (normalized.includes('DISTRIBUTOR')) return 'T';
+    if (normalized.includes('BALANCED')) return 'B';
+    if (normalized.includes('LOW_ACTIVITY')) return 'L';
 
     return '?';
   }

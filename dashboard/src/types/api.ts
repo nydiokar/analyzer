@@ -502,20 +502,32 @@ export enum DataQualityTier {
 
 /**
  * Behavior category mapping to single-letter codes
+ * Maps speedCategory/strategyType enums to compact display codes
  */
 export const BEHAVIOR_CODES: Record<string, string> = {
-  // Primary categories
-  MOMENTUM_TRADER: 'M',
-  TRUE_FLIPPER: 'F',
-  POSITION_HOLDER: 'H',
-  ACCUMULATOR: 'A',
+  // Speed categories
+  SNIPER: 'S',
+  SCALPER: 'R',
+  MOMENTUM: 'M',
+  INTRADAY: 'I',
+  DAY_TRADER: 'D',
+  SWING: 'W',
+  POSITION: 'P',
+  HODLER: 'H',
 
-  // Speed variants
-  INSTANT_FLIPPER: 'I',
-  SWING_TRADER: 'S',
+  // Strategy types
+  FAST_TRADER: 'F',
+  SWING_TRADER: 'W',
+  POSITION_TRADER: 'P',
+  PURE_HOLDER: 'H',
+  ACCUMULATOR: 'A',
+  DISTRIBUTOR: 'T',
+  BALANCED_TRADER: 'B',
+  LOW_ACTIVITY: 'L',
 
   // Fallback
   UNKNOWN: '?',
+  UNCLASSIFIED: '?',
 };
 
 /**

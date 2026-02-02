@@ -31,12 +31,23 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
  * Aligned with existing strategy colors but adapted for HUD display
  */
 const BEHAVIOR_COLORS: Record<string, string> = {
-  M: 'text-blue-600 dark:text-blue-400',       // Momentum - fast movement
-  F: 'text-red-600 dark:text-red-400',         // Flipper - hot/quick
-  H: 'text-emerald-600 dark:text-emerald-400', // Holder - stable/long-term
-  A: 'text-teal-600 dark:text-teal-400',       // Accumulator - strategic
-  I: 'text-orange-600 dark:text-orange-400',   // Instant - very hot
-  S: 'text-cyan-600 dark:text-cyan-400',       // Swing - medium tempo
+  // Speed categories (hot to cold)
+  S: 'text-red-600 dark:text-red-400',         // Sniper - very hot
+  R: 'text-orange-600 dark:text-orange-400',   // Rapid/Scalper - hot
+  M: 'text-yellow-600 dark:text-yellow-400',   // Momentum - fast
+  I: 'text-amber-600 dark:text-amber-400',     // Intraday - medium-fast
+  D: 'text-cyan-600 dark:text-cyan-400',       // Day trader - medium
+  W: 'text-blue-600 dark:text-blue-400',       // Week/Swing - patient
+  P: 'text-emerald-600 dark:text-emerald-400', // Position - long-term
+  H: 'text-green-600 dark:text-green-400',     // Hodler - very long-term
+
+  // Strategy types
+  F: 'text-red-600 dark:text-red-400',         // Fast trader
+  A: 'text-teal-600 dark:text-teal-400',       // Accumulator
+  T: 'text-purple-600 dark:text-purple-400',   // disTributor
+  B: 'text-slate-600 dark:text-slate-400',     // Balanced
+  L: 'text-gray-500 dark:text-gray-500',       // Low activity
+
   '?': 'text-gray-500 dark:text-gray-500',     // Unknown
 };
 
@@ -70,6 +81,7 @@ const DATA_QUALITY_DISPLAY: Record<DataQualityTier, { emoji: string; color: stri
 
 /**
  * Format SOL amounts with K/M suffixes for compact display
+ * Shows 1 decimal for values < 10 to avoid "-0" display
  */
 function formatPnl(value: number): string {
   const sign = value >= 0 ? '+' : '';
@@ -81,7 +93,11 @@ function formatPnl(value: number): string {
   if (absValue >= 1_000) {
     return `${sign}${(value / 1_000).toFixed(1)}K`;
   }
-  return `${sign}${value.toFixed(0)}`;
+  if (absValue >= 10) {
+    return `${sign}${value.toFixed(0)}`;
+  }
+  // Show 1 decimal for small values to avoid "-0.2" -> "-0"
+  return `${sign}${value.toFixed(1)}`;
 }
 
 /**
