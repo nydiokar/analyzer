@@ -8,10 +8,12 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🔄 | Password reset confirmation email | 🔹 | Send confirmation email when password is reset |
-| 🔄 | Import bulk cooldown redesign | 🔸 | Move from user-level import cooldown to analysis job rate limiting - allow unlimited favorites import, throttle analysis jobs only |
 
 **Recently Completed:**
+- ✅ Batch analyze functionality in tracked wallets (Feb 1)
+- ✅ Comprehensive job throttling and priority fixes (Feb 1)
+- ✅ Password reset confirmation email (Feb 1)
+- ✅ Import bulk cooldown redesign (Feb 1)
 - ✅ Tracked wallets backend-frontend wiring completion (Jan 30)
 - ✅ Similarity Lab Frame 3: Pair Insights UX improvements (Jan 30)
 - ✅ **P0: Historical Mode Bug - Flash/Working Scopes Fixed** (Jan 29) - Removed timeRange from dashboard scopes to fix persistence
@@ -143,6 +145,7 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 | 01.1 | 🔵 | Password reset confirmation email | 🔹 | `email.service.ts`, `auth.service.ts` |
 | 01.2 | ⚖️ | Import bulk cooldown redesign - remove user-level restrictions | 🔹 | `user-favorites.service.ts` |
 | 01.3 | 🔧 | Comprehensive job throttling and priority fixes | 🔸 | `user-favorites.controller.ts`, `similarity-analysis.dto.ts`, `analyses.controller.ts` |
+| 01.4 | 🔵 | Batch analyze functionality in tracked wallets | 🔸 | `dashboard/src/app/trackers/page.tsx` |
 
 **Summary:**
 
@@ -151,6 +154,8 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 **01.2:** Removed user-level import cooldown that was blocking all favorites imports for 1 hour. **Problem:** Users importing even 2 wallets were locked out for 1 hour - too restrictive for organizing favorites. **Solution:** Removed `checkImportCooldown()` and `lastBulkImportAt` tracking from import flow. Users can now import/organize favorites freely without time restrictions. **Rate limiting strategy:** Analysis job queueing is naturally limited by (1) wallet-level freshness checks (existing `AnalysisRun` table), (2) queue concurrency limits, and (3) job processor skip logic for recently-analyzed wallets. Import is now purely organizational - analysis jobs remain protected against abuse. **Files modified:** `user-favorites.service.ts` (removed cooldown check, removed `USER_FAVORITES_CONFIG` import, removed `checkImportCooldown()` method, removed `updateUserLastBulkImport()` call).
 
 **01.3:** Comprehensive audit and fixes for job throttling across all analysis endpoints. **Problems identified:** (1) Favorites endpoints had NO throttling, (2) Favorites import used HIGH priority for first 50 wallets (inappropriate for non-critical operations), (3) Similarity analysis had no max wallet limit, (4) Inconsistent protection across endpoints. **Solution implemented:** Added HTTP rate limiting to favorites endpoints (import: 10/hour, batch-analyze: 15/hour, collection-refresh: 10/hour), changed favorites import priority from HIGH → NORMAL (first 50 wallets), added 30-wallet max to similarity analysis DTO validation, updated API documentation. **Rate limits chosen:** Conservative for free users (~500 analysis jobs/hour realistic accounting for freshness skips), extensible for power users (future `User.rateLimitMultiplier` field). **Files modified:** `user-favorites.controller.ts` (added `@Throttle` decorators and `@UseGuards(ThrottlerGuard)`, changed JobPriority.HIGH → JobPriority.NORMAL, updated API docs), `similarity-analysis.dto.ts` (added `@ArrayMaxSize(30)`), `analyses.controller.ts` (updated API docs). Created comprehensive audit document at `.ai/context/JOB_THROTTLING_AUDIT.md` documenting all job-creating endpoints, hidden job multiplication patterns, and rate limiting strategy.
+
+**01.4:** Wired batch analyze functionality in tracked wallets page. **Missing:** Backend endpoint existed (`POST /users/me/favorites/batch-analyze`) but no UI to use it. **Implementation:** Added checkbox column to wallets table with "select all" toggle, multi-wallet selection state management, batch actions toolbar that appears when wallets selected, scope selector dropdown (flash/working/deep), and "Analyze Selected" button. **Features:** Max 20 wallets per batch (enforced in UI and backend DTO), clear selection after successful queue, scope persists across selections, real-time validation and error handling. **UX improvements:** Selected count displayed, clear button to deselect all, disabled state when >20 wallets selected, loading state during API call. **Files modified:** `dashboard/src/app/trackers/page.tsx` (added Checkbox import, selection state, batch analyze handlers, toolbar UI, checkbox cells in table rows, updated colspan for empty state).
 
 ### January 30, 2026
 

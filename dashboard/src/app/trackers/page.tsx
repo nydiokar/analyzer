@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Loader2, Trash2 } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Loader2, Trash2, PlayCircle } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
 import { useState, useMemo, useCallback, useRef } from 'react';
@@ -108,6 +109,11 @@ export default function TrackersPage() {
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showActiveOnly, setShowActiveOnly] = useState(false);
+
+  // Selection and batch analyze state
+  const [selectedWallets, setSelectedWallets] = useState<Set<string>>(new Set());
+  const [batchAnalyzeScope, setBatchAnalyzeScope] = useState<'flash' | 'working' | 'deep'>('working');
+  const [isBatchAnalyzing, setIsBatchAnalyzing] = useState(false);
 
   // Edit/delete/add state
   const [editingWallet, setEditingWallet] = useState<FavoriteWallet | null>(null);
@@ -597,6 +603,66 @@ export default function TrackersPage() {
     }
   }, [clearFilters, mutateFavorites]);
 
+  // Batch analyze handlers
+  const handleBatchAnalyze = useCallback(async () => {
+    if (selectedWallets.size === 0) {
+      toast.error('No wallets selected', { description: 'Please select wallets to analyze' });
+      return;
+    }
+
+    if (selectedWallets.size > 20) {
+      toast.error('Too many wallets', { description: 'Maximum 20 wallets per batch' });
+      return;
+    }
+
+    setIsBatchAnalyzing(true);
+    try {
+      const response = await fetcher('/users/me/favorites/batch-analyze', {
+        method: 'POST',
+        body: JSON.stringify({
+          walletAddresses: Array.from(selectedWallets),
+          scope: batchAnalyzeScope,
+        }),
+      });
+
+      toast.success(`Analysis queued for ${response.queued} wallets`, {
+        description: `Scope: ${batchAnalyzeScope}. Wallets analyzed recently will be skipped automatically.`,
+      });
+
+      // Clear selection after successful queue
+      setSelectedWallets(new Set());
+    } catch (error: unknown) {
+      const message = getErrorMessage('batch-analyze', error);
+      toast.error(message.title, { description: message.description });
+    } finally {
+      setIsBatchAnalyzing(false);
+    }
+  }, [selectedWallets, batchAnalyzeScope]);
+
+  const toggleWalletSelection = useCallback((walletAddress: string) => {
+    setSelectedWallets(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(walletAddress)) {
+        newSet.delete(walletAddress);
+      } else {
+        newSet.add(walletAddress);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedWallets.size === filteredWallets.length) {
+      setSelectedWallets(new Set());
+    } else {
+      setSelectedWallets(new Set(filteredWallets.map(w => w.walletAddress)));
+    }
+  }, [selectedWallets.size, filteredWallets]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedWallets(new Set());
+  }, []);
+
   const handleImportFileSelected = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -916,11 +982,91 @@ export default function TrackersPage() {
                 </div>
               </div>
 
+              {/* Batch Actions Toolbar */}
+              {selectedWallets.size > 0 && (
+                <Card className="mb-4">
+                  <CardContent className="py-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium">
+                          {selectedWallets.size} wallet{selectedWallets.size !== 1 ? 's' : ''} selected
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={clearSelection}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">Scope:</span>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                {batchAnalyzeScope === 'flash' ? 'Flash (7d)' : batchAnalyzeScope === 'working' ? 'Working (30d)' : 'Deep (All)'}
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent>
+                              <DropdownMenuLabel>Analysis Scope</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuCheckboxItem
+                                checked={batchAnalyzeScope === 'flash'}
+                                onCheckedChange={() => setBatchAnalyzeScope('flash')}
+                              >
+                                Flash (7 days, 250 sigs)
+                              </DropdownMenuCheckboxItem>
+                              <DropdownMenuCheckboxItem
+                                checked={batchAnalyzeScope === 'working'}
+                                onCheckedChange={() => setBatchAnalyzeScope('working')}
+                              >
+                                Working (30 days, 2000 sigs)
+                              </DropdownMenuCheckboxItem>
+                              <DropdownMenuCheckboxItem
+                                checked={batchAnalyzeScope === 'deep'}
+                                onCheckedChange={() => setBatchAnalyzeScope('deep')}
+                              >
+                                Deep (All time, 3000 sigs)
+                              </DropdownMenuCheckboxItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                        <Button
+                          onClick={handleBatchAnalyze}
+                          disabled={isBatchAnalyzing || selectedWallets.size === 0 || selectedWallets.size > 20}
+                          size="sm"
+                        >
+                          {isBatchAnalyzing ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Queueing...
+                            </>
+                          ) : (
+                            <>
+                              <PlayCircle className="mr-2 h-4 w-4" />
+                              Analyze Selected
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Wallets Table */}
               <Card>
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={selectedWallets.size === filteredWallets.length && filteredWallets.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Select all wallets"
+                        />
+                      </TableHead>
                       <TableHead>Wallet</TableHead>
                       <TableHead className="w-32">Total PnL</TableHead>
                       <TableHead className="w-24">Winrate</TableHead>
@@ -931,7 +1077,7 @@ export default function TrackersPage() {
                   <TableBody>
                     {filteredWallets.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="py-8">
+                        <TableCell colSpan={6} className="py-8">
                           <EmptyState
                             variant="info"
                             title={favoriteWallets.length === 0 ? 'No tracked wallets yet' : 'No wallets match your filters'}
@@ -948,6 +1094,13 @@ export default function TrackersPage() {
                     ) : (
                       filteredWallets.map((wallet: FavoriteWallet) => (
                         <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedWallets.has(wallet.walletAddress)}
+                              onCheckedChange={() => toggleWalletSelection(wallet.walletAddress)}
+                              aria-label={`Select ${wallet.walletAddress}`}
+                            />
+                          </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <WalletBadge

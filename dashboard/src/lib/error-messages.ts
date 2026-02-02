@@ -8,7 +8,8 @@ type ErrorContext =
   | "trackers-remove"
   | "trackers-clear"
   | "trackers-import"
-  | "trackers-export";
+  | "trackers-export"
+  | "batch-analyze";
 
 export type ErrorMessage = {
   title: string;
@@ -55,6 +56,10 @@ const baseMessages: Record<ErrorContext, ErrorMessage> = {
   "trackers-export": {
     title: "Unable to export wallets",
     description: "We couldn't export your tracked wallets. Please try again.",
+  },
+  "batch-analyze": {
+    title: "Unable to queue analysis",
+    description: "We couldn't queue the batch analysis. Please try again.",
   },
 };
 
