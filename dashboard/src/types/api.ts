@@ -487,3 +487,74 @@ export interface ExitTimingTokensResponse {
   tokens: string[];
   count: number;
 }
+
+// --- Wallet HUD (Heads-Up Display) Types ---
+
+/**
+ * Data quality tier classification based on data completeness and activity
+ */
+export enum DataQualityTier {
+  GOLD = 'GOLD',           // Complete data, significant activity (50+ trades, 7+ days)
+  SILVER = 'SILVER',       // Good data, moderate activity (20+ trades, 3+ days)
+  BRONZE = 'BRONZE',       // Basic data, some activity (5+ trades)
+  INSUFFICIENT = 'INSUFFICIENT', // Too little data for reliable metrics
+}
+
+/**
+ * Behavior category mapping to single-letter codes
+ */
+export const BEHAVIOR_CODES: Record<string, string> = {
+  // Primary categories
+  MOMENTUM_TRADER: 'M',
+  TRUE_FLIPPER: 'F',
+  POSITION_HOLDER: 'H',
+  ACCUMULATOR: 'A',
+
+  // Speed variants
+  INSTANT_FLIPPER: 'I',
+  SWING_TRADER: 'S',
+
+  // Fallback
+  UNKNOWN: '?',
+};
+
+/**
+ * Wallet HUD (Heads-Up Display) - High-signal metrics for at-a-glance evaluation
+ *
+ * Philosophy: Like a poker HUD, show only the most critical signals for instant comprehension.
+ * 6 core metrics + 2 conditional badges.
+ */
+export interface WalletHudDto {
+  walletAddress: string;
+
+  // ===== CORE METRICS (Always visible) =====
+  trimmedMeanPnl: number;        // Trimmed mean PNL per token (outliers removed) in SOL
+  medianPnlPerToken: number;     // Median P/L per token (true center of distribution) in SOL
+  behaviorCategory?: string;     // Full behavior category name (e.g., 'MOMENTUM_TRADER')
+  behaviorCode: string;          // Single-letter behavior code (M/F/H/A/I/S/?)
+  avgTradesPerDay: number;       // Average number of trades per day
+  winRate: number;               // Win rate as decimal (0-1, where 0.68 = 68%)
+  dataQualityTier: DataQualityTier; // Data quality tier classification
+
+  // ===== CONDITIONAL BADGES (Only when applicable) =====
+  isBot: boolean;                // Bot detection flag (true if uniqueTokensPerDay > 60)
+  isWhale: boolean;              // Whale detection flag (true if holdings > 200 SOL OR > $20k USD)
+
+  // ===== SUPPORTING DATA =====
+  uniqueTokensPerDay: number;    // Average unique tokens traded per day (for bot detection)
+  currentHoldingsSol: number;    // Unrealized PNL in SOL (total portfolio value for whale detection)
+  currentHoldingsUsd?: number;   // Unrealized PNL in USD (total portfolio value for whale detection)
+
+  // ===== METADATA =====
+  calculatedAt: string;          // ISO timestamp when HUD data was calculated
+}
+
+/**
+ * Batch response for multiple wallet HUDs
+ * Returns a map indexed by wallet address for O(1) lookup
+ */
+export interface BatchWalletHudResponse {
+  huds: Record<string, WalletHudDto>;
+  notFound: string[];
+  calculatedAt: string;
+}

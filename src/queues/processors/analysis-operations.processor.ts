@@ -19,6 +19,7 @@ import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService, HolderWithLabel } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
+import { WalletHudService } from '../../api/services/wallet-hud.service';
 import { SystemWalletDetectionService } from '../../api/services/system-wallet-detection.service';
 import { SKIP_BEHAVIOR_ANALYSIS, SKIP_PNL_CALCULATION, getKnownWallet } from '../../config/known-wallets';
 import type { KnownWalletType } from '../../config/known-wallets';
@@ -48,6 +49,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly tokenInfoService: TokenInfoService,
     private readonly tokenHoldersService: TokenHoldersService,
     private readonly holderProfilesCacheService: HolderProfilesCacheService,
+    private readonly walletHudService: WalletHudService,
     private readonly telegramAlerts: TelegramAlertsService,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly systemWalletDetection: SystemWalletDetectionService,
@@ -207,6 +209,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         processingTimeMs: Date.now() - startTime
       };
 
+      // 🔄 Invalidate HUD cache for this wallet (PNL metrics updated)
+      await this.walletHudService.invalidateCache(walletAddress);
+
       this.logger.log(`PnL analysis completed for ${walletAddress}. RunId: ${pnlResult.runId}`);
       return result;
 
@@ -321,8 +326,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         processingTimeMs: Date.now() - startTime
       };
 
-      // 🔄 Invalidate holder profiles cache for this wallet (behavioral metrics updated)
-      await this.holderProfilesCacheService.invalidateForWallet(walletAddress);
+      // 🔄 Invalidate caches for this wallet (behavioral metrics + HUD updated)
+      await Promise.all([
+        this.holderProfilesCacheService.invalidateForWallet(walletAddress),
+        this.walletHudService.invalidateCache(walletAddress),
+      ]);
 
       this.logger.log(`Behavior analysis completed for ${walletAddress}`);
       return result;

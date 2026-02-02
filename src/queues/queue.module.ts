@@ -39,6 +39,7 @@ import { DexscreenerModule } from '../api/integrations/dexscreener.module';
 import { WebSocketModule } from '../api/modules/websocket.module';
 import { BalanceCacheModule } from '../api/modules/balance-cache.module';
 import { HolderProfilesCacheModule } from '../api/modules/holder-profiles-cache.module';
+import { WalletHudModule } from '../api/modules/wallet-hud.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
 import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
@@ -78,6 +79,7 @@ import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
     WebSocketModule,   // Provides JobProgressGateway
     BalanceCacheModule, // Provides BalanceCacheService
     HolderProfilesCacheModule, // Provides HolderProfilesCacheService
+    WalletHudModule,   // Provides WalletHudService
   ],
   
   providers: [

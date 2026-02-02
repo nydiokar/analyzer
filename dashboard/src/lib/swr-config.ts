@@ -26,6 +26,9 @@ export const CACHE_DURATIONS = {
 
   // Top holders - stable view with occasional manual refresh
   TOKEN_HOLDERS: 5 * 60 * 1000, // 5 minutes
+
+  // Wallet HUD - short cache for high-signal metrics
+  WALLET_HUD: 60 * 1000, // 60 seconds
 };
 
 // Optimized SWR configuration for performance
@@ -71,6 +74,8 @@ export const createCacheKey = {
   },
   favorites: () => '/users/me/favorites',
   search: (query: string) => `/wallets/search?query=${encodeURIComponent(query)}`,
+  walletHud: (walletAddress: string) => `/wallets/${walletAddress}/hud`,
+  walletHudBatch: (walletAddresses: string[]) => `/wallets/hud/batch:${walletAddresses.join(',')}`,
 };
 
 // Simplified cache invalidation patterns
