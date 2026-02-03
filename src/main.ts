@@ -10,10 +10,13 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as dotenv from 'dotenv';
 import { json } from 'express';
+import { setupThrottledLogging } from './core/logging/setup-throttled-logging';
 
 dotenv.config();
 
 async function bootstrap() {
+  // Enable throttled logging globally - prevents log spam when services fail repeatedly
+  setupThrottledLogging();
   // Configure logging levels based on environment
   const isDev = process.env.NODE_ENV !== 'production';
   const isQuietMode = process.env.QUIET_MODE === 'true';

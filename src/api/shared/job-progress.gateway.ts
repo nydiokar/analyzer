@@ -81,6 +81,11 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     // The publisher is injected. We create a dedicated subscriber from it.
     this.redisSubscriber = this.redisPublisher.duplicate();
 
+    // Explicitly connect since we use lazyConnect: true
+    this.redisSubscriber.connect().catch((err) => {
+      this.logger.warn(`Failed to connect Redis subscriber: ${err.message}`);
+    });
+
     // Track subscriber errors to avoid spam
     let lastSubscriberError: string | null = null;
     let subscriberErrorCount = 0;
