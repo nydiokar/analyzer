@@ -418,6 +418,9 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
               this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig),
           ]);
 
+          // Note: HUD cache invalidation handled by pnlAnalysisService and behaviorService (called above)
+          // No need to duplicate invalidation here - similarity is just an orchestrator
+
           // Increment progress safely after each wallet is fully processed.
           currentProgress += progressStep;
           const progress = Math.floor(currentProgress);

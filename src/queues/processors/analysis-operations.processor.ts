@@ -210,6 +210,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       };
 
       // 🔄 Invalidate HUD cache for this wallet (PNL metrics updated)
+      // PRAGMATIC: Invalidation at processor level until we have event-driven architecture
+      // TODO: Refactor to event-driven pattern (emit 'wallet.pnl.updated' event, WalletHudService subscribes)
       await this.walletHudService.invalidateCache(walletAddress);
 
       this.logger.log(`PnL analysis completed for ${walletAddress}. RunId: ${pnlResult.runId}`);
@@ -327,6 +329,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       };
 
       // 🔄 Invalidate caches for this wallet (behavioral metrics + HUD updated)
+      // PRAGMATIC: Invalidation at processor level until we have event-driven architecture
+      // TODO: Refactor to event-driven pattern (emit 'wallet.behavior.updated' event, services subscribe)
       await Promise.all([
         this.holderProfilesCacheService.invalidateForWallet(walletAddress),
         this.walletHudService.invalidateCache(walletAddress),
@@ -724,6 +728,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           followUpJobsQueued.map((f) => `${f.scope}:${f.jobId}`).join(',') || 'none'
         }`,
       );
+
+      // 🔄 Invalidate HUD cache for this wallet (PNL + behavior metrics updated)
+      // PRAGMATIC: Invalidation at processor level until we have event-driven architecture
+      // TODO: Refactor to event-driven pattern (emit 'wallet.dashboard.completed' event, WalletHudService subscribes)
+      await this.walletHudService.invalidateCache(walletAddress);
 
       // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
       // No need to manually publish here to avoid duplicate events
@@ -1638,6 +1647,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(100);
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
 
+    // Note: HUD cache invalidation handled by pnlAnalysisService (called above) - no need to duplicate here
     // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
     // No need to manually publish here to avoid duplicate events
     // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
