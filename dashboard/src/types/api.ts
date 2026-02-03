@@ -544,6 +544,7 @@ export interface WalletHudDto {
   medianPnlPerToken: number;     // Median P/L per token (true center of distribution) in SOL
   behaviorCategory?: string;     // Full behavior category name (e.g., 'MOMENTUM_TRADER')
   behaviorCode: string;          // Single-letter behavior code (M/F/H/A/I/S/?)
+  medianHoldTimeHours?: number;  // Median hold time for completed trades in hours (more precise than category)
   avgTradesPerDay: number;       // Average number of trades per day
   winRate: number;               // Win rate as decimal (0-1, where 0.68 = 68%)
   dataQualityTier: DataQualityTier; // Data quality tier classification
@@ -554,8 +555,8 @@ export interface WalletHudDto {
 
   // ===== SUPPORTING DATA =====
   uniqueTokensPerDay: number;    // Average unique tokens traded per day (for bot detection)
-  currentHoldingsSol: number;    // Unrealized PNL in SOL (total portfolio value for whale detection)
-  currentHoldingsUsd?: number;   // Unrealized PNL in USD (total portfolio value for whale detection)
+  currentHoldingsSol: number;    // Total portfolio value in SOL (sum of all current token holdings)
+  currentHoldingsUsd?: number;   // Total portfolio value in USD (sum of all current token holdings)
 
   // ===== METADATA =====
   calculatedAt: string;          // ISO timestamp when HUD data was calculated

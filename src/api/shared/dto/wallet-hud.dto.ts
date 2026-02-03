@@ -80,6 +80,12 @@ export class WalletHudDto {
   })
   behaviorCode: string;
 
+  @ApiPropertyOptional({
+    description: 'Median hold time for completed trades in hours (more precise than category)',
+    example: 4.2,
+  })
+  medianHoldTimeHours?: number;
+
   @ApiProperty({
     description: 'Average number of trades per day',
     example: 12.5,
@@ -108,7 +114,7 @@ export class WalletHudDto {
   isBot: boolean;
 
   @ApiProperty({
-    description: 'Whale detection flag (true if holdings > 200 SOL OR > $20k USD)',
+    description: 'Whale detection flag (true if portfolio value > 200 SOL OR > $20k USD)',
     example: false,
   })
   isWhale: boolean;
@@ -122,13 +128,13 @@ export class WalletHudDto {
   uniqueTokensPerDay: number;
 
   @ApiProperty({
-    description: 'Unrealized PNL in SOL (total current portfolio value from token holdings)',
+    description: 'Total portfolio value in SOL (sum of all current token holdings value)',
     example: 245.67,
   })
   currentHoldingsSol: number;
 
   @ApiPropertyOptional({
-    description: 'Unrealized PNL in USD (total current portfolio value from token holdings)',
+    description: 'Total portfolio value in USD (sum of all current token holdings value)',
     example: 28200.50,
   })
   currentHoldingsUsd?: number;

@@ -117,6 +117,31 @@ function formatPercent(decimal: number): string {
 }
 
 /**
+ * Format hold time in hours to compact human-readable format
+ * Examples: 0.5h, 4.2h, 1.3d, 15d, 2.1w
+ */
+function formatHoldTime(hours: number | undefined): string | null {
+  if (hours === undefined || hours === null) return null;
+
+  if (hours < 1) {
+    // Less than 1 hour: show in minutes
+    const minutes = Math.round(hours * 60);
+    return `${minutes}m`;
+  } else if (hours < 24) {
+    // Less than 24 hours: show in hours
+    return `${hours.toFixed(1)}h`;
+  } else if (hours < 168) {
+    // Less than 7 days: show in days
+    const days = hours / 24;
+    return `${days.toFixed(1)}d`;
+  } else {
+    // 7+ days: show in weeks
+    const weeks = hours / 168;
+    return `${weeks.toFixed(1)}w`;
+  }
+}
+
+/**
  * Get PNL color classes
  */
 function getPnlColor(value: number): string {
@@ -162,13 +187,27 @@ const InlineDisplay = memo(function InlineDisplay({
         </TooltipContent>
       </Tooltip>
 
-      {/* Behavior Code */}
+      {/* Behavior Code + Median Hold Time */}
       <Tooltip>
         <TooltipTrigger>
-          <span className={`font-semibold ${behaviorColor}`}>{data.behaviorCode}</span>
+          <span className={`font-semibold ${behaviorColor}`}>
+            {data.behaviorCode}
+            {formatHoldTime(data.medianHoldTimeHours) && (
+              <span className="text-muted-foreground font-normal ml-0.5">
+                {formatHoldTime(data.medianHoldTimeHours)}
+              </span>
+            )}
+          </span>
         </TooltipTrigger>
         <TooltipContent>
-          <div className="text-xs">{data.behaviorCategory || 'Unknown behavior'}</div>
+          <div className="text-xs">
+            {data.behaviorCategory || 'Unknown behavior'}
+            {data.medianHoldTimeHours !== undefined && (
+              <div className="text-muted-foreground mt-0.5">
+                Median hold: {formatHoldTime(data.medianHoldTimeHours)}
+              </div>
+            )}
+          </div>
         </TooltipContent>
       </Tooltip>
 
@@ -252,6 +291,14 @@ const TooltipDisplay = memo(function TooltipDisplay({
           <span className="text-muted-foreground">Median P/L:</span>
           <span className="font-medium">{formatNumber(data.medianPnlPerToken)} SOL</span>
         </div>
+        {data.medianHoldTimeHours !== undefined && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Median Hold:</span>
+            <span className={`font-medium ${behaviorColor}`}>
+              {formatHoldTime(data.medianHoldTimeHours)}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Win Rate:</span>
           <span className="font-medium">{formatPercent(data.winRate)}</span>
@@ -305,9 +352,16 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
         <div className="text-xs text-muted-foreground mt-1">{data.dataQualityTier}</div>
       </div>
 
-      {/* Behavior Category */}
+      {/* Behavior Category + Median Hold Time */}
       <div className="text-center">
-        <div className={`text-2xl font-bold ${behaviorColor}`}>{data.behaviorCode}</div>
+        <div className={`text-2xl font-bold ${behaviorColor}`}>
+          {data.behaviorCode}
+          {data.medianHoldTimeHours !== undefined && (
+            <span className="text-sm text-muted-foreground font-normal ml-1">
+              {formatHoldTime(data.medianHoldTimeHours)}
+            </span>
+          )}
+        </div>
         <div className="text-xs text-muted-foreground mt-1">
           {data.behaviorCategory || 'Unknown'}
         </div>

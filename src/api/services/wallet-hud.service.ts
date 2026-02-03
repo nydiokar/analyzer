@@ -73,8 +73,8 @@ export class WalletHudService {
       // Cache miss - fetch from database
       this.logger.debug(`HUD cache miss for ${walletAddress}`);
 
-      // Fetch wallet data and SOL price in parallel
-      const [wallet, solPriceUsd] = await Promise.all([
+      // Fetch wallet data, portfolio value, and SOL price in parallel
+      const [wallet, portfolioValueResult, solPriceUsd] = await Promise.all([
         prisma.wallet.findUnique({
           where: { address: walletAddress },
           include: {
@@ -86,6 +86,17 @@ export class WalletHudService {
             behaviorProfile: true,
           },
         }),
+        // Calculate total portfolio value (sum of all current holdings)
+        prisma.analysisResult.aggregate({
+          where: {
+            walletAddress,
+            currentHoldingsValueSol: { not: null, gt: 0 },
+          },
+          _sum: {
+            currentHoldingsValueSol: true,
+            currentHoldingsValueUsd: true,
+          },
+        }),
         this.tokenInfoService.getSolPrice().catch(() => undefined), // Don't fail if price fetch fails
       ]);
 
@@ -93,7 +104,13 @@ export class WalletHudService {
         return null;
       }
 
-      const hud = this.calculateHud(wallet, walletAddress, solPriceUsd);
+      const hud = this.calculateHud(
+        wallet,
+        walletAddress,
+        solPriceUsd,
+        portfolioValueResult._sum.currentHoldingsValueSol ?? 0,
+        portfolioValueResult._sum.currentHoldingsValueUsd,
+      );
 
       // Cache with 24h TTL to prevent memory bloat from old wallets
       // Active wallets get cache invalidated + refreshed on analysis
@@ -140,8 +157,8 @@ export class WalletHudService {
     const notFound: string[] = [];
 
     try {
-      // Fetch all wallets and SOL price in parallel
-      const [wallets, solPriceUsd] = await Promise.all([
+      // Fetch all wallets, portfolio values, and SOL price in parallel
+      const [wallets, portfolioValues, solPriceUsd] = await Promise.all([
         prisma.wallet.findMany({
           where: {
             address: { in: walletAddresses },
@@ -155,11 +172,32 @@ export class WalletHudService {
             behaviorProfile: true,
           },
         }),
+        // Calculate total portfolio value for each wallet (sum of all current holdings)
+        prisma.analysisResult.groupBy({
+          by: ['walletAddress'],
+          where: {
+            walletAddress: { in: walletAddresses },
+            currentHoldingsValueSol: { not: null, gt: 0 },
+          },
+          _sum: {
+            currentHoldingsValueSol: true,
+            currentHoldingsValueUsd: true,
+          },
+        }),
         this.tokenInfoService.getSolPrice().catch(() => undefined), // Don't fail if price fetch fails
       ]);
 
-      // Create a map for quick lookup
+      // Create maps for quick lookup
       const walletMap = new Map(wallets.map((w) => [w.address, w]));
+      const portfolioMap = new Map(
+        portfolioValues.map((p) => [
+          p.walletAddress,
+          {
+            sol: p._sum.currentHoldingsValueSol ?? 0,
+            usd: p._sum.currentHoldingsValueUsd,
+          },
+        ]),
+      );
 
       // Process each requested address
       for (const address of walletAddresses) {
@@ -171,7 +209,14 @@ export class WalletHudService {
         }
 
         try {
-          const hud = this.calculateHud(wallet, address, solPriceUsd);
+          const portfolio = portfolioMap.get(address);
+          const hud = this.calculateHud(
+            wallet,
+            address,
+            solPriceUsd,
+            portfolio?.sol ?? 0,
+            portfolio?.usd,
+          );
           if (hud) {
             huds[address] = hud;
           } else {
@@ -203,7 +248,9 @@ export class WalletHudService {
   private calculateHud(
     wallet: any,
     walletAddress: string,
-    solPriceUsd?: number,
+    solPriceUsd: number | undefined,
+    portfolioValueSol: number,
+    portfolioValueUsd?: number | null,
   ): WalletHudDto | null {
     const pnlSummary = wallet.pnlSummary;
     const advancedStats = pnlSummary?.advancedStats;
@@ -234,22 +281,25 @@ export class WalletHudService {
     const behaviorCategory = behaviorProfile?.speedCategory ?? behaviorProfile?.strategyType ?? 'UNKNOWN';
     const behaviorCode = this.getBehaviorCode(behaviorCategory);
 
-    // Whale detection: Use unrealized PNL (total portfolio value) instead of just SOL balance
-    // This represents the current value of all their SPL token holdings
-    const unrealizedPnlSol = pnlSummary?.unrealizedPnl ?? 0;
+    // Median hold time - prefer completed hold time as it's more telling than category
+    const medianHoldTimeHours = behaviorProfile?.medianCompletedHoldTimeHours ?? behaviorProfile?.medianHoldTime ?? undefined;
 
-    // Calculate USD value if SOL price is available
-    let unrealizedPnlUsd: number | undefined;
-    if (solPriceUsd !== undefined && unrealizedPnlSol !== 0) {
-      unrealizedPnlUsd = parseFloat((unrealizedPnlSol * solPriceUsd).toFixed(2));
+    // Portfolio value: Total current holdings value (NOT unrealized P/L)
+    // This is the sum of all currentHoldingsValueSol from AnalysisResult
+    // If portfolioValueUsd not available, calculate from SOL value
+    let portfolioUsd: number | undefined;
+    if (portfolioValueUsd !== null && portfolioValueUsd !== undefined) {
+      portfolioUsd = portfolioValueUsd;
+    } else if (solPriceUsd !== undefined && portfolioValueSol !== 0) {
+      portfolioUsd = parseFloat((portfolioValueSol * solPriceUsd).toFixed(2));
     }
 
     // Conditional badges
     const isBot = uniqueTokensPerDay > this.BOT_TOKENS_PER_DAY_THRESHOLD;
     const isWhale =
-      unrealizedPnlSol > this.WHALE_UNREALIZED_PNL_SOL_THRESHOLD ||
-      (unrealizedPnlUsd !== undefined &&
-        Math.abs(unrealizedPnlUsd) > this.WHALE_UNREALIZED_PNL_USD_THRESHOLD);
+      portfolioValueSol > this.WHALE_UNREALIZED_PNL_SOL_THRESHOLD ||
+      (portfolioUsd !== undefined &&
+        portfolioUsd > this.WHALE_UNREALIZED_PNL_USD_THRESHOLD);
 
     // Data quality tier
     const dataQualityTier = this.calculateDataQualityTier(
@@ -264,14 +314,15 @@ export class WalletHudService {
       medianPnlPerToken,
       behaviorCategory,
       behaviorCode,
+      medianHoldTimeHours,
       avgTradesPerDay,
       winRate,
       dataQualityTier,
       isBot,
       isWhale,
       uniqueTokensPerDay,
-      currentHoldingsSol: unrealizedPnlSol, // Renamed: now represents unrealized PNL, not SOL balance
-      currentHoldingsUsd: unrealizedPnlUsd, // USD value of unrealized PNL
+      currentHoldingsSol: portfolioValueSol, // Total portfolio value in SOL (sum of all holdings)
+      currentHoldingsUsd: portfolioUsd, // Total portfolio value in USD (sum of all holdings)
       calculatedAt: new Date(),
     };
   }
