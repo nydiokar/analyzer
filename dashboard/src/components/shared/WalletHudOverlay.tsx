@@ -117,6 +117,24 @@ function formatPercent(decimal: number): string {
 }
 
 /**
+ * Format ISO date to compact display (e.g., "Oct 01, 2025")
+ */
+function formatDateShort(isoDate: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  }).format(new Date(isoDate));
+}
+
+/**
+ * Format data range for HUD display
+ */
+function formatDateRange(from: string, to: string): string {
+  return `${formatDateShort(from)} → ${formatDateShort(to)}`;
+}
+
+/**
  * Format hold time in hours to compact human-readable format
  * Examples: 0.5h, 4.2h, 1.3d, 15d, 2.1w
  */
@@ -183,7 +201,14 @@ const InlineDisplay = memo(function InlineDisplay({
           <span className={qualityConfig.color}>{qualityConfig.emoji}</span>
         </TooltipTrigger>
         <TooltipContent>
-          <div className="text-xs">{data.dataQualityTier} tier data quality</div>
+          <div className="text-xs space-y-1">
+            <div>{data.dataQualityTier} tier data quality</div>
+            {data.provenance?.dataRange && (
+              <div className="text-muted-foreground">
+                Data range: {formatDateRange(data.provenance.dataRange.from, data.provenance.dataRange.to)}
+              </div>
+            )}
+          </div>
         </TooltipContent>
       </Tooltip>
 
@@ -281,6 +306,14 @@ const TooltipDisplay = memo(function TooltipDisplay({
 
       {/* Metrics Grid */}
       <div className="space-y-1">
+        {data.provenance?.dataRange && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Data range:</span>
+            <span className="font-medium">
+              {formatDateRange(data.provenance.dataRange.from, data.provenance.dataRange.to)}
+            </span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Trimmed PNL:</span>
           <span className={`font-medium ${pnlColor}`}>
@@ -322,6 +355,12 @@ const TooltipDisplay = memo(function TooltipDisplay({
               🐋 Whale wallet (Portfolio: {data.currentHoldingsSol.toFixed(1)} SOL)
             </div>
           )}
+        </div>
+      )}
+
+      {data.provenance?.dataRange && (
+        <div className="col-span-2 md:col-span-3 text-center text-xs text-muted-foreground">
+          Data range: {formatDateRange(data.provenance.dataRange.from, data.provenance.dataRange.to)}
         </div>
       )}
     </div>

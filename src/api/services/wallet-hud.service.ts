@@ -308,8 +308,23 @@ export class WalletHudService {
       daysActive,
     );
 
+    const calculatedAt = new Date();
+    const dataRange =
+      behaviorProfile?.firstTransactionTimestamp &&
+      behaviorProfile?.lastTransactionTimestamp
+        ? {
+            from: new Date(
+              behaviorProfile.firstTransactionTimestamp * 1000,
+            ).toISOString(),
+            to: new Date(
+              behaviorProfile.lastTransactionTimestamp * 1000,
+            ).toISOString(),
+          }
+        : undefined;
+
     return {
       walletAddress,
+      signalType: 'wallet_behavior_v1',
       trimmedMeanPnl,
       medianPnlPerToken,
       behaviorCategory,
@@ -323,7 +338,14 @@ export class WalletHudService {
       uniqueTokensPerDay,
       currentHoldingsSol: portfolioValueSol, // Total portfolio value in SOL (sum of all holdings)
       currentHoldingsUsd: portfolioUsd, // Total portfolio value in USD (sum of all holdings)
-      calculatedAt: new Date(),
+      calculatedAt,
+      provenance: {
+        provider: 'alpha-node',
+        schemaVersion: '1.0.0',
+        generatedAt: calculatedAt.toISOString(),
+        dataRange,
+        source: 'indexed_db',
+      },
     };
   }
 

@@ -104,6 +104,7 @@ M        = Behavior (Momentum trader)
 ```typescript
 interface WalletHudDto {
   walletAddress: string;
+  signalType: string;
 
   // Core metrics
   trimmedMeanPnl: number;           // SOL amount
@@ -125,6 +126,17 @@ interface WalletHudDto {
 
   // Metadata
   calculatedAt: Date;
+  provenance?: {
+    provider: string;
+    nodeId?: string;
+    schemaVersion: string;
+    generatedAt: string;
+    dataRange?: {
+      from: string;
+      to: string;
+    };
+    source?: 'onchain' | 'indexed_db' | 'hybrid';
+  };
 }
 ```
 
@@ -133,6 +145,7 @@ interface WalletHudDto {
 ```json
 {
   "walletAddress": "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+  "signalType": "wallet_behavior_v1",
   "trimmedMeanPnl": 1234.56,
   "medianPnlPerToken": 890.12,
   "behaviorCategory": "MOMENTUM_TRADER",
@@ -145,7 +158,17 @@ interface WalletHudDto {
   "uniqueTokensPerDay": 65.2,
   "currentHoldingsSol": 45.67,
   "currentHoldingsUsd": 8200.50,
-  "calculatedAt": "2026-02-02T10:30:00.000Z"
+  "calculatedAt": "2026-02-02T10:30:00.000Z",
+  "provenance": {
+    "provider": "alpha-node",
+    "schemaVersion": "1.0.0",
+    "generatedAt": "2026-02-02T10:30:00.000Z",
+    "dataRange": {
+      "from": "2025-10-01T00:00:00.000Z",
+      "to": "2026-02-02T10:30:00.000Z"
+    },
+    "source": "indexed_db"
+  }
 }
 ```
 

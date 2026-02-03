@@ -142,8 +142,8 @@ export class WalletHudController {
 \`\`\`json
 {
   "huds": {
-    "wallet1": { ...hudData },
-    "wallet2": { ...hudData }
+    "wallet1": { ...hudData, "signalType": "wallet_behavior_v1", "provenance": { ... } },
+    "wallet2": { ...hudData, "signalType": "wallet_behavior_v1", "provenance": { ... } }
   },
   "notFound": ["wallet3"],
   "calculatedAt": "2026-02-02T10:30:00.000Z"

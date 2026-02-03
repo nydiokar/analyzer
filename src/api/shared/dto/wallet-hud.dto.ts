@@ -54,6 +54,12 @@ export class WalletHudDto {
   })
   walletAddress: string;
 
+  @ApiProperty({
+    description: 'Signal type identifier for this payload',
+    example: 'wallet_behavior_v1',
+  })
+  signalType: string;
+
   // ===== CORE METRICS (Always visible) =====
 
   @ApiProperty({
@@ -146,6 +152,32 @@ export class WalletHudDto {
     example: '2026-02-02T10:30:00.000Z',
   })
   calculatedAt: Date;
+
+  @ApiPropertyOptional({
+    description: 'Provenance metadata for the signal',
+    example: {
+      provider: 'alpha-node',
+      nodeId: 'alpha-node-07',
+      schemaVersion: '1.0.0',
+      generatedAt: '2026-02-02T10:30:00.000Z',
+      dataRange: {
+        from: '2025-10-01T00:00:00.000Z',
+        to: '2026-02-02T10:30:00.000Z',
+      },
+      source: 'indexed_db',
+    },
+  })
+  provenance?: {
+    provider: string;
+    nodeId?: string;
+    schemaVersion: string;
+    generatedAt: string;
+    dataRange?: {
+      from: string;
+      to: string;
+    };
+    source?: 'onchain' | 'indexed_db' | 'hybrid';
+  };
 }
 
 /**

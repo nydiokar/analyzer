@@ -538,6 +538,7 @@ export const BEHAVIOR_CODES: Record<string, string> = {
  */
 export interface WalletHudDto {
   walletAddress: string;
+  signalType: string;
 
   // ===== CORE METRICS (Always visible) =====
   trimmedMeanPnl: number;        // Trimmed mean PNL per token (outliers removed) in SOL
@@ -560,6 +561,17 @@ export interface WalletHudDto {
 
   // ===== METADATA =====
   calculatedAt: string;          // ISO timestamp when HUD data was calculated
+  provenance?: {
+    provider: string;
+    nodeId?: string;
+    schemaVersion: string;
+    generatedAt: string;
+    dataRange?: {
+      from: string;
+      to: string;
+    };
+    source?: 'onchain' | 'indexed_db' | 'hybrid';
+  };
 }
 
 /**
