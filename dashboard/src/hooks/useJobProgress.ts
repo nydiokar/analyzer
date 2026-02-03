@@ -191,8 +191,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       path: "/socket.io/",
       transports,
       upgrade,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity, // Never give up reconnecting
+      reconnectionDelay: 1000, // Start with 1 second
+      reconnectionDelayMax: 10000, // Max 10 seconds between attempts
       timeout: 20000, // 20 second timeout
       forceNew: forceNewSocket, // Allow forcing a fresh Manager via env flag when debugging sticky sessions
       query,
@@ -202,7 +203,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     });
 
     const handleConnect = () => {
-      console.log('✅ WebSocket connected');
+      console.log('✅ WebSocket connected successfully');
       debugLog('socket-connected', { socketId: newSocket.id });
       setIsConnected(true);
       setError(null);
@@ -214,6 +215,25 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       debugLog('socket-disconnected', { reason });
       setIsConnected(false);
       callbacksRef.current.onConnectionChange?.(false);
+
+      // Log reconnection strategy
+      if (reason === 'io server disconnect') {
+        console.log('⚠️  Server disconnected the socket. Will attempt to reconnect...');
+      } else if (reason === 'transport close' || reason === 'transport error') {
+        console.log('🔄 Connection lost. Attempting to reconnect...');
+      }
+    };
+
+    const handleReconnectAttempt = (attemptNumber: number) => {
+      console.log(`🔄 Reconnection attempt #${attemptNumber}...`);
+    };
+
+    const handleReconnect = (attemptNumber: number) => {
+      console.log(`✅ Successfully reconnected after ${attemptNumber} attempt(s)`);
+    };
+
+    const handleReconnectFailed = () => {
+      console.error('❌ All reconnection attempts failed');
     };
 
     const handleError = (error: Error) => {
@@ -335,6 +355,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     newSocket.on('connect', handleConnect);
     newSocket.on('disconnect', handleDisconnect);
     newSocket.on('connect_error', handleConnectError);
+    newSocket.on('reconnect_attempt', handleReconnectAttempt);
+    newSocket.on('reconnect', handleReconnect);
+    newSocket.on('reconnect_failed', handleReconnectFailed);
     newSocket.on('job-progress', handleJobProgress);
     newSocket.on('job-completed', handleJobCompleted);
     newSocket.on('job-failed', handleJobFailed);
@@ -352,6 +375,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       newSocket.off('connect', handleConnect);
       newSocket.off('disconnect', handleDisconnect);
       newSocket.off('connect_error', handleConnectError);
+      newSocket.off('reconnect_attempt', handleReconnectAttempt);
+      newSocket.off('reconnect', handleReconnect);
+      newSocket.off('reconnect_failed', handleReconnectFailed);
       newSocket.off('job-progress', handleJobProgress);
       newSocket.off('job-completed', handleJobCompleted);
       newSocket.off('job-failed', handleJobFailed);

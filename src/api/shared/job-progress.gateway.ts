@@ -73,6 +73,9 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   private readonly logger = new Logger(JobProgressGateway.name);
   private readonly debugJobBridge = process.env.JOB_SOCKET_DEBUG === 'true';
   private readonly redisSubscriber: Redis;
+  private isSubscribed = false;
+  private subscriptionRetryCount = 0;
+  private subscriptionRetryTimer?: NodeJS.Timeout;
 
   constructor(@Inject(REDIS_CLIENT) private readonly redisPublisher: Redis) {
     // The publisher is injected. We create a dedicated subscriber from it.
@@ -98,24 +101,50 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
         } else {
           subscriberErrorCount++;
         }
+
+        // Mark as not subscribed so we can retry
+        this.isSubscribed = false;
       } else {
         // Non-connection errors still get full logging
         this.logger.error(`🔥 Redis subscriber error: ${errorMessage}`);
       }
+    });
+
+    // Monitor Redis reconnection to re-establish subscriptions
+    this.redisSubscriber.on('connect', () => {
+      this.logger.log('✅ Redis subscriber connected');
+    });
+
+    this.redisSubscriber.on('ready', () => {
+      this.logger.log('🚀 Redis subscriber is ready');
+      // If we lost subscription, re-establish it
+      if (!this.isSubscribed) {
+        this.logger.log('🔄 Re-establishing Redis subscriptions after reconnect...');
+        this.setupRedisSubscriptions();
+      }
+    });
+
+    this.redisSubscriber.on('close', () => {
+      this.logger.warn('⚠️  Redis subscriber connection closed');
+      this.isSubscribed = false;
+    });
+
+    this.redisSubscriber.on('reconnecting', () => {
+      this.logger.log('🔄 Redis subscriber reconnecting...');
     });
   }
 
   afterInit(server: Server) {
     this.server = server;
     this.logger.log('WebSocket Gateway initialized');
-    
+
     // Set up server-level event handlers (only once)
     this.server.on('connection_error', (err) => {
       this.logger.error(`Socket.IO connection error: ${err.message}`, getErrorMessage(err));
     });
-    
-    // Set up Redis subscriptions with delay to ensure Redis connection is established
-    setTimeout(() => this.setupRedisSubscriptions(), 5000); // Wait 5 seconds for Redis
+
+    // Start attempting Redis subscriptions with retry logic
+    this.attemptRedisSubscription();
   }
 
   handleConnection(client: Socket) {
@@ -146,29 +175,73 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
+  private attemptRedisSubscription() {
+    // Clear any existing retry timer
+    if (this.subscriptionRetryTimer) {
+      clearTimeout(this.subscriptionRetryTimer);
+      this.subscriptionRetryTimer = undefined;
+    }
+
+    // Check if Redis subscriber is ready
+    if (this.redisSubscriber.status !== 'ready') {
+      // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+      const delay = Math.min(1000 * Math.pow(2, this.subscriptionRetryCount), 30000);
+      this.subscriptionRetryCount++;
+
+      this.logger.warn(
+        `⏳ Redis subscriber not ready (status: ${this.redisSubscriber.status}). ` +
+        `Retrying in ${delay}ms (attempt ${this.subscriptionRetryCount})...`
+      );
+
+      this.subscriptionRetryTimer = setTimeout(() => {
+        this.attemptRedisSubscription();
+      }, delay);
+
+      return;
+    }
+
+    // Redis is ready, attempt to set up subscriptions
+    this.setupRedisSubscriptions();
+  }
+
   private setupRedisSubscriptions() {
     const pattern = 'job-events:*';
+
+    // Prevent duplicate subscriptions
+    if (this.isSubscribed) {
+      this.logger.warn('Already subscribed to Redis, skipping duplicate subscription');
+      return;
+    }
 
     try {
       this.redisSubscriber.psubscribe(pattern, (err) => {
         if (err) {
           const errorMessage = err.message || 'Unknown subscription error';
           if (errorMessage.includes('enableOfflineQueue') || errorMessage.includes('writeable')) {
-            this.logger.warn(`⚠️  Redis not ready for WebSocket subscriptions. Make sure Redis is running.`);
+            this.logger.warn(`⚠️  Redis not ready for WebSocket subscriptions. Retrying...`);
+            // Retry with exponential backoff
+            this.attemptRedisSubscription();
           } else {
             this.logger.error(`Failed to subscribe to ${pattern}:`, getErrorMessage(err));
+            // Retry for other errors too
+            this.attemptRedisSubscription();
           }
         } else {
           this.logger.log(`📡 Subscribed to Redis pattern: ${pattern}`);
+          this.isSubscribed = true;
+          this.subscriptionRetryCount = 0; // Reset retry count on success
         }
       });
     } catch (error) {
       const errorMessage = (error as Error).message || 'Unknown error';
       if (errorMessage.includes('enableOfflineQueue') || errorMessage.includes('writeable')) {
-        this.logger.warn(`⚠️  Cannot setup Redis subscriptions - Redis not connected. Will retry later.`);
+        this.logger.warn(`⚠️  Cannot setup Redis subscriptions - Redis not connected. Retrying...`);
       } else {
         this.logger.error(`Failed to setup Redis subscriptions:`, getErrorMessage(error));
       }
+      // Retry with exponential backoff
+      this.attemptRedisSubscription();
+      return;
     }
 
     this.redisSubscriber.on('pmessage', (pattern, channel, message) => {
@@ -228,6 +301,13 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   
   async onModuleDestroy() {
     this.logger.log('Closing WebSocket Gateway connections...');
+
+    // Clear retry timer if active
+    if (this.subscriptionRetryTimer) {
+      clearTimeout(this.subscriptionRetryTimer);
+      this.subscriptionRetryTimer = undefined;
+    }
+
     // We only quit the duplicated subscriber connection.
     // The injected publisher connection is managed by the central provider.
     if (this.redisSubscriber) {

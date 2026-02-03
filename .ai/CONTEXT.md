@@ -10,6 +10,7 @@
 |:------:|:-----|:-----:|:------|
 
 **Recently Completed:**
+- ✅ WebSocket & Redis automatic reconnection (Feb 3)
 - ✅ Wallet HUD system implementation (Feb 2)
 - ✅ Batch analyze functionality in tracked wallets (Feb 1)
 - ✅ Comprehensive job throttling and priority fixes (Feb 1)
@@ -144,10 +145,13 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
 | 03.1 | 🔧 | Critical fix: Stale token prices causing inflated P/L | 🔸 | `token-info.service.ts` |
+| 03.2 | 🔧 | WebSocket & Redis automatic reconnection | 🔸 | `job-progress.gateway.ts`, `useJobProgress.ts`, `redis.provider.ts` |
 
 **Summary:**
 
 **03.1:** Fixed critical bug where token prices stuck at stale values (days old) caused wildly incorrect P/L calculations (e.g., 14,930x inflated: $0.235 vs actual $0.00001574). **Root Cause - Two Issues:** (1) **In-flight deadlock** - `buildTokenEnrichmentPlan()` marked tokens "in-flight" BEFORE fetching, causing subsequent enrichment to skip all tokens (thinking already processed). Created deadlock where tokens permanently marked in-flight but never enriched. (2) **Fire-and-forget race** - `setImmediate()` in `triggerTokenInfoEnrichment()` returned before DexScreener completed, so processors reading prices immediately got stale data. **The Fix:** (1) Moved in-flight markers from plan builder to actual fetch (`enrichTokensBackground`) - plan only checks staleness, markers set when actually fetching. (2) Removed `setImmediate()` - now awaits DexScreener completion, ensuring fresh prices. **Impact:** Enrichment properly updates prices, P/L uses fresh data, eliminates inflated portfolios from dead tokens with cached pump prices. **Design Note:** API controllers still don't await enrichment (fast response), but enrichment processor awaits (correct calculations). In-flight mechanism correctly prevents duplicate fetches but was set too early. **Files:** `token-info.service.ts` (moved markers, removed setImmediate, added set-before-fetch with cleanup).
+
+**03.2:** Fixed production-critical resilience issue where Redis/Docker restart permanently broke WebSocket real-time updates, requiring manual backend restart. **Root Causes:** (1) Backend Redis subscriber attempted subscription only once with 5-second delay - no retry on failure, (2) Frontend Socket.io limited to 5 reconnection attempts then gave up permanently, (3) No automatic re-subscription when Redis reconnected after being down. **The Fix:** (1) **Backend** - Added exponential backoff retry logic (1s→2s→4s→8s→max 30s, never stops), added Redis connection state monitoring (`ready`/`close`/`reconnecting` events), automatic re-subscription when Redis reconnects, duplicate subscription prevention with `isSubscribed` flag; (2) **Frontend** - Changed `reconnectionAttempts: 5` → `Infinity` (never give up), added `reconnectionDelayMax: 10000` (max 10s between attempts), added detailed reconnection event logging (`reconnect_attempt`/`reconnect`/`reconnect_failed` handlers); (3) **Redis Provider** - Added `enableOfflineQueue: true` (queue commands during disconnection), `keepAlive: 30000` (connection health monitoring). **Impact:** App now survives Redis restarts, Docker container restarts, and transient network issues with zero manual intervention. WebSocket automatically reconnects on both backend and frontend. Production-ready for Redis maintenance windows. **Monitoring:** Look for `📡 Subscribed to Redis pattern:` (healthy), continuous retry logs (Redis down), `🔄 Re-establishing Redis subscriptions after reconnect...` (recovery). **Files:** `job-progress.gateway.ts` (retry logic, state tracking, event handlers), `useJobProgress.ts` (infinite reconnection, enhanced logging), `redis.provider.ts` (offline queue, keepalive). **Documentation:** Full analysis at `.ai/context/WEBSOCKET_RECONNECTION_FIX.md`.
 
 ### February 2, 2026
 

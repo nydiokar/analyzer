@@ -26,9 +26,15 @@ export const redisProvider: FactoryProvider<Redis> = {
       lazyConnect: true, // allow startup without immediate Redis
       maxRetriesPerRequest: 3,
       retryStrategy: (times: number) => {
+        // Exponential backoff with max 3 second delay
         const delay = Math.min(times * 50, 3000);
         return delay;
       },
+      // Enable automatic reconnection on connection errors
+      enableOfflineQueue: true, // Queue commands while disconnected
+      enableReadyCheck: false, // Don't block on ready check
+      connectTimeout: 10000, // 10 second connection timeout
+      keepAlive: 30000, // Keep connection alive with 30 second pings
     };
     const client = new Redis(lockServiceConfig);
 
