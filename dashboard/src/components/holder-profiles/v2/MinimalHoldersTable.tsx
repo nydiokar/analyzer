@@ -1,9 +1,14 @@
 import type { HolderProfile } from '../types';
+import { Fragment, useMemo } from 'react';
 import { formatHoldTime, formatPercentage, formatSol } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { InfoIcon, Link2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { WalletHudInline } from '@/components/shared/WalletHudInline';
+import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
+import { useTableHudToggle } from '@/hooks/useTableHudToggle';
+import { ChevronDown, ChevronUp, InfoIcon, Link2, Loader2 } from 'lucide-react';
 import { CONNECTION_THRESHOLD } from './SimilaritySidebar';
 import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
 
@@ -86,10 +91,28 @@ function hasSignificantHoldings(profile: HolderProfile) {
 
 export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highlightedWallets, connectionCounts }: Props) {
   const { isFavorite, openFavoriteDialog } = useFavoriteActions();
+  const walletAddresses = useMemo(
+    () => profiles.map((profile) => profile.walletAddress),
+    [profiles]
+  );
+  const { showHud, toggleAll, toggleRow, isRowExpanded } = useTableHudToggle(walletAddresses);
+  const { data: hudData, isLoading: isHudLoading } = useBatchWalletHud(walletAddresses, { enabled: showHud });
 
   return (
     <TooltipProvider delayDuration={150}>
     <div className="rounded-2xl border overflow-x-auto">
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/20">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={toggleAll}
+          aria-label={showHud ? 'Hide HUD' : 'Show HUD'}
+          className="gap-2"
+        >
+          {isHudLoading && showHud ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          {showHud ? 'Hide HUD' : 'Show HUD'}
+        </Button>
+      </div>
       <table className="w-full text-[13px] min-w-[800px]">
         <thead className="bg-muted/40">
           <tr>
@@ -129,6 +152,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
               </Tooltip>
             </th>
             <th className="text-left px-4 py-2">SOL Balance</th>
+            {showHud && <th className="text-right px-2 py-2 w-[36px]"></th>}
           </tr>
         </thead>
         <tbody>
@@ -175,133 +199,161 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
             };
 
             return (
-              <tr
-                key={profile.walletAddress}
-                className={`border-t border-border/60 transition-colors duration-200 ${
-                  isHighlighted
-                    ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
-                    : onSelect
-                      ? 'cursor-pointer hover:bg-muted/40'
-                      : ''
-                }`}
-                onClick={handleRowClick}
-              >
-                {mode === 'token' && <td className="px-2 py-2 text-muted-foreground whitespace-nowrap w-[56px]">#{profile.rank}</td>}
-                <td className="px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <WalletBadge
-                      address={profile.walletAddress}
-                      variant="minimal"
-                      knownType={profile.knownType}
-                      knownLabel={profile.knownLabel}
-                      isFavorite={isFavorite(profile.walletAddress)}
-                      onFavoriteToggle={() => openFavoriteDialog(profile.walletAddress)}
-                    />
-                    {connectionCounts && connectionCounts.get(profile.walletAddress) ? (
+              <Fragment key={profile.walletAddress}>
+                <tr
+                  className={`border-t border-border/60 transition-colors duration-200 ${
+                    isHighlighted
+                      ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
+                      : onSelect
+                        ? 'cursor-pointer hover:bg-muted/40'
+                        : ''
+                  }`}
+                  onClick={handleRowClick}
+                >
+                  {mode === 'token' && <td className="px-2 py-2 text-muted-foreground whitespace-nowrap w-[56px]">#{profile.rank}</td>}
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <WalletBadge
+                        address={profile.walletAddress}
+                        variant="minimal"
+                        knownType={profile.knownType}
+                        knownLabel={profile.knownLabel}
+                        isFavorite={isFavorite(profile.walletAddress)}
+                        onFavoriteToggle={() => openFavoriteDialog(profile.walletAddress)}
+                        showHud={false}
+                      />
+                      {connectionCounts && connectionCounts.get(profile.walletAddress) ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/70 cursor-help">
+                              <Link2 className="h-2.5 w-2.5" />
+                              <span className="tabular-nums">{connectionCounts.get(profile.walletAddress)}</span>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="text-xs max-w-xs">
+                            <p className="font-medium">Connected Wallets</p>
+                            <p className="text-muted-foreground mt-1">
+                              Similarity &gt;= {Math.round(CONNECTION_THRESHOLD * 100)}% with {connectionCounts.get(profile.walletAddress)} other {connectionCounts.get(profile.walletAddress) === 1 ? 'wallet' : 'wallets'} in this set.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 select-text" data-interactive>
+                    <div className="flex flex-col">
+                      <span className="font-medium tabular-nums text-foreground whitespace-nowrap">
+                        {holdingValueSol !== null ? formatSol(holdingValueSol) : '—'}
+                      </span>
+                      {supplyPercent !== null && supplyPercent > 0 && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {formatPercentage(supplyPercent, 2)} supply
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className={`px-4 py-2 font-medium tabular-nums select-text whitespace-nowrap ${pnlDisplay.raw === null ? 'text-muted-foreground' : pnlDisplay.raw >= 0 ? 'text-emerald-500' : 'text-red-500'}`} data-interactive>
+                    {pnlDisplay.value}
+                  </td>
+                  <td className="px-4 py-2">
+                    <TooltipProvider delayDuration={150}>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/70 cursor-help">
-                            <Link2 className="h-2.5 w-2.5" />
-                            <span className="tabular-nums">{connectionCounts.get(profile.walletAddress)}</span>
+                          <span
+                            className={`px-2 py-1 rounded-full text-[13px] w-fit ${getBehaviorColor(behaviorDisplayType).className}`}
+                            style={getBehaviorColor(behaviorDisplayType).style}
+                          >
+                            {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
                           </span>
                         </TooltipTrigger>
-                        <TooltipContent side="right" className="text-xs max-w-xs">
-                          <p className="font-medium">Connected Wallets</p>
-                          <p className="text-muted-foreground mt-1">
-                            Similarity &gt;= {Math.round(CONNECTION_THRESHOLD * 100)}% with {connectionCounts.get(profile.walletAddress)} other {connectionCounts.get(profile.walletAddress) === 1 ? 'wallet' : 'wallets'} in this set.
-                          </p>
+                        <TooltipContent className="max-w-sm text-xs">
+                          {(() => {
+                            const info = getBehaviorDescription(profile.behaviorType) || behaviorMeta;
+                            if (!info) {
+                              return <p className="text-muted-foreground">No behavior classification yet.</p>;
+                            }
+                            const timeframe = (info as { timeframe?: string }).timeframe;
+                            return (
+                              <div className="space-y-0.5">
+                                <p className="text-muted-foreground">
+                                  {timeframe ? `Typical hold: ${timeframe}` : 'No exit data'}
+                                </p>
+                                {exitCount > 0 && (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Sample: {exitCount} exits{lowExitSample ? ' - low sample' : ''}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </TooltipContent>
                       </Tooltip>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="px-4 py-2 select-text" data-interactive>
-                  <div className="flex flex-col">
-                    <span className="font-medium tabular-nums text-foreground whitespace-nowrap">
-                      {holdingValueSol !== null ? formatSol(holdingValueSol) : '—'}
-                    </span>
-                    {supplyPercent !== null && supplyPercent > 0 && (
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatPercentage(supplyPercent, 2)} supply
+                    </TooltipProvider>
+                  </td>
+                  <td className="px-4 py-2 whitespace-nowrap select-text" data-interactive>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[13px] tabular-nums whitespace-nowrap">
+                        Median: {formatHoldTime(exitedMedian)}
                       </span>
-                    )}
-                  </div>
-                </td>
-                <td className={`px-4 py-2 font-medium tabular-nums select-text whitespace-nowrap ${pnlDisplay.raw === null ? 'text-muted-foreground' : pnlDisplay.raw >= 0 ? 'text-emerald-500' : 'text-red-500'}`} data-interactive>
-                  {pnlDisplay.value}
-                </td>
-                <td className="px-4 py-2">
-                  <TooltipProvider delayDuration={150}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span
-                          className={`px-2 py-1 rounded-full text-[13px] w-fit ${getBehaviorColor(behaviorDisplayType).className}`}
-                          style={getBehaviorColor(behaviorDisplayType).style}
-                        >
-                          {behaviorMeta?.label ?? profile.behaviorType ?? 'Unclassified'}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-sm text-xs">
-                        {(() => {
-                          const info = getBehaviorDescription(profile.behaviorType) || behaviorMeta;
-                          if (!info) {
-                            return <p className="text-muted-foreground">No behavior classification yet.</p>;
-                          }
-                          const timeframe = (info as { timeframe?: string }).timeframe;
-                          return (
-                            <div className="space-y-0.5">
-                              <p className="text-muted-foreground">
-                                {timeframe ? `Typical hold: ${timeframe}` : 'No exit data'}
-                              </p>
-                              {exitCount > 0 && (
-                                <p className="text-[11px] text-muted-foreground">
-                                  Sample: {exitCount} exits{lowExitSample ? ' - low sample' : ''}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </td>
-                <td className="px-4 py-2 whitespace-nowrap select-text" data-interactive>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[13px] tabular-nums whitespace-nowrap">
-                      Median: {formatHoldTime(exitedMedian)}
-                    </span>
-                    <span className="text-[12px] text-muted-foreground tabular-nums whitespace-nowrap">
-                      Average: {formatHoldTime(exitedAverage)}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-4 py-2 tabular-nums select-text" data-interactive>
-                  {(() => {
-                    // Emphasize overall holdings if significantly larger than current token holdings (5x+)
-                    const isSignificantlyLarger = totalHoldingsValueSol && holdingValueSol &&
-                      totalHoldingsValueSol > holdingValueSol * 5;
-                    return (
-                      <div className="flex flex-col gap-0.5">
-                        <span className={`${isSignificantlyLarger ? 'font-medium text-amber-400' : 'text-foreground'} text-[13px] whitespace-nowrap`}>
-                          {totalHoldingsValueSol !== null ? formatSol(totalHoldingsValueSol) : '—'}
-                        </span>
-                        {totalHoldingsValueSol === null && (profile.currentHoldingsCount ?? 0) > 0 ? (
-                          <span className="text-[12px] text-muted-foreground whitespace-nowrap">
-                            Value unavailable ({profile.currentHoldingsCount} holdings)
+                      <span className="text-[12px] text-muted-foreground tabular-nums whitespace-nowrap">
+                        Average: {formatHoldTime(exitedAverage)}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 tabular-nums select-text" data-interactive>
+                    {(() => {
+                      const isSignificantlyLarger = totalHoldingsValueSol && holdingValueSol &&
+                        totalHoldingsValueSol > holdingValueSol * 5;
+                      return (
+                        <div className="flex flex-col gap-0.5">
+                          <span className={`${isSignificantlyLarger ? 'font-medium text-amber-400' : 'text-foreground'} text-[13px] whitespace-nowrap`}>
+                            {totalHoldingsValueSol !== null ? formatSol(totalHoldingsValueSol) : '—'}
                           </span>
-                        ) : (
-                          <span className="text-[12px] text-muted-foreground whitespace-nowrap">
-                            {formatHoldTime(currentHoldTime)}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </td>
-                <td className="px-4 py-2 text-[13px] tabular-nums select-text text-foreground whitespace-nowrap" data-interactive>
-                  {formatSol(profile.solBalance)}
-                </td>
-              </tr>
+                          {totalHoldingsValueSol === null && (profile.currentHoldingsCount ?? 0) > 0 ? (
+                            <span className="text-[12px] text-muted-foreground whitespace-nowrap">
+                              Value unavailable ({profile.currentHoldingsCount} holdings)
+                            </span>
+                          ) : (
+                            <span className="text-[12px] text-muted-foreground whitespace-nowrap">
+                              {formatHoldTime(currentHoldTime)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </td>
+                  <td className="px-4 py-2 text-[13px] tabular-nums select-text text-foreground whitespace-nowrap" data-interactive>
+                    {formatSol(profile.solBalance)}
+                  </td>
+                  {showHud && (
+                    <td className="px-2 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleRow(profile.walletAddress);
+                        }}
+                        aria-label={isRowExpanded(profile.walletAddress) ? 'Collapse HUD row' : 'Expand HUD row'}
+                        aria-expanded={isRowExpanded(profile.walletAddress)}
+                        className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-muted/60 text-muted-foreground"
+                      >
+                        {isRowExpanded(profile.walletAddress) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                    </td>
+                  )}
+                </tr>
+                {showHud && isRowExpanded(profile.walletAddress) && (
+                  <tr className="bg-muted/30 transition-all duration-200 ease-in-out">
+                    <td colSpan={999} className="py-2 px-4">
+                      {hudData?.[profile.walletAddress] ? (
+                        <WalletHudInline data={hudData[profile.walletAddress]} />
+                      ) : (
+                        <div className="text-xs text-muted-foreground">Loading HUD data...</div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>

@@ -174,6 +174,7 @@ export interface WalletHudOverlayProps {
   walletAddress: string;
   display?: 'inline' | 'tooltip' | 'expanded';
   className?: string;
+  data?: ReturnType<typeof useWalletHud>['data'] | null;
 }
 
 /**
@@ -461,17 +462,28 @@ export const WalletHudOverlay = memo(function WalletHudOverlay({
   walletAddress,
   display = 'inline',
   className,
+  data: externalData = null,
 }: WalletHudOverlayProps) {
-  const { data, error, isLoading } = useWalletHud(walletAddress);
+  const shouldFetch = !externalData && !!walletAddress;
+  const { data: fetchedData, error, isLoading } = useWalletHud(shouldFetch ? walletAddress : null);
+  const data = externalData ?? fetchedData;
 
   // Loading state - show minimal skeleton
-  if (isLoading) {
+  if (isLoading && !externalData) {
     return (
       <div className={`animate-pulse ${className || ''}`}>
         {display === 'inline' && (
           <div className="flex items-center gap-2">
             <div className="h-4 w-4 bg-muted rounded"></div>
             <div className="h-4 w-20 bg-muted rounded"></div>
+          </div>
+        )}
+        {display === 'tooltip' && (
+          <div className="space-y-2">
+            <div className="h-3 w-24 bg-muted rounded"></div>
+            <div className="h-3 w-32 bg-muted rounded"></div>
+            <div className="h-3 w-28 bg-muted rounded"></div>
+            <div className="h-3 w-20 bg-muted rounded"></div>
           </div>
         )}
         {display === 'expanded' && (

@@ -8,6 +8,7 @@ import { WalletBadge } from "@/components/shared/WalletBadge";
 import { CombinedSimilarityResult } from "./types";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { TokenBadge } from "@/components/shared/TokenBadge";
+import { useBatchWalletHud } from "@/hooks/useBatchWalletHud";
 
 interface MostCommonTokensProps {
   results: CombinedSimilarityResult;
@@ -80,6 +81,14 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
       () => buildTokenMetadataMap(enrichedBalances, targetMints),
       [enrichedBalances, targetMints]
     );
+    const allWalletAddresses = useMemo(() => {
+        const set = new Set<string>();
+        commonTokens.forEach(token => {
+            token.wallets.forEach(wallet => set.add(wallet));
+        });
+        return Array.from(set);
+    }, [commonTokens]);
+    const { data: hudData } = useBatchWalletHud(allWalletAddresses, { enabled: allWalletAddresses.length > 0 });
 
     
     if (commonTokens.length === 0) {
@@ -167,6 +176,10 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                                                             knownType={walletLabel?.knownType}
                                                             knownLabel={walletLabel?.knownLabel}
                                                             visibleActions={{ copy: true, solscan: true, profile: true }}
+                                                            showHud={true}
+                                                            hudDisplay="tooltip"
+                                                            hudDelayMs={800}
+                                                            hudData={hudData?.[w]}
                                                         />
                                                     );
                                                 })}

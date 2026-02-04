@@ -7,6 +7,7 @@ import { Info, Users, ArrowRight, Wallet, Sigma, TrendingUp, User } from 'lucide
 import EChartComponent from '@/components/charts/EChartComponent';
 import { formatToMillion } from '@/lib/utils';
 import { WalletBadge } from "@/components/shared/WalletBadge";
+import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
 import type { KnownWalletType } from '@/types/api';
 
 interface GlobalMetricsCardProps {
@@ -69,6 +70,20 @@ const getSimilarityStatus = (avgSim: number) => {
 
 const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, walletLabels, summary }: GlobalMetricsCardProps) => {
   const getWalletLabel = (address: string) => walletLabels?.[address];
+  const topPairs = useMemo(() => (
+    [...pairwiseSimilarities]
+      .sort((a, b) => calculateOverallScore(b.binaryScore, b.capitalScore) - calculateOverallScore(a.binaryScore, a.capitalScore))
+      .slice(0, 5)
+  ), [pairwiseSimilarities]);
+  const topPairAddresses = useMemo(() => {
+    const set = new Set<string>();
+    topPairs.forEach(pair => {
+      set.add(pair.walletA);
+      set.add(pair.walletB);
+    });
+    return Array.from(set);
+  }, [topPairs]);
+  const { data: hudData } = useBatchWalletHud(topPairAddresses, { enabled: topPairAddresses.length > 0 });
 
   const content = useMemo(() => {
     if (!metrics) return null;
@@ -98,10 +113,6 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
     const topPairsStatus = getSimilarityStatus(avgTopPairs);
 
     const variance = binaryScores.reduce((acc, score) => acc + Math.pow(score - avgSim, 2), 0) / binaryScores.length;
-
-    const topPairs = [...pairwiseSimilarities]
-      .sort((a, b) => calculateOverallScore(b.binaryScore, b.capitalScore) - calculateOverallScore(a.binaryScore, a.capitalScore))
-      .slice(0, 5);
 
     let totalValueAnalyzed = 0;
     const tokenValues: Record<string, number> = {};
@@ -338,6 +349,10 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                                           knownType={labelA?.knownType}
                                           knownLabel={labelA?.knownLabel}
                                           visibleActions={{ copy: true, solscan: true, profile: true }}
+                                          showHud={true}
+                                          hudDisplay="tooltip"
+                                          hudDelayMs={800}
+                                          hudData={hudData?.[pair.walletA]}
                                       />
                                       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                                       <WalletBadge
@@ -346,6 +361,10 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                                           knownType={labelB?.knownType}
                                           knownLabel={labelB?.knownLabel}
                                           visibleActions={{ copy: true, solscan: true, profile: true }}
+                                          showHud={true}
+                                          hudDisplay="tooltip"
+                                          hudDelayMs={800}
+                                          hudData={hudData?.[pair.walletB]}
                                       />
                                   </div>
                                   <div className="flex items-center gap-1 shrink-0">
@@ -397,7 +416,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
         </CardContent>
       </Card>
     );
-  }, [metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, summary]);
+  }, [metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, summary, topPairs, hudData, walletLabels]);
   
   return content;
 };

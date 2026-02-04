@@ -15,11 +15,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, Info, Wallet, User, Bookmark, Edit2 } from "lucide-react";
-import { memo, MouseEvent } from "react";
+import { memo, MouseEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
-import { FavoriteWallet, type KnownWalletType } from "@/types/api";
+import type { FavoriteWallet, WalletHudDto, KnownWalletType } from "@/types/api";
 import { useFavorites } from "@/hooks/useFavorites";
+import { WalletHudOverlay } from "@/components/shared/WalletHudOverlay";
 
 export interface WalletMetrics {
   totalBuys?: number | null;
@@ -39,6 +40,10 @@ interface WalletBadgeProps {
   variant?: WalletBadgeVariant;
   showMetrics?: boolean;
   showActions?: boolean;
+  showHud?: boolean;
+  hudDisplay?: 'inline' | 'tooltip' | 'expanded' | 'none';
+  hudData?: WalletHudDto | null;
+  hudDelayMs?: number;
   /** Fine-grained control over which action icons to show. Only applies when showActions is true or undefined. */
   visibleActions?: {
     copy?: boolean;
@@ -236,6 +241,10 @@ const WalletBadge = memo(({
   variant = "inline",
   showMetrics = true,
   showActions = true,
+  showHud = false,
+  hudDisplay = "tooltip",
+  hudData = null,
+  hudDelayMs = 800,
   visibleActions = { copy: true, solscan: true, profile: true },
   isFavorite = false,
   onFavoriteToggle,
@@ -319,9 +328,104 @@ const WalletBadge = memo(({
     }
   };
 
+  const [isHudOpen, setIsHudOpen] = useState(false);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(pointer: coarse)");
+    const update = () => setIsCoarsePointer(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearHoverTimeout();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showHud || hudDisplay !== "tooltip") {
+      setIsHudOpen(false);
+    }
+  }, [showHud, hudDisplay]);
+
+  const clearHoverTimeout = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+  };
+
+  const handleHudMouseEnter = () => {
+    if (isCoarsePointer || !showHud || hudDisplay !== "tooltip") return;
+    clearHoverTimeout();
+    hoverTimeoutRef.current = setTimeout(() => {
+      setIsHudOpen(true);
+    }, hudDelayMs);
+  };
+
+  const handleHudMouseLeave = () => {
+    if (isCoarsePointer || !showHud || hudDisplay !== "tooltip") return;
+    clearHoverTimeout();
+    setIsHudOpen(false);
+  };
+
+  const handleHudClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (!showHud || hudDisplay !== "tooltip" || !isCoarsePointer) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("a") || target.closest("[data-interactive]")) {
+      return;
+    }
+    e.stopPropagation();
+    setIsHudOpen((prev) => !prev);
+  };
+
+  const renderWithHud = (badge: React.ReactNode) => {
+    if (!showHud || hudDisplay === "none" || hudDisplay === "inline") {
+      return badge;
+    }
+
+    if (hudDisplay === "expanded") {
+      return (
+        <div className="space-y-2">
+          {badge}
+          <WalletHudOverlay walletAddress={address} display="expanded" data={hudData} />
+        </div>
+      );
+    }
+
+    return (
+      <Popover open={isHudOpen} onOpenChange={setIsHudOpen}>
+        <PopoverTrigger asChild>
+          <div
+            className="inline-block"
+            onMouseEnter={handleHudMouseEnter}
+            onMouseLeave={handleHudMouseLeave}
+            onFocus={handleHudMouseEnter}
+            onBlur={handleHudMouseLeave}
+            onClick={handleHudClick}
+          >
+            {badge}
+          </div>
+        </PopoverTrigger>
+        <PopoverContent side="right" align="start" className="w-auto p-3">
+          <WalletHudOverlay walletAddress={address} display="tooltip" data={hudData} />
+        </PopoverContent>
+      </Popover>
+    );
+  };
+
   // ===== RENDER MINIMAL VARIANT (ultra-compact for tables) =====
   if (variant === "minimal") {
-    return (
+    return renderWithHud(
       <TooltipProvider>
         <div className={cn("flex items-center gap-1.5", className)}>
           {/* Small wallet icon for visual boundary */}
@@ -406,7 +510,7 @@ const WalletBadge = memo(({
 
   // ===== RENDER COMPACT VARIANT (dense list, icons below) =====
   if (variant === "compact") {
-    return (
+    return renderWithHud(
       <TooltipProvider>
         <div className={cn("inline-flex flex-col items-center gap-0.5 p-1 rounded border border-border/40 hover:border-border transition-colors", className)}>
           {/* Address on top - clickable to copy profile link */}
@@ -449,7 +553,7 @@ const WalletBadge = memo(({
 
   // ===== RENDER MICRO VARIANT (ultra compact, click to expand) =====
   if (variant === "micro") {
-    return (
+    return renderWithHud(
       <TooltipProvider>
         <Popover>
           <Tooltip>
@@ -516,7 +620,7 @@ const WalletBadge = memo(({
 
   // ===== RENDER STACKED VARIANT (quadratic with icons stacked below) =====
   if (variant === "stacked") {
-    return (
+    return renderWithHud(
       <TooltipProvider>
         <div className={cn("inline-flex flex-col rounded border border-border/40 hover:border-border transition-colors overflow-hidden", className)}>
           {/* Address section - clickable to copy profile link */}
@@ -559,7 +663,7 @@ const WalletBadge = memo(({
 
   // ===== RENDER INLINE VARIANT (horizontal 2-row compact) =====
   if (variant === "inline") {
-    return (
+    return renderWithHud(
       <TooltipProvider>
         <div
           className={cn(
@@ -735,7 +839,7 @@ const WalletBadge = memo(({
   }
 
   // ===== RENDER CARD VARIANT (vertical, for profile pages) =====
-  return (
+  return renderWithHud(
     <TooltipProvider>
       <div
         className={cn(

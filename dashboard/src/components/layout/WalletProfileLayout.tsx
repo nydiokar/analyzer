@@ -58,6 +58,7 @@ import QuickAddForm from './QuickAddForm';
 import LazyTabContent from './LazyTabContent';
 import { FavoriteWallet } from '@/types/api';
 import { WalletBadge } from '@/components/shared/WalletBadge';
+import { WalletHudOverlay } from '@/components/shared/WalletHudOverlay';
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
@@ -1173,6 +1174,10 @@ export default function WalletProfileLayout({
                   )}
                 </div>
                 <ExpandedAnalysisControl />
+                <div className="mt-2 w-full">
+                  <h3 className="text-xs font-semibold text-muted-foreground mb-2">Performance HUD</h3>
+                  <WalletHudOverlay walletAddress={walletAddress} display="expanded" />
+                </div>
               </>
             )}
           </div>

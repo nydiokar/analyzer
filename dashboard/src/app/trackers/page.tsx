@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Loader2, Trash2, PlayCircle } from 'lucide-react';
+import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Loader2, Trash2, PlayCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { Fragment, useState, useMemo, useCallback, useRef } from 'react';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { WalletEditForm } from '@/components/layout/WalletEditForm';
@@ -23,6 +23,9 @@ import { PageTitle } from '@/components/shared/PageTitle';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getErrorMessage } from '@/lib/error-messages';
 import { USER_FAVORITES_IMPORT_FLASH_BATCH, USER_FAVORITES_MAX } from '@/lib/constants';
+import { WalletHudInline } from '@/components/shared/WalletHudInline';
+import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
+import { useTableHudToggle } from '@/hooks/useTableHudToggle';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -271,6 +274,13 @@ export default function TrackersPage() {
 
     return filtered;
   }, [favoriteWallets, selectedCollections, searchQuery, showActiveOnly]);
+
+  const walletAddresses = useMemo(
+    () => filteredWallets.map((wallet) => wallet.walletAddress),
+    [filteredWallets]
+  );
+  const { showHud, toggleAll: toggleHudAll, toggleRow: toggleHudRow, isRowExpanded: isHudRowExpanded } = useTableHudToggle(walletAddresses);
+  const { data: hudData, isLoading: isHudLoading } = useBatchWalletHud(walletAddresses, { enabled: showHud });
 
   const handleRemoveWallet = useCallback(async (walletAddress: string) => {
     try {
@@ -1057,6 +1067,18 @@ export default function TrackersPage() {
 
               {/* Wallets Table */}
               <Card>
+                <div className="flex items-center justify-between px-4 py-2 border-b">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleHudAll}
+                    aria-label={showHud ? 'Hide HUD' : 'Show HUD'}
+                    className="gap-2"
+                  >
+                    {isHudLoading && showHud ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {showHud ? 'Hide HUD' : 'Show HUD'}
+                  </Button>
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1072,12 +1094,13 @@ export default function TrackersPage() {
                       <TableHead className="w-24">Winrate</TableHead>
                       <TableHead className="w-32">Last Active</TableHead>
                       <TableHead className="w-32 text-right">SOL Balance</TableHead>
+                      {showHud && <TableHead className="w-10"></TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredWallets.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="py-8">
+                        <TableCell colSpan={showHud ? 7 : 6} className="py-8">
                           <EmptyState
                             variant="info"
                             title={favoriteWallets.length === 0 ? 'No tracked wallets yet' : 'No wallets match your filters'}
@@ -1093,84 +1116,111 @@ export default function TrackersPage() {
                       </TableRow>
                     ) : (
                       filteredWallets.map((wallet: FavoriteWallet) => (
-                        <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
-                          <TableCell>
-                            <Checkbox
-                              checked={selectedWallets.has(wallet.walletAddress)}
-                              onCheckedChange={() => toggleWalletSelection(wallet.walletAddress)}
-                              aria-label={`Select ${wallet.walletAddress}`}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <WalletBadge
-                                address={wallet.walletAddress}
-                                size="m"
-                                variant="inline"
-                                showMetrics={false}
-                                showActions={true}
-                                isFavorite={true}
-                                onFavoriteToggle={() => setDeletingWallet(wallet)}
-                                onEdit={() => setEditingWallet(wallet)}
-                                favoriteData={wallet}
-                                knownType={wallet.knownType}
-                                knownLabel={wallet.knownLabel}
+                        <Fragment key={wallet.walletAddress}>
+                          <TableRow className="hover:bg-accent/30">
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedWallets.has(wallet.walletAddress)}
+                                onCheckedChange={() => toggleWalletSelection(wallet.walletAddress)}
+                                aria-label={`Select ${wallet.walletAddress}`}
                               />
-                              {wallet.collections && wallet.collections.length > 0 && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge
-                                      className={cn(
-                                        'text-xs font-medium',
-                                        getCollectionColorFilled(wallet.collections[0])
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <WalletBadge
+                                  address={wallet.walletAddress}
+                                  size="m"
+                                  variant="inline"
+                                  showMetrics={false}
+                                  showActions={true}
+                                  isFavorite={true}
+                                  onFavoriteToggle={() => setDeletingWallet(wallet)}
+                                  onEdit={() => setEditingWallet(wallet)}
+                                  favoriteData={wallet}
+                                  knownType={wallet.knownType}
+                                  knownLabel={wallet.knownLabel}
+                                  showHud={false}
+                                />
+                                {wallet.collections && wallet.collections.length > 0 && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        className={cn(
+                                          'text-xs font-medium',
+                                          getCollectionColorFilled(wallet.collections[0])
+                                        )}
+                                      >
+                                        {wallet.collections[0]}
+                                        {wallet.collections.length > 1 && (
+                                          <span className="ml-1 opacity-80">({wallet.collections.length})</span>
+                                        )}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {wallet.collections.length > 1 ? (
+                                        <>
+                                          Collections: {wallet.collections.join(', ')}
+                                        </>
+                                      ) : (
+                                        `Collection: ${wallet.collections[0]}`
                                       )}
-                                    >
-                                      {wallet.collections[0]}
-                                      {wallet.collections.length > 1 && (
-                                        <span className="ml-1 opacity-80">({wallet.collections.length})</span>
-                                      )}
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    {wallet.collections.length > 1 ? (
-                                      <>
-                                        Collections: {wallet.collections.join(', ')}
-                                      </>
-                                    ) : (
-                                      `Collection: ${wallet.collections[0]}`
-                                    )}
-                                  </TooltipContent>
-                                </Tooltip>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">
+                              {wallet.pnl !== undefined ? (
+                                <span className={wallet.pnl >= 0 ? 'text-green-500' : 'text-red-500'}>
+                                  {formatSOL(wallet.pnl)} SOL
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
                               )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">
-                            {wallet.pnl !== undefined ? (
-                              <span className={wallet.pnl >= 0 ? 'text-green-500' : 'text-red-500'}>
-                                {formatSOL(wallet.pnl)} SOL
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {wallet.winRate !== undefined ? (
+                                <span>{wallet.winRate.toFixed(1)}%</span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {wallet.lastActiveTimestamp ? timeAgo(wallet.lastActiveTimestamp) + ' ago' : 'Unknown'}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-sm">
+                              {wallet.currentSolBalance !== undefined ? (
+                                <span>{wallet.currentSolBalance.toFixed(2)} SOL</span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            {showHud && (
+                              <TableCell className="text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleHudRow(wallet.walletAddress)}
+                                  aria-label={isHudRowExpanded(wallet.walletAddress) ? 'Collapse HUD row' : 'Expand HUD row'}
+                                  aria-expanded={isHudRowExpanded(wallet.walletAddress)}
+                                  className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-muted/60 text-muted-foreground"
+                                >
+                                  {isHudRowExpanded(wallet.walletAddress) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                </button>
+                              </TableCell>
                             )}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {wallet.winRate !== undefined ? (
-                              <span>{wallet.winRate.toFixed(1)}%</span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            {wallet.lastActiveTimestamp ? timeAgo(wallet.lastActiveTimestamp) + ' ago' : 'Unknown'}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
-                            {wallet.currentSolBalance !== undefined ? (
-                              <span>{wallet.currentSolBalance.toFixed(2)} SOL</span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
+                          </TableRow>
+                          {showHud && isHudRowExpanded(wallet.walletAddress) && (
+                            <TableRow className="bg-muted/30 transition-all duration-200 ease-in-out">
+                              <TableCell colSpan={999} className="py-2 px-4">
+                                {hudData?.[wallet.walletAddress] ? (
+                                  <WalletHudInline data={hudData[wallet.walletAddress]} />
+                                ) : (
+                                  <div className="text-xs text-muted-foreground">Loading HUD data...</div>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
                       ))
                     )}
                   </TableBody>

@@ -5,7 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { Loader2, Bookmark, Copy } from 'lucide-react';
+import { WalletHudInline } from '@/components/shared/WalletHudInline';
+import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
+import { useTableHudToggle } from '@/hooks/useTableHudToggle';
+import { Loader2, Bookmark, Copy, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTopHolders } from '@/hooks/useTopHolders';
 import type { TopHolderItem } from '@/types/api';
 import { toast } from 'sonner';
@@ -30,6 +33,12 @@ export function TokenHolderPicker({
     () => (holdersData?.holders || []).filter(h => !!h.ownerAccount),
     [holdersData]
   );
+  const holderAddresses = useMemo(
+    () => holders.map(h => h.ownerAccount || h.tokenAccount).filter(Boolean),
+    [holders]
+  );
+  const { showHud, toggleAll, toggleRow, isRowExpanded } = useTableHudToggle(holderAddresses);
+  const { data: hudData, isLoading: isHudLoading } = useBatchWalletHud(holderAddresses, { enabled: showHud });
 
   // Auto-select top 10 on first load (only when holders first load)
   const [hasAutoSelected, setHasAutoSelected] = useState(false);
@@ -114,6 +123,16 @@ export function TokenHolderPicker({
             {selectedAddresses.length} / {holders.length}
           </span>
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleAll}
+              className="h-6 text-xs px-2"
+              aria-label={showHud ? 'Hide HUD' : 'Show HUD'}
+            >
+              {isHudLoading && showHud ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+              {showHud ? 'Hide HUD' : 'Show HUD'}
+            </Button>
             {onTrackSelected && (
               <TooltipProvider delayDuration={150}>
                 <Tooltip>
@@ -156,11 +175,14 @@ export function TokenHolderPicker({
       <div className="border rounded-md flex-1 min-h-0 overflow-y-auto w-full">
         <div className="w-full">
           {/* Minimal Header */}
-          <div className="sticky top-0 grid grid-cols-[20px_28px_minmax(0,1fr)_56px] gap-0.5 px-1.5 py-1.5 text-xs font-semibold text-muted-foreground border-b bg-muted/90 backdrop-blur">
+          <div
+            className={`sticky top-0 grid ${showHud ? 'grid-cols-[20px_28px_minmax(0,1fr)_56px_24px]' : 'grid-cols-[20px_28px_minmax(0,1fr)_56px]'} gap-0.5 px-1.5 py-1.5 text-xs font-semibold text-muted-foreground border-b bg-muted/90 backdrop-blur`}
+          >
             <div></div>
             <div>#</div>
             <div>Wallet</div>
             <div className="text-right">% Hold</div>
+            {showHud && <div></div>}
           </div>
 
           {/* Ultra Compact Rows */}
@@ -175,34 +197,56 @@ export function TokenHolderPicker({
             const percentHolding = totalSupply > 0 ? (holderAmount / totalSupply) * 100 : 0;
 
             return (
-              <div
-                key={key}
-                className={`grid grid-cols-[20px_28px_minmax(0,1fr)_56px] items-center gap-0.5 px-1.5 py-1 border-b last:border-0 text-[10px] hover:bg-muted/30 transition-colors ${
-                  isUnknown ? 'opacity-50' : ''
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleHolder(key)}
-                  disabled={isUnknown}
-                  className="cursor-pointer w-3 h-3"
-                />
-                <div className="text-muted-foreground text-[10px]">#{h.rank}</div>
-                <div className="truncate text-[10px] min-w-0" title={key}>
-                  <WalletBadge
-                    address={key}
-                    knownType={h.knownType}
-                    knownLabel={h.knownLabel}
-                    size="s"
-                    variant="minimal"
-                    showActions={true}
-                    visibleActions={{ copy: true, solscan: false, profile: false }}
+              <div key={key} className="border-b last:border-0">
+                <div
+                  className={`grid ${showHud ? 'grid-cols-[20px_28px_minmax(0,1fr)_56px_24px]' : 'grid-cols-[20px_28px_minmax(0,1fr)_56px]'} items-center gap-0.5 px-1.5 py-1 text-[10px] hover:bg-muted/30 transition-colors ${
+                    isUnknown ? 'opacity-50' : ''
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleHolder(key)}
+                    disabled={isUnknown}
+                    className="cursor-pointer w-3 h-3"
                   />
+                  <div className="text-muted-foreground text-[10px]">#{h.rank}</div>
+                  <div className="truncate text-[10px] min-w-0" title={key}>
+                    <WalletBadge
+                      address={key}
+                      knownType={h.knownType}
+                      knownLabel={h.knownLabel}
+                      size="s"
+                      variant="minimal"
+                      showActions={true}
+                      visibleActions={{ copy: true, solscan: false, profile: false }}
+                      showHud={false}
+                    />
+                  </div>
+                  <div className="text-right font-mono text-xs font-semibold tabular-nums">
+                    {percentHolding >= 0.01 ? `${percentHolding.toFixed(2)}%` : '<0.01%'}
+                  </div>
+                  {showHud && (
+                    <button
+                      type="button"
+                      onClick={() => toggleRow(key)}
+                      aria-label={isRowExpanded(key) ? 'Collapse HUD row' : 'Expand HUD row'}
+                      aria-expanded={isRowExpanded(key)}
+                      className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-muted/60 text-muted-foreground"
+                    >
+                      {isRowExpanded(key) ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    </button>
+                  )}
                 </div>
-                <div className="text-right font-mono text-xs font-semibold tabular-nums">
-                  {percentHolding >= 0.01 ? `${percentHolding.toFixed(2)}%` : '<0.01%'}
-                </div>
+                {showHud && isRowExpanded(key) && (
+                  <div className="px-2 py-1.5 bg-muted/20 transition-all duration-200 ease-in-out">
+                    {hudData?.[key] ? (
+                      <WalletHudInline data={hudData[key]} />
+                    ) : (
+                      <div className="text-xs text-muted-foreground">Loading HUD data...</div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
