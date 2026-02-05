@@ -1092,7 +1092,7 @@ export class DatabaseService {
      * @throws InternalServerErrorException for other database errors.
      */
     async getFavoriteWalletsByUserId(userId: string): Promise<Array<Prisma.UserFavoriteWalletGetPayload<{ include: { wallet: { include: { pnlSummary: { include: { advancedStats: true } }, behaviorProfile: true } } } }>>> {
-        this.logger.debug(`Fetching favorite wallets for user ${userId}`);
+       // this.logger.debug(`Fetching favorite wallets for user ${userId}`);
         try {
             return await this.prismaClient.userFavoriteWallet.findMany({
                 where: { userId: userId },

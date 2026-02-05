@@ -126,6 +126,10 @@ npx ts-node src/scripts/helius-analyzer.ts --address YOUR_WALLET_ADDRESS_HERE -s
 
 3.  **Transaction Type Focus:**
     *   The analyzer primarily focuses on SOL and SPL token *transfers* as recorded by Helius to calculate P/L from swaps. It may not interpret all possible DeFi interactions (e.g., providing liquidity, complex derivatives) correctly for P/L purposes.
+4.  **Signature Discovery Scope:**
+    *   Phase 1 discovery relies on `getSignaturesForAddress` (or V2 signatures mode), which only returns signatures where the queried address appears in the transaction account keys.
+    *   SPL token transfers can involve the wallet only as the owner of a token account (ATA), without the owner wallet appearing in the instruction accounts.
+    *   In that case, the wallet's signature discovery will miss the transfer unless you also discover signatures for the wallet's token accounts (ATAs). This was observed on a plain `TRANSFER` where the wallet appeared only in `tokenTransfers.toUserAccount`.
 
 ## Performance Tips
 

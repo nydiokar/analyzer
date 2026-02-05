@@ -242,6 +242,8 @@ Process B: Upserts [TokenC, TokenB, TokenA] (same tokens, different order)
 
 ## 🏗️ Architecture Decisions
 
+ALWAYS run scripts with "npx ts-node -r tsconfig-paths/register" 
+
 ### Lock Scope Independence
 *Decided: 2026-01-13*
 

@@ -764,6 +764,10 @@ export class HeliusApiClient {
     onProgress?: (progress: number) => void,
     onTransactionBatch?: (batch: HeliusTransaction[]) => Promise<void>, // stream processing callback
   ): Promise<HeliusTransaction[]> {
+    // NOTE: Signature discovery only includes transactions where `address` appears in account keys.
+    // SPL transfers can involve a wallet only via its token account (ATA), so those signatures
+    // will be missed unless ATAs are included in discovery. Observed with plain TRANSFER where
+    // the wallet appears only in tokenTransfers.toUserAccount.
     let allRpcSignaturesInfo: SignatureInfo[] = [];
     // List to hold ONLY the transactions fetched from API in this run
     let newlyFetchedTransactions: HeliusTransaction[] = []; 
