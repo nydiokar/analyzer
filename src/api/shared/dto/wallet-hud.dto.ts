@@ -93,7 +93,7 @@ export class WalletHudDto {
   medianHoldTimeHours?: number;
 
   @ApiProperty({
-    description: 'Average number of trades per day',
+    description: 'Average number of trades per day (note: UI displays uniqueTokensPerDay instead)',
     example: 12.5,
   })
   avgTradesPerDay: number;

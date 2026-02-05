@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
  * - Trimmed Mean PNL
  * - Median P/L per Token
  * - Behavior Code (single letter)
- * - Avg Trades/Day
+ * - Unique Tokens/Day
  * - Win Rate
  * - Data Quality Tier
  *
@@ -180,6 +180,7 @@ export interface WalletHudOverlayProps {
 /**
  * Inline Display - Compact single-line format
  * Example: 🥇 M  +1.2K / 890  68% WR  12.5 T/D  🤖
+ * Note: T/D = Unique Tokens per Day (not Trades per Day)
  */
 const InlineDisplay = memo(function InlineDisplay({
   data,
@@ -250,8 +251,8 @@ const InlineDisplay = memo(function InlineDisplay({
       {/* Win Rate */}
       <span className="text-muted-foreground">{formatPercent(data.winRate)} WR</span>
 
-      {/* Avg Trades/Day */}
-      <span className="text-muted-foreground">{data.avgTradesPerDay.toFixed(1)} T/D</span>
+      {/* Unique Tokens/Day */}
+      <span className="text-muted-foreground">{data.uniqueTokensPerDay.toFixed(1)} T/D</span>
 
       {/* Conditional Badges */}
       {data.isBot && (
@@ -338,8 +339,8 @@ const TooltipDisplay = memo(function TooltipDisplay({
           <span className="font-medium">{formatPercent(data.winRate)}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Trades/Day:</span>
-          <span className="font-medium">{data.avgTradesPerDay.toFixed(1)}</span>
+          <span className="text-muted-foreground">Tokens/Day:</span>
+          <span className="font-medium">{data.uniqueTokensPerDay.toFixed(1)}</span>
         </div>
       </div>
 
@@ -427,10 +428,10 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
         <div className="text-xs text-muted-foreground mt-1">Win Rate</div>
       </div>
 
-      {/* Avg Trades/Day */}
+      {/* Unique Tokens/Day */}
       <div className="text-center">
-        <div className="text-lg font-bold">{data.avgTradesPerDay.toFixed(1)}</div>
-        <div className="text-xs text-muted-foreground mt-1">Trades/Day</div>
+        <div className="text-lg font-bold">{data.uniqueTokensPerDay.toFixed(1)}</div>
+        <div className="text-xs text-muted-foreground mt-1">Tokens/Day</div>
       </div>
 
       {/* Conditional Badges */}

@@ -132,7 +132,7 @@ export const WalletHudInline = memo(function WalletHudInline({ data, className }
         <span className="text-muted-foreground">/</span>
         <span className="text-foreground">{formatNumber(data.medianPnlPerToken)}</span>
         <span className="text-muted-foreground">{formatPercent(data.winRate)} WR</span>
-        <span className="text-muted-foreground">{data.avgTradesPerDay.toFixed(1)} T/D</span>
+        <span className="text-muted-foreground">{data.uniqueTokensPerDay.toFixed(1)} T/D</span>
 
         {data.isBot && (
           <Tooltip>
