@@ -188,7 +188,7 @@ export class BatchWalletHudRequestDto {
     description: 'Array of wallet addresses to fetch HUD data for (max 200)',
     example: [
       '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin',
-      '8xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin',
+      'Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7',
     ],
     type: [String],
   })

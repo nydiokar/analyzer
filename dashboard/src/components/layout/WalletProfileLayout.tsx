@@ -459,6 +459,13 @@ export default function WalletProfileLayout({
         await globalMutate(
           (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/behavioral-patterns`),
         );
+        // Invalidate HUD cache so the overlay re-fetches after analysis
+        await globalMutate(
+          (key) => typeof key === 'string' && (
+            key === `/wallets/${walletAddress}/hud` ||
+            (key.startsWith(`/wallets/hud/batch:`) && key.includes(walletAddress))
+          ),
+        );
       } catch (error) {
         console.error('Error refreshing wallet summary after completion', error);
       }

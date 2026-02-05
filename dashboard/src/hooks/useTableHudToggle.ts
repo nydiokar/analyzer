@@ -10,11 +10,17 @@ export function useTableHudToggle(rowIds: string[]) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!showHud) {
-      setExpandedRows(new Set());
-      return;
-    }
-    setExpandedRows(new Set(normalizedIds));
+    setExpandedRows((prev) => {
+      if (!showHud) {
+        return prev.size === 0 ? prev : new Set();
+      }
+
+      if (prev.size === normalizedIds.length && normalizedIds.every((id) => prev.has(id))) {
+        return prev;
+      }
+
+      return new Set(normalizedIds);
+    });
   }, [showHud, normalizedIds]);
 
   const toggleAll = useCallback(() => {

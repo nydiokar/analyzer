@@ -31,7 +31,7 @@ const SAMPLE_WALLETS = [
   },
   {
     label: 'Sample Wallet 2',
-    address: '8xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin',
+    address: 'Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7',
     description: 'Test wallet with partial data',
   },
   {

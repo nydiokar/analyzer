@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import useSWR from 'swr';
-import { CACHE_DURATIONS, createCacheKey } from '@/lib/swr-config';
+import { createCacheKey } from '@/lib/swr-config';
+import { fetcher } from '@/lib/fetcher';
 import type { BatchWalletHudResponse, WalletHudDto } from '@/types/api';
 
 interface BatchHudOptions {
@@ -8,8 +10,10 @@ interface BatchHudOptions {
 
 export function useBatchWalletHud(walletAddresses: string[], options: BatchHudOptions = {}) {
   const { enabled = true } = options;
-  const normalizedAddresses = Array.from(new Set(walletAddresses.filter(Boolean)));
-  const sortedAddresses = [...normalizedAddresses].sort();
+  const sortedAddresses = useMemo(
+    () => [...new Set(walletAddresses.filter(Boolean))].sort(),
+    [walletAddresses]
+  );
   const swrKey =
     enabled && sortedAddresses.length > 0
       ? createCacheKey.walletHudBatch(sortedAddresses)
@@ -18,23 +22,15 @@ export function useBatchWalletHud(walletAddresses: string[], options: BatchHudOp
   const swr = useSWR<BatchWalletHudResponse>(
     swrKey,
     async () => {
-      const response = await fetch('/api/wallets/hud/batch', {
+      const response = await fetcher('/wallets/hud/batch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walletAddresses: sortedAddresses }),
       });
-
-      if (!response.ok) {
-        const error: any = new Error('Failed to fetch batch HUD data');
-        error.status = response.status;
-        throw error;
-      }
-
-      return response.json();
+      return response as BatchWalletHudResponse;
     },
     {
       revalidateOnFocus: false,
-      dedupingInterval: CACHE_DURATIONS.WALLET_HUD,
+      dedupingInterval: 0,
       refreshInterval: 0,
       revalidateIfStale: true,
       keepPreviousData: true,

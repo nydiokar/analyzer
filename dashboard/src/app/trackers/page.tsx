@@ -128,6 +128,8 @@ export default function TrackersPage() {
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [importCollection, setImportCollection] = useState('');
   const [importJobsInProgress, setImportJobsInProgress] = useState<string[]>([]);
+  const importJobsRef = useRef(importJobsInProgress);
+  importJobsRef.current = importJobsInProgress;
 
   // Extract unique collections and count wallets per collection
   const allCollections = useMemo(() => {
@@ -158,20 +160,20 @@ export default function TrackersPage() {
       // Progress updates handled by internal hook state
     }, []),
     onJobCompleted: useCallback((data) => {
-      if (importJobsInProgress.includes(data.jobId)) {
+      if (importJobsRef.current.includes(data.jobId)) {
         setImportJobsInProgress(prev => prev.filter(id => id !== data.jobId));
         mutateFavorites();
-        if (importJobsInProgress.length === 1) {
+        if (importJobsRef.current.length === 1) {
           toast.success('All imported wallets analyzed!');
         }
       }
-    }, [importJobsInProgress, mutateFavorites]),
+    }, [mutateFavorites]),
     onJobFailed: useCallback((data) => {
-      if (importJobsInProgress.includes(data.jobId)) {
+      if (importJobsRef.current.includes(data.jobId)) {
         setImportJobsInProgress(prev => prev.filter(id => id !== data.jobId));
         toast.error('Analysis failed', { description: data.error || 'Unknown error' });
       }
-    }, [importJobsInProgress]),
+    }, []),
     onEnrichmentComplete: useCallback(() => {
       // Not needed for import tracking
     }, []),
@@ -593,7 +595,7 @@ export default function TrackersPage() {
       setIsImporting(false);
       setImportCollection('');
     }
-  }, [favoriteWallets, importCollection, mutateFavorites, subscribeToJob, importJobsInProgress]);
+  }, [favoriteWallets, importCollection, mutateFavorites, subscribeToJob]);
 
   const handleClearAllWallets = useCallback(async () => {
     setIsClearingAll(true);

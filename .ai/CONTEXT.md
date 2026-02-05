@@ -1,6 +1,6 @@
 # Sova Intel - Project Context
 
-**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-02-03 • **Status:** 🟢 Active Development
+**Branch:** `discover-analytics-ux` • **Last Updated:** 2026-02-05 • **Status:** 🟢 Active Development
 
 ---
 
@@ -11,6 +11,7 @@
 | 📝 | HUD-WalletBadge Integration (Layer Overlay Pattern) | 🔶 | 3 display modes: inline expandable rows (tables), delayed hover tooltip (lists), expanded grid (profiles). See `.ai/HUD_INTEGRATION_PLAN.md` for full spec. |
 
 **Recently Completed:**
+- ✅ Fix: Stale HUD data on demo + profile pages after re-analysis (Feb 5)
 - ✅ WebSocket & Redis automatic reconnection (Feb 3)
 - ✅ Wallet HUD system implementation (Feb 2)
 - ✅ Batch analyze functionality in tracked wallets (Feb 1)
@@ -74,72 +75,24 @@
 
 </details>
 
----
-
-## 🎨 Similarity Lab UX Overhaul - Frame-by-Frame Design Refinement
-
-Working through Similarity Lab in detailed "frames" - treating each major section as a cohesive visual and functional unit. Each frame contains clusters of related components that must be understood holistically, not just as individual files.
-
-### Frame Structure (Current Work)
-
-**Frame 1: Wallet Input Area** ✅ Complete
-- Textarea for wallet/token addresses
-- Token holder picker (top holders table)
-- Modern loading animation with pulsing borders & shimmer effect
-- 10-15% side margins, 2-column layout (desktop), stacked (mobile)
-- **Status:** ✅ All refinements complete
-
-**Frame 2: Global Analysis Metrics** ✅ Complete
-- Wallets analyzed count with tooltip
-- Top pairs similarity score with status badges
-- Tokens analyzed (actively traded)
-- Current holdings value with median
-- Largest holding percentage
-- Top 5 most similar pairs with wallet badges
-- Score distribution chart (capital/behavioral/cumulative)
-- **Status:** ✅ Fully implemented with proper tooltips and visual hierarchy
-
-**Frame 3: Pair Insights** 🔄 Next Priority
-- Wallet pairs list with improved color schema
-- Better alignment with score distribution
-- Deep dive functionality (currently only shows shared tokens)
-- Color contradictions to be resolved
-- **Issues:**
-  - Wallet pairs not clearly indicating high shared token count vs high ratio
-  - Shared tokens display lacks structure (tokens "hanging in air")
-  - Token prices appearing stale/not using already-fetched metadata
-  - Need better visual hierarchy and context for shared tokens
-
-### Working Protocol for Frames
-
-**When discussing a frame, AI must:**
-1. Visualize the complete component cluster
-2. Understand spatial relationships and layout
-3. Think about the frame as a cohesive unit, not individual files
-4. Create ASCII/text visualization before implementing
-5. Confirm understanding if anything is unclear
-
-**Implementation approach:**
-- Transform existing code (don't multiply/create redundant)
-- Align explicitly with the vision
-- Check holistically - not components, but clusters
-- Maintain visual consistency across frames
-
-### Task List Reference
-
-The following tasks are created to track frame-by-frame work:
-- **Task #6:** METHODOLOGY - Frame-by-frame explanation (reference doc)
-- **Task #2:** Frame 1 - Complete refinements (table styling, margins, text size)
-- **Task #1:** Frame 2 - Design and implement Global Analysis Metrics
-- **Task #4:** Frame 3 - Redesign Pair Insights with better colors
-- **Task #5:** Frame 4 - Optimize Token Analysis layout
-- **Task #3:** Frame 5 - Review Contextual Holdings
-
 Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` to mark progress.
 
 ---
 
 ## 📅 Recent Activity
+
+### February 5, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 05.1 | 🔧 | Fix: Stale HUD data on demo + profile pages after re-analysis | 🔸 | `useWalletHud.ts`, `useBatchWalletHud.ts`, `WalletProfileLayout.tsx` |
+| 05.2 | 🔧 | Fix: Batch HUD fetch hitting Next 404 instead of backend | 🔹 | `dashboard/src/hooks/useBatchWalletHud.ts`, `dashboard/src/hooks/useWalletHud.ts` |
+
+**Summary:**
+
+**05.1:** Fixed HUD showing stale data after wallet re-analysis on both the hud-demo page and the wallet profile page. **Root Cause - Two Issues:** (1) **SWR `dedupingInterval: 60s` blocked all refetches** — `dedupingInterval` means "don't make another request for this key if one was made in the last N ms." Combined with `refreshInterval: 0` and `revalidateOnFocus: false`, once HUD data was fetched SWR would serve the cached copy for 60s regardless of backend changes. A hard page refresh within that window still hit the in-memory cache. (2) **HUD keys were missing from `globalMutate` in `onJobCompleted`** — `WalletProfileLayout` already invalidated summary, token-performance, pnl-overview, and behavioral-patterns after analysis completed, but the HUD single and batch cache keys were never included. Nothing told SWR "go refetch" for HUD. The backend was fine throughout: `invalidateCache()` was correctly called in the processor after PNL, behavior, and dashboard analysis, and the Redis key was deleted. **The Fix:** (1) Set `dedupingInterval: 0` on `useWalletHud`, `useWalletHudBatch`, and `useBatchWalletHud` — deduping at 60s was overly aggressive and redundant with `refreshInterval: 0`; concurrent mounts still dedupe naturally via SWR's internal flight-merging. (2) Added `globalMutate` for `/wallets/{address}/hud` and batch HUD keys (matching by address inclusion) in `WalletProfileLayout`'s `onJobCompleted`, alongside the existing invalidations. **Files:** `useWalletHud.ts` (dedupingInterval 60s→0, removed unused CACHE_DURATIONS import), `useBatchWalletHud.ts` (same), `WalletProfileLayout.tsx` (added HUD key invalidation in onJobCompleted).
+
+**05.2:** Fixed batch HUD requests returning Next.js 404 HTML because frontend was calling `/api/wallets/hud/batch` (no route) while rewrites only proxy `/api/v1/*`. **Root Cause:** Direct `fetch('/api/...')` bypassed the shared `fetcher` base URL and rewrite logic. **Fix:** Route batch HUD through the shared `fetcher` so it resolves to the backend API base (`/api/v1/wallets/hud/batch` or configured base URL). **Files:** `dashboard/src/hooks/useBatchWalletHud.ts`, `dashboard/src/hooks/useWalletHud.ts`.
 
 ### February 3, 2026
 
@@ -361,6 +314,12 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-03 • **Branch:** `discover-analytics-ux`
+**Last Updated:** 2026-02-05 • **Branch:** `discover-analytics-ux`
+
+
+
+
+
+
 
 

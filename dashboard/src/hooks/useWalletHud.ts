@@ -1,7 +1,7 @@
 import useSWR from 'swr';
 import { fetcher } from '@/lib/fetcher';
 import { WalletHudDto, BatchWalletHudResponse } from '@/types/api';
-import { createCacheKey, CACHE_DURATIONS } from '@/lib/swr-config';
+import { createCacheKey } from '@/lib/swr-config';
 
 /**
  * Hook for fetching Wallet HUD (Heads-Up Display) data for a single wallet.
@@ -33,8 +33,8 @@ export function useWalletHud(walletAddress: string | null) {
     fetcher,
     {
       revalidateOnFocus: false,
-      dedupingInterval: CACHE_DURATIONS.WALLET_HUD, // 60s deduplication
-      refreshInterval: 0, // NO auto-refresh - data only changes on wallet re-analysis
+      dedupingInterval: 0, // Don't block refetches - data changes on wallet re-analysis
+      refreshInterval: 0, // NO auto-refresh - mutate() is called after analysis completes
       revalidateIfStale: true,
       keepPreviousData: true, // Prevent UI flicker during revalidation
     }
@@ -80,24 +80,16 @@ export function useWalletHudBatch(walletAddresses: string[]) {
     async () => {
       // Custom fetcher for POST request
       // IMPORTANT: Use original order for request, not sorted for cache consistency
-      const response = await fetch('/api/wallets/hud/batch', {
+      const response = await fetcher('/wallets/hud/batch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walletAddresses: sortedAddresses }),
       });
-
-      if (!response.ok) {
-        const error: any = new Error('Failed to fetch batch HUD data');
-        error.status = response.status;
-        throw error;
-      }
-
-      return response.json();
+      return response as BatchWalletHudResponse;
     },
     {
       revalidateOnFocus: false,
-      dedupingInterval: CACHE_DURATIONS.WALLET_HUD, // 60s deduplication
-      refreshInterval: 0, // No auto-refresh for batch (use manual mutate if needed)
+      dedupingInterval: 0, // Don't block refetches - mutate() is called after analysis completes
+      refreshInterval: 0, // No auto-refresh for batch
       revalidateIfStale: true,
       keepPreviousData: true, // Prevent UI flicker during revalidation
     }
