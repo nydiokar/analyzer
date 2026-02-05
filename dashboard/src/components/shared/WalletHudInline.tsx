@@ -88,7 +88,8 @@ export const WalletHudInline = memo(function WalletHudInline({ data, className }
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className={`flex flex-wrap items-center gap-2 text-xs ${className || ''}`}>
+      <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs ${className || ''}`}>
+        {/* Data Quality Badge */}
         <Tooltip>
           <TooltipTrigger asChild>
             <span className={qualityConfig.color}>{qualityConfig.emoji}</span>
@@ -105,6 +106,7 @@ export const WalletHudInline = memo(function WalletHudInline({ data, className }
           </TooltipContent>
         </Tooltip>
 
+        {/* Behavior Code + Hold Time */}
         <Tooltip>
           <TooltipTrigger asChild>
             <span className={`font-semibold ${behaviorColor}`}>
@@ -128,12 +130,20 @@ export const WalletHudInline = memo(function WalletHudInline({ data, className }
           </TooltipContent>
         </Tooltip>
 
-        <span className={`font-medium ${pnlColor}`}>{formatPnl(data.trimmedMeanPnl)}</span>
-        <span className="text-muted-foreground">/</span>
-        <span className="text-foreground">{formatNumber(data.medianPnlPerToken)}</span>
-        <span className="text-muted-foreground">{formatPercent(data.winRate)} WR</span>
-        <span className="text-muted-foreground">{data.uniqueTokensPerDay.toFixed(1)} T/D</span>
+        {/* PNL Metrics */}
+        <span className="flex items-center gap-1.5">
+          <span className={`font-medium ${pnlColor}`}>{formatPnl(data.trimmedMeanPnl)}</span>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-foreground">{formatNumber(data.medianPnlPerToken)}</span>
+        </span>
 
+        {/* Win Rate */}
+        <span className="text-muted-foreground whitespace-nowrap">{formatPercent(data.winRate)} WR</span>
+
+        {/* Tokens per Day */}
+        <span className="text-muted-foreground whitespace-nowrap">{data.uniqueTokensPerDay.toFixed(1)} T/D</span>
+
+        {/* Bot Badge */}
         {data.isBot && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -145,6 +155,7 @@ export const WalletHudInline = memo(function WalletHudInline({ data, className }
           </Tooltip>
         )}
 
+        {/* Whale Badge */}
         {data.isWhale && (
           <Tooltip>
             <TooltipTrigger asChild>

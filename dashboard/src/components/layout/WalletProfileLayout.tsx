@@ -1181,9 +1181,20 @@ export default function WalletProfileLayout({
                   )}
                 </div>
                 <ExpandedAnalysisControl />
-                <div className="mt-2 w-full">
-                  <h3 className="text-xs font-semibold text-muted-foreground mb-2">Performance HUD</h3>
-                  <WalletHudOverlay walletAddress={walletAddress} display="expanded" />
+
+                {/* Compact HUD Display - Better integration */}
+                <div className="mt-3 w-full">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <h3 className="text-xs font-semibold text-muted-foreground">Performance HUD</h3>
+                    {walletSummary?.classification === 'high_frequency' && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-400">
+                        High Frequency
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="bg-muted/30 border rounded-lg p-3">
+                    <WalletHudOverlay walletAddress={walletAddress} display="inline" className="flex-wrap" />
+                  </div>
                 </div>
               </>
             )}

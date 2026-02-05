@@ -146,7 +146,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
                   <p className="text-muted-foreground">
-                    Total value + median hold for current positions &gt;= 0.3 SOL.
+                    Total value and median hold time for current positions &gt;= 0.3 SOL.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -343,13 +343,18 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                   )}
                 </tr>
                 {showHud && isRowExpanded(profile.walletAddress) && (
-                  <tr className="bg-muted/30 transition-all duration-200 ease-in-out">
-                    <td colSpan={999} className="py-2 px-4">
-                      {hudData?.[profile.walletAddress] ? (
-                        <WalletHudInline data={hudData[profile.walletAddress]} />
-                      ) : (
-                        <div className="text-xs text-muted-foreground">Loading HUD data...</div>
-                      )}
+                  <tr className="bg-muted/30 border-l-2 border-l-primary/40 transition-all duration-200 ease-in-out">
+                    <td colSpan={999} className="py-3 px-4 pl-6">
+                      <div className="bg-background/40 border border-border/60 rounded-lg p-2.5 shadow-sm">
+                        {hudData?.[profile.walletAddress] ? (
+                          <WalletHudInline data={hudData[profile.walletAddress]} className="text-xs" />
+                        ) : (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span>Loading HUD data...</span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )}
