@@ -3,7 +3,7 @@
 import { memo } from 'react';
 import { useWalletHud } from '@/hooks/useWalletHud';
 import { DataQualityTier, BEHAVIOR_CODES } from '@/types/api';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
  * Wallet HUD (Heads-Up Display) Overlay Component
@@ -196,90 +196,92 @@ const InlineDisplay = memo(function InlineDisplay({
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
 
   return (
-    <div className={`flex items-center gap-2 text-xs ${className || ''}`}>
-      {/* Data Quality Emoji */}
-      <Tooltip>
-        <TooltipTrigger>
-          <span className={qualityConfig.color}>{qualityConfig.emoji}</span>
-        </TooltipTrigger>
-        <TooltipContent>
-          <div className="text-xs space-y-1">
-            <div>{data.dataQualityTier} tier data quality</div>
-            {data.provenance?.dataRange && (
-              <div className="text-muted-foreground">
-                Data range: {formatDateRange(data.provenance.dataRange.from, data.provenance.dataRange.to)}
-              </div>
-            )}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-
-      {/* Behavior Code + Median Hold Time */}
-      <Tooltip>
-        <TooltipTrigger>
-          <span className={`font-semibold ${behaviorColor}`}>
-            {data.behaviorCode}
-            {formatHoldTime(data.medianHoldTimeHours) && (
-              <span className="text-muted-foreground font-normal ml-0.5">
-                {formatHoldTime(data.medianHoldTimeHours)}
-              </span>
-            )}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>
-          <div className="text-xs">
-            {data.behaviorCategory || 'Unknown behavior'}
-            {data.medianHoldTimeHours !== undefined && (
-              <div className="text-muted-foreground mt-0.5">
-                Median hold: {formatHoldTime(data.medianHoldTimeHours)}
-              </div>
-            )}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-
-      {/* Trimmed Mean PNL */}
-      <span className={`font-medium ${pnlColor}`}>
-        {formatPnl(data.trimmedMeanPnl)}
-      </span>
-
-      <span className="text-muted-foreground">/</span>
-
-      {/* Median PNL */}
-      <span className="text-foreground">{formatNumber(data.medianPnlPerToken)}</span>
-
-      {/* Win Rate */}
-      <span className="text-muted-foreground">{formatPercent(data.winRate)} WR</span>
-
-      {/* Unique Tokens/Day */}
-      <span className="text-muted-foreground">{data.uniqueTokensPerDay.toFixed(1)} T/D</span>
-
-      {/* Conditional Badges */}
-      {data.isBot && (
+    <TooltipProvider>
+      <div className={`flex items-center gap-2 text-xs ${className || ''}`}>
+        {/* Data Quality Emoji */}
         <Tooltip>
           <TooltipTrigger>
-            <span>🤖</span>
+            <span className={qualityConfig.color}>{qualityConfig.emoji}</span>
           </TooltipTrigger>
           <TooltipContent>
-            <div className="text-xs">Bot detected ({data.uniqueTokensPerDay.toFixed(1)} tokens/day)</div>
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {data.isWhale && (
-        <Tooltip>
-          <TooltipTrigger>
-            <span>🐋</span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <div className="text-xs">
-              Whale wallet (Portfolio: {data.currentHoldingsSol.toFixed(1)} SOL
-              {data.currentHoldingsUsd && ` / $${formatNumber(Math.abs(data.currentHoldingsUsd))}`})
+            <div className="text-xs space-y-1">
+              <div>{data.dataQualityTier} tier data quality</div>
+              {data.provenance?.dataRange && (
+                <div className="text-muted-foreground">
+                  Data range: {formatDateRange(data.provenance.dataRange.from, data.provenance.dataRange.to)}
+                </div>
+              )}
             </div>
           </TooltipContent>
         </Tooltip>
-      )}
-    </div>
+
+        {/* Behavior Code + Median Hold Time */}
+        <Tooltip>
+          <TooltipTrigger>
+            <span className={`font-semibold ${behaviorColor}`}>
+              {data.behaviorCode}
+              {formatHoldTime(data.medianHoldTimeHours) && (
+                <span className="text-muted-foreground font-normal ml-0.5">
+                  {formatHoldTime(data.medianHoldTimeHours)}
+                </span>
+              )}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <div className="text-xs">
+              {data.behaviorCategory || 'Unknown behavior'}
+              {data.medianHoldTimeHours !== undefined && (
+                <div className="text-muted-foreground mt-0.5">
+                  Median hold: {formatHoldTime(data.medianHoldTimeHours)}
+                </div>
+              )}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Trimmed Mean PNL */}
+        <span className={`font-medium ${pnlColor}`}>
+          {formatPnl(data.trimmedMeanPnl)}
+        </span>
+
+        <span className="text-muted-foreground">/</span>
+
+        {/* Median PNL */}
+        <span className="text-foreground">{formatNumber(data.medianPnlPerToken)}</span>
+
+        {/* Win Rate */}
+        <span className="text-muted-foreground">{formatPercent(data.winRate)} WR</span>
+
+        {/* Unique Tokens/Day */}
+        <span className="text-muted-foreground">{data.uniqueTokensPerDay.toFixed(1)} T/D</span>
+
+        {/* Conditional Badges */}
+        {data.isBot && (
+          <Tooltip>
+            <TooltipTrigger>
+              <span>🤖</span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div className="text-xs">Bot detected ({data.uniqueTokensPerDay.toFixed(1)} tokens/day)</div>
+            </TooltipContent>
+          </Tooltip>
+        )}
+
+        {data.isWhale && (
+          <Tooltip>
+            <TooltipTrigger>
+              <span>🐋</span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div className="text-xs">
+                Whale wallet (Portfolio: {data.currentHoldingsSol.toFixed(1)} SOL
+                {data.currentHoldingsUsd && ` / $${formatNumber(Math.abs(data.currentHoldingsUsd))}`})
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    </TooltipProvider>
   );
 });
 

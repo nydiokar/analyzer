@@ -5,9 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { WalletHudInline } from '@/components/shared/WalletHudInline';
-import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
-import { useTableHudToggle } from '@/hooks/useTableHudToggle';
+import { useWalletHudCache } from '@/hooks/useWalletHudCache';
 import { Loader2, Bookmark, Copy, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTopHolders } from '@/hooks/useTopHolders';
 import type { TopHolderItem } from '@/types/api';
@@ -37,8 +35,7 @@ export function TokenHolderPicker({
     () => holders.map(h => h.ownerAccount || h.tokenAccount).filter(Boolean),
     [holders]
   );
-  const { showHud, toggleAll, toggleRow, isRowExpanded } = useTableHudToggle(holderAddresses);
-  const { data: hudData, isLoading: isHudLoading } = useBatchWalletHud(holderAddresses, { enabled: showHud });
+  const { data: hudData } = useWalletHudCache(holderAddresses, { proactiveFetch: true });
 
   // Auto-select top 10 on first load (only when holders first load)
   const [hasAutoSelected, setHasAutoSelected] = useState(false);
@@ -123,16 +120,6 @@ export function TokenHolderPicker({
             {selectedAddresses.length} / {holders.length}
           </span>
           <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleAll}
-              className="h-6 text-xs px-2"
-              aria-label={showHud ? 'Hide HUD' : 'Show HUD'}
-            >
-              {isHudLoading && showHud ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
-              {showHud ? 'Hide HUD' : 'Show HUD'}
-            </Button>
             {onTrackSelected && (
               <TooltipProvider delayDuration={150}>
                 <Tooltip>
@@ -176,13 +163,12 @@ export function TokenHolderPicker({
         <div className="w-full">
           {/* Minimal Header */}
           <div
-            className={`sticky top-0 grid ${showHud ? 'grid-cols-[20px_28px_minmax(0,1fr)_56px_24px]' : 'grid-cols-[20px_28px_minmax(0,1fr)_56px]'} gap-0.5 px-1.5 py-1.5 text-xs font-semibold text-muted-foreground border-b bg-muted/90 backdrop-blur`}
+            className="sticky top-0 grid grid-cols-[20px_28px_minmax(0,1fr)_56px] gap-0.5 px-1.5 py-1.5 text-xs font-semibold text-muted-foreground border-b bg-muted/90 backdrop-blur"
           >
             <div></div>
             <div>#</div>
             <div>Wallet</div>
             <div className="text-right">% Hold</div>
-            {showHud && <div></div>}
           </div>
 
           {/* Ultra Compact Rows */}
@@ -199,7 +185,7 @@ export function TokenHolderPicker({
             return (
               <div key={key} className="border-b last:border-0">
                 <div
-                  className={`grid ${showHud ? 'grid-cols-[20px_28px_minmax(0,1fr)_56px_24px]' : 'grid-cols-[20px_28px_minmax(0,1fr)_56px]'} items-center gap-0.5 px-1.5 py-1 text-[10px] hover:bg-muted/30 transition-colors ${
+                  className={`grid grid-cols-[20px_28px_minmax(0,1fr)_56px] items-center gap-0.5 px-1.5 py-1 text-[10px] hover:bg-muted/30 transition-colors ${
                     isUnknown ? 'opacity-50' : ''
                   }`}
                 >
@@ -220,33 +206,14 @@ export function TokenHolderPicker({
                       variant="minimal"
                       showActions={true}
                       visibleActions={{ copy: true, solscan: false, profile: false }}
-                      showHud={false}
+                      showHud={true}
+                      hudData={hudData?.[key]}
                     />
                   </div>
                   <div className="text-right font-mono text-xs font-semibold tabular-nums">
                     {percentHolding >= 0.01 ? `${percentHolding.toFixed(2)}%` : '<0.01%'}
                   </div>
-                  {showHud && (
-                    <button
-                      type="button"
-                      onClick={() => toggleRow(key)}
-                      aria-label={isRowExpanded(key) ? 'Collapse HUD row' : 'Expand HUD row'}
-                      aria-expanded={isRowExpanded(key)}
-                      className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-muted/60 text-muted-foreground"
-                    >
-                      {isRowExpanded(key) ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                    </button>
-                  )}
                 </div>
-                {showHud && isRowExpanded(key) && (
-                  <div className="px-2 py-1.5 bg-muted/20 transition-all duration-200 ease-in-out">
-                    {hudData?.[key] ? (
-                      <WalletHudInline data={hudData[key]} />
-                    ) : (
-                      <div className="text-xs text-muted-foreground">Loading HUD data...</div>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}

@@ -14,9 +14,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { WalletHudInline } from '@/components/shared/WalletHudInline';
-import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
-import { useTableHudToggle } from '@/hooks/useTableHudToggle';
+import { useWalletHudCache } from '@/hooks/useWalletHudCache';
 import type { WalletHudDto } from '@/types/api';
 
 interface EnhancedKeyInsightsProps {
@@ -101,9 +99,6 @@ interface PairCardProps {
   onSelect: () => void;
   walletLabels?: CombinedSimilarityResult['walletLabels'];
   uniqueTokensPerWallet?: Record<string, { binary: number; capital: number }>;
-  showHud: boolean;
-  isHudExpanded: boolean;
-  onToggleHud: () => void;
   hudDataA?: WalletHudDto;
   hudDataB?: WalletHudDto;
 }
@@ -124,7 +119,7 @@ const generateRealisticInsight = (pair: CombinedPairwiseSimilarity, overallScore
 };
 
 // Simplified PairCard using SimilarityPairRibbon design language
-const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLabels, uniqueTokensPerWallet, showHud, isHudExpanded, onToggleHud, hudDataA, hudDataB }: PairCardProps) => {
+const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLabels, uniqueTokensPerWallet, hudDataA, hudDataB }: PairCardProps) => {
   const { insight, pair } = processedPair;
   const overallScore = calculateOverallScore(pair.binaryScore, pair.capitalScore);
   const scoreInfo = getScoreLevel(overallScore);
@@ -225,20 +220,6 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
                   <p className="text-muted-foreground">Higher percentages - more similar investment patterns.</p>
                 </TooltipContent>
               </Tooltip>
-              {showHud && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleHud();
-                  }}
-                  aria-label={isHudExpanded ? 'Collapse HUD rows' : 'Expand HUD rows'}
-                  aria-expanded={isHudExpanded}
-                  className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-muted/50 text-muted-foreground"
-                >
-                  {isHudExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </button>
-              )}
             </div>
           </div>
 
@@ -250,7 +231,8 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
               knownType={labelA?.knownType}
               knownLabel={labelA?.knownLabel}
               visibleActions={{ copy: false, solscan: false, profile: true }}
-              showHud={false}
+              showHud={true}
+              hudData={hudDataA}
             />
             <span className="text-foreground/30 shrink-0">↔</span>
             <WalletBadge
@@ -259,30 +241,10 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
               knownType={labelB?.knownType}
               knownLabel={labelB?.knownLabel}
               visibleActions={{ copy: false, solscan: false, profile: true }}
-              showHud={false}
+              showHud={true}
+              hudData={hudDataB}
             />
           </div>
-
-          {showHud && isHudExpanded && (
-            <div className="mt-2 pt-2 border-t border-border/40 space-y-1 text-xs transition-all duration-200 ease-in-out">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground w-8">A</span>
-                {hudDataA ? (
-                  <WalletHudInline data={hudDataA} />
-                ) : (
-                  <span className="text-xs text-muted-foreground">Loading HUD data...</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground w-8">B</span>
-                {hudDataB ? (
-                  <WalletHudInline data={hudDataB} />
-                ) : (
-                  <span className="text-xs text-muted-foreground">Loading HUD data...</span>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Score bars */}
           <div className="flex gap-2">
@@ -343,9 +305,9 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
               <TooltipContent side="bottom" className="text-xs max-w-xs">
                 <div className="space-y-1">
                   <p className="font-semibold text-foreground">{pair.binarySharedTokenCount} tokens held by both wallets</p>
-                  <p className="text-muted-foreground">Out of {uniqueTokensA} & {uniqueTokensB} unique tokens total</p>
-                  <p className="text-muted-foreground">Represents {overlapRatioA.toFixed(1)}% of Wallet A's portfolio</p>
-                  <p className="text-muted-foreground">Represents {overlapRatioB.toFixed(1)}% of Wallet B's portfolio</p>
+                  <p className="text-muted-foreground">Out of {uniqueTokensA} &amp; {uniqueTokensB} unique tokens total</p>
+                  <p className="text-muted-foreground">Represents {overlapRatioA.toFixed(1)}% of Wallet A&apos;s portfolio</p>
+                  <p className="text-muted-foreground">Represents {overlapRatioB.toFixed(1)}% of Wallet B&apos;s portfolio</p>
                 </div>
               </TooltipContent>
             </Tooltip>
@@ -477,11 +439,6 @@ interface PairGridProps {
 }
 
 const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, walletLabels, uniqueTokensPerWallet, isLoading }: PairGridProps & { isLoading?: boolean }) => {
-  const pairIds = useMemo(
-    () => processedPairs.map(p => generatePairId(p.pair.walletA, p.pair.walletB)),
-    [processedPairs]
-  );
-  const { showHud, toggleAll, toggleRow, isRowExpanded } = useTableHudToggle(pairIds);
   const walletAddresses = useMemo(() => {
     const set = new Set<string>();
     processedPairs.forEach(p => {
@@ -490,7 +447,7 @@ const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, 
     });
     return Array.from(set);
   }, [processedPairs]);
-  const { data: hudData, isLoading: isHudLoading } = useBatchWalletHud(walletAddresses, { enabled: showHud });
+  const { data: hudData } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
 
   if (isLoading) {
     return <PairGridSkeleton />;
@@ -500,24 +457,12 @@ const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, 
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-semibold">Wallet Pairs</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">{processedPairs.length} pairs</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleAll}
-            className="h-7 text-xs gap-2"
-            aria-label={showHud ? 'Hide HUD' : 'Show HUD'}
-          >
-            {isHudLoading && showHud ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            {showHud ? 'Hide HUD' : 'Show HUD'}
-          </Button>
-        </div>
+        <span className="text-[10px] text-muted-foreground">{processedPairs.length} pairs</span>
       </div>
       <ScrollArea className="h-[600px]">
         <div className="grid gap-2 pr-3">
-          {processedPairs.map((processedPair, index) => {
-            const pairId = pairIds[index];
+          {processedPairs.map((processedPair) => {
+            const pairId = generatePairId(processedPair.pair.walletA, processedPair.pair.walletB);
             return (
               <PairCard
                 key={pairId}
@@ -527,9 +472,6 @@ const PairGrid = memo(({ processedPairs, sortKey, selectedPairId, onSelectPair, 
                 onSelect={() => onSelectPair(pairId)}
                 walletLabels={walletLabels}
                 uniqueTokensPerWallet={uniqueTokensPerWallet}
-                showHud={showHud}
-                isHudExpanded={isRowExpanded(pairId)}
-                onToggleHud={() => toggleRow(pairId)}
                 hudDataA={hudData?.[processedPair.pair.walletA]}
                 hudDataB={hudData?.[processedPair.pair.walletB]}
               />

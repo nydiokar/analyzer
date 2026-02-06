@@ -21,6 +21,8 @@ import { format, formatDistanceToNow } from "date-fns";
 import type { FavoriteWallet, WalletHudDto, KnownWalletType } from "@/types/api";
 import { useFavorites } from "@/hooks/useFavorites";
 import { WalletHudOverlay } from "@/components/shared/WalletHudOverlay";
+import { WalletHudBadge } from "@/components/shared/WalletHudBadge";
+import { stripHudEncoding } from "@/lib/wallet-name-encoding";
 
 export interface WalletMetrics {
   totalBuys?: number | null;
@@ -267,10 +269,13 @@ const WalletBadge = memo(({
   // Check if this is a known/system wallet that shouldn't show trading metrics
   const isKnownWallet = Boolean(normalizedKnownType || knownLabel);
   const shouldDimMetrics = isKnownWallet;
-  const displayLabel = favoriteData?.nickname ?? knownLabel ?? truncateAddress(address);
-  const showSecondaryLabel = Boolean(favoriteData?.nickname || knownLabel);
+  const displayNickname = favoriteData?.nickname
+    ? stripHudEncoding(favoriteData.nickname) || undefined
+    : undefined;
+  const displayLabel = displayNickname ?? knownLabel ?? truncateAddress(address);
+  const showSecondaryLabel = Boolean(displayNickname || knownLabel);
   const secondaryLabel = showSecondaryLabel ? truncateAddress(address) : null;
-  const isKnownLabelOnly = Boolean(knownLabel) && !favoriteData?.nickname;
+  const isKnownLabelOnly = Boolean(knownLabel) && !displayNickname;
 
   const normalizedSize =
     size === "sm" ? "s" : size === "md" ? "m" : size === "lg" ? "l" : size;
@@ -427,82 +432,99 @@ const WalletBadge = memo(({
   if (variant === "minimal") {
     return renderWithHud(
       <TooltipProvider>
-        <div className={cn("flex items-center gap-1.5", className)}>
-          {/* Small wallet icon for visual boundary */}
-          <div className="flex-shrink-0 h-5 w-5 rounded bg-muted/50 flex items-center justify-center">
-            <Wallet className="h-3 w-3 text-muted-foreground" />
-          </div>
+        <div className={cn("flex flex-col gap-0.5", className)}>
+          {/* Row 1: Wallet info + actions */}
+          <div className="flex items-center gap-1.5">
+            {/* Small wallet icon for visual boundary */}
+            <div className="flex-shrink-0 h-5 w-5 rounded bg-muted/50 flex items-center justify-center">
+              <Wallet className="h-3 w-3 text-muted-foreground" />
+            </div>
 
-          {/* Name/Address - clickable to copy profile link */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={handleCopyProfileLink}
-                className={cn(
-                  "flex flex-col items-start text-sm transition-colors",
-                  isKnownWallet ? "text-muted-foreground" : "text-foreground hover:text-primary"
-                )}
-              >
-                <span
+            {/* Name/Address - clickable to copy profile link */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleCopyProfileLink}
                   className={cn(
-                    "font-semibold",
-                    showSecondaryLabel ? "text-foreground" : "font-mono",
-                    isKnownLabelOnly ? "text-xs font-medium" : "text-sm"
+                    "flex flex-col items-start text-sm transition-colors",
+                    isKnownWallet ? "text-muted-foreground" : "text-foreground hover:text-primary"
                   )}
                 >
-                  {displayLabel}
-                </span>
-                {secondaryLabel && (
-                  <span className="font-mono text-[0.7em] text-muted-foreground">
-                    {secondaryLabel}
-                  </span>
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="font-mono text-xs">{address}</p>
-              <p className="text-muted-foreground text-xs mt-1">Click to copy profile link</p>
-            </TooltipContent>
-          </Tooltip>
-
-          {/* Compact icon row */}
-          <div className="flex items-center gap-0.5">
-            {/* Favorite toggle button */}
-            {onFavoriteToggle && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleFavoriteToggle}
+                  <span
                     className={cn(
-                      "p-0.5 rounded transition-colors",
-                      isFavorite
-                        ? "text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20"
-                        : "text-muted-foreground hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                      "font-semibold",
+                      showSecondaryLabel ? "text-foreground" : "font-mono",
+                      isKnownLabelOnly ? "text-xs font-medium" : "text-sm"
                     )}
                   >
-                    {isFavorite ? (
-                      <Bookmark className="h-3 w-3 fill-purple-500" />
-                    ) : (
-                      <Bookmark className="h-3 w-3" />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent><p>{isFavorite ? "Remove from tracked" : "Add to tracked"}</p></TooltipContent>
-              </Tooltip>
-            )}
+                    {displayLabel}
+                  </span>
+                  {secondaryLabel && (
+                    <span className="font-mono text-[0.7em] text-muted-foreground">
+                      {secondaryLabel}
+                    </span>
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="font-mono text-xs">{address}</p>
+                <p className="text-muted-foreground text-xs mt-1">Click to copy profile link</p>
+              </TooltipContent>
+            </Tooltip>
 
-            {showActions && (
-              <ActionButtons
-                address={address}
-                iconSize="h-3 w-3"
-                visibleActions={visibleActions}
-                onCopyAddress={handleCopyAddress}
-                buttonSize="sm"
-              />
-            )}
+            {/* Compact icon row */}
+            <div className="flex items-center gap-0.5 ml-auto">
+              {/* Favorite toggle button */}
+              {onFavoriteToggle && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleFavoriteToggle}
+                      className={cn(
+                        "p-0.5 rounded transition-colors",
+                        isFavorite
+                          ? "text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                          : "text-muted-foreground hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                      )}
+                    >
+                      {isFavorite ? (
+                        <Bookmark className="h-3 w-3 fill-purple-500" />
+                      ) : (
+                        <Bookmark className="h-3 w-3" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>{isFavorite ? "Remove from tracked" : "Add to tracked"}</p></TooltipContent>
+                </Tooltip>
+              )}
+
+              {showActions && (
+                <ActionButtons
+                  address={address}
+                  iconSize="h-3 w-3"
+                  visibleActions={visibleActions}
+                  onCopyAddress={handleCopyAddress}
+                  buttonSize="sm"
+                />
+              )}
+            </div>
           </div>
+
+          {/* Row 2: HUD Badges (if available) - poker-style always-visible */}
+          {showHud && hudData && (
+            <Tooltip delayDuration={hudDelayMs}>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1.5 pl-6 cursor-help">
+                  <WalletHudBadge data={hudData} size="sm" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs">
+                <WalletHudOverlay walletAddress={address} display="tooltip" data={hudData} />
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </TooltipProvider>
     );

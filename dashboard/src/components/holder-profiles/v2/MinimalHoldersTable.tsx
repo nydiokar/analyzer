@@ -1,16 +1,13 @@
 import type { HolderProfile } from '../types';
-import { Fragment, useMemo } from 'react';
+import { useMemo } from 'react';
 import { formatHoldTime, formatPercentage, formatSol } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { Button } from '@/components/ui/button';
-import { WalletHudInline } from '@/components/shared/WalletHudInline';
-import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
-import { useTableHudToggle } from '@/hooks/useTableHudToggle';
-import { ChevronDown, ChevronUp, InfoIcon, Link2, Loader2 } from 'lucide-react';
+import { InfoIcon, Link2 } from 'lucide-react';
 import { CONNECTION_THRESHOLD } from './SimilaritySidebar';
 import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
+import { useWalletHudCache } from '@/hooks/useWalletHudCache';
 
 interface Props {
   profiles: HolderProfile[];
@@ -95,24 +92,11 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
     () => profiles.map((profile) => profile.walletAddress),
     [profiles]
   );
-  const { showHud, toggleAll, toggleRow, isRowExpanded } = useTableHudToggle(walletAddresses);
-  const { data: hudData, isLoading: isHudLoading } = useBatchWalletHud(walletAddresses, { enabled: showHud });
+  const { data: hudData } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
 
   return (
     <TooltipProvider delayDuration={150}>
     <div className="rounded-2xl border overflow-x-auto">
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/20">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={toggleAll}
-          aria-label={showHud ? 'Hide HUD' : 'Show HUD'}
-          className="gap-2"
-        >
-          {isHudLoading && showHud ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          {showHud ? 'Hide HUD' : 'Show HUD'}
-        </Button>
-      </div>
       <table className="w-full text-[13px] min-w-[800px]">
         <thead className="bg-muted/40">
           <tr>
@@ -152,7 +136,6 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
               </Tooltip>
             </th>
             <th className="text-left px-4 py-2">SOL Balance</th>
-            {showHud && <th className="text-right px-2 py-2 w-[36px]"></th>}
           </tr>
         </thead>
         <tbody>
@@ -199,17 +182,17 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
             };
 
             return (
-              <Fragment key={profile.walletAddress}>
-                <tr
-                  className={`border-t border-border/60 transition-colors duration-200 ${
-                    isHighlighted
-                      ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
-                      : onSelect
-                        ? 'cursor-pointer hover:bg-muted/40'
-                        : ''
-                  }`}
-                  onClick={handleRowClick}
-                >
+              <tr
+                key={profile.walletAddress}
+                className={`border-t border-border/60 transition-colors duration-200 ${
+                  isHighlighted
+                    ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
+                    : onSelect
+                      ? 'cursor-pointer hover:bg-muted/40'
+                      : ''
+                }`}
+                onClick={handleRowClick}
+              >
                   {mode === 'token' && <td className="px-2 py-2 text-muted-foreground whitespace-nowrap w-[56px]">#{profile.rank}</td>}
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2">
@@ -220,7 +203,8 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                         knownLabel={profile.knownLabel}
                         isFavorite={isFavorite(profile.walletAddress)}
                         onFavoriteToggle={() => openFavoriteDialog(profile.walletAddress)}
-                        showHud={false}
+                        showHud={true}
+                        hudData={hudData?.[profile.walletAddress]}
                       />
                       {connectionCounts && connectionCounts.get(profile.walletAddress) ? (
                         <Tooltip>
@@ -325,40 +309,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                   <td className="px-4 py-2 text-[13px] tabular-nums select-text text-foreground whitespace-nowrap" data-interactive>
                     {formatSol(profile.solBalance)}
                   </td>
-                  {showHud && (
-                    <td className="px-2 py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleRow(profile.walletAddress);
-                        }}
-                        aria-label={isRowExpanded(profile.walletAddress) ? 'Collapse HUD row' : 'Expand HUD row'}
-                        aria-expanded={isRowExpanded(profile.walletAddress)}
-                        className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-muted/60 text-muted-foreground"
-                      >
-                        {isRowExpanded(profile.walletAddress) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      </button>
-                    </td>
-                  )}
                 </tr>
-                {showHud && isRowExpanded(profile.walletAddress) && (
-                  <tr className="bg-muted/30 border-l-2 border-l-primary/40 transition-all duration-200 ease-in-out">
-                    <td colSpan={999} className="py-3 px-4 pl-6">
-                      <div className="bg-background/40 border border-border/60 rounded-lg p-2.5 shadow-sm">
-                        {hudData?.[profile.walletAddress] ? (
-                          <WalletHudInline data={hudData[profile.walletAddress]} className="text-xs" />
-                        ) : (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>Loading HUD data...</span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
             );
           })}
         </tbody>

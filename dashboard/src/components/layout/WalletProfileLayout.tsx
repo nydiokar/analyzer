@@ -1128,14 +1128,14 @@ export default function WalletProfileLayout({
     <div className="flex flex-col w-full bg-muted/40">
       {/* Header - wallet info, summary, filters */}
       <div className="bg-background border-b shadow-sm">
-        <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-3 px-1 md:py-4">
+        <div className="container mx-auto py-3 px-1 md:py-4">
 
-          <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'>
-            {walletAddress && (
-              <>
-                <div className="flex flex-col gap-2">
+          {/* Row 1: Wallet Badge + Collections + Actions */}
+          <div className='flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-3 md:pl-11'>
+            <div className="flex flex-col gap-2">
+              {walletAddress && (
+                <>
                   <div className="flex items-center gap-2">
-                    {/* Use WalletBadge component with favorite data, toggle, and edit */}
                     <WalletBadge
                       address={walletAddress}
                       className="text-sm"
@@ -1149,7 +1149,6 @@ export default function WalletProfileLayout({
                       knownLabel={walletSummary?.knownLabel ?? undefined}
                     />
 
-                    {/* High-frequency wallet indicator */}
                     {isValidData && walletSummary?.classification === 'high_frequency' && (
                       <TooltipProvider delayDuration={100}>
                         <Tooltip>
@@ -1166,7 +1165,6 @@ export default function WalletProfileLayout({
                     )}
                   </div>
 
-                  {/* Collections Display */}
                   {currentFavoriteData && currentFavoriteData.collections && currentFavoriteData.collections.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 items-center">
                       {currentFavoriteData.collections.map((collection: string) => (
@@ -1179,41 +1177,37 @@ export default function WalletProfileLayout({
                       ))}
                     </div>
                   )}
-                </div>
-                <ExpandedAnalysisControl />
+                </>
+              )}
+            </div>
 
-                {/* Compact HUD Display - Better integration */}
-                <div className="mt-3 w-full">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <h3 className="text-xs font-semibold text-muted-foreground">Performance HUD</h3>
-                    {walletSummary?.classification === 'high_frequency' && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-400">
-                        High Frequency
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="bg-muted/30 border rounded-lg p-3">
-                    <WalletHudOverlay walletAddress={walletAddress} display="inline" className="flex-wrap" />
-                  </div>
-                </div>
-              </>
-            )}
+            <div className="flex items-center gap-2">
+              <ExpandedAnalysisControl />
+              <TimeRangeSelector />
+            </div>
           </div>
 
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-end gap-x-2 gap-y-2 mt-2 md:mt-0 flex-grow">
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-x-2 gap-y-2">
+          {/* Row 2: Summary Card + Performance HUD (side by side, centered) */}
+          {walletAddress && (
+            <div className="flex flex-col md:flex-row items-stretch justify-center gap-3 max-w-6xl mx-auto">
               <AccountSummaryCard
                 walletAddress={walletAddress}
-                className=""
+                className="flex-1"
                 triggerAnalysis={handleTriggerAnalysis}
                 isAnalyzingGlobal={isAnalyzing}
                 walletSummary={walletSummary}
                 summaryError={summaryError}
                 summaryIsLoading={!walletSummary && !summaryError}
               />
-              <TimeRangeSelector />
+
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <h3 className="text-xs font-semibold text-muted-foreground">Performance HUD</h3>
+                </div>
+                <WalletHudOverlay walletAddress={walletAddress} display="expanded" className="bg-muted/30" />
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 

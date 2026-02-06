@@ -281,7 +281,7 @@ export default function TrackersPage() {
     () => filteredWallets.map((wallet) => wallet.walletAddress),
     [filteredWallets]
   );
-  const { data: hudData } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
+  const { data: hudData, isLoading: isHudLoading, error: hudError } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
 
   const handleRemoveWallet = useCallback(async (walletAddress: string) => {
     try {
@@ -410,6 +410,24 @@ export default function TrackersPage() {
       return;
     }
 
+    if (mode === 'encode') {
+      const missingForTargets = targets.filter((wallet) => !hudData?.[wallet.walletAddress]).length;
+
+      if (isHudLoading && missingForTargets > 0) {
+        toast.info('HUD data is still loading', {
+          description: `Waiting for ${missingForTargets} wallet${missingForTargets === 1 ? '' : 's'} to finish HUD fetch.`,
+        });
+        return;
+      }
+
+      if (hudError && missingForTargets === targets.length) {
+        toast.error('HUD data unavailable', {
+          description: 'Could not fetch HUD metrics right now. Try again in a moment.',
+        });
+        return;
+      }
+    }
+
     setIsEncodingNames(true);
     try {
       const updates: Array<{ walletAddress: string; nickname: string }> = [];
@@ -491,7 +509,7 @@ export default function TrackersPage() {
     } finally {
       setIsEncodingNames(false);
     }
-  }, [favoriteWallets, resolveHudTargets, hudData, mutateFavorites, selectedWallets.size]);
+  }, [favoriteWallets, resolveHudTargets, hudData, isHudLoading, hudError, mutateFavorites, selectedWallets.size]);
 
   const handleImportWallets = useCallback(async (file: File) => {
     setIsImporting(true);
@@ -1077,7 +1095,7 @@ export default function TrackersPage() {
                         size="sm"
                         className="h-9"
                         onClick={() => handleHudNameTransform('encode')}
-                        disabled={isEncodingNames || !favoriteWallets || favoriteWallets.length === 0}
+                        disabled={isEncodingNames || !favoriteWallets || favoriteWallets.length === 0 || (isHudLoading && !hudData)}
                       >
                         <Sparkles className="h-4 w-4 mr-1.5" />
                         {isEncodingNames ? 'Encoding...' : 'Encode HUD'}
@@ -1420,7 +1438,7 @@ export default function TrackersPage() {
                   
                         {importCollection && (
                           <>
-                            <br />• All wallets tagged with <span className="font-semibold text-foreground">"{importCollection}"</span>
+                            <br />• All wallets tagged with <span className="font-semibold text-foreground">&ldquo;{importCollection}&rdquo;</span>
                           </>
                         )}
                       </p>
