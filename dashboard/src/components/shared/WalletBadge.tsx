@@ -255,8 +255,8 @@ const WalletBadge = memo(({
   knownType,
   knownLabel,
 }: WalletBadgeProps) => {
-  // Fetch favorites internally if not provided externally
-  const { favorites } = useFavorites();
+  // Fetch favorites internally only when parent doesn't provide favorite data.
+  const { favorites } = useFavorites({ enabled: !externalFavoriteData });
   const internalFavoriteData = favorites.find(fav => fav.walletAddress === address);
   const favoriteData = externalFavoriteData ?? internalFavoriteData;
 

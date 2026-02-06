@@ -13,9 +13,11 @@
 
 tracked wallets - check, encoding is clunky and is not updating the name oif the wallet, even though we call favorites (TWICE!) in a row. 
 
-The mark wallet is brolken also, export is just exporting all wallets, instead of marked and when a wallet is enhanced with HUD it's being "import" probably correct but check afterall. 
+The mark wallet is broken also, export is just exporting all wallets, instead of marked and I assume this mark wallet is not currently used properly in the whole flow. 
 
-It seems we are pooling in tracked, should we fix this? 
+When a wallet is enhanced with HUD it's being "import" so we generate analysis, therefore the HUD will always be populated with the previous info or it will redundantly call analysis, while in reality it's just a field in the db that should fetched and stitched ... probably correct but check afterall how are we dealing with this situation. 
+
+It i think in trackers page - tracked wallets we are doing too aggressive favorites call idk if this serving us anything now but should we fix this or it's normal, almost every time whne I click on the page it's calling favorites and twice even, what is calling the favorites endpoint twice and not coherently using the information we already have ? 
 
 **Recently Completed:**
 -  Poker-style HUD implementation with clean tooltip hierarchy (Feb 6)

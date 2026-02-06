@@ -94,7 +94,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       case 'dashboard-wallet-analysis':
         return this.processDashboardWalletAnalysis(job as Job<DashboardWalletAnalysisJobData>);
       case 'analyze-holder-profiles':
-        return this.processAnalyzeHolderProfiles(job as Job<AnalyzeHolderProfilesJobData>);
+        return this.processAnalyzeHolderProfilesWithMetrics(job as Job<AnalyzeHolderProfilesJobData>);
       case 'mint-participants-run':
         return this.processMintParticipants(job as Job<{ mint: string; cutoffTs: number; signature?: string }>);
       default:
@@ -111,6 +111,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { walletAddress, forceRefresh, requestId } = job.data;
     const timeoutMs = JobTimeouts['analyze-pnl'].timeout;
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
     
     // Deduplication check
     const expectedJobId = generateJobId.analyzePnl(walletAddress, requestId);
@@ -215,10 +216,20 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await this.walletHudService.invalidateCache(walletAddress);
 
       this.logger.log(`PnL analysis completed for ${walletAddress}. RunId: ${pnlResult.runId}`);
+
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('pnl', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('pnl').observe((Date.now() - metricsStartTime) / 1000);
+
       return result;
 
     } catch (error) {
       this.logger.error(`PnL analysis failed for ${walletAddress}: ${getErrorMessage(error)}`);
+
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('pnl', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('pnl').observe((Date.now() - metricsStartTime) / 1000);
+
       throw error;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
@@ -233,6 +244,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { walletAddress, config, requestId } = job.data;
     const timeoutMs = JobTimeouts['analyze-behavior'].timeout;
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
     
     // Deduplication check
     const expectedJobId = generateJobId.analyzeBehavior(walletAddress, requestId);
@@ -337,10 +349,20 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       ]);
 
       this.logger.log(`Behavior analysis completed for ${walletAddress}`);
+
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('behavior', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('behavior').observe((Date.now() - metricsStartTime) / 1000);
+
       return result;
 
     } catch (error) {
       this.logger.error(`Behavior analysis failed for ${walletAddress}: ${getErrorMessage(error)}`);
+
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('behavior', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('behavior').observe((Date.now() - metricsStartTime) / 1000);
+
       throw error;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
@@ -374,6 +396,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       job.data.timeoutMinutes ?? scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES;
     const timeoutMs = effectiveTimeoutMinutes * 60 * 1000;
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
 
     const expectedJobId = generateJobId.dashboardWalletAnalysis(walletAddress, job.data.requestId);
     if (job.id !== expectedJobId) {
@@ -738,9 +761,17 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // No need to manually publish here to avoid duplicate events
       // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
 
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('dashboard', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('dashboard').observe((Date.now() - metricsStartTime) / 1000);
+
       return result;
     } catch (error) {
       this.logger.error(`Dashboard analysis for ${walletAddress} [scope=${scope}] failed: ${getErrorMessage(error)}`);
+
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('dashboard', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('dashboard').observe((Date.now() - metricsStartTime) / 1000);
 
       await this.databaseService.recordDashboardAnalysisRun({
         walletAddress,
@@ -831,6 +862,28 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     );
 
     return job.id ?? null;
+  }
+
+  /**
+   * Wrapper for holder profiles with metrics tracking
+   */
+  private async processAnalyzeHolderProfilesWithMetrics(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
+    const metricsStartTime = Date.now();
+    try {
+      const result = await this.processAnalyzeHolderProfiles(job);
+
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('holder-profiles', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('holder-profiles').observe((Date.now() - metricsStartTime) / 1000);
+
+      return result;
+    } catch (error) {
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('holder-profiles', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('holder-profiles').observe((Date.now() - metricsStartTime) / 1000);
+
+      throw error;
+    }
   }
 
   /**
@@ -1765,6 +1818,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
     const { mint, cutoffTs } = job.data;
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
 
     // Note: SOL/WSOL filtering is now handled upstream in the webhook controller
     // No jobs for SOL/WSOL should reach this processor
@@ -1842,9 +1896,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
 
       await job.updateProgress(100);
+
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('mint-participants', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('mint-participants').observe((Date.now() - metricsStartTime) / 1000);
+
       return { success: true, written: result.writtenCount, zeroDayAlerts: alertCount, processingTimeMs: Date.now() - startTime };
     } catch (err) {
       this.logger.error(`mint-participants-run failed for ${mint}@${cutoffTs}: ${getErrorMessage(err)}`);
+
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('mint-participants', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('mint-participants').observe((Date.now() - metricsStartTime) / 1000);
+
       throw err;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);

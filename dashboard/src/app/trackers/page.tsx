@@ -471,14 +471,27 @@ export default function TrackersPage() {
     });
   };
 
-  const handleExportWallets = useCallback(() => {
+  const resolveActionTargets = useCallback(() => {
     if (!favoriteWallets || favoriteWallets.length === 0) {
+      return [];
+    }
+
+    if (selectedWallets.size > 0) {
+      return favoriteWallets.filter((wallet) => selectedWallets.has(wallet.walletAddress));
+    }
+
+    return filteredWallets;
+  }, [favoriteWallets, selectedWallets, filteredWallets]);
+
+  const handleExportWallets = useCallback(() => {
+    const targets = resolveActionTargets();
+    if (targets.length === 0) {
       toast.error('No wallets to export');
       return;
     }
 
     // Export as .txt file with JSON structure (competitors format)
-    const jsonData = favoriteWallets.map((wallet: FavoriteWallet) => ({
+    const jsonData = targets.map((wallet: FavoriteWallet) => ({
       trackedWalletAddress: wallet.walletAddress,
       name: wallet.nickname || '',
       emoji: wallet.metadata?.emoji || '😀',
@@ -500,16 +513,9 @@ export default function TrackersPage() {
     URL.revokeObjectURL(url);
 
     toast.success('Wallets exported', {
-      description: `${favoriteWallets.length} wallets exported to TXT.`,
+      description: `${targets.length} wallet${targets.length === 1 ? '' : 's'} exported to TXT.`,
     });
-  }, [favoriteWallets]);
-
-  const resolveHudTargets = useCallback(() => {
-    if (selectedWallets.size > 0) {
-      return filteredWallets.filter((wallet) => selectedWallets.has(wallet.walletAddress));
-    }
-    return filteredWallets;
-  }, [filteredWallets, selectedWallets]);
+  }, [resolveActionTargets]);
 
   const handleHudNameTransform = useCallback(async (mode: 'encode' | 'strip') => {
     if (!favoriteWallets || favoriteWallets.length === 0) {
@@ -517,7 +523,7 @@ export default function TrackersPage() {
       return;
     }
 
-    const targets = resolveHudTargets();
+    const targets = resolveActionTargets();
     if (targets.length === 0) {
       toast.error('No wallets selected');
       return;
@@ -631,7 +637,7 @@ export default function TrackersPage() {
     } finally {
       setIsEncodingNames(false);
     }
-  }, [favoriteWallets, resolveHudTargets, hudData, isHudLoading, hudError, hudFetchEnabled, mutateFavorites, selectedWallets.size]);
+  }, [favoriteWallets, resolveActionTargets, hudData, isHudLoading, hudError, hudFetchEnabled, mutateFavorites, selectedWallets.size]);
 
   const handleImportWallets = useCallback(async (file: File) => {
     setIsImporting(true);

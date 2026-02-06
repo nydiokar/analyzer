@@ -3,8 +3,13 @@ import useSWR from 'swr';
 import { FavoriteWallet } from '@/types/api';
 import { createCacheKey } from '@/lib/swr-config';
 
-export function useFavorites() {
-  const swrKey = createCacheKey.favorites();
+interface UseFavoritesOptions {
+  enabled?: boolean;
+}
+
+export function useFavorites(options: UseFavoritesOptions = {}) {
+  const { enabled = true } = options;
+  const swrKey = enabled ? createCacheKey.favorites() : null;
 
   const { data: favorites, error, mutate } = useSWR<FavoriteWallet[]>(
     swrKey,
@@ -29,4 +34,4 @@ export function useFavorites() {
     isLoading: false, // Never show loading
     mutate,
   };
-} 
+}

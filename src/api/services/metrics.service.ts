@@ -19,6 +19,14 @@ export class MetricsService implements OnModuleInit {
   public readonly lockContentionTotal: Counter;
   public readonly concurrentAnalysisAttempts: Counter;
 
+  // BullMQ queue metrics
+  public readonly bullmqJobsWaiting: Gauge;
+  public readonly bullmqJobsActive: Gauge;
+  public readonly bullmqJobsFailed: Gauge;
+  public readonly bullmqJobsCompleted: Gauge;
+  public readonly bullmqJobsDelayed: Gauge;
+  public readonly bullmqJobsStalled: Gauge;
+
   constructor() {
     // HTTP request counter
     this.httpRequestsTotal = new Counter({
@@ -75,6 +83,43 @@ export class MetricsService implements OnModuleInit {
       name: 'concurrent_analysis_attempts_total',
       help: 'Total attempts to analyze same resource concurrently',
       labelNames: ['analysis_type', 'resource_type'], // e.g. analysis_type=holder_profiles, resource_type=wallet
+    });
+
+    // BullMQ queue depth gauges
+    this.bullmqJobsWaiting = new Gauge({
+      name: 'bullmq_jobs_waiting',
+      help: 'Number of jobs waiting in BullMQ queue',
+      labelNames: ['queue'],
+    });
+
+    this.bullmqJobsActive = new Gauge({
+      name: 'bullmq_jobs_active',
+      help: 'Number of jobs actively processing in BullMQ queue',
+      labelNames: ['queue'],
+    });
+
+    this.bullmqJobsFailed = new Gauge({
+      name: 'bullmq_jobs_failed',
+      help: 'Number of failed jobs in BullMQ queue',
+      labelNames: ['queue'],
+    });
+
+    this.bullmqJobsCompleted = new Gauge({
+      name: 'bullmq_jobs_completed',
+      help: 'Number of completed jobs in BullMQ queue',
+      labelNames: ['queue'],
+    });
+
+    this.bullmqJobsDelayed = new Gauge({
+      name: 'bullmq_jobs_delayed',
+      help: 'Number of delayed jobs in BullMQ queue',
+      labelNames: ['queue'],
+    });
+
+    this.bullmqJobsStalled = new Gauge({
+      name: 'bullmq_jobs_stalled',
+      help: 'Number of stalled jobs in BullMQ queue (requires manual intervention)',
+      labelNames: ['queue'],
     });
   }
 

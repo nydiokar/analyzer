@@ -11,6 +11,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as dotenv from 'dotenv';
 import { json } from 'express';
 import { setupThrottledLogging } from './core/logging/setup-throttled-logging';
+import { MetricsService } from './api/services/metrics.service';
 
 dotenv.config();
 
@@ -39,6 +40,30 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   app.use(json({ limit: '5mb' }));
+
+  // HTTP Metrics Middleware - tracks all requests
+  const metricsService = app.get(MetricsService);
+  app.use((req, res, next) => {
+    const start = process.hrtime.bigint();
+
+    res.on('finish', () => {
+      // Extract route pattern (e.g., /api/v1/wallets/:address instead of actual address)
+      const route = req.route?.path || req.path || 'unknown';
+
+      // Increment request counter
+      metricsService.httpRequestsTotal
+        .labels(req.method, route, res.statusCode.toString())
+        .inc();
+
+      // Observe request duration
+      const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
+      metricsService.httpRequestDuration
+        .labels(req.method, route, res.statusCode.toString())
+        .observe(durationSeconds);
+    });
+
+    next();
+  });
 
   app.useWebSocketAdapter(new IoAdapter(app));
 
