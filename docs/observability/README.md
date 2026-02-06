@@ -20,6 +20,21 @@ Full-stack Prometheus + Grafana observability for Sova Intel Wallet Analyzer.
 
 ---
 
+## ⚠️ SECURITY WARNING - READ BEFORE DEPLOYING
+
+**Your metrics endpoint is currently PUBLIC (`@Public()` decorator).** This is industry standard, but you MUST add firewall rules before deploying to VPS.
+
+**Action required (2 minutes):**
+```bash
+# After deploying, immediately run:
+sudo ufw deny 3001
+sudo ufw allow from <YOUR_PROMETHEUS_IP> to any port 3001
+```
+
+See [Security Recommendations](#security-recommendations) below for details.
+
+---
+
 ## Quick Start
 
 ### Phase 1: Wire Application Metrics (DONE ✓)
@@ -271,6 +286,15 @@ After setup, verify everything works:
 - [ ] BullMQ dashboard shows queue data
 - [ ] HTTP API dashboard shows request metrics
 
+### ✓ Phase 5: Security (CRITICAL - Before VPS Deployment)
+- [ ] **Firewall metrics endpoint** - Block port 3001 from public access
+- [ ] **Allow Prometheus only** - `sudo ufw allow from <PROMETHEUS_IP> to any port 3001`
+- [ ] **Verify protection** - External curl to port 3001 should timeout
+- [ ] **Prometheus still works** - Internal scraping successful
+- [ ] Restrict Prometheus UI (port 9090) to trusted IPs
+- [ ] Restrict Grafana UI (port 3000) to trusted IPs
+- [ ] Change Grafana default password
+
 ---
 
 ## Cost Analysis
@@ -368,19 +392,75 @@ If this works but Grafana fails:
 
 ## Security Recommendations
 
-### 1. Restrict Access
+### 1. Restrict Access to Metrics Endpoint (CRITICAL)
+
+**Your application metrics endpoint (`/api/v1/metrics`) is currently public.** This is standard practice, but you MUST restrict access when deploying to VPS.
+
+#### Option A: Prometheus on Same Host (Recommended)
+
+If Prometheus runs on the same server as your app:
+
+```bash
+# Block external access to app port 3001
+sudo ufw deny 3001
+
+# Allow only localhost
+# (Prometheus scrapes via localhost:3001)
+# No additional rules needed - localhost always allowed
+```
+
+#### Option B: Prometheus on Different Host
+
+If Prometheus runs on a separate server (e.g., dedicated monitoring server):
+
+```bash
+# Block all access to port 3001
+sudo ufw deny 3001
+
+# Allow ONLY your Prometheus server
+sudo ufw allow from <PROMETHEUS_SERVER_IP> to any port 3001
+
+# Example: Prometheus at 192.168.1.100
+sudo ufw allow from 192.168.1.100 to any port 3001
+```
+
+**Why this matters:**
+- Metrics reveal your tech stack, route patterns, and traffic volume
+- No sensitive data exposed, but information leakage is still a security concern
+- Industry standard: Netflix, Uber, GitHub all firewall metrics endpoints
+
+**Verify protection:**
+```bash
+# From outside your network, this should timeout:
+curl http://YOUR_PUBLIC_IP:3001/api/v1/metrics
+
+# From Prometheus server, this should work:
+curl http://localhost:3001/api/v1/metrics
+```
+
+### 2. Restrict Access to Monitoring UIs
 
 Only allow access from trusted IPs:
 
 ```bash
-# Prometheus
+# Prometheus UI
 sudo ufw allow from YOUR_IP to any port 9090
 
-# Grafana
+# Grafana UI
 sudo ufw allow from YOUR_IP to any port 3000
 ```
 
-### 2. Enable Authentication
+**Or use SSH tunnel (most secure):**
+```bash
+# From your laptop
+ssh -L 9090:localhost:9090 -L 3000:localhost:3000 user@your-vps
+
+# Then access via:
+# http://localhost:9090 (Prometheus)
+# http://localhost:3000 (Grafana)
+```
+
+### 3. Enable Authentication
 
 **Prometheus** (via reverse proxy):
 ```nginx
@@ -395,7 +475,7 @@ location /prometheus/ {
 - Already has authentication (admin/admin)
 - Change password after first login
 
-### 3. Backup Configuration
+### 4. Backup Configuration
 
 ```bash
 # Backup Prometheus config
