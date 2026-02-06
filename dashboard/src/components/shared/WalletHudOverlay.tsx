@@ -131,7 +131,29 @@ function formatDateShort(isoDate: string): string {
  * Format data range for HUD display
  */
 function formatDateRange(from: string, to: string): string {
-  return `${formatDateShort(from)} → ${formatDateShort(to)}`;
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    return `${formatDateShort(from)} - ${formatDateShort(to)}`;
+  }
+
+  const sameYear = fromDate.getFullYear() === toDate.getFullYear();
+  const sameMonth = sameYear && fromDate.getMonth() === toDate.getMonth();
+  const year = toDate.getFullYear();
+
+  if (sameMonth) {
+    const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(fromDate);
+    return `${monthLabel} ${fromDate.getDate()}-${toDate.getDate()}, ${year}`;
+  }
+
+  if (sameYear) {
+    const fromLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(fromDate);
+    const toLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(toDate);
+    return `${fromLabel} - ${toLabel}, ${year}`;
+  }
+
+  return `${formatDateShort(from)} - ${formatDateShort(to)}`;
 }
 
 /**
@@ -362,11 +384,6 @@ const TooltipDisplay = memo(function TooltipDisplay({
         </div>
       )}
 
-      {data.provenance?.dataRange && (
-        <div className="col-span-2 md:col-span-3 text-center text-xs text-muted-foreground">
-          Data range: {formatDateRange(data.provenance.dataRange.from, data.provenance.dataRange.to)}
-        </div>
-      )}
     </div>
   );
 });

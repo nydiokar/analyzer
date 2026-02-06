@@ -11,7 +11,7 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Copy, ExternalLink, Info, Wallet, User, Bookmark, Edit2 } from "lucide-react";
@@ -334,8 +334,11 @@ const WalletBadge = memo(({
   };
 
   const [isHudOpen, setIsHudOpen] = useState(false);
+  const [isHudPinned, setIsHudPinned] = useState(false);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  const HUD_CLOSE_DELAY_MS = 120;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -353,12 +356,14 @@ const WalletBadge = memo(({
   useEffect(() => {
     return () => {
       clearHoverTimeout();
+      clearCloseTimeout();
     };
   }, []);
 
   useEffect(() => {
     if (!showHud || hudDisplay !== "tooltip") {
       setIsHudOpen(false);
+      setIsHudPinned(false);
     }
   }, [showHud, hudDisplay]);
 
@@ -369,28 +374,54 @@ const WalletBadge = memo(({
     }
   };
 
-  const handleHudMouseEnter = () => {
-    if (isCoarsePointer || !showHud || hudDisplay !== "tooltip") return;
+  const clearCloseTimeout = () => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+  };
+
+  const openHudPreview = () => {
+    if (!showHud || hudDisplay !== "tooltip") return;
     clearHoverTimeout();
+    clearCloseTimeout();
     hoverTimeoutRef.current = setTimeout(() => {
       setIsHudOpen(true);
     }, hudDelayMs);
   };
 
-  const handleHudMouseLeave = () => {
-    if (isCoarsePointer || !showHud || hudDisplay !== "tooltip") return;
+  const closeHudPreview = () => {
+    if (!showHud || hudDisplay !== "tooltip" || isHudPinned) return;
     clearHoverTimeout();
-    setIsHudOpen(false);
+    clearCloseTimeout();
+    closeTimeoutRef.current = setTimeout(() => {
+      setIsHudOpen(false);
+    }, HUD_CLOSE_DELAY_MS);
   };
 
   const handleHudClick = (e: MouseEvent<HTMLDivElement>) => {
-    if (!showHud || hudDisplay !== "tooltip" || !isCoarsePointer) return;
+    if (!showHud || hudDisplay !== "tooltip") return;
     const target = e.target as HTMLElement;
     if (target.closest("button") || target.closest("a") || target.closest("[data-interactive]")) {
       return;
     }
     e.stopPropagation();
-    setIsHudOpen((prev) => !prev);
+    clearHoverTimeout();
+    clearCloseTimeout();
+    setIsHudPinned((prevPinned) => {
+      const nextPinned = !prevPinned;
+      setIsHudOpen(nextPinned ? true : false);
+      return nextPinned;
+    });
+  };
+
+  const handleHudOpenChange = (open: boolean) => {
+    setIsHudOpen(open);
+    if (!open) {
+      setIsHudPinned(false);
+      clearHoverTimeout();
+      clearCloseTimeout();
+    }
   };
 
   const renderWithHud = (badge: React.ReactNode) => {
@@ -408,21 +439,35 @@ const WalletBadge = memo(({
     }
 
     return (
-      <Popover open={isHudOpen} onOpenChange={setIsHudOpen}>
-        <PopoverTrigger asChild>
+      <Popover open={isHudOpen} onOpenChange={handleHudOpenChange}>
+        <PopoverAnchor asChild>
           <div
             className="inline-block"
-            onMouseEnter={handleHudMouseEnter}
-            onMouseLeave={handleHudMouseLeave}
-            onFocus={handleHudMouseEnter}
-            onBlur={handleHudMouseLeave}
+            onMouseEnter={openHudPreview}
+            onMouseLeave={closeHudPreview}
+            onFocus={openHudPreview}
+            onBlur={closeHudPreview}
             onClick={handleHudClick}
           >
             {badge}
           </div>
-        </PopoverTrigger>
-        <PopoverContent side="right" align="start" className="w-auto p-3">
+        </PopoverAnchor>
+        <PopoverContent
+          side="right"
+          align="start"
+          className="w-auto p-3"
+          onMouseEnter={() => {
+            clearCloseTimeout();
+            if (!isHudOpen) {
+              setIsHudOpen(true);
+            }
+          }}
+          onMouseLeave={closeHudPreview}
+        >
           <WalletHudOverlay walletAddress={address} display="tooltip" data={hudData} />
+          <div className="mt-2 border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+            {isCoarsePointer ? "Tap to pin/unpin HUD details." : "Click badge to pin/unpin."}
+          </div>
         </PopoverContent>
       </Popover>
     );
@@ -514,16 +559,9 @@ const WalletBadge = memo(({
 
           {/* Row 2: HUD Badges (if available) - poker-style always-visible */}
           {showHud && hudData && (
-            <Tooltip delayDuration={hudDelayMs}>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-1.5 pl-6 cursor-help">
-                  <WalletHudBadge data={hudData} size="sm" />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs">
-                <WalletHudOverlay walletAddress={address} display="tooltip" data={hudData} />
-              </TooltipContent>
-            </Tooltip>
+            <div className="flex items-center gap-1.5 pl-6">
+              <WalletHudBadge data={hudData} size="sm" />
+            </div>
           )}
         </div>
       </TooltipProvider>
