@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, X, ArrowRight, AlertCircle } from 'lucide-react';
 import { getCollectionColorFilled } from '@/lib/color-utils';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
+import { WALLET_NICKNAME_MAX } from '@/lib/constants';
 
 interface QuickAddFormProps {
   isOpen: boolean;
@@ -172,11 +173,11 @@ const QuickAddForm = React.memo(({
                 value={formData.nickname}
                 onChange={handleNicknameChange}
                 onKeyDown={(e) => handleKeyDown(e, 'save')}
-                maxLength={20}
+                maxLength={WALLET_NICKNAME_MAX}
                 className="h-9"
               />
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50">
-                {formData.nickname.length}/20
+                {formData.nickname.length}/{WALLET_NICKNAME_MAX}
               </span>
             </div>
           </div>

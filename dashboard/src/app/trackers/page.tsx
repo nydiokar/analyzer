@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Loader2, Trash2, PlayCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Trash2, PlayCircle, Sparkles, Eraser, Loader2 } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
-import { Fragment, useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { WalletEditForm } from '@/components/layout/WalletEditForm';
@@ -23,9 +23,8 @@ import { PageTitle } from '@/components/shared/PageTitle';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getErrorMessage } from '@/lib/error-messages';
 import { USER_FAVORITES_IMPORT_FLASH_BATCH, USER_FAVORITES_MAX } from '@/lib/constants';
-import { WalletHudInline } from '@/components/shared/WalletHudInline';
-import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
-import { useTableHudToggle } from '@/hooks/useTableHudToggle';
+import { useWalletHudCache } from '@/hooks/useWalletHudCache';
+import { encodeHudName, stripHudEncoding } from '@/lib/wallet-name-encoding';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -126,6 +125,7 @@ export default function TrackersPage() {
   const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isClearingAll, setIsClearingAll] = useState(false);
+  const [isEncodingNames, setIsEncodingNames] = useState(false);
   const [importCollection, setImportCollection] = useState('');
   const [importJobsInProgress, setImportJobsInProgress] = useState<string[]>([]);
   const importJobsRef = useRef(importJobsInProgress);
@@ -281,8 +281,7 @@ export default function TrackersPage() {
     () => filteredWallets.map((wallet) => wallet.walletAddress),
     [filteredWallets]
   );
-  const { showHud, toggleAll: toggleHudAll, toggleRow: toggleHudRow, isRowExpanded: isHudRowExpanded } = useTableHudToggle(walletAddresses);
-  const { data: hudData, isLoading: isHudLoading } = useBatchWalletHud(walletAddresses, { enabled: showHud });
+  const { data: hudData } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
 
   const handleRemoveWallet = useCallback(async (walletAddress: string) => {
     try {
@@ -391,6 +390,108 @@ export default function TrackersPage() {
       description: `${favoriteWallets.length} wallets exported to TXT.`,
     });
   }, [favoriteWallets]);
+
+  const resolveHudTargets = useCallback(() => {
+    if (selectedWallets.size > 0) {
+      return filteredWallets.filter((wallet) => selectedWallets.has(wallet.walletAddress));
+    }
+    return filteredWallets;
+  }, [filteredWallets, selectedWallets]);
+
+  const handleHudNameTransform = useCallback(async (mode: 'encode' | 'strip') => {
+    if (!favoriteWallets || favoriteWallets.length === 0) {
+      toast.error('No wallets to update');
+      return;
+    }
+
+    const targets = resolveHudTargets();
+    if (targets.length === 0) {
+      toast.error('No wallets selected');
+      return;
+    }
+
+    setIsEncodingNames(true);
+    try {
+      const updates: Array<{ walletAddress: string; nickname: string }> = [];
+      const clears: string[] = [];
+      let missingHud = 0;
+      let unchanged = 0;
+
+      targets.forEach((wallet) => {
+        const currentName = wallet.nickname || '';
+
+        if (mode === 'encode') {
+          const hud = hudData?.[wallet.walletAddress];
+          if (!hud) {
+            missingHud += 1;
+            return;
+          }
+          const nextName = encodeHudName(currentName, hud);
+          if (nextName === currentName) {
+            unchanged += 1;
+            return;
+          }
+          updates.push({ walletAddress: wallet.walletAddress, nickname: nextName });
+          return;
+        }
+
+        const stripped = stripHudEncoding(currentName);
+        if (stripped === currentName) {
+          unchanged += 1;
+          return;
+        }
+        if (!stripped) {
+          clears.push(wallet.walletAddress);
+          return;
+        }
+        updates.push({ walletAddress: wallet.walletAddress, nickname: stripped });
+      });
+
+      if (updates.length === 0 && clears.length === 0) {
+        toast.info('Nothing to update', {
+          description: missingHud > 0
+            ? `${missingHud} wallet${missingHud === 1 ? '' : 's'} missing HUD data.`
+            : 'No changes required for the selected wallets.',
+        });
+        return;
+      }
+
+      if (updates.length > 0) {
+        await fetcher('/users/me/favorites/import', {
+          method: 'POST',
+          body: JSON.stringify({
+            wallets: updates,
+            overwriteNickname: true,
+            mergeCollections: true,
+          }),
+        });
+      }
+
+      if (clears.length > 0) {
+        await Promise.all(
+          clears.map((walletAddress) =>
+            fetcher(`/users/me/favorites/${walletAddress}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ nickname: null }),
+            })
+          )
+        );
+      }
+
+      await mutateFavorites();
+
+      const updatedCount = updates.length + clears.length;
+      const scopeLabel = selectedWallets.size > 0 ? 'selected' : 'filtered';
+      toast.success('Wallet names updated', {
+        description: `${updatedCount} ${scopeLabel} wallet${updatedCount === 1 ? '' : 's'} updated${missingHud > 0 ? `, ${missingHud} missing HUD` : ''}${unchanged > 0 ? `, ${unchanged} unchanged` : ''}.`,
+      });
+    } catch (error: unknown) {
+      const message = getErrorMessage('trackers-update', error);
+      toast.error(message.title, { description: message.description });
+    } finally {
+      setIsEncodingNames(false);
+    }
+  }, [favoriteWallets, resolveHudTargets, hudData, mutateFavorites, selectedWallets.size]);
 
   const handleImportWallets = useCallback(async (file: File) => {
     setIsImporting(true);
@@ -972,6 +1073,42 @@ export default function TrackersPage() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                        onClick={() => handleHudNameTransform('encode')}
+                        disabled={isEncodingNames || !favoriteWallets || favoriteWallets.length === 0}
+                      >
+                        <Sparkles className="h-4 w-4 mr-1.5" />
+                        {isEncodingNames ? 'Encoding...' : 'Encode HUD'}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Appends HUD metrics to wallet names (uses selected wallets if any, otherwise filtered list).
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9"
+                        onClick={() => handleHudNameTransform('strip')}
+                        disabled={isEncodingNames || !favoriteWallets || favoriteWallets.length === 0}
+                      >
+                        <Eraser className="h-4 w-4 mr-1.5" />
+                        {isEncodingNames ? 'Removing...' : 'Remove HUD'}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Removes HUD encoding from wallet names (uses selected wallets if any, otherwise filtered list).
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
                         variant="destructive"
                         size="sm"
                         className="h-9"
@@ -1070,16 +1207,6 @@ export default function TrackersPage() {
               {/* Wallets Table */}
               <Card>
                 <div className="flex items-center justify-between px-4 py-2 border-b">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={toggleHudAll}
-                    aria-label={showHud ? 'Hide HUD' : 'Show HUD'}
-                    className="gap-2"
-                  >
-                    {isHudLoading && showHud ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    {showHud ? 'Hide HUD' : 'Show HUD'}
-                  </Button>
                 </div>
                 <Table>
                   <TableHeader>
@@ -1096,13 +1223,12 @@ export default function TrackersPage() {
                       <TableHead className="w-24">Winrate</TableHead>
                       <TableHead className="w-32">Last Active</TableHead>
                       <TableHead className="w-32 text-right">SOL Balance</TableHead>
-                      {showHud && <TableHead className="w-10"></TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredWallets.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={showHud ? 7 : 6} className="py-8">
+                        <TableCell colSpan={6} className="py-8">
                           <EmptyState
                             variant="info"
                             title={favoriteWallets.length === 0 ? 'No tracked wallets yet' : 'No wallets match your filters'}
@@ -1118,8 +1244,7 @@ export default function TrackersPage() {
                       </TableRow>
                     ) : (
                       filteredWallets.map((wallet: FavoriteWallet) => (
-                        <Fragment key={wallet.walletAddress}>
-                          <TableRow className="hover:bg-accent/30">
+                        <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
                             <TableCell>
                               <Checkbox
                                 checked={selectedWallets.has(wallet.walletAddress)}
@@ -1141,7 +1266,8 @@ export default function TrackersPage() {
                                   favoriteData={wallet}
                                   knownType={wallet.knownType}
                                   knownLabel={wallet.knownLabel}
-                                  showHud={false}
+                                  showHud={true}
+                                  hudData={hudData?.[wallet.walletAddress]}
                                 />
                                 {wallet.collections && wallet.collections.length > 0 && (
                                   <Tooltip>
@@ -1197,37 +1323,7 @@ export default function TrackersPage() {
                                 <span className="text-muted-foreground">-</span>
                               )}
                             </TableCell>
-                            {showHud && (
-                              <TableCell className="text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleHudRow(wallet.walletAddress)}
-                                  aria-label={isHudRowExpanded(wallet.walletAddress) ? 'Collapse HUD row' : 'Expand HUD row'}
-                                  aria-expanded={isHudRowExpanded(wallet.walletAddress)}
-                                  className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-muted/60 text-muted-foreground"
-                                >
-                                  {isHudRowExpanded(wallet.walletAddress) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                </button>
-                              </TableCell>
-                            )}
                           </TableRow>
-                          {showHud && isHudRowExpanded(wallet.walletAddress) && (
-                            <TableRow className="bg-muted/30 border-l-2 border-l-primary/40 transition-all duration-200 ease-in-out">
-                              <TableCell colSpan={999} className="py-3 px-4 pl-6">
-                                <div className="bg-background/40 border border-border/60 rounded-lg p-2.5 shadow-sm">
-                                  {hudData?.[wallet.walletAddress] ? (
-                                    <WalletHudInline data={hudData[wallet.walletAddress]} className="text-xs" />
-                                  ) : (
-                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                      <span>Loading HUD data...</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </Fragment>
                       ))
                     )}
                   </TableBody>

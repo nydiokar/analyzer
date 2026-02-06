@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Plus, X, AlertCircle, ArrowRight } from 'lucide-react';
 import { getCollectionColorFilled } from '@/lib/color-utils';
+import { WALLET_NICKNAME_MAX } from '@/lib/constants';
 
 interface WalletEditFormProps {
   isOpen: boolean;
@@ -131,11 +132,11 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
                 placeholder="Enter a memorable name..."
                 value={formData.nickname}
                 onChange={handleNicknameChange}
-                maxLength={20}
+                maxLength={WALLET_NICKNAME_MAX}
                 className="flex-1"
               />
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50">
-                {formData.nickname.length}/20
+                {formData.nickname.length}/{WALLET_NICKNAME_MAX}
               </span>
             </div>
           </div>
