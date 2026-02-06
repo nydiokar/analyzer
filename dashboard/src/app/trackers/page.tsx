@@ -9,13 +9,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Trash2, PlayCircle, Sparkles, Eraser, Loader2 } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, memo } from 'react';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { WalletEditForm } from '@/components/layout/WalletEditForm';
 import QuickAddForm from '@/components/layout/QuickAddForm';
 import { toast } from 'sonner';
-import { FavoriteWallet } from '@/types/api';
+import { FavoriteWallet, WalletHudDto } from '@/types/api';
 import { cn } from '@/lib/utils';
 import { getCollectionColorFilled } from '@/lib/color-utils';
 import EmptyState from '@/components/shared/EmptyState';
@@ -102,6 +102,114 @@ function timeAgo(timestamp: number | string | undefined): string {
   if (minutes > 0) return `${minutes}m`;
   return `${seconds}s`;
 }
+
+// Memoized table row component to prevent unnecessary re-renders
+interface WalletRowProps {
+  wallet: FavoriteWallet;
+  isSelected: boolean;
+  onToggleSelection: (address: string) => void;
+  onSetDeleting: (wallet: FavoriteWallet) => void;
+  onSetEditing: (wallet: FavoriteWallet) => void;
+}
+
+const WalletRow = memo(({ wallet, isSelected, onToggleSelection, onSetDeleting, onSetEditing }: WalletRowProps) => {
+  const handleCheckboxChange = useCallback(() => {
+    onToggleSelection(wallet.walletAddress);
+  }, [wallet.walletAddress, onToggleSelection]);
+
+  const handleFavoriteToggle = useCallback(() => {
+    onSetDeleting(wallet);
+  }, [wallet, onSetDeleting]);
+
+  const handleEdit = useCallback(() => {
+    onSetEditing(wallet);
+  }, [wallet, onSetEditing]);
+
+  return (
+    <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
+      <TableCell>
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={handleCheckboxChange}
+          aria-label={`Select ${wallet.walletAddress}`}
+        />
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <WalletBadge
+            address={wallet.walletAddress}
+            size="m"
+            variant="inline"
+            showMetrics={false}
+            showActions={true}
+            isFavorite={true}
+            onFavoriteToggle={handleFavoriteToggle}
+            onEdit={handleEdit}
+            favoriteData={wallet}
+            knownType={wallet.knownType}
+            knownLabel={wallet.knownLabel}
+            showHud={true}
+            hudDisplay="tooltip"
+            hudDelayMs={800}
+          />
+          {wallet.collections && wallet.collections.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  className={cn(
+                    'text-xs font-medium',
+                    getCollectionColorFilled(wallet.collections[0])
+                  )}
+                >
+                  {wallet.collections[0]}
+                  {wallet.collections.length > 1 && (
+                    <span className="ml-1 opacity-80">({wallet.collections.length})</span>
+                  )}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                {wallet.collections.length > 1 ? (
+                  <>
+                    Collections: {wallet.collections.join(', ')}
+                  </>
+                ) : (
+                  `Collection: ${wallet.collections[0]}`
+                )}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="font-mono text-sm">
+        {wallet.pnl !== undefined ? (
+          <span className={wallet.pnl >= 0 ? 'text-green-500' : 'text-red-500'}>
+            {formatSOL(wallet.pnl)} SOL
+          </span>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )}
+      </TableCell>
+      <TableCell className="text-sm">
+        {wallet.winRate !== undefined ? (
+          <span>{wallet.winRate.toFixed(1)}%</span>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )}
+      </TableCell>
+      <TableCell className="text-muted-foreground text-sm">
+        {wallet.lastActiveTimestamp ? timeAgo(wallet.lastActiveTimestamp) + ' ago' : 'Unknown'}
+      </TableCell>
+      <TableCell className="text-right font-mono text-sm">
+        {wallet.currentSolBalance !== undefined ? (
+          <span>{wallet.currentSolBalance.toFixed(2)} SOL</span>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+});
+WalletRow.displayName = 'WalletRow';
 
 export default function TrackersPage() {
   const { favorites: favoriteWallets, error, mutate: mutateFavorites } = useFavorites();
@@ -277,11 +385,16 @@ export default function TrackersPage() {
     return filtered;
   }, [favoriteWallets, selectedCollections, searchQuery, showActiveOnly]);
 
+  // Lazy HUD cache - only fetch when explicitly needed (for encode operations)
+  const [hudFetchEnabled, setHudFetchEnabled] = useState(false);
   const walletAddresses = useMemo(
     () => filteredWallets.map((wallet) => wallet.walletAddress),
     [filteredWallets]
   );
-  const { data: hudData, isLoading: isHudLoading, error: hudError } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
+  const { data: hudData, isLoading: isHudLoading, error: hudError } = useWalletHudCache(walletAddresses, {
+    enabled: hudFetchEnabled,
+    proactiveFetch: false
+  });
 
   const handleRemoveWallet = useCallback(async (walletAddress: string) => {
     try {
@@ -411,6 +524,15 @@ export default function TrackersPage() {
     }
 
     if (mode === 'encode') {
+      // Enable HUD fetching if not already enabled
+      if (!hudFetchEnabled) {
+        setHudFetchEnabled(true);
+        toast.info('Fetching HUD data...', {
+          description: 'Please wait while we load HUD metrics for encoding.',
+        });
+        return;
+      }
+
       const missingForTargets = targets.filter((wallet) => !hudData?.[wallet.walletAddress]).length;
 
       if (isHudLoading && missingForTargets > 0) {
@@ -509,7 +631,7 @@ export default function TrackersPage() {
     } finally {
       setIsEncodingNames(false);
     }
-  }, [favoriteWallets, resolveHudTargets, hudData, isHudLoading, hudError, mutateFavorites, selectedWallets.size]);
+  }, [favoriteWallets, resolveHudTargets, hudData, isHudLoading, hudError, hudFetchEnabled, mutateFavorites, selectedWallets.size]);
 
   const handleImportWallets = useCallback(async (file: File) => {
     setIsImporting(true);
@@ -792,6 +914,15 @@ export default function TrackersPage() {
 
   const clearSelection = useCallback(() => {
     setSelectedWallets(new Set());
+  }, []);
+
+  // Stable callbacks for WalletBadge to prevent unnecessary re-renders
+  const handleSetDeletingWallet = useCallback((wallet: FavoriteWallet) => {
+    setDeletingWallet(wallet);
+  }, []);
+
+  const handleSetEditingWallet = useCallback((wallet: FavoriteWallet) => {
+    setEditingWallet(wallet);
   }, []);
 
   const handleImportFileSelected = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1095,14 +1226,26 @@ export default function TrackersPage() {
                         size="sm"
                         className="h-9"
                         onClick={() => handleHudNameTransform('encode')}
-                        disabled={isEncodingNames || !favoriteWallets || favoriteWallets.length === 0 || (isHudLoading && !hudData)}
+                        disabled={isEncodingNames || !favoriteWallets || favoriteWallets.length === 0}
                       >
-                        <Sparkles className="h-4 w-4 mr-1.5" />
-                        {isEncodingNames ? 'Encoding...' : 'Encode HUD'}
+                        {isHudLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                            Loading HUD...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-4 w-4 mr-1.5" />
+                            {isEncodingNames ? 'Encoding...' : 'Encode HUD'}
+                          </>
+                        )}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      Appends HUD metrics to wallet names (uses selected wallets if any, otherwise filtered list).
+                      {hudFetchEnabled
+                        ? 'Appends HUD metrics to wallet names (uses selected wallets if any, otherwise filtered list).'
+                        : 'Click to fetch HUD data and encode wallet names.'
+                      }
                     </TooltipContent>
                   </Tooltip>
 
@@ -1262,86 +1405,14 @@ export default function TrackersPage() {
                       </TableRow>
                     ) : (
                       filteredWallets.map((wallet: FavoriteWallet) => (
-                        <TableRow key={wallet.walletAddress} className="hover:bg-accent/30">
-                            <TableCell>
-                              <Checkbox
-                                checked={selectedWallets.has(wallet.walletAddress)}
-                                onCheckedChange={() => toggleWalletSelection(wallet.walletAddress)}
-                                aria-label={`Select ${wallet.walletAddress}`}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <WalletBadge
-                                  address={wallet.walletAddress}
-                                  size="m"
-                                  variant="inline"
-                                  showMetrics={false}
-                                  showActions={true}
-                                  isFavorite={true}
-                                  onFavoriteToggle={() => setDeletingWallet(wallet)}
-                                  onEdit={() => setEditingWallet(wallet)}
-                                  favoriteData={wallet}
-                                  knownType={wallet.knownType}
-                                  knownLabel={wallet.knownLabel}
-                                  showHud={true}
-                                  hudData={hudData?.[wallet.walletAddress]}
-                                />
-                                {wallet.collections && wallet.collections.length > 0 && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Badge
-                                        className={cn(
-                                          'text-xs font-medium',
-                                          getCollectionColorFilled(wallet.collections[0])
-                                        )}
-                                      >
-                                        {wallet.collections[0]}
-                                        {wallet.collections.length > 1 && (
-                                          <span className="ml-1 opacity-80">({wallet.collections.length})</span>
-                                        )}
-                                      </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      {wallet.collections.length > 1 ? (
-                                        <>
-                                          Collections: {wallet.collections.join(', ')}
-                                        </>
-                                      ) : (
-                                        `Collection: ${wallet.collections[0]}`
-                                      )}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="font-mono text-sm">
-                              {wallet.pnl !== undefined ? (
-                                <span className={wallet.pnl >= 0 ? 'text-green-500' : 'text-red-500'}>
-                                  {formatSOL(wallet.pnl)} SOL
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-sm">
-                              {wallet.winRate !== undefined ? (
-                                <span>{wallet.winRate.toFixed(1)}%</span>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground text-sm">
-                              {wallet.lastActiveTimestamp ? timeAgo(wallet.lastActiveTimestamp) + ' ago' : 'Unknown'}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-sm">
-                              {wallet.currentSolBalance !== undefined ? (
-                                <span>{wallet.currentSolBalance.toFixed(2)} SOL</span>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                          </TableRow>
+                        <WalletRow
+                          key={wallet.walletAddress}
+                          wallet={wallet}
+                          isSelected={selectedWallets.has(wallet.walletAddress)}
+                          onToggleSelection={toggleWalletSelection}
+                          onSetDeleting={handleSetDeletingWallet}
+                          onSetEditing={handleSetEditingWallet}
+                        />
                       ))
                     )}
                   </TableBody>

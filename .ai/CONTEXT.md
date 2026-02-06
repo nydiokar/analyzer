@@ -10,6 +10,13 @@
 |:------:|:-----|:-----:|:------|
 |  |  |  | No active tasks |
 
+
+tracked wallets - check, encoding is clunky and is not updating the name oif the wallet, even though we call favorites (TWICE!) in a row. 
+
+The mark wallet is brolken also, export is just exporting all wallets, instead of marked and when a wallet is enhanced with HUD it's being "import" probably correct but check afterall. 
+
+It seems we are pooling in tracked, should we fix this? 
+
 **Recently Completed:**
 -  Poker-style HUD implementation with clean tooltip hierarchy (Feb 6)
 -  Wallet profile layout reorganization - metrics grouped properly (Feb 6)
@@ -85,6 +92,16 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 ##  Recent Activity
 
 ### February 6, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 06.7 | FIX | Fix: Checkbox selection freeze in Trackers (300+ rows re-rendering) | S | `trackers/page.tsx` |
+
+**Summary:**
+
+**06.7:** Fixed critical performance issue where clicking a checkbox to select a wallet caused UI freeze/lag for 100-500ms with 300+ wallets. **Root Cause - Fundamental Architectural Issue:** (1) **Unnecessary always-visible HUD rendering**: Proactively fetched and rendered HUD badges for ALL 300 wallets on page load, even though user wasn't looking at them; (2) **Inline arrow functions breaking memoization**: `onFavoriteToggle={() => setDeletingWallet(wallet)}`, `onEdit={() => setEditingWallet(wallet)}` created new function references on every render, breaking `React.memo()` optimization; (3) **Checkbox state entangled with HUD rendering**: Pure UI state (checkbox) triggered re-renders of expensive HUD components that had nothing to do with selection. **The Fix - Two-Part Solution:** (1) **Lazy HUD loading**: Removed proactive HUD fetching (`useWalletHudCache` disabled by default), changed `WalletBadge` to use `hudDisplay="tooltip"` instead of inline badges, HUD now fetches on-demand during 800ms hover delay via `WalletHudOverlay` internal fetching, centralized caching prevents duplicate fetches; (2) **Memoized row component**: Created `WalletRow` memo component with stable `useCallback` handlers, completely decoupled checkbox selection state from HUD rendering. **Result:** Checkbox clicks instant (no re-renders), HUD only loads when user hovers (lazy + cached), encode HUD button triggers fetch explicitly when needed. **Files:** `trackers/page.tsx` (removed proactive HUD fetch, added lazy fetch state, WalletRow memo, tooltip display mode). **Architecture Decision:** Don't render expensive components speculatively - use hover intent + caching instead.
+
+### February 6, 2026 (Earlier)
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
