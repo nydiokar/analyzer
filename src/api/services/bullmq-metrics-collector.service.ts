@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { Queue } from 'bullmq';
 import { QueueNames } from '../../queues/config/queue.config';
 import { MetricsService } from './metrics.service';
-import { getRedisConnection } from '../../queues/config/redis.config';
+import { redisConnection } from '../../queues/config/redis.config';
 
 /**
  * BullMQ Metrics Collector Service
@@ -21,14 +21,13 @@ export class BullMQMetricsCollectorService implements OnModuleInit, OnModuleDest
 
   async onModuleInit() {
     // Initialize Queue instances for all queues
-    const connection = getRedisConnection();
+    const connection = redisConnection;
 
     const queueNames = [
       QueueNames.ANALYSIS_OPERATIONS,
       QueueNames.ENRICHMENT_OPERATIONS,
       QueueNames.WALLET_OPERATIONS,
       QueueNames.SIMILARITY_OPERATIONS,
-      QueueNames.MINT_PARTICIPANTS,
     ];
 
     for (const queueName of queueNames) {

@@ -11,14 +11,6 @@
 |  |  |  | No active tasks |
 
 
-tracked wallets - check, encoding is clunky and is not updating the name oif the wallet, even though we call favorites (TWICE!) in a row. 
-
-The mark wallet is broken also, export is just exporting all wallets, instead of marked and I assume this mark wallet is not currently used properly in the whole flow. 
-
-When a wallet is enhanced with HUD it's being "import" so we generate analysis, therefore the HUD will always be populated with the previous info or it will redundantly call analysis, while in reality it's just a field in the db that should fetched and stitched ... probably correct but check afterall how are we dealing with this situation. 
-
-It i think in trackers page - tracked wallets we are doing too aggressive favorites call idk if this serving us anything now but should we fix this or it's normal, almost every time whne I click on the page it's calling favorites and twice even, what is calling the favorites endpoint twice and not coherently using the information we already have ? 
-
 **Recently Completed:**
 -  Full Prometheus + Grafana observability stack (Feb 6) - Production-ready monitoring with zero vendor lock-in
 -  Poker-style HUD implementation with clean tooltip hierarchy (Feb 6)
@@ -139,8 +131,7 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 **06.6:** Hardened Trackers HUD flow after review. **Problems identified:** (1) backend HUD batch endpoint caps at 200 wallets while favorites can reach 300, (2) encode action could run before HUD was ready and silently skip with "missing HUD", (3) HUD tags in nickname should remain stored/exportable but not clutter wallet label rendering. **Fixes:** (1) added sequential chunked HUD fetching in `useBatchWalletHud` with conservative batch size 180, (2) added HUD fetch gate in `useWalletHudCache` so main table paints first and HUD hydrates after, (3) added pre-checks in `trackers/page.tsx` to block encode during HUD loading/error states with explicit toasts, (4) adjusted `WalletBadge` to strip HUD encoding from display label only (`stripHudEncoding`) while preserving full encoded nickname in storage. **Outcome:** scalable HUD fetch for large favorite sets, safer encode UX, and cleaner table labels without sacrificing encoded data for bot/chart consumers. **Files:** `dashboard/src/hooks/useBatchWalletHud.ts`, `dashboard/src/hooks/useWalletHudCache.ts`, `dashboard/src/app/trackers/page.tsx`, `dashboard/src/components/shared/WalletBadge.tsx`.
 
-
-
+### February 5, 2026 (Earlier)
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
