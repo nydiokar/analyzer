@@ -21,6 +21,8 @@ Scripts for system administration, data management, and operational tasks.
 - `extract-log-statements.ts` - Extract and analyze log statements from log files
 - `compare_helius_endpoints.ts` - Compare and test different Helius API endpoints
 - `debug-mapper.ts` - Debug and map data structures and relationships
+- `inspect-analysis-result.ts` - Inspects specific token and wallet in terms of FIFO and pnl
+- `validate-fifo-inputs.ts` - Validates if FIFO is performing as expected and debugs tokens
 
 ## Usage
 Most scripts support command-line arguments. Run with `--help` for options:

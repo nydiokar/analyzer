@@ -15,6 +15,10 @@ const KNOWN_TOKENS: Record<string, string> = {
 function getTokenDisplayName(address: string): string {
     return KNOWN_TOKENS[address] || address;
 }
+
+function getNetPnlValue(value: number | null | undefined): number {
+    return value ?? 0;
+}
 // --- End Known Token Addresses ---
 
 /**
@@ -34,7 +38,7 @@ export function displaySummary(results: OnChainAnalysisResult[], walletAddress: 
 
     console.log(`Total Unique Tokens: ${results.length}`);
     
-    const overallNetPnl = results.length > 0 ? results.reduce((sum, r) => sum + (r.netSolProfitLoss || 0), 0) : 0;
+    const overallNetPnl = results.length > 0 ? results.reduce((sum, r) => sum + getNetPnlValue(r.netSolProfitLoss), 0) : 0;
     const overallSolSpent = results.length > 0 ? results.reduce((sum, r) => sum + (r.totalSolSpent || 0), 0) : 0;
     const overallSolReceived = results.length > 0 ? results.reduce((sum, r) => sum + (r.totalSolReceived || 0), 0) : 0;
     
@@ -65,21 +69,21 @@ export function displaySummary(results: OnChainAnalysisResult[], walletAddress: 
     }
     
     // Top 5 profitable tokens
-    const profitableTokens = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss);
+    const profitableTokens = [...results].sort((a, b) => getNetPnlValue(b.netSolProfitLoss) - getNetPnlValue(a.netSolProfitLoss));
     const topProfitable = profitableTokens.slice(0, 5);
     
     console.log('\nTop 5 Most Profitable Tokens:');
     topProfitable.forEach((result, index) => {
-        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}`);
+        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(getNetPnlValue(result.netSolProfitLoss))}`);
     });
     
     // Bottom 5 unprofitable tokens
-    const unprofitableTokens = [...results].sort((a, b) => a.netSolProfitLoss - b.netSolProfitLoss);
+    const unprofitableTokens = [...results].sort((a, b) => getNetPnlValue(a.netSolProfitLoss) - getNetPnlValue(b.netSolProfitLoss));
     const bottomUnprofitable = unprofitableTokens.slice(0, 5);
     
     console.log('\nTop 5 Least Profitable Tokens:');
     bottomUnprofitable.forEach((result, index) => {
-        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(result.netSolProfitLoss)}`);
+        console.log(`${index + 1}. ${getTokenName(result.tokenAddress)}: ${formatProfitLoss(getNetPnlValue(result.netSolProfitLoss))}`);
     });
     
     // Activity time range
@@ -135,33 +139,35 @@ function getActivityTimeRange(results: OnChainAnalysisResult[]): { first: number
  * @param results Array of OnChainAnalysisResult
  */
 export function displayDetailedResults(results: OnChainAnalysisResult[]): void {
-  const sortedResults = [...results].sort((a, b) => b.netSolProfitLoss - a.netSolProfitLoss);
+  const sortedResults = [...results].sort((a, b) => getNetPnlValue(b.netSolProfitLoss) - getNetPnlValue(a.netSolProfitLoss));
 
   console.log(chalk.bold.blue('\n--- Detailed SOL P/L by Token ---'));
 
   console.log(chalk.bold.green('\nTop 10 Gainers by SOL P/L:'));
-  if (sortedResults.filter(r => r.netSolProfitLoss > 0).length === 0) {
+  if (sortedResults.filter(r => getNetPnlValue(r.netSolProfitLoss) > 0).length === 0) {
       console.log(chalk.gray('  No profitable tokens found.'));
   } else {
-      sortedResults.filter(r => r.netSolProfitLoss > 0).slice(0, 10).forEach((result, index) => {
+      sortedResults.filter(r => getNetPnlValue(r.netSolProfitLoss) > 0).slice(0, 10).forEach((result, index) => {
         const displayName = getTokenDisplayName(result.tokenAddress);
         const addrDisplay = displayName !== result.tokenAddress ? chalk.gray(` (${result.tokenAddress})`) : '';
+        const netPnl = getNetPnlValue(result.netSolProfitLoss);
         console.log(`  ${index + 1}. ${chalk.bold(displayName)}${addrDisplay}`);
-        console.log(`     Net SOL P/L: ${chalk.green(result.netSolProfitLoss.toFixed(6))} SOL`);
+        console.log(`     Net SOL P/L: ${chalk.green(netPnl.toFixed(6))} SOL`);
         console.log(`     Swaps: ${chalk.cyan(result.transferCountIn)} In / ${chalk.cyan(result.transferCountOut)} Out`);
       });
   }
 
   console.log(chalk.bold.red('\nTop 10 Losers by SOL P/L:'));
-  const losers = sortedResults.filter(r => r.netSolProfitLoss < 0).reverse(); // Reverse to show biggest loss first
+  const losers = sortedResults.filter(r => getNetPnlValue(r.netSolProfitLoss) < 0).reverse(); // Reverse to show biggest loss first
   if (losers.length === 0) {
       console.log(chalk.gray('  No tokens with SOL loss found.'));
   } else {
       losers.slice(0, 10).forEach((result, index) => {
         const displayName = getTokenDisplayName(result.tokenAddress);
         const addrDisplay = displayName !== result.tokenAddress ? chalk.gray(` (${result.tokenAddress})`) : '';
+        const netPnl = getNetPnlValue(result.netSolProfitLoss);
         console.log(`  ${index + 1}. ${chalk.bold(displayName)}${addrDisplay}`);
-        console.log(`     Net SOL P/L: ${chalk.red(result.netSolProfitLoss.toFixed(6))} SOL`);
+        console.log(`     Net SOL P/L: ${chalk.red(netPnl.toFixed(6))} SOL`);
         console.log(`     Swaps: ${chalk.cyan(result.transferCountIn)} In / ${chalk.cyan(result.transferCountOut)} Out`);
       });
   }

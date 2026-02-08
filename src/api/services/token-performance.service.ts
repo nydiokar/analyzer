@@ -35,6 +35,7 @@ export class PaginatedTokenPerformanceResponse {
  */
 export class TokenPerformanceService {
   private readonly logger = new Logger(TokenPerformanceService.name);
+  private readonly MIN_MEANINGFUL_SOL = 0.01;
 
   constructor(
     private readonly databaseService: DatabaseService,
@@ -60,6 +61,7 @@ export class TokenPerformanceService {
         pnlConditionValue,
         minTrades,
         spamFilter,
+        tokenAddresses: tokenAddressesFilter, // NEW: Filter by specific token addresses (renamed to avoid conflict)
     } = queryDto;
 
     const skip = (page - 1) * pageSize;
@@ -68,28 +70,46 @@ export class TokenPerformanceService {
     const where: Prisma.AnalysisResultWhereInput = {
       walletAddress: walletAddress,
     };
+    const andFilters: Prisma.AnalysisResultWhereInput[] = [];
+    const addAndFilter = (filter: Prisma.AnalysisResultWhereInput) => {
+      andFilters.push(filter);
+    };
+
+    // Default exclusion: stablecoins and wrapped/native tokens
+    addAndFilter({ tokenAddress: { notIn: DEFAULT_EXCLUDED_MINTS } });
 
     if (showOnlyHoldings) { // Use the destructured variable
       // Only show meaningful holdings (not dust)
       // This will be further filtered post-processing to ensure positions are worth > $1 USD or have meaningful token amounts
-      where.currentUiBalance = { gt: 0 };
+      addAndFilter({ currentUiBalance: { gt: 0 } });
     }
 
-    // Add search term filtering
-    if (searchTerm) {
-      where.tokenAddress = {
-        contains: searchTerm,
-        // mode: 'insensitive', // Removed earlier, ensure DB collation handles case-insensitivity if needed
+    // Filter by specific token addresses if provided
+    if (tokenAddressesFilter) {
+      const addressArray = tokenAddressesFilter.split(',').map(addr => addr.trim()).filter(addr => addr.length > 0);
+      if (addressArray.length > 0) {
+        addAndFilter({ tokenAddress: { in: addressArray } });
+      }
+    }
+
+    // Add search term filtering (only if tokenAddressesFilter not provided, as they conflict)
+    if (searchTerm && !tokenAddressesFilter) {
+      const searchFilter: Prisma.AnalysisResultWhereInput = {
+        tokenAddress: {
+          contains: searchTerm,
+          // mode: 'insensitive', // Removed earlier, ensure DB collation handles case-insensitivity if needed
+        },
       };
+      addAndFilter(searchFilter);
     }
 
     // Apply PNL condition
     if (pnlConditionOperator && typeof pnlConditionValue === 'number') {
       const op = pnlConditionOperator.toLowerCase();
       if (op === 'gt' || op === 'lt' || op === 'gte' || op === 'lte') {
-        where.netSolProfitLoss = { [op]: pnlConditionValue } as Prisma.FloatFilter;
+        where.totalPnlSol = { [op]: pnlConditionValue } as Prisma.FloatFilter;
       } else if (op === 'eq') { // DTO enum uses 'eq', Prisma uses 'equals' for numbers
-        where.netSolProfitLoss = { equals: pnlConditionValue } as Prisma.FloatFilter;
+        where.totalPnlSol = { equals: pnlConditionValue } as Prisma.FloatFilter;
       } else {
         this.logger.warn(`Unsupported PNL operator: ${pnlConditionOperator}. Expected gt, lt, gte, lte, or eq.`);
       }
@@ -114,15 +134,7 @@ export class TokenPerformanceService {
           ],
         };
 
-        if (where.AND) {
-          if (Array.isArray(where.AND)) {
-            where.AND.push(minTradesCondition);
-          } else {
-            where.AND = [where.AND, minTradesCondition];
-          }
-        } else {
-          where.AND = [minTradesCondition];
-        }
+        addAndFilter(minTradesCondition);
       } else {
         // For other minTrades values, if a simpler sum isn't directly possible, this might need raw SQL
         // or a broader interpretation e.g. (transferCountIn >= minTrades OR transferCountOut >= minTrades)
@@ -131,34 +143,35 @@ export class TokenPerformanceService {
       }
     }
 
-    // Apply time range filtering if startDate or endDate is provided
-    // This will filter based on when the token activity occurred (lastTransferTimestamp)
-    let timeFilter: Prisma.IntFilter | Prisma.IntNullableFilter | undefined = undefined;
+    // Exclude noise tokens with zero activity and no meaningful holdings.
+    const meaningfulActivityFilter: Prisma.AnalysisResultWhereInput = {
+      OR: [
+        { totalSolSpent: { gte: this.MIN_MEANINGFUL_SOL } },
+        { totalSolReceived: { gte: this.MIN_MEANINGFUL_SOL } },
+        { realizedPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { realizedPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { unrealizedPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { unrealizedPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { totalPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { totalPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { currentHoldingsValueSol: { gte: this.MIN_MEANINGFUL_SOL } },
+      ],
+    };
+    addAndFilter(meaningfulActivityFilter);
 
-    if (typeof where.lastTransferTimestamp === 'object' && where.lastTransferTimestamp !== null) {
-        // If it's already an object (like IntFilter), preserve existing conditions
-        // Make sure to cast to a type that can be spread and then refined.
-        timeFilter = { ...(where.lastTransferTimestamp as Prisma.IntFilter) }; 
-    } else if (typeof where.lastTransferTimestamp === 'number') {
-        // If it was a direct number, this implies an equality check was set before.
-        // For a range query, we typically initialize timeFilter and overwrite this.
-        // If we needed to preserve an exact number match AND add range, logic would be more complex.
-        // Assuming here that if startDate/endDate are present, we build a range query.
-    }
-    
-    if (startDate) {
-      timeFilter = { ...(timeFilter || {}), gte: Math.floor(new Date(startDate).getTime() / 1000) };
-    }
-    if (endDate) {
-      timeFilter = { ...(timeFilter || {}), lte: Math.floor(new Date(endDate).getTime() / 1000) };
+    if (andFilters.length > 0) {
+      where.AND = andFilters;
     }
 
-    if (timeFilter) {
-        where.lastTransferTimestamp = timeFilter;
-    }
-    
-    // If only startDate is provided, it means "from startDate onwards"
-    // If only endDate is provided, it means "up to endDate"
+    // CHANGED: Store time filter separately instead of applying to WHERE clause
+    // This ensures all tokens (including current holdings) are fetched regardless of time filter
+    // Time filter will be used post-query to mark which tokens had activity in the period
+    const hasTimeFilter = !!(startDate || endDate);
+    const timeFilterStart = startDate ? Math.floor(new Date(startDate).getTime() / 1000) : undefined;
+    const timeFilterEnd = endDate ? Math.floor(new Date(endDate).getTime() / 1000) : undefined;
+
+    // DO NOT apply time filter to WHERE clause - we want to fetch ALL tokens
+    // including current holdings that may not have traded in the filtered period
 
     // Handle calculated fields that need post-processing
     let orderBy: Prisma.AnalysisResultOrderByWithRelationInput = {};
@@ -166,11 +179,11 @@ export class TokenPerformanceService {
     let needsPostFiltering = false;
     
     // These fields are calculated after data fetch, so they need post-processing
-    const calculatedFields = ['roi', 'totalPnlSol', 'unrealizedPnlSol', 'currentSolValue'];
+    const calculatedFields = ['roi', 'totalPnlSol', 'realizedPnlSol', 'unrealizedPnlSol', 'currentSolValue'];
     
     if (calculatedFields.includes(sortBy)) {
       // For calculated fields, we'll sort by a related field for now and apply post-processing
-      if (sortBy === 'roi' || sortBy === 'totalPnlSol') {
+      if (sortBy === 'roi' || sortBy === 'totalPnlSol' || sortBy === 'realizedPnlSol') {
         orderBy.netSolProfitLoss = sortOrder.toLowerCase() as Prisma.SortOrder;
       } else if (sortBy === 'unrealizedPnlSol' || sortBy === 'currentSolValue') {
         orderBy.currentUiBalance = sortOrder.toLowerCase() as Prisma.SortOrder;
@@ -221,7 +234,11 @@ export class TokenPerformanceService {
       const fallbackMetadata = getWellKnownTokenMetadata(ar.tokenAddress);
       
       // Calculate unrealized P&L for current holdings
-      const netAmountChange = ar.netAmountChange || 0;
+      const rawTotalAmountIn = ar.totalAmountIn || 0;
+      const rawTotalAmountOut = ar.totalAmountOut || 0;
+      const totalAmountIn = Math.abs(rawTotalAmountIn);
+      const totalAmountOut = Math.abs(rawTotalAmountOut);
+      const netAmountChange = totalAmountIn - totalAmountOut;
       const dbCurrentUiBalance = ar.currentUiBalance;
       const derivedBalanceFromNetAmount = (dbCurrentUiBalance === null || dbCurrentUiBalance === undefined) && netAmountChange > 0
         ? netAmountChange
@@ -232,8 +249,10 @@ export class TokenPerformanceService {
       const effectiveCurrentUiBalanceString = ar.currentUiBalanceString ?? (derivedBalanceFromNetAmount !== null ? derivedBalanceFromNetAmount.toString() : null);
       const priceUsd = tokenInfo?.priceUsd ? parseFloat(tokenInfo.priceUsd) : null;
       const totalSolSpent = ar.totalSolSpent || 0;
-      const totalAmountIn = ar.totalAmountIn || 0;
-      const netSolProfitLoss = ar.netSolProfitLoss || 0;
+      const realizedPnlSolFromDb = ar.realizedPnlSol ?? null;
+      const totalPnlSolFromDb = ar.totalPnlSol ?? null;
+      const hasIncompleteHistory = ar.hasIncompleteHistory ?? false;
+      const fifoHoldingsCostBasisSol = ar.currentHoldingsCostBasisSol ?? null;
       
       let currentHoldingsValueUsd: number | null = null;
       let currentHoldingsValueSol: number | null = null;
@@ -245,97 +264,107 @@ export class TokenPerformanceService {
       let unrealizedPnlPercentage: number | null = null;
       
       // Get basic data for calculations
-      const totalAmountOut = ar.totalAmountOut || 0;
+      
       const solReceivedFromSales = ar.totalSolReceived || 0;
       const feesPaid = ar.totalFeesPaidInSol || 0;
       // estimatedSolPriceUsd is already fetched from outer scope
-      const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
-      
       if (hasCurrentHoldings && priceUsd && priceUsd > 0) {
         // We have current holdings AND price data - can calculate full P&L
         currentHoldingsValueUsd = currentUiBalance * priceUsd;
         currentHoldingsValueSol = currentHoldingsValueUsd / estimatedSolPriceUsd;
-        
-        // ✅ FILTER UNREALISTIC SOL VALUES AND USE CENTRALIZED EXCLUDED MINTS
-        const maxReasonableSolValue = 10000; // Max 10k SOL value for any single token holding
-        const maxReasonablePriceRatio = 1000; // Token price shouldn't be more than 1000x SOL price
-        
-        if (currentHoldingsValueSol > maxReasonableSolValue || 
-            priceUsd > estimatedSolPriceUsd * maxReasonablePriceRatio ||
-            DEFAULT_EXCLUDED_MINTS.includes(ar.tokenAddress)) {
-          // Reset to null for unrealistic values or excluded tokens
+
+        // Exclude stablecoins and wrapped tokens from PnL display
+        if (DEFAULT_EXCLUDED_MINTS.includes(ar.tokenAddress)) {
           currentHoldingsValueUsd = null;
           currentHoldingsValueSol = null;
         }
-        
-        // Realized P&L: Only from tokens that were actually sold
-        const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
-        realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
-        
-        // ✅ Only calculate unrealized PnL if we have valid SOL values
-        if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null) {
-          // Unrealized P&L: Current value vs cost basis of remaining holdings
-          const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
-          unrealizedPnlUsd = currentHoldingsValueUsd - (costBasisForCurrentHoldings * estimatedSolPriceUsd);
-          unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
-          
-          // Calculate percentages
-          // Realized PNL % = (Realized PNL / Total SOL Invested) × 100
-          realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
-          
-          // Unrealized PNL % = (Unrealized PNL / Cost Basis of Current Holdings) × 100  
-          unrealizedPnlPercentage = costBasisForCurrentHoldings > 0 ? (unrealizedPnlSol / costBasisForCurrentHoldings) * 100 : null;
-          
-          // Total P&L: Simple and clean calculation
-          totalPnlSol = realizedPnlSol + unrealizedPnlSol;
+
+        realizedPnlSol = realizedPnlSolFromDb;
+
+        if (currentHoldingsValueSol !== null && currentHoldingsValueUsd !== null && fifoHoldingsCostBasisSol !== null) {
+          unrealizedPnlUsd = currentHoldingsValueUsd - (fifoHoldingsCostBasisSol * estimatedSolPriceUsd);
+          unrealizedPnlSol = currentHoldingsValueSol - fifoHoldingsCostBasisSol;
+
+        const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
+        realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
+          ? (realizedPnlExcludingFees / totalSolSpent) * 100
+          : null;
+          unrealizedPnlPercentage = fifoHoldingsCostBasisSol > 0 ? (unrealizedPnlSol / fifoHoldingsCostBasisSol) * 100 : null;
+
+          totalPnlSol = (realizedPnlSol ?? 0) + (unrealizedPnlSol ?? 0);
         } else {
-          // ✅ FILTERED TOKEN: Only show realized PnL
-          realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
-          totalPnlSol = realizedPnlSol; // Only realized PnL for filtered tokens
+          realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol ?? 0) / totalSolSpent * 100 : null;
+          totalPnlSol = realizedPnlSol;
         }
-        
+
              } else if (hasCurrentHoldings) {
          // We have holdings but no price data - can't calculate unrealized P&L
          // Show realized P&L only and mark total as incomplete
-         const costBasisForSoldTokens = totalAmountOut * avgCostPerToken;
-         realizedPnlSol = solReceivedFromSales - costBasisForSoldTokens - feesPaid;
-        
-        // Calculate realized PNL percentage
-        realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
-        
+
+         realizedPnlSol = realizedPnlSolFromDb;
+
+        const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
+        realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
+          ? (realizedPnlExcludingFees / totalSolSpent) * 100
+          : null;
+
         // Can't calculate unrealized without price data
         unrealizedPnlUsd = null;
         unrealizedPnlSol = null;
         unrealizedPnlPercentage = null;
-        
+
         // Total P&L is incomplete without unrealized component
-        totalPnlSol = realizedPnlSol; // This will be incomplete but better than using netSolProfitLoss
-        
+        totalPnlSol = realizedPnlSol;
+
       } else {
         // No current holdings - everything is realized
-        realizedPnlSol = netSolProfitLoss;
-        realizedPnlPercentage = totalSolSpent > 0 ? (realizedPnlSol / totalSolSpent) * 100 : null;
-        
-        totalPnlSol = netSolProfitLoss;
+        realizedPnlSol = realizedPnlSolFromDb;
+        const realizedPnlExcludingFees = realizedPnlSol !== null ? realizedPnlSol + feesPaid : null;
+        realizedPnlPercentage = totalSolSpent > 0 && realizedPnlExcludingFees !== null
+          ? (realizedPnlExcludingFees / totalSolSpent) * 100
+          : null;
+
+        totalPnlSol = realizedPnlSol;
         unrealizedPnlUsd = null;
         unrealizedPnlSol = null;
         unrealizedPnlPercentage = null;
       }
-      
+
+      // Determine if token had activity in the filtered time period
+      let hasActivityInPeriod: boolean | null = null;
+      if (hasTimeFilter) {
+        const lastTransferTs = ar.lastTransferTimestamp;
+        const firstTransferTs = ar.firstTransferTimestamp;
+
+        if (lastTransferTs !== null && lastTransferTs !== undefined) {
+          // Check if any activity falls within the time range
+          const isAfterStart = timeFilterStart === undefined || lastTransferTs >= timeFilterStart;
+          const isBeforeEnd = timeFilterEnd === undefined || (firstTransferTs !== null && firstTransferTs !== undefined ? firstTransferTs <= timeFilterEnd : lastTransferTs <= timeFilterEnd);
+          hasActivityInPeriod = isAfterStart && isBeforeEnd;
+        } else {
+          hasActivityInPeriod = false; // No timestamp means no activity
+        }
+      } else {
+        // No time filter applied - mark as true if token has any transactions
+        hasActivityInPeriod = (ar.transferCountIn || 0) + (ar.transferCountOut || 0) > 0;
+      }
+
       const tokenData: TokenPerformanceDataDto = {
         walletAddress: ar.walletAddress,
         tokenAddress: ar.tokenAddress,
-        totalAmountIn: ar.totalAmountIn,
-        totalAmountOut: ar.totalAmountOut,
-        netAmountChange: ar.netAmountChange,
+        totalAmountIn: totalAmountIn,
+        totalAmountOut: totalAmountOut,
+        netAmountChange: netAmountChange,
         totalSolSpent: ar.totalSolSpent,
         totalSolReceived: ar.totalSolReceived,
         totalFeesPaidInSol: ar.totalFeesPaidInSol,
         netSolProfitLoss: ar.netSolProfitLoss,
+        hasIncompleteHistory,
         transferCountIn: ar.transferCountIn,
         transferCountOut: ar.transferCountOut,
         firstTransferTimestamp: ar.firstTransferTimestamp,
         lastTransferTimestamp: ar.lastTransferTimestamp,
+        hasActivityInPeriod: hasActivityInPeriod,
         currentRawBalance: ar.currentRawBalance,
         currentUiBalance: hasCurrentHoldings ? currentUiBalance : ar.currentUiBalance,
         currentUiBalanceString: effectiveCurrentUiBalanceString,
@@ -369,7 +398,7 @@ export class TokenPerformanceService {
         currentHoldingsValueSol,
         unrealizedPnlUsd,
         unrealizedPnlSol,
-        totalPnlSol,
+        totalPnlSol: totalPnlSol ?? totalPnlSolFromDb,
         // PNL percentage indicators
         realizedPnlSol,
         realizedPnlPercentage,
@@ -416,7 +445,9 @@ export class TokenPerformanceService {
       
       tokenPerformanceDataList = tokenPerformanceDataList.filter(token => {
         const riskLevel = token.spamRiskLevel ?? this.analyzeTokenSpamRisk(token).riskLevel;
-        const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
+        const hasName = !!(token.name && token.name !== 'Unknown Token') || !!token.onchainName;
+        const hasSymbol = !!(token.symbol && token.symbol !== 'Unknown Token') || !!token.onchainSymbol;
+        const isUnknown = !hasName || !hasSymbol;
 
         switch (spamFilter) {
           case SpamFilterType.SAFE:
@@ -436,39 +467,64 @@ export class TokenPerformanceService {
 
     // Apply calculated field sorting if needed
     if (needsPostSorting) {
+      const compareNullable = (valueA: number | null | undefined, valueB: number | null | undefined) => {
+        const aNull = valueA === null || valueA === undefined || Number.isNaN(valueA);
+        const bNull = valueB === null || valueB === undefined || Number.isNaN(valueB);
+        if (aNull && bNull) return 0;
+        if (aNull) return 1;
+        if (bNull) return -1;
+        return sortOrder === SortOrder.DESC ? (valueB as number) - (valueA as number) : (valueA as number) - (valueB as number);
+      };
+
       tokenPerformanceDataList.sort((a, b) => {
-        let valueA: number;
-        let valueB: number;
+        let valueA: number | null = null;
+        let valueB: number | null = null;
         
         switch (sortBy) {
-          case 'roi':
-            // Fixed ROI calculation: Use totalPnlSol instead of netSolProfitLoss for more accurate ROI
-            valueA = a.totalSolSpent && a.totalSolSpent !== 0 
-              ? (a.totalPnlSol || 0) / a.totalSolSpent * 100 
-              : (a.totalPnlSol || 0) > 0 ? Infinity : (a.totalPnlSol || 0) < 0 ? -Infinity : 0;
-            valueB = b.totalSolSpent && b.totalSolSpent !== 0 
-              ? (b.totalPnlSol || 0) / b.totalSolSpent * 100 
-              : (b.totalPnlSol || 0) > 0 ? Infinity : (b.totalPnlSol || 0) < 0 ? -Infinity : 0;
+          case 'roi': {
+            if (a.totalPnlSol === null || a.totalPnlSol === undefined) {
+              valueA = null;
+            } else if (a.totalSolSpent && a.totalSolSpent !== 0) {
+              valueA = (a.totalPnlSol / a.totalSolSpent) * 100;
+            } else {
+              valueA = a.totalPnlSol > 0 ? Infinity : a.totalPnlSol < 0 ? -Infinity : 0;
+            }
+
+            if (b.totalPnlSol === null || b.totalPnlSol === undefined) {
+              valueB = null;
+            } else if (b.totalSolSpent && b.totalSolSpent !== 0) {
+              valueB = (b.totalPnlSol / b.totalSolSpent) * 100;
+            } else {
+              valueB = b.totalPnlSol > 0 ? Infinity : b.totalPnlSol < 0 ? -Infinity : 0;
+            }
             break;
+          }
           case 'totalPnlSol':
-            valueA = a.totalPnlSol || 0;
-            valueB = b.totalPnlSol || 0;
+            valueA = a.totalPnlSol ?? null;
+            valueB = b.totalPnlSol ?? null;
+            break;
+          case 'realizedPnlSol':
+            valueA = a.realizedPnlSol ?? null;
+            valueB = b.realizedPnlSol ?? null;
             break;
           case 'unrealizedPnlSol':
-            valueA = a.unrealizedPnlSol || 0;
-            valueB = b.unrealizedPnlSol || 0;
+            valueA = a.unrealizedPnlSol ?? null;
+            valueB = b.unrealizedPnlSol ?? null;
             break;
           case 'currentSolValue':
-            // Sort by SOL value of current holdings
-            valueA = a.currentHoldingsValueUsd ? a.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
-            valueB = b.currentHoldingsValueUsd ? b.currentHoldingsValueUsd / estimatedSolPriceUsd : 0;
+            valueA = a.currentHoldingsValueUsd !== null && a.currentHoldingsValueUsd !== undefined
+              ? a.currentHoldingsValueUsd / estimatedSolPriceUsd
+              : null;
+            valueB = b.currentHoldingsValueUsd !== null && b.currentHoldingsValueUsd !== undefined
+              ? b.currentHoldingsValueUsd / estimatedSolPriceUsd
+              : null;
             break;
           default:
             valueA = 0;
             valueB = 0;
         }
         
-        return sortOrder === SortOrder.DESC ? valueB - valueA : valueA - valueB;
+        return compareNullable(valueA, valueB);
       });
     }
 
@@ -502,8 +558,27 @@ export class TokenPerformanceService {
 
   async getAllTokenPerformanceForWallet(walletAddress: string): Promise<TokenPerformanceDataDto[]> {
     this.logger.debug(`Fetching all token performance for wallet ${walletAddress} from AnalysisResult.`);
+    const meaningfulActivityFilter: Prisma.AnalysisResultWhereInput = {
+      OR: [
+        { totalSolSpent: { gte: this.MIN_MEANINGFUL_SOL } },
+        { totalSolReceived: { gte: this.MIN_MEANINGFUL_SOL } },
+        { realizedPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { realizedPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { unrealizedPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { unrealizedPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { totalPnlSol: { gte: this.MIN_MEANINGFUL_SOL } },
+        { totalPnlSol: { lte: -this.MIN_MEANINGFUL_SOL } },
+        { currentHoldingsValueSol: { gte: this.MIN_MEANINGFUL_SOL } },
+      ],
+    };
     const analysisResults = await this.databaseService.getAnalysisResults({
-      where: { walletAddress },
+      where: {
+        walletAddress,
+        AND: [
+          { tokenAddress: { notIn: DEFAULT_EXCLUDED_MINTS } },
+          meaningfulActivityFilter,
+        ],
+      },
     });
 
     if (analysisResults.length === 0) {
@@ -516,6 +591,11 @@ export class TokenPerformanceService {
 
     const tokenPerformanceDataList: TokenPerformanceDataDto[] = analysisResults.map(ar => {
       const tokenInfo = tokenInfoMap.get(ar.tokenAddress);
+
+      // No time filter in this method - mark all tokens as having activity
+      const hasActivityInPeriod = (ar.transferCountIn || 0) + (ar.transferCountOut || 0) > 0;
+
+      const fallbackMetadata = getWellKnownTokenMetadata(ar.tokenAddress);
       const tokenData: TokenPerformanceDataDto = {
         walletAddress: ar.walletAddress,
         tokenAddress: ar.tokenAddress,
@@ -530,17 +610,24 @@ export class TokenPerformanceService {
         transferCountOut: ar.transferCountOut,
         firstTransferTimestamp: ar.firstTransferTimestamp,
         lastTransferTimestamp: ar.lastTransferTimestamp,
+        hasActivityInPeriod: hasActivityInPeriod,
         currentRawBalance: ar.currentRawBalance,
         currentUiBalance: ar.currentUiBalance,
         currentUiBalanceString: ar.currentUiBalanceString,
         balanceDecimals: ar.balanceDecimals,
         balanceFetchedAt: ar.balanceFetchedAt ? ar.balanceFetchedAt.toISOString() : null,
-        name: tokenInfo?.name,
-        symbol: tokenInfo?.symbol,
+        name: tokenInfo?.name || fallbackMetadata?.name,
+        symbol: tokenInfo?.symbol || fallbackMetadata?.symbol,
         imageUrl: tokenInfo?.imageUrl,
         websiteUrl: tokenInfo?.websiteUrl,
         twitterUrl: tokenInfo?.twitterUrl,
         telegramUrl: tokenInfo?.telegramUrl,
+        onchainName: tokenInfo?.onchainName,
+        onchainSymbol: tokenInfo?.onchainSymbol,
+        onchainImageUrl: tokenInfo?.onchainImageUrl,
+        onchainWebsiteUrl: tokenInfo?.onchainWebsiteUrl,
+        onchainTwitterUrl: tokenInfo?.onchainTwitterUrl,
+        onchainTelegramUrl: tokenInfo?.onchainTelegramUrl,
       };
 
       const spamAnalysis = this.analyzeTokenSpamRisk(tokenData);
@@ -563,6 +650,7 @@ export class TokenPerformanceService {
     }
     return tokenInfoMap;
   }
+
 
   async getAllTokenAddressesForWallet(walletAddress: string): Promise<string[]> {
     this.logger.debug(
@@ -610,10 +698,12 @@ export class TokenPerformanceService {
     }
 
     // Check if token has name/symbol (unknown tokens)
-    const isUnknown = !token.name || !token.symbol || token.name === 'Unknown Token';
+    const hasName = !!(token.name && token.name !== 'Unknown Token') || !!token.onchainName;
+    const hasSymbol = !!(token.symbol && token.symbol !== 'Unknown Token') || !!token.onchainSymbol;
+    const isUnknown = !hasName || !hasSymbol;
     const totalSpent = token.totalSolSpent || 0;
     const totalReceived = token.totalSolReceived || 0;
-    const netPnl = token.netSolProfitLoss || 0;
+    const netPnl = token.totalPnlSol ?? token.netSolProfitLoss ?? 0;
     const transfersIn = token.transferCountIn || 0;
     const transfersOut = token.transferCountOut || 0;
     const totalTransfers = transfersIn + transfersOut;

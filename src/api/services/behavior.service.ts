@@ -3,6 +3,8 @@ import { DatabaseService as NestDatabaseService } from '../services/database.ser
 import { BehaviorService as OriginalBehaviorService } from '../../core/analysis/behavior/behavior-service';
 import { BehaviorAnalysisConfig } from '../../types/analysis'; // Corrected to use path alias
 import { BehavioralMetrics } from '../../types/behavior'; // Corrected to use path alias
+import { getKnownWallet, SKIP_BEHAVIOR_ANALYSIS, type KnownWalletType } from '../../config/known-wallets';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @Injectable()
 export class BehaviorService {
@@ -25,6 +27,27 @@ export class BehaviorService {
   ): Promise<BehavioralMetrics | null> {
     this.logger.debug(`Getting wallet behavior for ${walletAddress}`);
 
+    // Layer 1: Check registry (O(1), no I/O)
+    const knownEntry = getKnownWallet(walletAddress);
+    if (knownEntry && SKIP_BEHAVIOR_ANALYSIS.has(knownEntry.type)) {
+      this.logger.log(`Skipping behavior analysis for registry wallet ${walletAddress} (${knownEntry.type})`);
+      return null;
+    }
+
+    // Layer 2: Fetch wallet ONCE and reuse for both knownType check and cache staleness check
+    // This avoids duplicate DB queries
+    let wallet: Awaited<ReturnType<typeof this.nestDatabaseService.getWallet>> | null = null;
+    try {
+      wallet = await this.nestDatabaseService.getWallet(walletAddress);
+      if (wallet?.knownType && SKIP_BEHAVIOR_ANALYSIS.has(wallet.knownType as KnownWalletType)) {
+        this.logger.log(`Skipping behavior analysis for detected system wallet ${walletAddress} (${wallet.knownType})`);
+        return null;
+      }
+    } catch (error) {
+      // Non-critical, proceed with analysis if check fails
+      this.logger.warn(`Failed to check wallet knownType for ${walletAddress}: ${getErrorMessage(error)}`);
+    }
+
     // Feature flag: disable with DISABLE_BEHAVIOR_CACHE=true
     const cacheEnabled = process.env.DISABLE_BEHAVIOR_CACHE !== 'true';
 
@@ -35,7 +58,10 @@ export class BehaviorService {
 
         if (cachedProfile) {
           // Smart staleness check: Compare profile update time vs wallet last sync
-          const wallet = await this.nestDatabaseService.getWallet(walletAddress);
+          // Reuse wallet from earlier fetch to avoid duplicate DB query
+          if (!wallet) {
+            wallet = await this.nestDatabaseService.getWallet(walletAddress);
+          }
 
           if (wallet?.lastSuccessfulFetchTimestamp) {
             const profileUpdatedAt = cachedProfile.updatedAt.getTime();
@@ -74,7 +100,7 @@ export class BehaviorService {
     try {
       return await originalService.analyzeWalletBehavior(walletAddress, timeRange || config.timeRange, pnlMap);
     } catch (error) {
-      this.logger.error(`Error in getWalletBehavior for ${walletAddress}:`, error);
+      this.logger.error(`Error in getWalletBehavior for ${walletAddress}: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -84,14 +110,18 @@ export class BehaviorService {
    * Some fields are not cached and will be null/undefined - consuming code handles this
    */
   private convertProfileToMetrics(profile: any): BehavioralMetrics {
+    // Determine behaviorType from speedCategory (for historicalPattern backward compat)
+    // speedCategory is the new explicit field, no more string parsing!
+    const behaviorType = profile.speedCategory || 'HODLER'; // Fallback to HODLER if null
+
     // Reconstruct historicalPattern from cached pieces
     const historicalPattern = {
       walletAddress: profile.walletAddress,
       historicalAverageHoldTimeHours: profile.averageFlipDurationHours,
       completedCycleCount: profile.completePairsCount,
-      medianCompletedHoldTimeHours: profile.medianHoldTime,
-      behaviorType: this.extractBehaviorType(profile.tradingStyle),
-      exitPattern: 'GRADUAL' as const, // Not cached, use default
+      medianCompletedHoldTimeHours: profile.medianCompletedHoldTimeHours ?? profile.medianHoldTime, // Use new field, fallback to deprecated for old data
+      behaviorType: behaviorType as any,
+      exitPattern: (profile.exitPattern as 'GRADUAL' | 'ALL AT ONCE') ?? ('GRADUAL' as const), // Read from DB
       dataQuality: profile.confidenceScore,
       observationPeriodDays: this.calculateObservationPeriodDays(profile),
       holdTimeDistribution: undefined, // Not cached as structured object
@@ -104,15 +134,16 @@ export class BehaviorService {
       buySellSymmetry: profile.buySellSymmetry,
       averageFlipDurationHours: profile.averageFlipDurationHours,
       medianHoldTime: profile.medianHoldTime,
-      averageCurrentHoldingDurationHours: null as any, // Not cached
-      medianCurrentHoldingDurationHours: null as any, // Not cached
+      averageCurrentHoldingDurationHours: profile.averageCurrentHoldingDurationHours ?? null,
+      medianCurrentHoldingDurationHours: profile.medianCurrentHoldingDurationHours ?? null,
       weightedAverageHoldingDurationHours: profile.averageFlipDurationHours, // Best approximation
-      percentOfValueInCurrentHoldings: null as any, // Not cached
+      percentOfValueInCurrentHoldings: profile.percentOfValueInCurrentHoldings ?? null,
       sequenceConsistency: profile.sequenceConsistency,
       flipperScore: profile.flipperScore,
+      velocityScore: profile.velocityScore ?? undefined, // NEW: Read from DB
       uniqueTokensTraded: profile.uniqueTokensTraded,
       tokensWithBothBuyAndSell: profile.tokensWithBothBuyAndSell,
-      tokensWithOnlyBuys: null as any, // Not cached
+      tokensWithOnlyBuys: profile.tokensWithOnlyBuys ?? 0, // NEW: Now cached in DB
       tokensWithOnlySells: null as any, // Not cached
       totalTradeCount: profile.totalTradeCount,
       totalBuyCount: profile.totalBuyCount,
@@ -123,6 +154,10 @@ export class BehaviorService {
       percentTradesUnder1Hour: profile.percentTradesUnder1Hour,
       percentTradesUnder4Hours: profile.percentTradesUnder4Hours,
       tradingStyle: profile.tradingStyle,
+      speedCategory: profile.speedCategory ?? null, // NEW: Explicit enum from DB
+      flowPattern: profile.flowPattern ?? null, // NEW: Explicit enum from DB
+      strategyType: profile.strategyType ?? undefined, // NEW: Canonical filter field
+      medianActiveHoldingHours: profile.medianActiveHoldingHours ?? undefined, // NEW: For holder bypass
       confidenceScore: profile.confidenceScore,
       tradingFrequency: profile.tradingFrequency as any,
       tokenPreferences: profile.tokenPreferences as any,
@@ -138,20 +173,6 @@ export class BehaviorService {
       lastTransactionTimestamp: profile.lastTransactionTimestamp,
       historicalPattern, // Reconstructed from cached pieces
     };
-  }
-
-  private extractBehaviorType(tradingStyle: string): any {
-    // Extract behavior type from trading style string
-    // tradingStyle format is like "FLIPPER (ACCUMULATOR): ..."
-    if (tradingStyle.includes('SNIPER')) return 'SNIPER';
-    if (tradingStyle.includes('SCALPER')) return 'SCALPER';
-    if (tradingStyle.includes('MOMENTUM')) return 'MOMENTUM';
-    if (tradingStyle.includes('INTRADAY')) return 'INTRADAY';
-    if (tradingStyle.includes('DAY_TRADER')) return 'DAY_TRADER';
-    if (tradingStyle.includes('SWING')) return 'SWING';
-    if (tradingStyle.includes('POSITION')) return 'POSITION';
-    if (tradingStyle.includes('HOLDER')) return 'HOLDER';
-    return 'DAY_TRADER'; // Default
   }
 
   private calculateObservationPeriodDays(profile: any): number {

@@ -7,25 +7,32 @@ import { Info, Users, ArrowRight, Wallet, Sigma, TrendingUp, User } from 'lucide
 import EChartComponent from '@/components/charts/EChartComponent';
 import { formatToMillion } from '@/lib/utils';
 import { WalletBadge } from "@/components/shared/WalletBadge";
+import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
+import type { KnownWalletType } from '@/types/api';
 
 interface GlobalMetricsCardProps {
   metrics: GlobalMetrics;
   pairwiseSimilarities: CombinedPairwiseSimilarity[];
   walletBalances?: Record<string, any> | null;
-  walletVectorsUsed?: Record<string, Record<string, number>>;
+  uniqueTokensPerWallet?: Record<string, { binary: number; capital: number }>;
+  walletLabels?: Record<string, { knownType?: KnownWalletType; knownLabel?: string }>;
+  summary?: {
+    walletCount: number;
+    uniqueTokensTotal: number;
+  };
 }
 
 const StatCard = ({ title, value, icon, details, tooltipContent }: { title: string, value: string | number | React.ReactNode, icon: React.ReactNode, details?: React.ReactNode, tooltipContent?: string }) => {
     const cardContent = (
-        <div className="card h-full flex flex-col p-3 gap-1">
-            <div className="flex items-center gap-3">
-                <div className="text-primary">{icon}</div>
-                <div>
-                    <p className="text-sm font-medium text-muted-foreground">{title}</p>
-                    <div className="text-2xl font-bold">{value}</div>
+        <div className="card h-full flex flex-col p-2.5 gap-0.5">
+            <div className="flex items-center gap-2">
+                <div className="text-primary shrink-0">{icon}</div>
+                <div className="min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground truncate">{title}</p>
+                    <div className="text-xl font-bold leading-tight">{value}</div>
                 </div>
             </div>
-            {details && <div className="text-xs text-muted-foreground mt-auto pt-1">{details}</div>}
+            {details && <div className="text-xs text-muted-foreground mt-1">{details}</div>}
         </div>
     );
 
@@ -44,6 +51,12 @@ const StatCard = ({ title, value, icon, details, tooltipContent }: { title: stri
     return cardContent;
 };
 
+// Overall similarity score calculation - matches EnhancedKeyInsights.tsx
+const calculateOverallScore = (binaryScore: number, capitalScore: number): number => {
+  // Weighted average: behavioral 40%, capital 60% (capital is often more meaningful)
+  return (binaryScore * 0.4) + (capitalScore * 0.6);
+};
+
 // Helper function to get similarity status badge
 const getSimilarityStatus = (avgSim: number) => {
   if (avgSim >= 0.6) {
@@ -55,7 +68,22 @@ const getSimilarityStatus = (avgSim: number) => {
   }
 };
 
-const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalances, walletVectorsUsed }: GlobalMetricsCardProps) => {
+const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, walletLabels, summary }: GlobalMetricsCardProps) => {
+  const getWalletLabel = (address: string) => walletLabels?.[address];
+  const topPairs = useMemo(() => (
+    [...pairwiseSimilarities]
+      .sort((a, b) => calculateOverallScore(b.binaryScore, b.capitalScore) - calculateOverallScore(a.binaryScore, a.capitalScore))
+      .slice(0, 5)
+  ), [pairwiseSimilarities]);
+  const topPairAddresses = useMemo(() => {
+    const set = new Set<string>();
+    topPairs.forEach(pair => {
+      set.add(pair.walletA);
+      set.add(pair.walletB);
+    });
+    return Array.from(set);
+  }, [topPairs]);
+  const { data: hudData } = useBatchWalletHud(topPairAddresses, { enabled: topPairAddresses.length > 0 });
 
   const content = useMemo(() => {
     if (!metrics) return null;
@@ -63,48 +91,62 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
     const percentFormatter = new Intl.NumberFormat('en-US', { style: 'percent', minimumFractionDigits: 1 });
 
     // --- Calculations ---
-    const walletsAnalyzed = walletVectorsUsed ? Object.keys(walletVectorsUsed).length : 0;
+    const walletsAnalyzed =
+      summary?.walletCount ??
+      (uniqueTokensPerWallet ? Object.keys(uniqueTokensPerWallet).length : 0);
     
     const avgSim = metrics.averageSimilarity > 1 ? metrics.averageSimilarity / 100 : metrics.averageSimilarity;
     const similarityStatus = getSimilarityStatus(avgSim);
 
-    const capitalScores = pairwiseSimilarities.map(p => p.capitalScore);
-    const sortedCapitalScores = [...capitalScores].sort((a, b) => a - b);
-    const minScore = sortedCapitalScores[0] ?? 0;
-    const maxScore = sortedCapitalScores[sortedCapitalScores.length - 1] ?? 0;
-    const mid = Math.floor(sortedCapitalScores.length / 2);
-    const medianScore = sortedCapitalScores.length % 2 === 0 ? (sortedCapitalScores[mid - 1] + sortedCapitalScores[mid]) / 2 : sortedCapitalScores[mid] ?? 0;
-    
-    const variance = capitalScores.reduce((acc, score) => acc + Math.pow(score - avgSim, 2), 0) / capitalScores.length;
+    // Use binaryScore (behavioral) for statistics since globalMetrics is now based on binary
+    const binaryScores = pairwiseSimilarities.map(p => p.binaryScore);
+    const sortedBinaryScores = [...binaryScores].sort((a, b) => b - a); // Sort descending for top pairs
+    const mid = Math.floor(sortedBinaryScores.length / 2);
+    const medianScore = sortedBinaryScores.length % 2 === 0 ? (sortedBinaryScores[mid - 1] + sortedBinaryScores[mid]) / 2 : sortedBinaryScores[mid] ?? 0;
 
-    const topPairs = [...pairwiseSimilarities]
-      .sort((a, b) => ((b.capitalScore + b.binaryScore) / 2) - ((a.capitalScore + a.binaryScore) / 2))
-      .slice(0, 5);
+    // Calculate percentage of pairs in top 25 (top ~25 pairs out of total)
+    const topPairsCount = Math.min(25, Math.ceil(pairwiseSimilarities.length * 0.25));
+    const topPairsScores = sortedBinaryScores.slice(0, topPairsCount);
+    const avgTopPairs = topPairsScores.length > 0
+      ? topPairsScores.reduce((sum, score) => sum + score, 0) / topPairsScores.length
+      : 0;
+    const topPairsStatus = getSimilarityStatus(avgTopPairs);
+
+    const variance = binaryScores.reduce((acc, score) => acc + Math.pow(score - avgSim, 2), 0) / binaryScores.length;
 
     let totalValueAnalyzed = 0;
-    const allTokens = new Set<string>();
     const tokenValues: Record<string, number> = {};
+    const walletValues: number[] = [];
 
     if (walletBalances) {
       Object.values(walletBalances).forEach((wallet: any) => {
+        let walletTotal = 0;
         if (wallet && Array.isArray(wallet.tokenBalances)) {
           wallet.tokenBalances.forEach((token: any) => {
             const value = token.valueUsd || 0;
             totalValueAnalyzed += value;
+            walletTotal += value;
             if (value > 0 && token.mint) {
               tokenValues[token.mint] = (tokenValues[token.mint] || 0) + value;
             }
           });
         }
+        walletValues.push(walletTotal);
       });
     }
 
-    if (walletVectorsUsed) {
-        Object.values(walletVectorsUsed).forEach(walletVector => {
-            Object.keys(walletVector).forEach(mint => allTokens.add(mint));
-        });
-    }
-    const totalUniqueTokens = allTokens.size;
+    // Calculate median and range
+    const sortedWalletValues = [...walletValues].sort((a, b) => a - b);
+    const medianWalletValue = sortedWalletValues.length > 0
+      ? sortedWalletValues.length % 2 === 0
+        ? (sortedWalletValues[sortedWalletValues.length / 2 - 1] + sortedWalletValues[sortedWalletValues.length / 2]) / 2
+        : sortedWalletValues[Math.floor(sortedWalletValues.length / 2)]
+      : 0;
+    const minWalletValue = sortedWalletValues.length > 0 ? sortedWalletValues[0] : 0;
+    const maxWalletValue = sortedWalletValues.length > 0 ? sortedWalletValues[sortedWalletValues.length - 1] : 0;
+
+    const totalUniqueTokens = summary?.uniqueTokensTotal ?? 0;
+    const totalCurrentlyHeldTokens = Object.keys(tokenValues).length; // Unique tokens currently held
     
     let topTokenDominance = 0;
     let topTokenDisplay = 'N/A';
@@ -155,7 +197,8 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
     });
     
     const totalPairs = pairwiseSimilarities.length;
-    const cumulativeCounts = capitalDist.map((sum => value => sum += value)(0));
+    // Use behavioral (binary) for cumulative since that's what the mean is based on
+    const cumulativeCounts = binaryDist.map((sum => value => sum += value)(0));
     const cumulativeLine = totalPairs > 0 ? cumulativeCounts.map(c => (c / totalPairs)) : [];
 
     const chartOption = {
@@ -191,97 +234,181 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
             </TooltipProvider>
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              <StatCard 
-                title="Wallets Analyzed" 
-                value={walletsAnalyzed} 
-                icon={<User className="h-6 w-6" strokeWidth={1.5} />} 
-                tooltipContent="The total number of unique wallets included in this analysis."
-              />
-              <StatCard 
-                title="Mean Capital Similarity" 
-                value={
-                  <div className="flex items-center gap-2">
-                    <span>{percentFormatter.format(avgSim)}</span>
-                    <Badge className={`text-xs ${similarityStatus.className}`}>
-                      {similarityStatus.label}
-                    </Badge>
-                  </div>
-                }
-                icon={<Users className="h-6 w-6" strokeWidth={1.5} />} 
-                details={<>Median: {percentFormatter.format(medianScore)}<br/>Min: {percentFormatter.format(minScore)}, Max: {percentFormatter.format(maxScore)}</>}
-                tooltipContent="Average capital similarity score across all pairs. Higher value indicates more similar wallets pairs in the set."
-              />
-              <StatCard 
-                title="Total Value Holdings" 
-                value={`$${formatToMillion(totalValueAnalyzed)}`}
-                icon={<Wallet className="h-6 w-6" strokeWidth={1.5} />} 
-                tooltipContent="Combined USD value of all tokens held by the analyzed wallets."
-              />
-              <StatCard 
-                title="Portfolio Diversity" 
-                value={totalUniqueTokens} 
-                icon={<Sigma className="h-6 w-6" strokeWidth={1.5} />} 
-                tooltipContent="Total number of unique tokens held across the entire wallet set."
-              />
-              <StatCard 
-                title="Top Token Dominance" 
-                value={
-                  <div className="flex items-center gap-2">
-                    <span>{percentFormatter.format(topTokenDominance)}</span>
-                    <span className="text-sm font-normal text-muted-foreground">({topTokenDisplay})</span>
-                  </div>
-                }
-                icon={<TrendingUp className="h-6 w-6" strokeWidth={1.5} />} 
-                tooltipContent={`'${topTokenName}' makes up this much of the group's current total capital.`}
-              />
+        <CardContent className="space-y-4">
+          {/* Stats Grid with proper visual hierarchy */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <TooltipProvider>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div className="bg-card border border-border rounded-lg p-3 hover:border-border/80 transition-colors cursor-help">
+                      <div className="flex items-center gap-2 mb-2">
+                        <User className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
+                        <p className="text-xs text-muted-foreground font-medium">Wallets Analyzed</p>
+                      </div>
+                      <div className="text-2xl font-bold">{walletsAnalyzed}</div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Total wallets in this analysis set</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <TooltipProvider>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div className="bg-card border border-border rounded-lg p-3 hover:border-border/80 transition-colors cursor-help">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Users className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
+                        <p className="text-xs text-muted-foreground font-medium">Top Pairs Similarity</p>
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <div className="text-2xl font-bold">{percentFormatter.format(avgTopPairs)}</div>
+                        <Badge className={`text-[10px] ${topPairsStatus.className}`}>{topPairsStatus.label}</Badge>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-1">
+                        Top {topPairsCount} pairs • Overall avg: {percentFormatter.format(avgSim)}
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Avg of top {topPairsCount} pairs (overall: {percentFormatter.format(avgSim)})</p></TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <TooltipProvider>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div className="bg-card border border-border rounded-lg p-3 hover:border-border/80 transition-colors cursor-help">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Sigma className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
+                        <p className="text-xs text-muted-foreground font-medium">Tokens Analyzed</p>
+                      </div>
+                      <div className="text-2xl font-bold">{totalUniqueTokens}</div>
+                      <div className="text-[10px] text-muted-foreground mt-1">actively traded</div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Tokens where fees were paid (excludes airdrops, dust, SOL/USDC/stablecoins)</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <TooltipProvider>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div className="bg-card border border-border rounded-lg p-3 hover:border-border/80 transition-colors cursor-help">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Wallet className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
+                        <p className="text-xs text-muted-foreground font-medium">Current Holdings Value</p>
+                      </div>
+                      <div className="text-2xl font-bold">${formatToMillion(totalValueAnalyzed)}</div>
+                      <div className="text-[10px] text-muted-foreground mt-1">{totalCurrentlyHeldTokens} tokens • median: ${formatToMillion(medianWalletValue)}</div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Live holdings across all wallets. Median = typical wallet, range: ${formatToMillion(minWalletValue)}-${formatToMillion(maxWalletValue)}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <TooltipProvider>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div className="bg-card border border-border rounded-lg p-3 hover:border-border/80 transition-colors cursor-help">
+                      <div className="flex items-center gap-2 mb-2">
+                        <TrendingUp className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
+                        <p className="text-xs text-muted-foreground font-medium">Largest Holding</p>
+                      </div>
+                      <div className="text-2xl font-bold">{percentFormatter.format(topTokenDominance)}</div>
+                      <div className="text-[10px] text-muted-foreground mt-1 truncate">{topTokenDisplay} (1 of {totalCurrentlyHeldTokens})</div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{topTokenName}: {percentFormatter.format(topTokenDominance)} of ${formatToMillion(totalValueAnalyzed)} combined holdings</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
           </div>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-1 flex flex-col">
-                  <h3 className="font-semibold mb-2 text-lg flex items-center flex-shrink-0">
-                      <span>Top 5 Most Similar Pairs</span>
-                  </h3>
-                  <div className="flex-grow space-y-2 overflow-y-auto pr-2">
+
+          {/* Two sections side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-[0.6fr_1.4fr] gap-4">
+              {/* Top 5 Pairs */}
+              <div className="border border-border rounded-lg p-4">
+                  <h3 className="font-semibold mb-3 text-sm">Top 5 Most Similar Pairs</h3>
+                  <div className="space-y-2">
                       {topPairs.map((pair, index) => {
-                          const avgScore = (pair.capitalScore + pair.binaryScore) / 2;
+                          const avgScore = calculateOverallScore(pair.binaryScore, pair.capitalScore);
                           const status = getSimilarityStatus(avgScore);
+                          const labelA = getWalletLabel(pair.walletA);
+                          const labelB = getWalletLabel(pair.walletB);
+
                           return (
-                              <div key={index} className="card flex items-center justify-between px-2 py-1.5">
-                                  <div className="flex items-center space-x-2">
-                                      <WalletBadge address={pair.walletA} />
-                                      <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                                      <WalletBadge address={pair.walletB} />
+                              <div key={index} className="flex items-center justify-between gap-2 p-1.5 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                      <WalletBadge
+                                          address={pair.walletA}
+                                          variant="compact"
+                                          knownType={labelA?.knownType}
+                                          knownLabel={labelA?.knownLabel}
+                                          visibleActions={{ copy: true, solscan: true, profile: true }}
+                                          showHud={true}
+                                          hudDisplay="tooltip"
+                                          hudDelayMs={800}
+                                          hudData={hudData?.[pair.walletA]}
+                                      />
+                                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                                      <WalletBadge
+                                          address={pair.walletB}
+                                          variant="compact"
+                                          knownType={labelB?.knownType}
+                                          knownLabel={labelB?.knownLabel}
+                                          visibleActions={{ copy: true, solscan: true, profile: true }}
+                                          showHud={true}
+                                          hudDisplay="tooltip"
+                                          hudDelayMs={800}
+                                          hudData={hudData?.[pair.walletB]}
+                                      />
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                      <Badge className={`text-xs ${status.className}`}>
-                                          {status.label}
-                                      </Badge>
-                                      <Badge variant="outline" className="font-semibold">
-                                          {percentFormatter.format(avgScore)}
-                                      </Badge>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                      <TooltipProvider>
+                                          <Tooltip delayDuration={200}>
+                                              <TooltipTrigger asChild>
+                                                  <Badge className={`text-[9px] cursor-help px-1.5 py-0 ${status.className}`}>{status.label}</Badge>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                  <p>Similarity level: {status.label} ({avgScore >= 0.6 ? '≥60%' : avgScore >= 0.2 ? '20-60%' : '<20%'})</p>
+                                              </TooltipContent>
+                                          </Tooltip>
+                                      </TooltipProvider>
+                                      <TooltipProvider>
+                                          <Tooltip delayDuration={200}>
+                                              <TooltipTrigger asChild>
+                                                  <Badge variant="outline" className="font-semibold text-[10px] cursor-help px-1.5 py-0">{percentFormatter.format(avgScore)}</Badge>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                  <p>Combined: {percentFormatter.format(avgScore)} (capital: {percentFormatter.format(pair.capitalScore)}, behavioral: {percentFormatter.format(pair.binaryScore)})</p>
+                                              </TooltipContent>
+                                          </Tooltip>
+                                      </TooltipProvider>
                                   </div>
                               </div>
                           );
                       })}
                   </div>
               </div>
-              <div className="lg:col-span-2 flex flex-col">
-                   <h3 className="font-semibold mb-2 text-lg flex items-center flex-shrink-0">
-                      Similarity Score Distribution
+
+              {/* Score Distribution Chart */}
+              <div className="border border-border rounded-lg p-4">
+                  <div className="flex items-center gap-1.5 mb-3">
+                      <h3 className="font-semibold text-sm">Score Distribution</h3>
                       <TooltipProvider>
                           <Tooltip delayDuration={200}>
                               <TooltipTrigger asChild>
-                                  <Info className="h-4 w-4 text-muted-foreground cursor-pointer ml-2" />
+                                  <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                               </TooltipTrigger>
-                              <TooltipContent>
-                                  <p>Shows how many wallet pairs fall into each similarity score bracket.</p>
-                              </TooltipContent>
+                              <TooltipContent><p>Distribution of similarity scores</p></TooltipContent>
                           </Tooltip>
                       </TooltipProvider>
-                  </h3>
-                  <div className="flex-grow h-72">
+                  </div>
+                  <div className="h-64">
                       <EChartComponent option={chartOption} style={{ height: '100%', width: '100%' }} />
                   </div>
               </div>
@@ -289,7 +416,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
         </CardContent>
       </Card>
     );
-  }, [metrics, pairwiseSimilarities, walletBalances, walletVectorsUsed]);
+  }, [metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, summary, topPairs, hudData, walletLabels]);
   
   return content;
 };

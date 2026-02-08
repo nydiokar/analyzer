@@ -3,6 +3,8 @@ import { PnlAnalysisService } from './pnl-analysis.service';
 import { TokenInfoService } from './token-info.service';
 import { DexscreenerService } from './dexscreener.service';
 import { SwapAnalysisSummary } from '../../types/helius-api';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 // Updated PnlOverviewResponse to include more fields
 export class PnlOverviewResponseData {
@@ -70,28 +72,8 @@ export class PnlOverviewService {
     // Use unrealized PNL from the analysis summary (calculated by core service)
     const unrealizedPnl = analysisSummary.unrealizedPnl || 0;
     
-    // Calculate true trade-level winrate by counting individual trades
-    let profitableTradesCount = 0;
-    let totalIndividualTrades = 0;
-    
-    analysisSummary.results.forEach(result => {
-      if (!result.isValuePreservation) {
-        // Count individual trades (transfers)
-        const tradesIn = result.transferCountIn || 0;
-        const tradesOut = result.transferCountOut || 0;
-        const totalTradesForToken = tradesIn + tradesOut;
-        
-        if (totalTradesForToken > 0) {
-          totalIndividualTrades += totalTradesForToken;
-          
-          // If the token was profitable, all its trades are considered profitable
-          // If the token was unprofitable, all its trades are considered unprofitable
-          if (result.netSolProfitLoss > 0) {
-            profitableTradesCount += totalTradesForToken;
-          }
-        }
-      }
-    });
+    const totalIndividualTrades = analysisSummary.totalIndividualTradesCount ?? 0;
+    const profitableTradesCount = analysisSummary.profitableTradesCount ?? 0;
     
     // Use true trade-level winrate if we have individual trade data, otherwise fallback to token-level
     const swapWinRate = totalIndividualTrades > 0 
@@ -153,7 +135,7 @@ export class PnlOverviewService {
       solPriceUsd = await this.tokenInfoService.getSolPrice();
       // this.logger.log(`[PnlOverview] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
-      this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
+      this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${getErrorMessage(error)}. Unrealized PNL calculation will be skipped.`);
     }
 
     // Fetch all-time data with SOL price for unrealized PNL calculation
@@ -202,7 +184,7 @@ export class PnlOverviewService {
       solPriceUsd = await this.tokenInfoService.getSolPrice();
       // this.logger.log(`[PnlAnalysisForSummary] Fetched SOL price: $${solPriceUsd}`);
     } catch (error) {
-      // this.logger.warn(`[PnlAnalysisForSummary] Failed to fetch SOL price: ${error}. Unrealized PNL calculation will be skipped.`);
+      // this.logger.warn(`[PnlAnalysisForSummary] Failed to fetch SOL price: ${getErrorMessage(error)}. Unrealized PNL calculation will be skipped.`);
     }
 
     const analysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(

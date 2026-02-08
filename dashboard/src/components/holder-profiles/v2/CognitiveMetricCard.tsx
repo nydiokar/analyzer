@@ -9,9 +9,11 @@ interface Props {
 
 function getTooltip(primitiveId: string): string {
   const tooltips: Record<string, string> = {
-    speed: 'Median hold time across all holders. Shows how long holders typically keep positions before exiting. Faster exits indicate scalping/day trading; longer holds suggest patience and conviction.',
-    conviction: 'Conviction score (100% - daily flip rate). Higher % means holders rarely flip tokens within 24 hours, indicating strong conviction. Low scores suggest frequent trading and weak hands.',
-    consistency: 'Data quality reliability. Shows the proportion of holders with sufficient exit history (GOLD tier) to make accurate behavioral classifications. "Chaotic" means limited data; "Reliable" means confident analysis.',
+    speed: "Median of holders' realized exits.",
+    conviction: 'Conviction = 100% - daily flip rate.',
+    consistency: 'Share of holders with 30+ exits used in classification.',
+    quality: 'Holders with 10+ exited tokens / total.',
+    similarity: 'Average overlap across holder pairs (0-100%).',
   };
   return tooltips[primitiveId] || 'Behavioral metric';
 }
@@ -19,37 +21,43 @@ function getTooltip(primitiveId: string): string {
 function getCategoryTooltip(primitiveId: string, category: string): string {
   if (primitiveId === 'speed') {
     const speedTooltips: Record<string, string> = {
-      'Instant': 'Sub-second exits - algorithmic bots',
-      'Ultra-fast': 'Sub-minute exits - high-frequency scalpers',
-      'Fast': '1-5 min exits - momentum scalpers',
-      'Intraday': '30min-6h holds - day traders',
-      'Multi-day': '1-7 day holds - swing traders',
-      'Long-term': '7+ day holds - patient investors',
+      'Instant': 'Exits <1s.',
+      'Ultra-fast': 'Exits <1 min.',
+      'Fast': 'Exits 1-5 min.',
+      'Intraday': 'Holds 30 min-6 h.',
+      'Multi-day': 'Holds 1-7 d.',
+      'Long-term': 'Holds >=7 d.',
     };
     return speedTooltips[category] || 'Hold time classification';
   }
   if (primitiveId === 'conviction') {
     const convictionTooltips: Record<string, string> = {
-      'High': '60%+ conviction - holders rarely flip within 24h',
-      'Moderate': '30-60% conviction - some same-day flips',
-      'Low': '<30% conviction - frequent day trading',
+      'High': 'Conviction >=60%.',
+      'Moderate': 'Conviction 30-60%.',
+      'Low': 'Conviction <30%.',
     };
     return convictionTooltips[category] || 'Conviction level';
   }
   if (primitiveId === 'consistency') {
     const qualityTooltips: Record<string, string> = {
-      'Reliable': '70%+ have strong exit history - analysis is confident',
-      'Moderate': '40-70% have exit data - reasonably reliable',
-      'Chaotic': '<40% have clean exits - take with grain of salt',
+      'Consistent': 'Quality data >=70%.',
+      'Moderate': 'Quality data 40-70%.',
+      'Chaotic': 'Quality data <40%.',
     };
     return qualityTooltips[category] || 'Data quality classification';
+  }
+  if (primitiveId === 'quality') {
+    return 'Usually low trust in the data.';
+  }
+  if (primitiveId === 'similarity') {
+    return 'Low <25%, Moderate 25-49%, High 50-74%, Very high >=75%.';
   }
   return category;
 }
 
 function getMetricLabel(primitiveId: string): string {
   // Only show metric label for Speed
-  return primitiveId === 'speed' ? 'Median hold' : '';
+  return primitiveId === 'speed' ? 'Median exit' : '';
 }
 
 export function CognitiveMetricCard({ primitive }: Props) {

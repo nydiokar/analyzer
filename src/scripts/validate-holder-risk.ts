@@ -10,6 +10,8 @@ import { BehaviorAnalyzer } from '../core/analysis/behavior/analyzer';
 import { BehaviorAnalysisConfig } from '../types/analysis';
 import { DatabaseService } from '../core/services/database-service';
 import { createLogger } from '../core/utils/logger';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 const logger = createLogger('ValidateHolderRisk');
 
@@ -189,8 +191,8 @@ async function validateWallet(walletAddress: string) {
     } else if (pattern.behaviorType === 'POSITION') {
       console.log('  This wallet holds positions (7-30 days)');
       console.log('  LOW risk of immediate exit');
-    } else if (pattern.behaviorType === 'HOLDER') {
-      console.log('  This wallet holds long-term (30+ days)');
+    } else if (pattern.behaviorType === 'HODLER') {
+      console.log('  This wallet hodls long-term (30+ days)');
       console.log('  VERY LOW risk of immediate exit');
     }
 
@@ -206,7 +208,7 @@ async function validateWallet(walletAddress: string) {
     }
 
   } catch (error) {
-    console.error('\n❌ ERROR:', error);
+    logger.error('\n❌ ERROR:', getErrorMessage(error));
     throw error;
   }
 }

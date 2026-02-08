@@ -25,8 +25,11 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: "Total explicit SOL fees paid related to this token's transactions", type: Number, nullable: true, required: false })
   totalFeesPaidInSol?: number | null;
 
-  @ApiProperty({ description: 'Net profit or loss in SOL (totalSolReceived - totalSolSpent - totalFeesPaidInSol)', type: Number })
-  netSolProfitLoss: number;
+  @ApiProperty({ description: 'Net profit or loss in SOL (totalPnlSol - totalFeesPaidInSol)', type: Number, nullable: true, required: false })
+  netSolProfitLoss: number | null;
+
+  @ApiProperty({ description: 'True if FIFO history is incomplete (sells exceed available lots)', type: Boolean, nullable: true, required: false })
+  hasIncompleteHistory?: boolean | null;
 
   @ApiProperty({ description: "Number of 'in' transfers for this token", type: Number })
   transferCountIn: number;
@@ -129,17 +132,17 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Unrealized profit/loss in SOL for current holdings', type: Number, nullable: true, required: false })
   unrealizedPnlSol?: number | null;
 
-  @ApiProperty({ description: 'Total P&L including both realized and unrealized (netSolProfitLoss + unrealizedPnlSol)', type: Number, nullable: true, required: false })
+  @ApiProperty({ description: 'Total P&L including both realized and unrealized (gross, excludes fees)', type: Number, nullable: true, required: false })
   totalPnlSol?: number | null;
 
   // PNL breakdown and percentage indicators
-  @ApiProperty({ description: 'Realized profit/loss in SOL from tokens already sold', type: Number, nullable: true, required: false })
+  @ApiProperty({ description: 'Realized profit/loss in SOL from tokens already sold (gross, excludes fees)', type: Number, nullable: true, required: false })
   realizedPnlSol?: number | null;
 
-  @ApiProperty({ description: 'Realized P&L as percentage of total SOL invested (realizedPnlSol / totalSolSpent * 100)', type: Number, nullable: true, required: false })
+  @ApiProperty({ description: 'Realized P&L as percentage of total SOL invested (realizedPnlSol / totalSolSpent * 100, gross)', type: Number, nullable: true, required: false })
   realizedPnlPercentage?: number | null;
 
-  @ApiProperty({ description: 'Unrealized P&L as percentage of cost basis for current holdings', type: Number, nullable: true, required: false })
+  @ApiProperty({ description: 'Unrealized P&L as percentage of FIFO cost basis for current holdings', type: Number, nullable: true, required: false })
   unrealizedPnlPercentage?: number | null;
 
   // Spam risk analysis (pre-computed server-side to avoid heavy client processing)
@@ -174,6 +177,14 @@ export class TokenPerformanceDataDto {
     required: false,
   })
   spamPrimaryReason?: string | null;
+
+  @ApiProperty({
+    description: 'Whether this token had any trading activity (buy/sell) in the filtered time period. If no time filter is applied, this will be true for all tokens with transactions.',
+    type: Boolean,
+    nullable: true,
+    required: false,
+  })
+  hasActivityInPeriod?: boolean | null;
 
   // Note: The 'id' field from AnalysisResult is typically not exposed in API responses unless specifically needed.
 }

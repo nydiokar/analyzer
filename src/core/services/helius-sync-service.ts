@@ -1,4 +1,5 @@
 import { createLogger } from 'core/utils/logger';
+import { getErrorMessage } from 'core/utils/error-utils';
 import { HeliusApiClient } from 'core/services/helius-api-client';
 import { DatabaseService } from '../../api/services/database.service';
 import {
@@ -68,7 +69,7 @@ export class HeliusSyncService {
         }
         this.heliusClient = heliusApiClient; // Use the provided instance
         this.smartFetchService = smartFetchService || new SmartFetchService();
-        // logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
+        logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
     }
 
     /**
@@ -89,16 +90,21 @@ export class HeliusSyncService {
         const mappingStatsAccumulator = new Map<string, Record<string, number>>();
         const walletTransactionCounters = new Map<string, number>();
 
-        // Early check: Skip wallets already marked as INVALID to avoid wasting resources
+        // Early check: Skip wallets with knownType (system wallets) to avoid wasting resources
         try {
             const existingWallet = await this.databaseService.getWallet(walletAddress);
-            if (existingWallet?.classification === 'INVALID') {
-                logger.debug(`[Sync] Skipping sync for ${walletAddress} - already marked as INVALID`);
+            if (existingWallet?.knownType) {
+                logger.debug(`[Sync] Skipping sync for ${walletAddress} - has knownType=${existingWallet.knownType}`);
+                return;
+            }
+            // Handle legacy INVALID classification
+            if (existingWallet?.classification === 'INVALID' || existingWallet?.classification === 'SYSTEM') {
+                logger.debug(`[Sync] Skipping sync for ${walletAddress} - already marked as ${existingWallet.classification}`);
                 return;
             }
         } catch (error) {
             // If we can't check, proceed with normal flow
-            logger.warn(`[Sync] Could not check wallet classification for ${walletAddress}, proceeding:`, error);
+            logger.warn(`[Sync] Could not check wallet classification for ${walletAddress}, proceeding: ${getErrorMessage(error)}`);
         }
 
         // Ensure wallet exists in the DB before starting sync operations
@@ -152,7 +158,7 @@ export class HeliusSyncService {
                 logger.debug(`✅ [SmartFetch] Normal fetch recommended for ${walletAddress}: ${fetchRecommendation.reason}`);
             }
         } catch (error) {
-            logger.warn(`[SmartFetch] Failed to get smart fetch recommendation for ${walletAddress}, using original options:`, error);
+            logger.warn(`[SmartFetch] Failed to get smart fetch recommendation for ${walletAddress}, using original options: ${getErrorMessage(error)}`);
             // Continue with original options if smart fetch fails
         }
         */
@@ -229,13 +235,13 @@ export class HeliusSyncService {
            options.onProgress?.(50, 'Newer transactions processed...');
         } catch (fetchError) {
            if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
-               logger.warn(`[Sync] WrongSize error detected for ${walletAddress}. Marking wallet as invalid.`);
+               logger.warn(`[Sync] WrongSize error detected for ${walletAddress}. Marking wallet as SYSTEM.`);
                try {
-                   await this.databaseService.updateWallet(walletAddress, { 
-                       classification: 'INVALID'
+                   await this.databaseService.updateWallet(walletAddress, {
+                       classification: 'SYSTEM'
                    });
                } catch (updateError) {
-                   logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+                   logger.error(`[Sync] Failed to mark wallet ${walletAddress} as SYSTEM:`, { updateError });
                }
                throw fetchError; // Re-throw to stop further processing
            }
@@ -282,13 +288,13 @@ export class HeliusSyncService {
                         options.onProgress?.(95, 'Older transactions processed...');
                     } catch (fetchError) {
                         if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
-                            logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Phase 2. Marking wallet as invalid.`);
+                            logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Phase 2. Marking wallet as SYSTEM.`);
                             try {
-                                await this.databaseService.updateWallet(walletAddress, { 
-                                    classification: 'INVALID'
+                                await this.databaseService.updateWallet(walletAddress, {
+                                    classification: 'SYSTEM'
                                 });
                             } catch (updateError) {
-                                logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+                                logger.error(`[Sync] Failed to mark wallet ${walletAddress} as SYSTEM:`, { updateError });
                             }
                             throw fetchError; // Re-throw to stop further processing
                         }
@@ -392,13 +398,13 @@ export class HeliusSyncService {
             options.onProgress?.(90, 'Transactions processed...');
         } catch (fetchError) {
             if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
-                logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Standard Fetch. Marking wallet as invalid.`);
+                logger.warn(`[Sync] WrongSize error detected for ${walletAddress} in Standard Fetch. Marking wallet as SYSTEM.`);
                 try {
-                    await this.databaseService.updateWallet(walletAddress, { 
-                        classification: 'INVALID'
+                    await this.databaseService.updateWallet(walletAddress, {
+                        classification: 'SYSTEM'
                     });
                 } catch (updateError) {
-                    logger.error(`[Sync] Failed to mark wallet ${walletAddress} as invalid:`, { updateError });
+                    logger.error(`[Sync] Failed to mark wallet ${walletAddress} as SYSTEM:`, { updateError });
                 }
                 throw fetchError; // Re-throw to stop further processing
             }

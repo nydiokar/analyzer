@@ -182,7 +182,11 @@ export interface OnChainAnalysisResult {
   totalSolSpent: number;        // Total SOL paid (when receiving SPL) - This is GROSS
   totalSolReceived: number;     // Total SOL received (when sending SPL) - This is GROSS
   totalFeesPaidInSol?: number;   // NEW: Sum of explicit SOL fees from SwapAnalysisInput
-  netSolProfitLoss: number;     // Net SOL P/L (SOL Received - SOL Spent - Fees)
+  netSolProfitLoss: number | null;     // Net SOL P/L (SOL Received - SOL Spent - Fees)
+  realizedPnlSol?: number | null;   // FIFO realized P&L (gross, excludes fees)
+  unrealizedPnlSol?: number | null; // FIFO unrealized P&L (gross, excludes fees)
+  totalPnlSol?: number | null;      // FIFO total P&L (realized + unrealized)
+  hasIncompleteHistory?: boolean;   // True if sells exceed available lots
   transferCountIn: number;      // Number of times SPL was received
   transferCountOut: number;     // Number of times SPL was sent
   firstTransferTimestamp: number; // Unix timestamp of first swap involving this SPL
@@ -201,6 +205,7 @@ export interface OnChainAnalysisResult {
   balanceFetchedAt?: Date;           // Timestamp when this specific token balance was part of a WalletState fetch
   currentHoldingsValueSol?: number | null; // Current value in SOL (if price was available)
   currentHoldingsValueUsd?: number | null; // Current value in USD (if price was available)
+  currentHoldingsCostBasisSol?: number | null; // FIFO cost basis of remaining holdings
 }
 
 /**
@@ -236,6 +241,8 @@ export interface SwapAnalysisSummary {
   profitableTokensCount: number;
   unprofitableTokensCount: number;
   totalExecutedSwapsCount: number;
+  totalIndividualTradesCount?: number;
+  profitableTradesCount?: number;
   averageRealizedPnlPerExecutedSwap: number;
   realizedPnlToTotalVolumeRatio: number;
   results: OnChainAnalysisResult[];
@@ -344,14 +351,43 @@ export interface GetTokenLargestAccountsResult {
   value: TokenLargestAccount[];
 }
 
-// Optional: V2 pagination response types (internal usage in client)
+/**
+ * Helius V2 API Response Types (Corrected Structure - 2024)
+ *
+ * IMPORTANT: The Helius documentation examples are misleading/outdated.
+ * The actual API response has paginationKey nested inside 'value', not at top level.
+ *
+ * Actual Response Structure:
+ * {
+ *   context: { slot: number, apiVersion: string },
+ *   value: {
+ *     accounts: [...],
+ *     paginationKey: string,  // ← Note: Inside 'value', not at root
+ *     count: number
+ *   }
+ * }
+ *
+ * Documentation showed:
+ * {
+ *   context: {...},
+ *   value: [...],           // ← Wrong: shown as array
+ *   paginationKey: string   // ← Wrong: shown at top level
+ * }
+ *
+ * This was verified via direct API testing with a wallet containing 30k+ tokens.
+ */
 export interface GetTokenAccountsByOwnerV2ResultContext {
   slot: number;
   apiVersion?: string;
 }
 
-export interface GetTokenAccountsByOwnerV2Result {
+export interface GetTokenAccountsByOwnerV2ResultValue {
   accounts: TokenAccount[];
-  paginationKey?: string;
+  paginationKey?: string; // Present when more pages available
+  count?: number;        // Number of accounts in this page
+}
+
+export interface GetTokenAccountsByOwnerV2Result {
   context: GetTokenAccountsByOwnerV2ResultContext;
+  value: GetTokenAccountsByOwnerV2ResultValue;
 }

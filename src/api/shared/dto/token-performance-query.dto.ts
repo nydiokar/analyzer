@@ -11,6 +11,7 @@ export enum SortOrder {
 export enum TokenPerformanceSortBy {
   TOKEN_ADDRESS = 'tokenAddress',
   NET_SOL_PROFIT_LOSS = 'netSolProfitLoss',
+  REALIZED_PNL_SOL = 'realizedPnlSol',
   TOTAL_PNL_SOL = 'totalPnlSol',
   UNREALIZED_PNL_SOL = 'unrealizedPnlSol',
   ROI = 'roi',
@@ -43,7 +44,7 @@ export class TokenPerformanceQueryDto {
   page?: number = 1;
 
   @ApiPropertyOptional({
-    description: 'Number of items per page.',
+    description: 'Number of items per page. Set to large number to fetch all tokens.',
     default: 20,
     type: Number,
   })
@@ -51,7 +52,7 @@ export class TokenPerformanceQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100) // Max items per page
+  @Max(100000) // Allow large pageSize to fetch all tokens at once (for virtual scrolling)
   pageSize?: number = 20;
 
   @ApiPropertyOptional({
@@ -148,4 +149,13 @@ export class TokenPerformanceQueryDto {
   @IsOptional()
   @IsEnum(SpamFilterType)
   spamFilter?: SpamFilterType = SpamFilterType.ALL;
+
+  @ApiPropertyOptional({
+    description: 'Comma-separated list of token addresses to filter by. When provided, only returns data for these specific tokens.',
+    type: String,
+    example: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v,Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  })
+  @IsOptional()
+  @IsString()
+  tokenAddresses?: string;
 } 

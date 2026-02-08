@@ -5,6 +5,8 @@ import axios from 'axios';
 import Papa from 'papaparse';
 import { DEFAULT_RECENT_TRANSACTION_COUNT } from '../../config/constants';
 import { commandList } from './commandRegistry';
+import { getErrorMessage, getErrorDetails } from '../utils/error-utils';
+
 
 const logger = createLogger('WalletAnalysisBot');
 
@@ -59,7 +61,7 @@ export class WalletAnalysisBot {
       this.setupCommands();
 
     } catch (error) {
-      logger.error('Error in bot constructor:', error);
+      logger.error('Error in bot constructor:', getErrorMessage(error));
       throw error; // Rethrow to be caught by main index.ts
     }
   }
@@ -94,7 +96,7 @@ User: ${username} (ID: ${userId})
 Chat ID: ${ctx.chat?.id}
 Command: ${commandText}`);
           } catch (e) {
-            logger.error("Failed to send unauthorized access notification to admin:", e);
+            logger.error("Failed to send unauthorized access notification to admin:", getErrorMessage(e));
           }
         }
       }
@@ -440,14 +442,14 @@ Command: ${commandText}`);
 
         } catch (error) {
           const err = error as Error;
-          logger.error('Error processing uploaded CSV file:', err);
+          logger.error('Error processing uploaded CSV file:', getErrorMessage(err));
           await ctx.reply(`Sorry, there was an error processing your file: ${err.message}`);
         }
       });
 
       logger.info('Bot commands setup completed.');
     } catch (error) {
-      logger.error('Error setting up bot commands:', error);
+      logger.error('Error setting up bot commands:', getErrorMessage(error));
       throw error;
     }
   }
@@ -464,7 +466,7 @@ Command: ${commandText}`);
     }).then(() => {
         logger.info('Wallet Analysis Bot successfully launched and connected to Telegram.');
     }).catch(error => {
-        logger.error('Failed to launch the bot:', error);
+        logger.error('Failed to launch the bot:', getErrorMessage(error));
         // Specific check for common polling conflict error
         if (error.message && error.message.includes('409: Conflict')) {
             logger.error('Error 409 Conflict: Another instance of the bot might be running with the same token.');

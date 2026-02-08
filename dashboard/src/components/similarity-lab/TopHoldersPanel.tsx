@@ -12,6 +12,8 @@ import type { TopHolderItem } from '@/types/api';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { toast } from 'sonner';
+import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
+import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
 
 interface Props {
   onAddToSet?: (wallets: string[]) => void;
@@ -24,6 +26,7 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
   const [commitment, setCommitment] = useState<'finalized' | 'confirmed' | 'processed' | undefined>('finalized');
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [ownersOnly, setOwnersOnly] = useState<boolean>(true);
+  const { isFavorite, openFavoriteDialog } = useFavoriteActions();
 
   // Debounce mint input to avoid firing requests on every keystroke
   const [debouncedMint, setDebouncedMint] = useState('');
@@ -45,6 +48,11 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
   // Remove verbose logs now that things load correctly
   const holdersRaw: TopHolderItem[] = data?.holders || [];
   const holders: TopHolderItem[] = useMemo(() => ownersOnly ? holdersRaw.filter(h => !!h.ownerAccount) : holdersRaw, [holdersRaw, ownersOnly]);
+  const holderAddresses = useMemo(
+    () => holders.map(h => h.ownerAccount || h.tokenAccount).filter(Boolean),
+    [holders]
+  );
+  const { data: hudData } = useBatchWalletHud(holderAddresses, { enabled: holderAddresses.length > 0 });
 
   const allSelected = useMemo(() => holders.length > 0 && holders.every(h => selected[h.ownerAccount || h.tokenAccount]), [holders, selected]);
 
@@ -177,7 +185,20 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
                   <div key={key} className={`grid grid-cols-[60px_1fr_120px_28px] items-center gap-3 px-3 py-2 border-b text-sm ${isUnknown ? 'opacity-70' : ''}`}>
                     <div className="text-muted-foreground">{h.rank}</div>
                     <div className="truncate" title={h.ownerAccount || h.tokenAccount}>
-                      <WalletBadge address={h.ownerAccount || h.tokenAccount} />
+                      <WalletBadge
+                        address={h.ownerAccount || h.tokenAccount}
+                        knownType={h.knownType}
+                        knownLabel={h.knownLabel}
+                        size="s"
+                        variant="minimal"
+                        showActions={true}
+                        isFavorite={isFavorite(h.ownerAccount || h.tokenAccount)}
+                        onFavoriteToggle={() => openFavoriteDialog(h.ownerAccount || h.tokenAccount)}
+                        showHud={true}
+                        hudDisplay="tooltip"
+                        hudDelayMs={800}
+                        hudData={hudData?.[h.ownerAccount || h.tokenAccount]}
+                      />
                     </div>
                     <div className="text-right tabular-nums">{formatAmount(h.uiAmountString, h.amount)}</div>
                     <input type="checkbox" checked={checked} onChange={() => setSelected(s => ({ ...s, [key]: !checked }))} disabled={isUnknown} />

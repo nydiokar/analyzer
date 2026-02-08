@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { HolderProfile } from '../types';
-import { formatHoldTime, formatHoldSource, formatPercentage, getTypicalHoldTimeHours } from './utils/formatters';
 import { getBehaviorColor, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ExitTimingDrilldownPanel } from './ExitTimingDrilldownPanel';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { TransactionDateRange } from './TransactionDateRange';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { InfoIcon } from 'lucide-react';
 
 const formatBalanceCompact = (value: number | null | undefined) => {
   if (value === null || value === undefined) return '–';
@@ -79,76 +77,84 @@ interface ExitTimingBreakdownProps {
     position: number;
   };
   enrichedDistribution?: {
-    instant: { count: number; winRate: number; roiPercent: number };
-    ultraFast: { count: number; winRate: number; roiPercent: number };
-    fast: { count: number; winRate: number; roiPercent: number };
-    momentum: { count: number; winRate: number; roiPercent: number };
-    intraday: { count: number; winRate: number; roiPercent: number };
-    day: { count: number; winRate: number; roiPercent: number };
-    swing: { count: number; winRate: number; roiPercent: number };
-    position: { count: number; winRate: number; roiPercent: number };
+    instant: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    ultraFast: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    fast: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    momentum: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    intraday: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    day: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    swing: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
+    position: { count: number; winRate: number; roiPercent: number; totalCapitalSol: number };
   };
   walletAddress: string;
   onBucketClick: (bucket: TimeBucket, label: string, anchor: { x: number; y: number }) => void;
 }
 
 function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress, onBucketClick }: ExitTimingBreakdownProps) {
-  const buckets: Array<{ label: string; count: number; bucket: TimeBucket; winRate?: number; roiPercent?: number }> = [
+  const buckets: Array<{ label: string; count: number; bucket: TimeBucket; winRate?: number; roiPercent?: number; totalCapitalSol?: number }> = [
     {
       label: '<1 sec',
       count: distribution.instant ?? 0,
       bucket: 'instant',
       winRate: enrichedDistribution?.instant.winRate,
-      roiPercent: enrichedDistribution?.instant.roiPercent
+      roiPercent: enrichedDistribution?.instant.roiPercent,
+      totalCapitalSol: enrichedDistribution?.instant.totalCapitalSol
     },
     {
       label: '<1 min',
       count: distribution.ultraFast ?? 0,
       bucket: 'ultraFast',
       winRate: enrichedDistribution?.ultraFast.winRate,
-      roiPercent: enrichedDistribution?.ultraFast.roiPercent
+      roiPercent: enrichedDistribution?.ultraFast.roiPercent,
+      totalCapitalSol: enrichedDistribution?.ultraFast.totalCapitalSol
     },
     {
       label: '1-5 min',
       count: distribution.fast ?? 0,
       bucket: 'fast',
       winRate: enrichedDistribution?.fast.winRate,
-      roiPercent: enrichedDistribution?.fast.roiPercent
+      roiPercent: enrichedDistribution?.fast.roiPercent,
+      totalCapitalSol: enrichedDistribution?.fast.totalCapitalSol
     },
     {
       label: '5-30 min',
       count: distribution.momentum ?? 0,
       bucket: 'momentum',
       winRate: enrichedDistribution?.momentum.winRate,
-      roiPercent: enrichedDistribution?.momentum.roiPercent
+      roiPercent: enrichedDistribution?.momentum.roiPercent,
+      totalCapitalSol: enrichedDistribution?.momentum.totalCapitalSol
     },
     {
       label: '30 min-4h',
       count: distribution.intraday ?? 0,
       bucket: 'intraday',
       winRate: enrichedDistribution?.intraday.winRate,
-      roiPercent: enrichedDistribution?.intraday.roiPercent
+      roiPercent: enrichedDistribution?.intraday.roiPercent,
+      totalCapitalSol: enrichedDistribution?.intraday.totalCapitalSol
     },
     {
       label: '4-24h',
       count: distribution.day ?? 0,
       bucket: 'day',
       winRate: enrichedDistribution?.day.winRate,
-      roiPercent: enrichedDistribution?.day.roiPercent
+      roiPercent: enrichedDistribution?.day.roiPercent,
+      totalCapitalSol: enrichedDistribution?.day.totalCapitalSol
     },
     {
       label: '1-7d',
       count: distribution.swing ?? 0,
       bucket: 'swing',
       winRate: enrichedDistribution?.swing.winRate,
-      roiPercent: enrichedDistribution?.swing.roiPercent
+      roiPercent: enrichedDistribution?.swing.roiPercent,
+      totalCapitalSol: enrichedDistribution?.swing.totalCapitalSol
     },
     {
       label: '7+d',
       count: distribution.position ?? 0,
       bucket: 'position',
       winRate: enrichedDistribution?.position.winRate,
-      roiPercent: enrichedDistribution?.position.roiPercent
+      roiPercent: enrichedDistribution?.position.roiPercent,
+      totalCapitalSol: enrichedDistribution?.position.totalCapitalSol
     },
   ];
 
@@ -192,7 +198,6 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
                   <div
                     className="flex-1 h-3 bg-muted/20 rounded-full overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
                     onClick={(e) => rawValue > 0 && onBucketClick(bucket.bucket, bucket.label, { x: e.clientX, y: e.clientY })}
-                    title={rawValue > 0 ? `Click to see ${label} tokens in ${bucket.label} range` : undefined}
                   >
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-emerald-400/70 via-teal-400/70 to-sky-500/80"
@@ -209,12 +214,19 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-xs" side="left">
                 <p className="font-semibold mb-1">{bucketInfo.title}</p>
-                <p className="text-muted-foreground mb-2">{bucketInfo.description}</p>
-                <p className="text-xs text-primary font-medium">{bucketInfo.tradingStyle}</p>
-                {rawValue > 0 && (
-                  <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
-                    💡 Click the bar to see specific tokens in this timeframe
-                  </p>
+                <p className="text-muted-foreground">{bucketInfo.tradingStyle}</p>
+                {rawValue > 0 && bucket.totalCapitalSol !== undefined && (
+                  <div className="mt-2 pt-2 border-t border-border/50">
+                    {bucket.totalCapitalSol > 0 ? (
+                      <p className="text-emerald-400">
+                        {rawValue} {rawValue === 1 ? 'token' : 'tokens'} with economic activity (swaps)
+                      </p>
+                    ) : (
+                      <p className="text-amber-400">
+                        {rawValue} {rawValue === 1 ? 'token' : 'tokens'} received via transfer (no cost basis)
+                      </p>
+                    )}
+                  </div>
                 )}
               </TooltipContent>
             </Tooltip>
@@ -225,69 +237,16 @@ function ExitTimingBreakdown({ distribution, enrichedDistribution, walletAddress
   );
 }
 
-function HoldMetricCard(props: {
-  label: string;
-  exitedLabel?: string;
-  exitedValue: string;
-  mixedLabel?: string;
-  mixedValue: string;
-  highlightMixed?: boolean;
-  footer?: React.ReactNode;
-  tooltip?: string;
-}) {
-  const {
-    label,
-    exitedLabel = 'Exited',
-    exitedValue,
-    mixedLabel = 'Active + exited',
-    mixedValue,
-    highlightMixed,
-    footer,
-    tooltip,
-  } = props;
-
-  return (
-    <div className="bg-muted/30 rounded-md p-3 border space-y-3">
-      <div className="flex items-center gap-1">
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
-        {tooltip && (
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <InfoIcon className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                <p>{tooltip}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <p className="text-[11px] text-muted-foreground">{exitedLabel}</p>
-          <p className="text-xl font-semibold tabular-nums">{exitedValue}</p>
-        </div>
-        <div className={highlightMixed ? 'rounded-md bg-primary/5 p-2 -m-1 space-y-1' : ''}>
-          <p className="text-[11px] text-muted-foreground">{mixedLabel}</p>
-          <p className="text-lg font-semibold tabular-nums whitespace-nowrap leading-tight">{mixedValue}</p>
-        </div>
-      </div>
-      {footer && <div className="text-[11px] text-muted-foreground">{footer}</div>}
-    </div>
-  );
-}
-
 function getQualityIndicator(tier?: string) {
   switch (tier) {
     case 'GOLD':
-      return { dot: 'bg-yellow-500', panel: 'bg-yellow-500/10', label: 'Gold quality' };
+      return { dot: 'bg-yellow-500', panel: 'bg-yellow-500/10', label: 'Gold' };
     case 'SILVER':
-      return { dot: 'bg-gray-400', panel: 'bg-gray-400/10', label: 'Silver quality' };
+      return { dot: 'bg-gray-400', panel: 'bg-gray-400/10', label: 'Silver' };
     case 'BRONZE':
-      return { dot: 'bg-orange-700', panel: 'bg-orange-700/10', label: 'Bronze quality' };
+      return { dot: 'bg-orange-700', panel: 'bg-orange-700/10', label: 'Bronze' };
     case 'INSUFFICIENT':
-      return { dot: 'bg-red-500', panel: 'bg-red-500/10', label: 'Insufficient data' };
+      return { dot: 'bg-red-500', panel: 'bg-red-500/10', label: 'Insufficient' };
     default:
       return { dot: 'bg-gray-400', panel: 'bg-muted', label: 'Unknown' };
   }
@@ -312,18 +271,13 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
   };
 
   const qualityIndicator = getQualityIndicator(profile.dataQualityTier);
-  const typicalHold = getTypicalHoldTimeHours(profile);
-  const realizedMedian = profile.realizedMedianHoldTimeHours ?? profile.medianHoldTimeHours ?? null;
-  const realizedAverage = profile.realizedAverageHoldTimeHours ?? profile.avgHoldTimeHours ?? null;
-  const inclusiveMedian = typicalHold ?? profile.currentHoldMedianHours ?? realizedMedian;
-  const inclusiveAverage = profile.avgHoldTimeHours ?? profile.currentHoldAverageHours ?? realizedAverage;
-  const includesCurrentData =
-    profile.typicalHoldTimeSource === 'CURRENT' || profile.typicalHoldTimeSource === 'MIXED';
   const totalTokens = profile.totalTokensTraded ?? profile.completedCycleCount ?? 0;
   const heldTokens = profile.currentHoldingsCount ?? 0;
   const exitedTokens = profile.completedCycleCount ?? 0;
+  const exitCount = exitedTokens;
+  const lowExitSample = exitCount > 0 && exitCount < 3;
   const percentHeldValue = profile.percentValueInCurrentHoldings ?? 0;
-  const behaviorDisplayType = profile.behaviorType ?? (heldTokens > 0 ? 'HOLDER' : null);
+  const behaviorDisplayType = profile.behaviorType ?? (heldTokens > 0 ? 'HODLER' : null);
   const currentHoldingsList = useMemo(
     () => (profile.currentHoldings || [])
       .filter((holding) => (holding.uiBalance ?? 0) > 0)
@@ -340,10 +294,13 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
         ? Math.max(1, Math.round((percentHeldValue / 100) * Math.max(totalTokens, 1)))
         : 0;
   const activeTokens = heldTokens > 0 ? heldTokens : estimatedHeld;
-  const heldDisplay = activeTokens > 0 ? activeTokens.toLocaleString() : '0';
   const unresolvedTokens = Math.max(totalTokens - exitedTokens - activeTokens, 0);
-  const tokensSummary = `${totalTokens.toLocaleString()} tokens`;
-  const exitHoldSummary = `Exited: ${exitedTokens.toLocaleString()} · Active: ${heldDisplay}${unresolvedTokens ? ` · Other: ${unresolvedTokens.toLocaleString()}` : ''}`;
+  const tokenBreakdown = [
+    { label: 'Analyzed', value: totalTokens },
+    { label: 'Exited', value: exitedTokens },
+    { label: 'Active', value: activeTokens },
+    ...(unresolvedTokens ? [{ label: 'Other', value: unresolvedTokens }] : []),
+  ];
 
   const toggleHoldingsVisibility = () => {
     if (!hasHoldingsList) return;
@@ -374,20 +331,12 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
     <div className="rounded-lg border bg-card hover:shadow-md transition-shadow overflow-hidden">
       <div className={`p-3 border-b ${qualityIndicator.panel}`}>
         <div className="flex items-center justify-between mb-2">
-          <WalletBadge address={walletAddress} className="text-sm font-semibold" />
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className={`w-2.5 h-2.5 rounded-full ${qualityIndicator.dot} ring-2 ring-background`} />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs font-semibold">{qualityIndicator.label}</p>
-                <p className="text-xs text-muted-foreground">
-                  {profile.completedCycleCount} completed tokens
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <WalletBadge
+            address={walletAddress}
+            className="text-sm font-semibold"
+            knownType={profile.knownType}
+            knownLabel={profile.knownLabel}
+          />
         </div>
 
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -395,21 +344,33 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(behaviorDisplayType)}`}>
+                  <span
+                    className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-help ${getBehaviorColor(behaviorDisplayType).className}`}
+                    style={getBehaviorColor(behaviorDisplayType).style}
+                  >
                     {getBehaviorMeta(profile.behaviorType)?.label
                       ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
                       ?? 'Unclassified'}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
-                  <p className="font-semibold">
+                  <p className="font-semibold mb-1">
                     {getBehaviorMeta(profile.behaviorType)?.label
                       ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
-                      ?? 'Unclassified'} · Hold times: {getBehaviorMeta(profile.behaviorType)?.timeframe ?? (heldTokens > 0 ? 'Not enough exits' : 'n/a')}
+                      ?? 'Unclassified'}
                   </p>
                   <p className="text-muted-foreground">
-                    Classification derived from typical exited hold time. Still-held positions do not affect this tag; if only holdings exist, we mark as holders until exits are observed.
+                    {getBehaviorMeta(profile.behaviorType)?.timeframe
+                      ? `Typical hold: ${getBehaviorMeta(profile.behaviorType)?.timeframe}`
+                      : heldTokens > 0
+                        ? 'No exits yet'
+                        : 'No exit data'}
                   </p>
+                  {exitCount > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Sample: {exitCount} exits{lowExitSample ? ' - low sample' : ''}
+                    </p>
+                  )}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -421,81 +382,36 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
-                  <p className="font-semibold mb-1">Classification Confidence</p>
-                  <p className="text-muted-foreground">
-                    Statistical confidence in the behavior classification. Higher confidence means more consistent trading patterns with sufficient data points.
-                  </p>
+                  <p className="text-muted-foreground">Confidence in behavior classification.</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="text-[10px] font-semibold text-muted-foreground cursor-help">
-                  {tokensSummary} / {exitHoldSummary}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
-                <p className="font-semibold mb-1">Token accounting</p>
-                <p className="text-muted-foreground">
-                Total analyzed / fully exited / active holdings. "Other" covers dust/spam/partial data, not classify as active or exited.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
         <TransactionDateRange
           oldestTimestamp={profile.oldestTransactionTimestamp}
           newestTimestamp={profile.newestTransactionTimestamp}
         />
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
+          <div className="inline-flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${qualityIndicator.dot} ring-1 ring-background`} />
+            <span>Quality: {qualityIndicator.label}</span>
+            <span className="text-foreground/40">
+              ({profile.completedCycleCount ?? 0} completed)
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {tokenBreakdown.map((item) => (
+              <span key={item.label} className="text-foreground/60">
+                {item.label}: {item.value.toLocaleString()}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="p-3 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] gap-4">
-        <div className="space-y-3">
-          <HoldMetricCard
-            label="Median Hold"
-            exitedValue={formatHoldTime(realizedMedian)}
-            mixedValue={formatHoldTime(inclusiveMedian)}
-            highlightMixed={includesCurrentData}
-            mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
-            tooltip="Median hold time across exits: half of the exits were faster and half slower. The mixed value blends current positions with exits to reflect present behavior."
-          />
-          <HoldMetricCard
-            label="Average Hold"
-            exitedValue={formatHoldTime(realizedAverage)}
-            mixedValue={formatHoldTime(inclusiveAverage)}
-            highlightMixed={includesCurrentData}
-            mixedLabel={formatHoldSource(profile.typicalHoldTimeSource)}
-            footer={
-              typeof profile.percentValueInCurrentHoldings === 'number' ? (
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={toggleHoldingsVisibility}
-                        disabled={!hasHoldingsList}
-                        className={`underline-offset-2 ${hasHoldingsList ? 'underline hover:text-primary transition-colors' : 'text-muted-foreground cursor-not-allowed'}`}
-                      >
-                        Value still held: {formatPercentage(profile.percentValueInCurrentHoldings)}{' '}
-                        {hasHoldingsList ? '(click to view tokens)' : '(no current tokens detected)'}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs text-xs">
-                      <p className="font-semibold mb-1">Value still held</p>
-                      <p className="text-muted-foreground">
-                        Percentage of portfolio value still in current holdings. May differ from token counts because dust/low-balance tokens are filtered by backend thresholds.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : undefined
-            }
-            tooltip="Average (mean) hold duration. Sensitive to outliers; compare against the median to spot skew from very long or very short trades. Mixed value includes active positions to show current behavior."
-          />
-        </div>
-
-        <div className="bg-muted/10 rounded-md p-3 border w-full lg:min-w-[280px]">
+      <div className="p-3">
+        <div className="bg-muted/10 rounded-md p-3 border w-full lg:max-w-[600px]">
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -504,14 +420,7 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                 </p>
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-xs">
-                <p className="font-semibold mb-1">Exit Timing Distribution</p>
-                <p className="text-muted-foreground mb-2">
-                  Shows how long this holder typically keeps positions before exiting.
-                  Each bar represents the proportion of exits within that timeframe.
-                </p>
-                <p className="text-xs text-primary font-medium">
-                  Hover over time ranges for detailed descriptions
-                </p>
+                <p className="text-muted-foreground">Exit timing distribution from completed exits.</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

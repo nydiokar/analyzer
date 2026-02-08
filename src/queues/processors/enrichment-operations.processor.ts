@@ -1,12 +1,15 @@
-import { Logger, Injectable, Inject } from '@nestjs/common';
+import { Inject, Logger, Injectable } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
-import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult } from '../jobs/types';
+import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult, ParallelEnrichmentJobData } from '../jobs/types';
+import { BalanceCacheService } from '../../api/services/balance-cache.service';
+import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { REDIS_CLIENT } from '../config/redis.provider';
-import { Redis } from 'ioredis';
+import Redis from 'ioredis';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @Injectable()
 export class EnrichmentOperationsProcessor {
@@ -15,9 +18,10 @@ export class EnrichmentOperationsProcessor {
 
     constructor(
     private readonly redisLockService: RedisLockService,
-    private readonly tokenInfoService: TokenInfoService, 
-
-    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
+    private readonly tokenInfoService: TokenInfoService,
+    private readonly balanceCacheService: BalanceCacheService,
+    private readonly jobPayloadCache: JobPayloadCacheService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis, // For result caching
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
     
@@ -32,11 +36,11 @@ export class EnrichmentOperationsProcessor {
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} failed:`, err);
+      this.logger.error(`Job ${job?.id} failed: ${getErrorMessage(err)}`);
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error:', err);
+      this.logger.error(`Worker error: ${getErrorMessage(err)}`);
     });
 
     this.logger.debug('EnrichmentOperationsProcessor initialized with worker');
@@ -62,18 +66,46 @@ export class EnrichmentOperationsProcessor {
    * Process parallel enrichment job using cached balances
    * This runs in the enrichQ queue for the new parallel architecture
    */
-  async processParallelEnrichment(job: Job<{ walletBalances: Record<string, any>; requestId: string }>): Promise<{ enrichedBalances: Record<string, any> }> {
-    const { walletBalances, requestId } = job.data;
+  async processParallelEnrichment(job: Job<ParallelEnrichmentJobData>): Promise<{ enrichedBalances: Record<string, any> }> {
+    const { walletBalances, balancesKey, requestId, walletAddresses } = job.data;
     const startTime = Date.now();
     
-    this.logger.log(`Processing parallel enrichment for ${Object.keys(walletBalances).length} wallets, requestId: ${requestId}`);
+    let balancesPayload = walletBalances;
+    if (!balancesPayload && balancesKey) {
+      balancesPayload = await this.jobPayloadCache.retrievePayload(balancesKey);
+      if (!balancesPayload) {
+        throw new Error(`Missing balances payload for enrichment request ${requestId}`);
+      }
+      // 🔧 FIX: Don't delete payload immediately - let TTL handle cleanup
+      // Deleting here prevents retries from working (payload already gone on 2nd/3rd attempt)
+      // await this.jobPayloadCache.deletePayload(balancesKey);
+    }
+
+    if (!balancesPayload) {
+      if (walletAddresses && walletAddresses.length > 0) {
+        const fetched = await this.balanceCacheService.getManyBalances(walletAddresses);
+        const filtered: Record<string, any> = {};
+        for (const [address, balance] of Object.entries(fetched)) {
+          if (balance) {
+            filtered[address] = balance;
+          }
+        }
+        balancesPayload = filtered;
+      }
+    }
+
+    if (!balancesPayload || Object.keys(balancesPayload).length === 0) {
+      throw new Error(`No balances provided for enrichment request ${requestId}`);
+    }
+
+    this.logger.log(`Processing parallel enrichment for ${Object.keys(balancesPayload).length} wallets, requestId: ${requestId}`);
     
     try {
       // Check for cancellation before starting
       await this.checkJobCancellation(job);
       
       // Use the existing sophisticated enrichment logic
-      const { enrichedBalances, summary } = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
+      const { enrichedBalances, summary } = await this.enrichBalancesWithSophisticatedLogic(balancesPayload, job);
 
       // BullMQ handles progress - bridge picks it up automatically
       await job.updateProgress(100);
@@ -96,7 +128,7 @@ export class EnrichmentOperationsProcessor {
       return { enrichedBalances };
       
     } catch (error) {
-      this.logger.error(`Parallel enrichment failed for requestId: ${requestId}`, error);
+      this.logger.error(`Parallel enrichment failed for requestId: ${requestId}: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -140,12 +172,40 @@ export class EnrichmentOperationsProcessor {
    * Preserves database-first optimization, smart batching, and background processing
    */
   async processEnrichTokenBalances(job: Job<EnrichTokenBalancesJobData>): Promise<EnrichTokenBalancesResult> {
-    const { walletBalances, requestId, optimizationHint } = job.data;
+    const { walletBalances, balancesKey, walletAddresses, requestId, optimizationHint } = job.data;
     const timeoutMs = JobTimeouts['enrich-token-balances'].timeout;
     const startTime = Date.now();
-    
-          // Apply deduplication strategy using wallet balances
-      const allTokens = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
+
+      let balancesPayload = walletBalances;
+      if (!balancesPayload && balancesKey) {
+        balancesPayload = await this.jobPayloadCache.retrievePayload(balancesKey);
+        if (!balancesPayload) {
+          throw new Error(`Missing balances payload for enrichment request ${requestId}`);
+        }
+        // 🔧 FIX: Don't delete payload immediately - let TTL handle cleanup
+        // Deleting here prevents retries from working (payload already gone on 2nd/3rd attempt)
+        // await this.jobPayloadCache.deletePayload(balancesKey);
+      }
+
+      if (!balancesPayload) {
+        if (walletAddresses && walletAddresses.length > 0) {
+          const fetched = await this.balanceCacheService.getManyBalances(walletAddresses);
+          const filtered: Record<string, any> = {};
+          for (const [address, balance] of Object.entries(fetched)) {
+            if (balance) {
+              filtered[address] = balance;
+            }
+          }
+          balancesPayload = filtered;
+        }
+      }
+
+      if (!balancesPayload || Object.keys(balancesPayload).length === 0) {
+        throw new Error(`No balances provided for enrichment request ${requestId}`);
+      }
+
+      // Apply deduplication strategy using wallet balances
+      const allTokens = Object.values(balancesPayload).flatMap(b => b.tokenBalances.map(t => t.mint));
       const sortedTokens = [...new Set(allTokens)].sort().join('-');
       const expectedJobId = generateJobId.enrichMetadata(sortedTokens, requestId);
       if (job.id !== expectedJobId) {
@@ -165,7 +225,7 @@ export class EnrichmentOperationsProcessor {
         await job.updateProgress(5);
 
         // Use the sophisticated logic from enrichBalances method
-        const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(walletBalances, job);
+        const enrichedBalances = await this.enrichBalancesWithSophisticatedLogic(balancesPayload, job);
 
         await job.updateProgress(100);
 
@@ -186,7 +246,7 @@ export class EnrichmentOperationsProcessor {
         return result;
 
     } catch (error) {
-      this.logger.error(`Token enrichment failed for request ${requestId}:`, error);
+      this.logger.error(`Token enrichment failed for request ${requestId}: ${getErrorMessage(error)}`);
       throw error;
     } finally {
       // Always release lock
@@ -199,49 +259,97 @@ export class EnrichmentOperationsProcessor {
    * Uses proper database-first approach to avoid creating "Unknown Token" placeholders
    */
   private async enrichBalancesWithSophisticatedLogic(
-    walletBalances: Record<string, any>, 
+    walletBalances: Record<string, any>,
     job: Job
   ): Promise<{ enrichedBalances: Record<string, any>; summary: { newTokensFetched: number } }> {
+    // 🎯 LOG: Show which wallets have how many tokens (identify whales)
+    Object.entries(walletBalances).forEach(([address, balance]) => {
+      const tokenCount = balance.tokenBalances?.length || 0;
+      if (tokenCount > 10000) {
+        this.logger.warn(`🐋 WHALE DETECTED: ${address} has ${tokenCount} tokens`);
+      } else if (tokenCount > 5000) {
+        this.logger.log(`⚠️ Large wallet: ${address} has ${tokenCount} tokens`);
+      }
+    });
+
     // Extract all unique token addresses
     const allTokens = Object.values(walletBalances).flatMap(b => b.tokenBalances.map(t => t.mint));
     const uniqueTokens = [...new Set(allTokens)];
-    
+
     // For dashboard analysis, we should only process the tokens that were actually analyzed
     // The walletBalances object should already contain only the analyzed tokens
     const jobData = job.data as any;
     const isDashboardAnalysis = jobData?.enrichmentContext === 'dashboard-analysis';
-    
+
     if (isDashboardAnalysis) {
       this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} mapped tokens (dashboard analysis context)`);
     } else {
       this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} unique tokens`);
     }
-    
+
+    // 🚨 GUARDRAIL: Protect against whale wallets with 10k+ shitcoins
+    // This should rarely trigger now that similarity processor filters tokens before passing
+    const MAX_TOKENS_PER_ENRICHMENT = 5000;
+    const MIN_BALANCE_THRESHOLD = 1000; // Minimum UI balance to consider (filters dust)
+
+    if (uniqueTokens.length > MAX_TOKENS_PER_ENRICHMENT) {
+      this.logger.warn(`⚠️ Whale wallet detected! ${uniqueTokens.length} tokens found. Applying aggressive filtering to prevent system overload.`);
+    }
+
     // For dashboard analysis, process ALL tokens that are mapped to this wallet
     // For other contexts, filter tokens that are likely to have metadata
-    const meaningfulTokens = uniqueTokens.filter(tokenAddress => {
+    let meaningfulTokens = uniqueTokens.filter(tokenAddress => {
       // For dashboard analysis, include ALL tokens regardless of current balance
       if (isDashboardAnalysis) {
         return true; // Include all mapped tokens for dashboard analysis
       }
-      
+
       // For other contexts, check if token has a meaningful balance
       const hasMeaningfulBalance = Object.values(walletBalances).some(wallet => {
         const tokenBalance = wallet.tokenBalances?.find(t => t.mint === tokenAddress);
         if (!tokenBalance) return false;
-        
+
         // Check if token has a meaningful balance (not zero or very small)
         const uiBalance = tokenBalance.uiBalance || 0;
         const rawBalance = tokenBalance.balance || '0';
-        
+
         // Skip only if both UI and raw balance are explicitly zero
         if (uiBalance === 0 && rawBalance === '0') return false;
-        
+
+        // For whale wallets, apply stricter threshold to filter dust
+        if (uniqueTokens.length > MAX_TOKENS_PER_ENRICHMENT) {
+          return uiBalance >= MIN_BALANCE_THRESHOLD;
+        }
+
         return true;
       });
-      
+
       return hasMeaningfulBalance;
     });
+
+    // 🚨 FINAL GUARDRAIL: Hard cap on enrichment
+    if (meaningfulTokens.length > MAX_TOKENS_PER_ENRICHMENT) {
+      this.logger.warn(`⚠️ Still ${meaningfulTokens.length} tokens after filtering. Sorting by balance and capping at ${MAX_TOKENS_PER_ENRICHMENT}.`);
+
+      // Sort tokens by total balance across all wallets (highest first)
+      const tokenBalanceSums = new Map<string, number>();
+      meaningfulTokens.forEach(tokenAddress => {
+        let totalBalance = 0;
+        Object.values(walletBalances).forEach(wallet => {
+          const tokenBalance = wallet.tokenBalances?.find(t => t.mint === tokenAddress);
+          if (tokenBalance) {
+            totalBalance += tokenBalance.uiBalance || 0;
+          }
+        });
+        tokenBalanceSums.set(tokenAddress, totalBalance);
+      });
+
+      meaningfulTokens = meaningfulTokens
+        .sort((a, b) => (tokenBalanceSums.get(b) || 0) - (tokenBalanceSums.get(a) || 0))
+        .slice(0, MAX_TOKENS_PER_ENRICHMENT);
+
+      this.logger.warn(`✂️ Capped to top ${meaningfulTokens.length} tokens by balance. Whale wallet protection activated.`);
+    }
     
     if (isDashboardAnalysis) {
       this.logger.log(`Processing ${meaningfulTokens.length} mapped tokens for dashboard analysis (all tokens included)`);
@@ -249,63 +357,17 @@ export class EnrichmentOperationsProcessor {
       this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as likely account addresses or zero balances)`);
     }
     
-    // STEP 1: Get existing tokens from database (database-first approach)
-    const existingTokens = await this.tokenInfoService.findMany(meaningfulTokens);
-    const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
-    
-    // STEP 2: Filter to only fetch tokens that don't exist or are stale (1 hour for metadata, 5 minutes for prices)
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000); // 5 minutes for prices
-    
-    const tokensToFetch = meaningfulTokens.filter(address => {
-      const existingToken = existingTokenMap.get(address);
-      
-      // Skip tokens that are clearly placeholders (Unknown Token with no real data)
-      if (existingToken?.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
-        // Only refresh placeholders if they're older than 1 hour
-        const isPlaceholderStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-        return isPlaceholderStale;
-      }
-      
-      // For tokens with real data, check if metadata is stale (1 hour) or price is stale (5 minutes)
-      if (existingToken) {
-        const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-        const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
-        
-        // Only fetch if metadata is stale OR if we have price data but it's stale
-        return metadataStale || (existingToken.priceUsd && priceStale);
-      }
-      
-      // New token - always fetch
-      return true;
-    });
-    
+    // STEP 1: Centralized staleness plan from TokenInfoService
+    const enrichmentPlan = await this.tokenInfoService.getTokenEnrichmentPlan(meaningfulTokens);
+    const tokensToFetch = enrichmentPlan.needsEnrichment;
+    const newTokens = enrichmentPlan.newTokens;
+    const staleTokens = enrichmentPlan.staleTokens;
+
     if (isDashboardAnalysis) {
-      this.logger.log(`Found ${existingTokens.length} existing mapped tokens, need to fetch ${tokensToFetch.length} new/stale mapped tokens`);
+      this.logger.log(`Found ${enrichmentPlan.existingTokens.length} existing mapped tokens, need to fetch ${tokensToFetch.length} new/stale mapped tokens`);
     } else {
-      this.logger.log(`Found ${existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
+      this.logger.log(`Found ${enrichmentPlan.existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
     }
-    
-    // Log breakdown of why tokens are being fetched
-    const newTokens = meaningfulTokens.filter(address => !existingTokenMap.has(address));
-    const staleTokens = meaningfulTokens.filter(address => {
-      const existingToken = existingTokenMap.get(address);
-      if (!existingToken) return false;
-      
-      const oneHourAgo = new Date(Date.now() - 1 * 60 * 1000);
-      const fiveMinutesAgo = new Date(Date.now() - 1 * 60 * 1000);
-      
-      // Check if it's a placeholder that needs refresh
-      if (existingToken.name === 'Unknown Token' && !existingToken.priceUsd && !existingToken.marketCapUsd) {
-        return !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-      }
-      
-      // Check if metadata or price is stale
-      const metadataStale = !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < oneHourAgo;
-      const priceStale = !existingToken.priceUsd || !existingToken.dexscreenerUpdatedAt || existingToken.dexscreenerUpdatedAt < fiveMinutesAgo;
-      
-      return metadataStale || (existingToken.priceUsd && priceStale);
-    });
     
     if (isDashboardAnalysis) {
       this.logger.log(`Breakdown: ${newTokens.length} new mapped tokens, ${staleTokens.length} stale mapped tokens`);
@@ -345,7 +407,7 @@ export class EnrichmentOperationsProcessor {
         throw error; // Re-throw cancellation errors
       }
       
-      this.logger.warn(`Failed to enrich batch starting at index ${i}:`, error);
+      this.logger.warn(`Failed to enrich batch starting at index ${i}: ${getErrorMessage(error)}`);
       // Continue with other batches instead of failing the entire job
     }
   }
@@ -365,10 +427,13 @@ export class EnrichmentOperationsProcessor {
     const finalTokenMap = new Map(finalTokenInfos.map(t => [t.tokenAddress, t]));
     
     // Enrich the wallet balances with the final metadata and USD values
+    const meaningfulTokenSet = new Set(meaningfulTokens);
     const enrichedBalances = { ...walletBalances };
     for (const [walletAddress, balance] of Object.entries(enrichedBalances)) {
       if (balance.tokenBalances) {
-        balance.tokenBalances = balance.tokenBalances.map(token => {
+        balance.tokenBalances = balance.tokenBalances
+          .filter(token => meaningfulTokenSet.has(token.mint))
+          .map(token => {
           const metadata = finalTokenMap.get(token.mint);
           
           // Calculate USD value if we have price data
@@ -384,7 +449,7 @@ export class EnrichmentOperationsProcessor {
               const numericBalance = Number(rawBalance) / Number(divisor);
               valueUsd = numericBalance * priceUsd;
             } catch (error) {
-              this.logger.warn(`Failed to calculate USD value for token ${token.mint}:`, error);
+              this.logger.warn(`Failed to calculate USD value for token ${token.mint}: ${getErrorMessage(error)}`);
             }
           }
           
@@ -429,7 +494,7 @@ export class EnrichmentOperationsProcessor {
         // Small delay between batches
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
-        this.logger.warn(`Background enrichment failed for batch of ${batch.length} tokens:`, error);
+        this.logger.warn(`Background enrichment failed for batch of ${batch.length} tokens: ${getErrorMessage(error)}`);
         // Continue with other batches
       }
     }

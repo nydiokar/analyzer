@@ -3,6 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtDatabaseService } from './jwt-database.service';
 import { AdvancedThrottlerService } from './advanced-throttler.service';
 import { CompositeAuthGuard } from '../guards/composite-auth.guard';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 @Injectable()
 export class SecurityCleanupService implements OnModuleInit {
@@ -45,7 +47,7 @@ export class SecurityCleanupService implements OnModuleInit {
       // Clean up advanced throttler data
       this.advancedThrottlerService.cleanup();
     } catch (error) {
-      this.logger.error('Failed to cleanup auth caches', error);
+      this.logger.error('Failed to cleanup auth caches', getErrorMessage(error));
     }
   }
 
@@ -67,7 +69,7 @@ export class SecurityCleanupService implements OnModuleInit {
         this.logger.debug('Security cleanup: No security events detected');
       }
     } catch (error) {
-      this.logger.error('Failed to log security metrics', error);
+      this.logger.error('Failed to log security metrics', getErrorMessage(error));
     }
   }
 
@@ -79,7 +81,7 @@ export class SecurityCleanupService implements OnModuleInit {
         this.logger.warn('SECURITY: All authentication caches cleared via emergency action');
       }
     } catch (error) {
-      this.logger.error('Failed to emergency clear caches', error);
+      this.logger.error('Failed to emergency clear caches', getErrorMessage(error));
       throw error;
     }
   }

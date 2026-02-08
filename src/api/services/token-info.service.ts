@@ -1,13 +1,16 @@
 import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { DatabaseService } from '../services/database.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, TokenInfo } from '@prisma/client';
 import { DexscreenerService } from '../services/dexscreener.service';
 import { IPriceProvider } from '../../types/price-provider.interface';
-import { ITokenInfoService } from '../../types/token-info-service.interface';
+import { ITokenInfoService, TokenEnrichmentPlan } from '../../types/token-info-service.interface';
 import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import { TOKEN_INFO_REFRESH_CONFIG } from '../../config/constants';
+import { getErrorMessage } from 'core/utils/error-utils';
+import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 
 /**
  * TokenInfoService - Unified Token Information & Price Management
@@ -58,13 +61,13 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     try {
       price = await this.priceProvider.fetchSolPrice();
     } catch (err) {
-      this.logger.error(`[SOL Price] Provider fetch failed`, err);
+      this.logger.error(`[SOL Price] Provider fetch failed: ${getErrorMessage(err)}`);
       throw err;
     }
     
     // Cache with 30-second TTL
     await this.redis.set(cacheKey, price.toString(), 'EX', 30);
-    this.logger.log(`[SOL Price] Fetched and cached: $${price} (TTL: 30s)`);
+    // this.logger.log(`[SOL Price] Fetched and cached: $${price} (TTL: 30s)`);
     
     return price;
   }
@@ -115,7 +118,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       this.logger.warn(`[Token Supply] No supply data for ${tokenMint}`);
       return undefined;
     } catch (error) {
-      this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}:`, error);
+      this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}: ${getErrorMessage(error)}`);
       return undefined;
     }
   }
@@ -196,70 +199,153 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
    * Used by background workers and processors
    */
   async enrichTokensBackground(tokenAddresses: string[]): Promise<void> {
+    tokenAddresses = tokenAddresses.filter(isValidSolanaAddress);
     if (tokenAddresses.length === 0) {
       return;
     }
-    this.logger.debug(`[Background] Enriching ${tokenAddresses.length} tokens`);
-    await this.priceProvider.fetchAndSaveTokenInfo(tokenAddresses);
+    const plan = await this.getTokenEnrichmentPlan(tokenAddresses);
+    if (plan.needsEnrichment.length === 0) {
+      return;
+    }
+    this.logger.debug(`[Background] Enriching ${plan.needsEnrichment.length} tokens`);
+
+    // Mark tokens as in-flight BEFORE fetching
+    if (plan.needsEnrichment.length > 0) {
+      const pipeline = this.redis.pipeline();
+      for (const token of plan.needsEnrichment) {
+        pipeline.setex(`token:in-flight:${token}`, 30, Date.now().toString());
+      }
+      await pipeline.exec();
+    }
+
+    try {
+      await this.priceProvider.fetchAndSaveTokenInfo(plan.needsEnrichment);
+    } finally {
+      // 🔥 CLEAR IN-FLIGHT MARKERS: Clean up after background enrichment
+      await this.clearInFlightMarkers(plan.needsEnrichment);
+    }
+  }
+
+  async getTokenEnrichmentPlan(tokenAddresses: string[]): Promise<TokenEnrichmentPlan> {
+    const deduped = [...new Set(tokenAddresses)].filter(isValidSolanaAddress);
+    const existingTokens = await this.findMany(deduped);
+    return await this.buildTokenEnrichmentPlan(deduped, existingTokens);
+  }
+
+  private async buildTokenEnrichmentPlan(tokenAddresses: string[], existingTokens: TokenInfo[]): Promise<TokenEnrichmentPlan> {
+    const metadataStaleBefore = new Date(Date.now() - TOKEN_INFO_REFRESH_CONFIG.metadataStaleMs);
+    const priceStaleBefore = new Date(Date.now() - TOKEN_INFO_REFRESH_CONFIG.priceStaleMs);
+    const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
+    const needsEnrichment = new Set<string>();
+    const needsOnchainData = new Set<string>();
+    const needsPriceData = new Set<string>();
+    const newTokens: string[] = [];
+    const staleTokens: string[] = [];
+
+    // 🔥 IN-FLIGHT TRACKING: Check which tokens are currently being fetched by other jobs
+    const inFlightChecks = await Promise.all(
+      tokenAddresses.map(async (address) => {
+        const inFlight = await this.redis.get(`token:in-flight:${address}`);
+        return { address, inFlight: !!inFlight };
+      })
+    );
+    const inFlightMap = new Map(inFlightChecks.map(({ address, inFlight }) => [address, inFlight]));
+
+    tokenAddresses.forEach(address => {
+      const existing = existingTokenMap.get(address);
+
+      // 🔥 Skip tokens that are currently being fetched by another job
+      if (inFlightMap.get(address)) {
+        this.logger.debug(`Token ${address} is being fetched by another job, skipping`);
+        return;
+      }
+
+      if (!existing) {
+        newTokens.push(address);
+        needsEnrichment.add(address);
+        needsOnchainData.add(address);
+        needsPriceData.add(address);
+        return;
+      }
+
+      const hasOnchainData = !!existing.onchainBasicFetchedAt;
+      const dexUpdatedAt = existing.dexscreenerUpdatedAt;
+      const metadataStale = !dexUpdatedAt || dexUpdatedAt < metadataStaleBefore;
+      const priceStale = !existing.priceUsd || !dexUpdatedAt || dexUpdatedAt < priceStaleBefore;
+      const isPlaceholder =
+        existing.name === 'Unknown Token' &&
+        !existing.onchainName &&
+        !existing.priceUsd &&
+        !existing.marketCapUsd;
+
+      let needsRefresh = false;
+
+      if (!hasOnchainData) {
+        needsOnchainData.add(address);
+        needsRefresh = true;
+      }
+
+      if (isPlaceholder) {
+        if (metadataStale) {
+          needsPriceData.add(address);
+          needsRefresh = true;
+        }
+      } else if (metadataStale || priceStale) {
+        needsPriceData.add(address);
+        needsRefresh = true;
+      }
+
+      if (needsRefresh) {
+        needsEnrichment.add(address);
+        staleTokens.push(address);
+      }
+    });
+
+    this.logger.warn(
+      `Token enrichment plan: total=${tokenAddresses.length}, new=${newTokens.length}, stale=${staleTokens.length}, refresh=${needsEnrichment.size}`
+    );
+
+    // DON'T mark as in-flight here - let the actual fetch methods handle that
+    // This prevents deadlocks when multiple calls check the plan
+
+    return {
+      tokenAddresses,
+      existingTokens,
+      needsEnrichment: [...needsEnrichment],
+      needsOnchainData: [...needsOnchainData],
+      needsPriceData: [...needsPriceData],
+      newTokens,
+      staleTokens,
+    };
   }
 
   async triggerTokenInfoEnrichment(
     tokenAddresses: string[],
     userId: string,
+    plan?: TokenEnrichmentPlan,
   ): Promise<void> {
     const startTime = Date.now();
 
     // Deduplicate input to avoid processing same token multiple times
-    tokenAddresses = [...new Set(tokenAddresses)];
+    tokenAddresses = [...new Set(tokenAddresses)].filter(isValidSolanaAddress);
+    if (tokenAddresses.length === 0) {
+      return;
+    }
 
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
       tokenCount: tokenAddresses.length,
     });
 
-    const existingTokens = await this.findMany(tokenAddresses);
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000); // 1 hour for metadata staleness
-    const existingTokenMap = new Map(existingTokens.map(t => [t.tokenAddress, t]));
-
-    // Determine which tokens need enrichment
-    const needsEnrichment = tokenAddresses.filter(address => {
-      const existing = existingTokenMap.get(address);
-
-      // If no data at all, needs enrichment
-      if (!existing) return true;
-
-      // If "Unknown Token" with no onchain data, needs enrichment
-      if (existing.name === 'Unknown Token' && !existing.onchainName) {
-        return true;
-      }
-
-      // Onchain metadata is IMMUTABLE - once fetched, never refetch
-      // Only check if DexScreener data is stale (prices/volume change)
-      const hasOnchainData = !!existing.onchainBasicFetchedAt;
-      const dexStale = !existing.dexscreenerUpdatedAt || existing.dexscreenerUpdatedAt < oneHourAgo;
-
-      // Skip enrichment if:
-      // - We have onchain data (immutable, never changes) AND
-      // - DexScreener data is fresh (prices are recent)
-      if (hasOnchainData && !dexStale) {
-        return false;
-      }
-
-      // Enrich if we're missing onchain data OR DexScreener is stale
-      return !hasOnchainData || dexStale;
-    });
-
+    const enrichmentPlan = plan ?? await this.getTokenEnrichmentPlan(tokenAddresses);
+    const needsEnrichment = enrichmentPlan.needsEnrichment;
     if (needsEnrichment.length === 0) {
       this.logger.log('All tokens already have recent metadata');
       return;
     }
 
     // Split enrichment needs: onchain metadata vs price data
-    const needsOnchainData = needsEnrichment.filter(address => {
-      const existing = existingTokenMap.get(address);
-      return !existing?.onchainBasicFetchedAt; // Missing onchain data (immutable)
-    });
-
-    const needsPriceData = needsEnrichment; // All tokens in needsEnrichment need price refresh
+    const needsOnchainData = enrichmentPlan.needsOnchainData;
+    const needsPriceData = enrichmentPlan.needsPriceData;
 
     this.logger.log(`Enriching ${needsEnrichment.length} tokens (onchain: ${needsOnchainData.length}, prices: ${needsPriceData.length})`);
 
@@ -277,25 +363,33 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
           // this.logger.log(`DAS Stage complete: ${onchainMetadata.length} tokens enriched with onchain data - FRONTEND CAN NOW SHOW RELIABLE BLOCKCHAIN DATA`);
         }
       } catch (error) {
-        this.logger.error('Stage 1 (DAS) failed:', error);
+        this.logger.error(`Stage 1 (DAS) failed: ${getErrorMessage(error)}`);
         // Continue anyway - DexScreener might still work
+      } finally {
+        // 🔥 CLEAR IN-FLIGHT MARKERS: For tokens that only needed onchain data (not price data)
+        const onlyOnchainTokens = needsOnchainData.filter(t => !needsPriceData.includes(t));
+        if (onlyOnchainTokens.length > 0) {
+          await this.clearInFlightMarkers(onlyOnchainTokens);
+        }
       }
     }
 
     // ═══════════════════════════════════════════════════════════
-    // STAGE 2: DexScreener (FIRE-AND-FORGET - DON'T WAIT)
-    // Fetch fresh prices in background - frontend will show DAS data immediately
+    // STAGE 2: DexScreener (AWAIT COMPLETION)
+    // Fetch fresh prices and wait for completion to ensure data consistency
     // ═══════════════════════════════════════════════════════════
     if (needsPriceData.length > 0) {
-      // Fire-and-forget DexScreener enrichment
-      setImmediate(async () => {
-        try {
-          await this.priceProvider.fetchAndSaveTokenInfo(needsPriceData);
-          this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed - Frontend can refresh to see updated images`);
-        } catch (err) {
-          this.logger.error('Stage 2 (DexScreener) failed:', err);
-        }
-      });
+      try {
+        // CHANGED: Now waits for DexScreener to complete before returning
+        // This ensures downstream code (like P/L calculation) uses fresh prices
+        await this.priceProvider.fetchAndSaveTokenInfo(needsPriceData);
+        this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed with fresh prices`);
+      } catch (err) {
+        this.logger.error(`Stage 2 (DexScreener) failed: ${getErrorMessage(err)}`);
+      } finally {
+        // 🔥 CLEAR IN-FLIGHT MARKERS: Remove Redis keys after enrichment completes
+        await this.clearInFlightMarkers(needsPriceData);
+      }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -309,7 +403,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     if (tokensWithUris.length > 0) {
       this.fetchAndSaveSocialLinks(tokensWithUris)
         .catch(err => {
-          this.logger.error('Stage 3 (Social links) failed:', err);
+          this.logger.error(`Stage 3 (Social links) failed: ${getErrorMessage(err)}`);
         });
     }
 
@@ -434,11 +528,27 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       await this.db.upsertManyTokenInfo(data);
       this.logger.log(`Successfully upserted ${data.length} token info records.`);
     } catch (error) {
-      if (error instanceof Error) {
-        this.logger.error('Error during bulk upsert of token info:', error.message, error.stack);
-      } else {
-        this.logger.error('An unknown error occurred during bulk upsert of token info:', error);
+      this.logger.error(`Error during bulk upsert of token info: ${getErrorMessage(error)}`);
+    }
+  }
+
+  /**
+   * 🔥 Clear in-flight markers for tokens after enrichment completes
+   * This allows other jobs to fetch these tokens if they become stale again
+   */
+  private async clearInFlightMarkers(tokens: string[]): Promise<void> {
+    if (tokens.length === 0) return;
+
+    try {
+      const pipeline = this.redis.pipeline();
+      for (const token of tokens) {
+        pipeline.del(`token:in-flight:${token}`);
       }
+      await pipeline.exec();
+      this.logger.debug(`Cleared in-flight markers for ${tokens.length} tokens`);
+    } catch (error) {
+      // Non-critical error - markers will auto-expire via TTL anyway
+      this.logger.warn(`Failed to clear in-flight markers: ${getErrorMessage(error)}`);
     }
   }
 

@@ -1,10 +1,9 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { AlertTriangle, CalendarDays, SearchX, ShieldAlert } from "lucide-react";
-import { format } from "date-fns";
+import { AlertTriangle, CalendarDays, RefreshCcw, SearchX, ShieldAlert } from "lucide-react";
+import { format, formatDistanceToNow } from "date-fns";
 
-import { Metric } from "@/components/ui/metric";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { WalletSummaryData } from "@/types/api";
 import { useApiKeyStore } from "@/store/api-key-store";
+import { formatStrategyType } from "@/lib/format-classification";
 import {
   Tooltip,
   TooltipContent,
@@ -68,19 +68,25 @@ export default function AccountSummaryCard({
     return data.latestPnl >= 0 ? "success" : "error";
   }, [data?.latestPnl]);
 
-  // Get behavioral classification description
-  const getClassificationDescription = (classification: string): string => {
+  // Get strategy type description - cleaner and more concise
+  const getStrategyDescription = (strategy: string): string => {
     const descriptions: Record<string, string> = {
-      'swing_trader': 'Holds positions for days to weeks, capitalizing on medium-term price movements',
-      'day_trader': 'Opens and closes positions within the same day, avoiding overnight exposure',
-      'scalper': 'Makes numerous quick trades for small profits, holding positions for minutes',
-      'holder': 'Long-term investor who holds positions for extended periods',
-      'high_frequency': 'Executes large volumes of trades at very high speeds (likely bot activity)',
-      'momentum_trader': 'Follows strong price trends and rides market momentum',
-      'contrarian': 'Takes positions against prevailing market trends',
-      'passive': 'Minimal trading activity, buy-and-hold strategy',
+      'FAST_TRADER': 'Exits positions quickly (under 30 minutes). Includes snipers, scalpers, and momentum traders.',
+      'DAY_TRADER': 'Intraday trader (30min to 24hr holds). Opens and closes within the same day.',
+      'SWING_TRADER': 'Holds for multiple days (1-7 days). Capitalizes on medium-term price movements.',
+      'POSITION_TRADER': 'Long-term conviction (7-30+ days). Patient position trader.',
+      'PURE_HOLDER': 'Only buys, never sells. Accumulates positions without exiting.',
+      'ACCUMULATOR': 'Strong buy bias (2x+ more buys than sells). Actively building positions.',
+      'DISTRIBUTOR': 'Strong sell bias (2x+ more sells than buys). Actively liquidating positions.',
+      'BALANCED_TRADER': 'Even buy/sell ratio across all timeframes. Balanced trading activity.',
+      'LOW_ACTIVITY': 'Insufficient data to classify. Minimal trading history or incomplete cycles.',
+      // Legacy fallbacks
+      'swing_trader': 'Medium-term holds (days to weeks)',
+      'day_trader': 'Intraday positions (same-day exits)',
+      'scalper': 'Quick flips for small profits',
+      'holder': 'Long-term accumulation',
     };
-    return descriptions[classification.toLowerCase()] || 'Trading behavior pattern identified by analysis';
+    return descriptions[strategy] || 'Trading pattern identified';
   };
 
   if (!walletAddress) {
@@ -169,7 +175,7 @@ export default function AccountSummaryCard({
           <div className="flex items-start gap-4">
             <SearchX className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
             <div>
-              <h3 className="text-lg font-semibold text-foreground">Not Yet Analyzed</h3>
+              <h3 className="text-lg font-semibold text-foreground"></h3>
               <p className="text-sm text-muted-foreground">Trigger an analysis to get started.</p>
             </div>
           </div>
@@ -182,17 +188,46 @@ export default function AccountSummaryCard({
   }
 
   // This is a fallback, but with the checks above, data should be valid here.
-  if (!data.latestPnl) {
+  if (data.latestPnl === null || data.latestPnl === undefined) {
+    const lastActive = data.lastActiveTimestamp
+      ? formatDistanceToNow(new Date(data.lastActiveTimestamp * 1000), { addSuffix: true })
+      : "No activity yet";
+    const lastAnalyzed = data.lastAnalyzedAt
+      ? formatDistanceToNow(new Date(data.lastAnalyzedAt), { addSuffix: true })
+      : null;
+
     return (
-       <div className={cn("p-4", className)}>
-        <EmptyState
-          icon={AlertTriangle}
-          title="No Summary Data"
-          description="Could not display wallet summary details."
-          variant="error"
-        />
-      </div>
-    )
+      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Run an analysis to unlock this summary
+          </div>
+          <p className="text-sm text-muted-foreground">
+            We haven&apos;t generated PnL and win rate yet. Kick off one run to populate the summary cards.
+          </p>
+          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <CalendarDays className="h-4 w-4" />
+              {lastActive}
+            </span>
+            {lastAnalyzed && (
+              <span className="inline-flex items-center gap-1">
+                <RefreshCcw className="h-4 w-4" />
+                Last analyzed {lastAnalyzed}
+              </span>
+            )}
+          </div>
+          {triggerAnalysis && (
+            <div className="flex justify-end">
+              <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
+                {isAnalyzingGlobal ? "Analysis in Progress..." : "Analyze Wallet"}
+              </Button>
+            </div>
+          )}
+        </div>
+      </Card>
+    );
   }
 
   const formatPnl = (pnl: number | null) => {
@@ -223,7 +258,7 @@ export default function AccountSummaryCard({
         >
           <div className="text-center space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
-              Total PNL
+              Realized PNL
             </p>
             <div className="text-sm font-bold">
               <span className={cn(
@@ -306,17 +341,38 @@ export default function AccountSummaryCard({
               </Tooltip>
             </TooltipProvider>
 
-            {data.behaviorClassification && (
+            {(data.strategyType || data.behaviorClassification) && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Badge variant="outline" className="uppercase tracking-wide text-[10px] py-0.5 px-2 cursor-help">
-                      {data.behaviorClassification}
+                      {formatStrategyType(data.strategyType || data.behaviorClassification)}
                     </Badge>
                   </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="font-semibold mb-1">{data.behaviorClassification.replace(/_/g, ' ').toUpperCase()}</p>
-                    <p className="text-xs">{getClassificationDescription(data.behaviorClassification)}</p>
+                  <TooltipContent className="max-w-sm">
+                    <div className="space-y-2">
+                      <p className="font-semibold text-sm">{formatStrategyType(data.strategyType || data.behaviorClassification)}</p>
+                      <p className="text-xs leading-relaxed">{getStrategyDescription(data.strategyType || data.behaviorClassification || '')}</p>
+
+                      {/* Show underlying dimensions if available */}
+                      {(data.speedCategory || data.flowPattern) && (
+                        <div className="border-t border-border pt-2 mt-2 space-y-1.5">
+                          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Classification Breakdown:</p>
+                          {data.speedCategory && (
+                            <div className="text-xs">
+                              <span className="font-semibold">Speed:</span> {formatStrategyType(data.speedCategory)}
+                              <p className="text-[10px] text-muted-foreground mt-0.5">How fast they exit positions</p>
+                            </div>
+                          )}
+                          {data.flowPattern && (
+                            <div className="text-xs">
+                              <span className="font-semibold">Flow:</span> {formatStrategyType(data.flowPattern)}
+                              <p className="text-[10px] text-muted-foreground mt-0.5">Buy vs sell activity balance</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

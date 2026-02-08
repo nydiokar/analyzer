@@ -6,6 +6,10 @@ import { ApiKeyService, ApiKeyScope } from '../src/api/shared/services/api-key.s
 import { ApiKeyDatabaseService } from '../src/api/shared/services/api-key-database.service';
 import { JwtDatabaseService } from '../src/api/shared/services/jwt-database.service';
 import { ConfigService } from '@nestjs/config';
+import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
+import logger from '../src/core/utils/logger';
+
+
 
 const VALID_SCOPES: ApiKeyScope[] = ['read', 'report', 'analysis', 'admin', 'full'];
 
@@ -93,7 +97,7 @@ async function main() {
           console.log('IMPORTANT: Store this API key securely. This is the only time it will be displayed.');
           console.log('---------------------------------------------------');
         } catch (error) {
-          console.error('❌ Error creating API key:', error);
+          logger.error('❌ Error creating API key:', getErrorMessage(error));
           process.exit(1);
         }
       }
@@ -143,7 +147,7 @@ async function main() {
             console.log('ℹ️  No API keys found.');
           }
         } catch (error) {
-          console.error('❌ Error fetching API keys:', error);
+          logger.error('❌ Error fetching API keys:', getErrorMessage(error));
           process.exit(1);
         }
       }
@@ -171,7 +175,7 @@ async function main() {
           await apiKeyService.revokeApiKey(key.userId, argv.keyId as string);
           console.log(`✅ API key ${argv.keyId} (${key.prefix}***) revoked successfully.`);
         } catch (error) {
-          console.error('❌ Error revoking API key:', error);
+          logger.error('❌ Error revoking API key:', getErrorMessage(error));
           process.exit(1);
         }
       }
@@ -232,7 +236,7 @@ async function main() {
           await apiKeyService.updateApiKey(key.userId, argv.keyId as string, updates);
           console.log(`✅ API key ${argv.keyId} updated successfully.`);
         } catch (error) {
-          console.error('❌ Error updating API key:', error);
+          logger.error('❌ Error updating API key:', getErrorMessage(error));
           process.exit(1);
         }
       }
@@ -277,7 +281,7 @@ async function main() {
           const key = await prisma.apiKey.delete({ where: { id: argv.keyId as string } });
           console.log(`🗑️  API key ${argv.keyId} (${key.prefix}***) deleted permanently.`);
         } catch (error) {
-          console.error('❌ Error deleting API key:', error);
+          logger.error('❌ Error deleting API key:', getErrorMessage(error));
           process.exit(1);
         }
       }
@@ -300,7 +304,7 @@ async function main() {
 main()
   .catch(async (error) => {
     console.error('\n❌ Unhandled error:');
-    console.error(error);
+    logger.error('Error occurred:', getErrorMessage(error));
     process.exitCode = 1;
   })
   .finally(async () => {

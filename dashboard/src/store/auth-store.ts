@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSecureStorage, TokenManager } from '../lib/secure-storage';
-
 export interface User {
   id: string;
   email: string | null;

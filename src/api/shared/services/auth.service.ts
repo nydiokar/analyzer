@@ -11,6 +11,8 @@ import { RefreshTokenService } from './refresh-token.service';
 import { JwtKeyRotationService } from './jwt-key-rotation.service';
 import { EmailService } from './email.service';
 import { generateUniqueDisplayName } from '../utils/display-name-generator';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 export interface RegisterDto {
   email: string;
@@ -146,7 +148,7 @@ export class AuthService {
         },
       };
     } catch (error) {
-      this.logger.error('Registration failed:', error);
+      this.logger.error('Registration failed:', getErrorMessage(error));
       throw new UnauthorizedException('Registration failed');
     }
   }
@@ -205,7 +207,7 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      this.logger.error('Login failed:', error);
+      this.logger.error('Login failed:', getErrorMessage(error));
       throw new UnauthorizedException('Login failed');
     }
   }
@@ -215,7 +217,7 @@ export class AuthService {
       const user = await this.databaseService.findActiveUserById(userId);
       return user;
     } catch (error) {
-      this.logger.error(`Failed to validate user by ID: ${userId}`, error);
+      this.logger.error(`Failed to validate user by ID: ${userId}`, getErrorMessage(error));
       return null;
     }
   }
@@ -224,7 +226,7 @@ export class AuthService {
     try {
       await this.databaseService.updateUserLastSeen(userId);
     } catch (error) {
-      this.logger.warn(`Failed to update last seen for user: ${userId}`, error);
+      this.logger.warn(`Failed to update last seen for user: ${userId}`, getErrorMessage(error));
     }
   }
 
@@ -235,7 +237,8 @@ export class AuthService {
 
   private isStrongPassword(password: string): boolean {
     // At least 8 characters, 1 uppercase, 1 lowercase, 1 number
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
+    // Allow any characters (not just limited special chars)
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
     return passwordRegex.test(password);
   }
 
@@ -339,7 +342,7 @@ export class AuthService {
     try {
       return await bcrypt.hash(passwordWithPepper, this.PASSWORD_SALT_ROUNDS);
     } catch (error) {
-      this.logger.error('Failed to hash password', error);
+      this.logger.error('Failed to hash password', getErrorMessage(error));
       throw new UnauthorizedException('Password processing failed');
     }
   }
@@ -351,7 +354,7 @@ export class AuthService {
     try {
       return await bcrypt.compare(passwordWithPepper, hash);
     } catch (error) {
-      this.logger.error('Failed to verify password', error);
+      this.logger.error('Failed to verify password', getErrorMessage(error));
       return false;
     }
   }
@@ -363,7 +366,7 @@ export class AuthService {
     try {
       return await bcrypt.hash(apiKey, this.API_KEY_SALT_ROUNDS);
     } catch (error) {
-      this.logger.error('Failed to hash API key', error);
+      this.logger.error('Failed to hash API key', getErrorMessage(error));
       throw new UnauthorizedException('API key processing failed');
     }
   }
@@ -375,7 +378,7 @@ export class AuthService {
     try {
       return await bcrypt.compare(apiKey, hash);
     } catch (error) {
-      this.logger.error('Failed to verify API key', error);
+      this.logger.error('Failed to verify API key', getErrorMessage(error));
       return false;
     }
   }
@@ -514,6 +517,13 @@ export class AuthService {
 
     this.logger.log(`Password reset: ${user.id}`);
 
+    // Send confirmation email (non-blocking - don't fail password reset if email fails)
+    try {
+      await this.emailService.sendPasswordResetConfirmationEmail(user.email!);
+    } catch (emailError) {
+      this.logger.warn(`Failed to send password reset confirmation email to ${user.email}: ${emailError instanceof Error ? emailError.message : 'Unknown error'}`);
+    }
+
     return { success: true, message: 'Password reset successfully' };
   }
 
@@ -540,14 +550,19 @@ export class AuthService {
    * Refresh access token using refresh token
    */
   async refreshAccessToken(refreshToken: string): Promise<AuthResponse> {
+    const requestId = crypto.randomBytes(4).toString('hex');
+    this.logger.debug(`[${requestId}] Starting token refresh`);
+
     try {
       // Rotate the refresh token and get new session
       const rotationResult = await this.refreshTokenService.rotateRefreshToken(refreshToken);
-      
+
       if (!rotationResult) {
-        this.logger.warn('Invalid or expired refresh token');
+        this.logger.warn(`[${requestId}] Invalid or expired refresh token`);
         throw new UnauthorizedException('Invalid or expired refresh token');
       }
+
+      this.logger.debug(`[${requestId}] Token rotation successful for user ${rotationResult.session.userId}`);
 
       const { newRefreshToken, session } = rotationResult;
 
@@ -565,7 +580,7 @@ export class AuthService {
       };
       const access_token = this.signJwtWithEnhancedSecurity(payload);
 
-      this.logger.log(`Access token refreshed for user: ${user.id}`);
+      this.logger.log(`[${requestId}] Access token refreshed for user: ${user.id}`);
 
       return {
         access_token,
@@ -581,9 +596,10 @@ export class AuthService {
       };
     } catch (error) {
       if (error instanceof UnauthorizedException) {
+        this.logger.warn(`[${requestId}] Token refresh failed: ${error.message}`);
         throw error;
       }
-      this.logger.error('Failed to refresh access token:', error);
+      this.logger.error(`[${requestId}] Failed to refresh access token:`, getErrorMessage(error));
       throw new UnauthorizedException('Token refresh failed');
     }
   }

@@ -1,6 +1,14 @@
 // Based on docs/1. scaling_plan.md section 4.3.1
 // GET /wallets/{walletAddress}/summary
 
+/** Known wallet types from the backend registry */
+export type KnownWalletType =
+  | 'BURN'
+  | 'LP'
+  | 'PROTOCOL'
+  | 'EXCHANGE'
+  | 'SYSTEM';
+
 // Minimal AdvancedStatsResult structure for the card
 export interface AdvancedStatsResult {
   latestPnl: number | null;
@@ -17,6 +25,8 @@ export interface BehaviorMetrics {
 export interface WalletSummaryData {
   status?: 'ok' | 'unanalyzed' | 'restricted';
   walletAddress: string;
+  knownType?: string | null; // Backend sends as string, WalletBadge accepts string | KnownWalletType
+  knownLabel?: string | null;
   isFavorite: boolean;
   totalPnl: number;
   winRate: number;
@@ -30,7 +40,11 @@ export interface WalletSummaryData {
   unrealizedPnl?: number | null; // Unrealized PNL (current holdings value)
   netPnl?: number | null; // Total portfolio value (realized + unrealized)
   tokenWinRate?: number | null; // Trade-level win rate
-  behaviorClassification: string | null; // High-level classification from BehaviorService
+  behaviorClassification: string | null; // DEPRECATED: Legacy field, use strategyType instead
+  // NEW: Classification system fields (2025-12-25)
+  strategyType?: StrategyType | null; // Primary strategy: FAST_TRADER, DAY_TRADER, SWING_TRADER, etc.
+  speedCategory?: SpeedCategory | null; // Speed classification: SNIPER, SCALPER, MOMENTUM, etc.
+  flowPattern?: FlowPattern | null; // Flow pattern: ACCUMULATOR, DISTRIBUTOR, BALANCED, etc.
   classification?: string | null; // Wallet classification: 'normal', 'high_frequency', 'unknown'
   rawAdvancedStats?: AdvancedStatsResult; // Full raw object for more detail if needed by client
   rawBehaviorMetrics?: BehaviorMetrics; // Full raw object for more detail if needed by client
@@ -89,7 +103,55 @@ export interface RiskMetrics {
   largestTransactionValueSol?: number | null;
 }
 
-// NEW: Trading interpretation system (2025-11-17)
+// ============================================================================
+// NEW CLASSIFICATION SYSTEM (2025-12-25)
+// Matches backend enums from src/types/behavior.ts
+// ============================================================================
+
+/**
+ * Speed Category - How fast does this wallet exit positions?
+ * Based on median hold time of COMPLETED cycles only.
+ * Null if wallet has no completed exit cycles.
+ */
+export type SpeedCategory =
+  | 'SNIPER'      // < 1 min
+  | 'SCALPER'     // 1-5 min
+  | 'MOMENTUM'    // 5-30 min
+  | 'INTRADAY'    // 30min-4h
+  | 'DAY_TRADER'  // 4-24h
+  | 'SWING'       // 1-7 days
+  | 'POSITION'    // 7-30 days
+  | 'HODLER';     // 30+ days (crypto spelling for long-term exited positions)
+
+/**
+ * Flow Pattern - What's the directional flow of trading activity?
+ * Based on buy/sell ratio and counts.
+ */
+export type FlowPattern =
+  | 'BUY_ONLY'      // No sells, only buys (pure accumulation)
+  | 'SELL_ONLY'     // No buys, only sells (pure distribution)
+  | 'ACCUMULATOR'   // Heavy buy bias (ratio > 2.0)
+  | 'DISTRIBUTOR'   // Heavy sell bias (ratio < 0.5)
+  | 'BALANCED'      // Symmetric buy/sell (0.5 < ratio < 2.0)
+  | 'MIXED';        // No clear pattern
+
+/**
+ * Strategy Type - Canonical filter for UI/API
+ * Combines speed + flow + holder signals into single enum.
+ * This is THE field to filter on in Discover page.
+ */
+export type StrategyType =
+  | 'FAST_TRADER'       // SNIPER, SCALPER, or MOMENTUM speed
+  | 'DAY_TRADER'        // INTRADAY or DAY_TRADER speed
+  | 'SWING_TRADER'      // SWING speed
+  | 'POSITION_TRADER'   // POSITION or HODLER speed (with exits)
+  | 'PURE_HOLDER'       // BUY_ONLY flow (no exits yet)
+  | 'ACCUMULATOR'       // ACCUMULATOR flow (any speed)
+  | 'DISTRIBUTOR'       // DISTRIBUTOR or SELL_ONLY flow
+  | 'BALANCED_TRADER'   // BALANCED flow
+  | 'LOW_ACTIVITY';     // Insufficient data (< 5 trades, < 2 tokens)
+
+// Legacy trading interpretation system (2025-11-17) - kept for backward compatibility
 export interface TradingInterpretation {
   // Speed classification (based on median - outlier robust)
   speedCategory: 'ULTRA_FLIPPER' | 'FLIPPER' | 'FAST_TRADER' | 'DAY_TRADER' | 'SWING_TRADER' | 'POSITION_TRADER';
@@ -111,7 +173,7 @@ export interface HistoricalPattern {
   medianCompletedHoldTimeHours: number;        // Median (outlier-robust)
   historicalAverageHoldTimeHours: number;      // Weighted average (economic impact)
   completedCycleCount: number;                 // Sample size
-  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HODLER';
   exitPattern: 'GRADUAL' | 'ALL AT ONCE';
   dataQuality: number;                         // 0-1 confidence score
   observationPeriodDays: number;
@@ -131,6 +193,14 @@ export interface HistoricalPattern {
 export interface BehaviorAnalysisResponseDto {
   walletAddress: string;
   tradingStyle?: string | null;
+
+  // NEW: Classification system fields (2025-12-25)
+  speedCategory?: SpeedCategory | null;      // Speed from completed cycles
+  flowPattern?: FlowPattern | null;          // Buy/sell directional flow
+  strategyType?: StrategyType;               // Canonical filter (use this!)
+  velocityScore?: number;                     // 0-100 velocity score
+  medianActiveHoldingHours?: number;          // Median of current holdings
+
   confidenceScore?: number | null;
   primaryBehavior?: string | null;
   secondaryBehavior?: string | null;
@@ -196,7 +266,7 @@ export interface TokenPerformanceDataDto {
   totalSolSpent: number;
   totalSolReceived: number;
   totalFeesPaidInSol?: number | null;
-  netSolProfitLoss: number;
+  hasIncompleteHistory?: boolean | null;
   transferCountIn: number;
   transferCountOut: number;
   firstTransferTimestamp?: number | null; // Unix timestamp (seconds)
@@ -208,6 +278,7 @@ export interface TokenPerformanceDataDto {
   currentUiBalanceString?: string | null;
   balanceDecimals?: number | null;
   balanceFetchedAt?: string | null; // ISO String
+  currentHoldingsCostBasisSol?: number | null;
 
   // Enriched data from TokenInfo (DexScreener)
   name?: string | null;
@@ -255,6 +326,9 @@ export interface TokenPerformanceDataDto {
   spamRiskScore?: number | null;
   spamRiskReasons?: string[] | null;
   spamPrimaryReason?: string | null;
+
+  // Activity in filtered time period
+  hasActivityInPeriod?: boolean | null;
 }
 
 // Based on src/api/wallets/token_performance/token-performance.service.ts
@@ -298,29 +372,30 @@ export interface PnlOverviewResponse {
 // Simple structure for favorite wallet entries with JSON-based tags/collections
 export interface FavoriteWallet {
   walletAddress: string;
+  knownType?: string; // Backend sends as string, WalletBadge accepts string | KnownWalletType
+  knownLabel?: string;
   nickname?: string;
-  tags?: string[];
   collections?: string[];
   metadata?: any;
-  createdAt: string;
+  favoritedAt: string; // When wallet was added to favorites
   lastViewedAt?: string;
   // Performance metrics (optional)
   pnl?: number;
   winRate?: number;
+  currentSolBalance?: number;
+  lastActiveTimestamp?: number;
 }
 
 // DTOs for creating favorite wallets
 export interface AddFavoriteWalletRequest {
   walletAddress: string;
   nickname?: string;
-  tags?: string[];
   collections?: string[];
 }
 
 // DTOs for updating favorite wallets
 export interface UpdateFavoriteWalletRequest {
   nickname?: string;
-  tags?: string[];
   collections?: string[];
   metadata?: any;
 }
@@ -387,12 +462,20 @@ export interface TopHolderItem {
   uiAmount: number | null;
   uiAmountString: string;
   rank: number;
+  knownType?: string; // Backend sends as string, WalletBadge accepts string | KnownWalletType
+  knownLabel?: string;
 }
 
 export interface TopHoldersResponse {
   mint: string;
   context: { slot: number; apiVersion?: string };
   holders: TopHolderItem[];
+  supply?: {
+    amount: string;
+    decimals: number;
+    uiAmount: number | null;
+    uiAmountString: string;
+  };
 }
 
 // --- Exit Timing Tokens Response ---
@@ -403,4 +486,100 @@ export interface ExitTimingTokensResponse {
   timeBucket: TimeBucket;
   tokens: string[];
   count: number;
+}
+
+// --- Wallet HUD (Heads-Up Display) Types ---
+
+/**
+ * Data quality tier classification based on data completeness and activity
+ */
+export enum DataQualityTier {
+  GOLD = 'GOLD',           // Complete data, significant activity (50+ trades, 7+ days)
+  SILVER = 'SILVER',       // Good data, moderate activity (20+ trades, 3+ days)
+  BRONZE = 'BRONZE',       // Basic data, some activity (5+ trades)
+  INSUFFICIENT = 'INSUFFICIENT', // Too little data for reliable metrics
+}
+
+/**
+ * Behavior category mapping to single-letter codes
+ * Maps speedCategory/strategyType enums to compact display codes
+ */
+export const BEHAVIOR_CODES: Record<string, string> = {
+  // Speed categories
+  SNIPER: 'S',
+  SCALPER: 'R',
+  MOMENTUM: 'M',
+  INTRADAY: 'I',
+  DAY_TRADER: 'D',
+  SWING: 'W',
+  POSITION: 'P',
+  HODLER: 'H',
+
+  // Strategy types
+  FAST_TRADER: 'F',
+  SWING_TRADER: 'W',
+  POSITION_TRADER: 'P',
+  PURE_HOLDER: 'H',
+  ACCUMULATOR: 'A',
+  DISTRIBUTOR: 'T',
+  BALANCED_TRADER: 'B',
+  LOW_ACTIVITY: 'L',
+
+  // Fallback
+  UNKNOWN: '?',
+  UNCLASSIFIED: '?',
+};
+
+/**
+ * Wallet HUD (Heads-Up Display) - High-signal metrics for at-a-glance evaluation
+ *
+ * Philosophy: Like a poker HUD, show only the most critical signals for instant comprehension.
+ * 6 core metrics + 2 conditional badges.
+ */
+export interface WalletHudDto {
+  walletAddress: string;
+  signalType: string;
+
+  // ===== CORE METRICS (Always visible) =====
+  trimmedMeanPnl: number;        // Trimmed mean PNL per token (outliers removed) in SOL
+  medianPnlPerToken: number;     // Median P/L per token (true center of distribution) in SOL
+  behaviorCategory?: string;     // Full behavior category name (e.g., 'MOMENTUM_TRADER')
+  behaviorCode: string;          // Single-letter behavior code (M/F/H/A/I/S/?)
+  medianHoldTimeHours?: number;  // Median hold time for completed trades in hours (more precise than category)
+  avgTradesPerDay: number;       // Average number of trades per day
+  winRate: number;               // Win rate as decimal (0-1, where 0.68 = 68%)
+  dataQualityTier: DataQualityTier; // Data quality tier classification
+
+  // ===== CONDITIONAL BADGES (Only when applicable) =====
+  isBot: boolean;                // Bot detection flag (true if uniqueTokensPerDay > 60)
+  isWhale: boolean;              // Whale detection flag (true if holdings > 200 SOL OR > $20k USD)
+
+  // ===== SUPPORTING DATA =====
+  uniqueTokensPerDay: number;    // Average unique tokens traded per day (for bot detection)
+  currentHoldingsSol: number;    // Total portfolio value in SOL (sum of all current token holdings)
+  currentHoldingsUsd?: number;   // Total portfolio value in USD (sum of all current token holdings)
+
+  // ===== METADATA =====
+  calculatedAt: string;          // ISO timestamp when HUD data was calculated
+  provenance?: {
+    provider: string;
+    nodeId?: string;
+    schemaVersion: string;
+    generatedAt: string;
+    dataRange?: {
+      from: string;
+      to: string;
+    };
+    source?: 'onchain' | 'indexed_db' | 'hybrid';
+  };
+}
+
+/**
+ * Batch response for multiple wallet HUDs
+ * Returns a map indexed by wallet address for O(1) lookup
+ */
+export interface BatchWalletHudResponse {
+  huds: Record<string, WalletHudDto>;
+  notFound: string[];
+  calculatedAt: string;
 }

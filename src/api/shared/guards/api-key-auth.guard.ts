@@ -5,6 +5,8 @@ import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../../shared/decorators/public.decorator';
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 @Injectable()
 export class ApiKeyAuthGuard implements CanActivate {
@@ -74,7 +76,7 @@ export class ApiKeyAuthGuard implements CanActivate {
         throw error;
       }
       // Log unexpected errors and throw a generic server error
-      this.logger.error('An unexpected error occurred during API key validation:', error);
+      this.logger.error('An unexpected error occurred during API key validation:', getErrorMessage(error));
       throw new UnauthorizedException('An error occurred during authentication.');
     }
   }

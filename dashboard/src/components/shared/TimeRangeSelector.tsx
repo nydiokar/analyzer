@@ -36,9 +36,17 @@ export default function TimeRangeSelector() {
     setCustomDateRange,
   } = useTimeRangeStore();
 
+  // Track if component has mounted on client to prevent hydration mismatch
+  const [isMounted, setIsMounted] = React.useState(false);
+
   // Local state for date pickers, synced with store but allows intermediate changes
   const [currentDisplayStartDate, setCurrentDisplayStartDate] = React.useState<Date>(startDate);
   const [currentDisplayEndDate, setCurrentDisplayEndDate] = React.useState<Date>(endDate);
+
+  // Set mounted state after hydration to prevent mismatch
+  React.useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Memoized date comparison to avoid expensive isEqual calls
   const shouldUpdateStartDate = React.useMemo(() => {
@@ -144,6 +152,7 @@ export default function TimeRangeSelector() {
               )}
               id="startDatePickerButton"
               name="startDatePickerButton"
+              suppressHydrationWarning
             >
               <CalendarIcon className="mr-1 h-3 w-3" />
               {currentDisplayStartDate ? format(currentDisplayStartDate, 'MMM d, yy') : <span>Start</span>}
@@ -173,6 +182,7 @@ export default function TimeRangeSelector() {
               )}
               id="endDatePickerButton"
               name="endDatePickerButton"
+              suppressHydrationWarning
             >
               <CalendarIcon className="mr-1 h-3 w-3" />
               {currentDisplayEndDate ? format(currentDisplayEndDate, 'MMM d, yy') : <span>End</span>}
@@ -189,8 +199,8 @@ export default function TimeRangeSelector() {
           </PopoverContent>
         </Popover>
       </div>
-      <p className='text-xs text-muted-foreground/80 text-center whitespace-nowrap pt-0.5'>
-        {currentRangeLabel}
+      <p className='text-xs text-muted-foreground/80 text-center whitespace-nowrap pt-0.5' suppressHydrationWarning>
+        {isMounted ? currentRangeLabel : 'Loading...'}
       </p>
     </div>
   );

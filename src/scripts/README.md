@@ -24,6 +24,7 @@ Scripts for data analysis, research, and generating insights from wallet and tok
 ## Wallet Research
 - `helius-analyzer.ts` - Comprehensive wallet analysis using Helius API (P&L, behavior, reports)
 - `walletSimilarity.ts` - Analyze wallet similarity patterns and clustering
+- `tokenAffinityAnalysis.ts` - Find wallets that hold the most tokens from a given set
 - `analyze-unknown-tx-patterns.ts` - Identify and analyze unknown transaction patterns
 - `behaviorAnalysis.ts` - Analyze wallet behavior patterns and characteristics
 - `activityCorrelator.ts` - Correlate wallet activities and find patterns

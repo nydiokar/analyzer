@@ -3,6 +3,8 @@
 
 // Based on src/types/similarity.ts and src/core/analysis/similarity/similarity-service.ts
 
+import type { KnownWalletType } from '@/types/api';
+
 export type SimilarityVectorType = 'capital' | 'binary';
 
 export interface CorePairwiseResult {
@@ -21,9 +23,13 @@ export interface SingleSimilarityResult {
   pairwiseSimilarities: CorePairwiseResult[];
   clusters: any[]; // Use a more specific type if cluster structure is known
   globalMetrics: GlobalMetrics;
-  walletVectorsUsed: Record<string, Record<string, number>>;
+  walletVectorsUsed?: Record<string, Record<string, number>>;
   uniqueTokensPerWallet: Record<string, number>;
   vectorTypeUsed: SimilarityVectorType;
+  summary?: {
+    walletCount: number;
+    uniqueTokensTotal: number;
+  };
 }
 
 export interface TokenVector {
@@ -101,12 +107,13 @@ export interface CombinedPairwiseSimilarity {
 export interface CombinedSimilarityResult {
   pairwiseSimilarities: CombinedPairwiseSimilarity[];
   globalMetrics?: GlobalMetrics;
-  walletVectorsUsed: Record<string, Record<string, number>>;
+  walletVectorsUsed?: Record<string, Record<string, number>>;
   uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
   walletBalances?: Record<string, { 
     totalValueUsd: number;
     tokenBalances: (TokenInfo & { uiBalance: number; valueUsd: number | null })[];
   }>;
+  walletLabels?: Record<string, { knownType?: KnownWalletType; knownLabel?: string }>;
   vectorTypeUsed: 'combined';
   sharedTokenCountsMatrix?: Record<string, Record<string, number>>;
   jaccardSimilarityMatrix?: Record<string, Record<string, number>>;
@@ -114,6 +121,10 @@ export interface CombinedSimilarityResult {
   holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
   // Additional field for the original all-tokens holdings matrix (for transparency/debugging)
   holdingsPresenceJaccardMatrixAllTokens?: Record<string, Record<string, number>>;
+  summary?: {
+    walletCount: number;
+    uniqueTokensTotal: number;
+  };
 }
 
 // --- END: Types for the new Similarity Report Parser output --- 

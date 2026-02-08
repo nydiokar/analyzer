@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as pathMod from 'node:path';
 import { mapHeliusTransactionsToIntermediateRecords } from './helius-transaction-mapper';
 import { HeliusTransaction } from '../../types/helius-api';
 
@@ -72,6 +74,8 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
   const TOKEN_A_MINT = 'TokenAMint111111111111111111111111111111111';
   const TOKEN_B_MINT = 'TokenBMint111111111111111111111111111111111';
   const SOL_MINT = 'So11111111111111111111111111111111111111112';
+  const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  const USD1_MINT = 'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB';
 
   function makeTokenTransfer(from: string, to: string, amount: number, mint: string) {
     return {
@@ -232,6 +236,89 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
     });
   });
 
+  describe('Stable USD value handling', () => {
+    it('prefers a single stable mint when multiple stable routes are consistent', () => {
+      const USDC_VALUE = 10;
+      const USD1_VALUE = 10.1;
+      const txn = {
+        description: 'Swap with consistent USDC + USD1 innerSwaps; choose preferred stable',
+        type: 'SWAP',
+        source: 'JUPITER',
+        fee: 0.000005,
+        feePayer: 'SomeOtherWallet',
+        signature: 'TestSignatureStableEventMatcher',
+        slot: 9,
+        timestamp: 9,
+        tokenTransfers: [
+          makeTokenTransfer(WALLET, 'Pool', 100, TOKEN_A_MINT),
+          makeTokenTransfer('Pool', WALLET, 50, TOKEN_B_MINT),
+        ],
+        nativeTransfers: [],
+        accountData: [],
+        events: {
+          swap: {
+            innerSwaps: [
+              {
+                tokenInputs: [{ mint: TOKEN_A_MINT, tokenAmount: 100 }],
+                tokenOutputs: [
+                  { mint: USDC_MINT, tokenAmount: USDC_VALUE },
+                  { mint: USD1_MINT, tokenAmount: USD1_VALUE },
+                ],
+              },
+              {
+                tokenInputs: [
+                  { mint: USDC_MINT, tokenAmount: USDC_VALUE },
+                  { mint: USD1_MINT, tokenAmount: USD1_VALUE },
+                ],
+                tokenOutputs: [{ mint: TOKEN_B_MINT, tokenAmount: 50 }],
+              },
+            ],
+          },
+        },
+        instructions: [],
+        transactionError: undefined,
+      } as unknown as HeliusTransaction;
+
+      const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+      const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+
+      assert.ok(tokenA_row, 'Should create a record for TOKEN_A');
+      assert.ok(Math.abs(tokenA_row.associatedUsdcValue - USDC_VALUE) < 0.0001, `Should prefer USDC value ${USDC_VALUE}, got ${tokenA_row.associatedUsdcValue}`);
+    });
+
+    it('uses WSOL movement when stable routing nets to zero and no event data exists', () => {
+      const TOTAL_WSOL_MOVEMENT = 2;
+      const txn = {
+        description: 'Stable routing in/out should not block WSOL movement heuristic',
+        type: 'SWAP',
+        source: 'UNKNOWN',
+        fee: 0.000005,
+        feePayer: WALLET,
+        signature: 'TestSignatureStableRoutingWsol',
+        slot: 10,
+        timestamp: 10,
+        tokenTransfers: [
+          makeTokenTransfer(WALLET, 'Pool', 100, TOKEN_A_MINT),
+          makeTokenTransfer('Pool', WALLET, 5, USD1_MINT),
+          makeTokenTransfer(WALLET, 'Pool', 5, USD1_MINT),
+          makeTokenTransfer('Pool', WALLET, TOTAL_WSOL_MOVEMENT, SOL_MINT),
+        ],
+        nativeTransfers: [],
+        accountData: [],
+        events: {},
+        instructions: [],
+        transactionError: undefined,
+      } as unknown as HeliusTransaction;
+
+      const { analysisInputs, stats } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+      const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+
+      assert.strictEqual(stats.associatedValueFromTotalMovement, 1, 'WSOL movement should drive value attribution');
+      assert.ok(tokenA_row, 'Should have a record for TOKEN_A');
+      assert.ok(Math.abs(tokenA_row.associatedSolValue - TOTAL_WSOL_MOVEMENT) < 0.0001, `TOKEN_A should have ~${TOTAL_WSOL_MOVEMENT} SOL value, got ${tokenA_row.associatedSolValue}`);
+    });
+  });
+
   describe('Value Association Fallbacks', () => {
     it('uses total WSOL movement when event data is absent', () => {
       const TOTAL_WSOL_MOVEMENT = 0.5;
@@ -273,10 +360,41 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
       assert.ok(Math.abs(tokenA_row.associatedSolValue - TOTAL_WSOL_MOVEMENT) < 0.0001, `TOKEN_A should have ~${TOTAL_WSOL_MOVEMENT} SOL value, got ${tokenA_row.associatedSolValue}`);
     });
 
-    it('uses net user SOL change as a final fallback', () => {
+    it('ignores WSOL movement not involving the user when deriving swap value', () => {
+      const USER_WSOL = 25;
+      const ROUTER_WSOL = 25;
+      const txn = {
+        description: 'Router hop WSOL movement should not inflate user swap value',
+        type: 'SWAP',
+        source: 'UNKNOWN',
+        fee: 0.000005,
+        feePayer: WALLET,
+        signature: 'TestSignatureUserWsolOnly',
+        slot: 5,
+        timestamp: 5,
+        tokenTransfers: [
+          makeTokenTransfer(WALLET, 'RouterA', USER_WSOL, SOL_MINT),
+          makeTokenTransfer('RouterA', 'RouterB', ROUTER_WSOL, SOL_MINT),
+          makeTokenTransfer('RouterB', WALLET, 1000, TOKEN_A_MINT),
+        ],
+        nativeTransfers: [],
+        accountData: [],
+        events: {}, // No swap event data
+        instructions: [],
+        transactionError: undefined,
+      } as unknown as HeliusTransaction;
+
+      const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+      const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+
+      assert.ok(tokenA_row, 'Should have a record for TOKEN_A');
+      assert.ok(Math.abs(tokenA_row.associatedSolValue - USER_WSOL) < 0.0001, `TOKEN_A should have ~${USER_WSOL} SOL value, got ${tokenA_row.associatedSolValue}`);
+    });
+
+    it('uses net user SOL change when no WSOL movement exists', () => {
       const NET_SOL_CHANGE = -0.8; // User's SOL balance decreased
       const txn = {
-        description: 'Swap without any other clear signals, relying on net SOL change',
+        description: 'Swap without any WSOL movement, relying on net SOL change',
         type: 'SWAP',
         source: 'UNKNOWN',
         fee: 0.000005,
@@ -285,7 +403,7 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
         slot: 6,
         timestamp: 6,
         tokenTransfers: [
-          // This time user *receives* the token, so the SOL cost is the net change
+          // User *receives* the token, so the SOL cost is the net change
           makeTokenTransfer('SomeAccount', WALLET, 20, TOKEN_A_MINT),
         ],
         nativeTransfers: [],
@@ -304,9 +422,48 @@ describe('HeliusTransactionMapper – Mapping Strategies', () => {
       const { analysisInputs, stats } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
       const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
 
-      assert.strictEqual(stats.associatedValueFromNetChange, 1, 'Value should be derived from net change heuristic');
+      // Net SOL change is picked up in "Total Movement" heuristic (step 3) when there's no WSOL movement
+      assert.strictEqual(stats.associatedValueFromTotalMovement, 1, 'Value should be derived from total movement heuristic (includes net change)');
       assert.ok(tokenA_row, 'Should have a record for TOKEN_A');
       assert.ok(Math.abs(tokenA_row.associatedSolValue - Math.abs(NET_SOL_CHANGE)) < 0.0001, `TOKEN_A should have ~${Math.abs(NET_SOL_CHANGE)} SOL value, got ${tokenA_row.associatedSolValue}`);
+    });
+
+    it('skips net SOL change when it equals just the fee (airdrop scenario)', () => {
+      const SMALL_FEE = 0.000005;
+      const txn = {
+        description: 'Airdrop where user only pays fee, no economic value exchanged',
+        type: 'SWAP',
+        source: 'UNKNOWN',
+        fee: SMALL_FEE,
+        feePayer: WALLET,
+        signature: 'TestSignatureAirdrop',
+        slot: 7,
+        timestamp: 7,
+        tokenTransfers: [
+          // User receives tokens for free (airdrop)
+          makeTokenTransfer('AirdropAccount', WALLET, 1000, TOKEN_A_MINT),
+        ],
+        nativeTransfers: [],
+        accountData: [
+          {
+            account: WALLET,
+            // Net change is approximately just the fee (user paid fee but got free tokens)
+            nativeBalanceChange: -SMALL_FEE * 1e9,
+            tokenBalanceChanges: [],
+          },
+        ],
+        events: {},
+        instructions: [],
+        transactionError: undefined,
+      } as unknown as HeliusTransaction;
+
+      const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
+      const tokenA_row = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+
+      // The net SOL change is just the fee, so it shouldn't be used as economic value
+      // This is an airdrop with zero cost basis
+      assert.ok(tokenA_row, 'Should have a record for TOKEN_A');
+      assert.strictEqual(tokenA_row.associatedSolValue, 0, 'Airdrop should have 0 SOL cost basis, not the fee amount');
     });
   });
 
@@ -402,7 +559,7 @@ describe('HeliusTransactionMapper – Final Filtering Logic', () => {
         nativeTransfers: [], accountData: [], events: {}, instructions: [], transactionError: undefined,
     });
 
-    it('removes SOL rows from DeFi transactions', () => {
+    it('keeps SOL rows with significant associated value in DeFi transactions (2026-01-26 fix)', () => {
         const txn = {
             ...mockTxHeader('DeFiTx', 'SWAP'),
             tokenTransfers: [
@@ -412,8 +569,14 @@ describe('HeliusTransactionMapper – Final Filtering Logic', () => {
         } as unknown as HeliusTransaction;
 
         const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
-        assert.strictEqual(analysisInputs.length, 1, 'Should only contain the TOKEN_A record');
-        assert.strictEqual(analysisInputs[0].mint, TOKEN_A_MINT);
+        // After Jan 26 fix: We now KEEP SOL/USDC transfers with significant associated value
+        // This is correct - the 1 SOL has value and should be tracked
+        assert.strictEqual(analysisInputs.length, 2, 'Should contain both TOKEN_A and SOL records');
+        const tokenARow = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+        const solRow = analysisInputs.find(r => r.mint === SOL_MINT);
+        assert.ok(tokenARow, 'Should have TOKEN_A record');
+        assert.ok(solRow, 'Should have SOL record with significant value');
+        assert.ok(solRow.associatedSolValue >= 0.0001, 'SOL row should have significant associated value');
     });
 
     it('keeps significant standalone SOL transfers', () => {
@@ -489,10 +652,13 @@ describe('HeliusTransactionMapper – Jito MEV Heuristic for UNKNOWN transaction
 
         const { analysisInputs, stats } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
 
-        // This is a DeFi tx, so the SOL row will be filtered out. We expect one row.
-        assert.strictEqual(analysisInputs.length, 1, 'Should process the transaction and generate one input record');
+        // After Jan 26 fix: SOL rows with significant value are now kept
+        assert.strictEqual(analysisInputs.length, 2, 'Should process the transaction and generate two input records (TOKEN_A + SOL)');
         assert.strictEqual(stats.unknownTxSkippedNoJito, 0, 'Should not skip any transaction');
-        assert.strictEqual(analysisInputs[0].mint, TOKEN_A_MINT);
+        const tokenARow = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
+        const solRow = analysisInputs.find(r => r.mint === SOL_MINT);
+        assert.ok(tokenARow, 'Should have TOKEN_A record');
+        assert.ok(solRow, 'Should have SOL record');
     });
 
     it('skips an UNKNOWN transaction that lacks a Jito MEV interaction', () => {
@@ -528,4 +694,149 @@ describe('HeliusTransactionMapper – Jito MEV Heuristic for UNKNOWN transaction
         assert.strictEqual(analysisInputs.length, 0, 'Should skip the transaction entirely');
         assert.strictEqual(stats.unknownTxSkippedNoJito, 1, 'Should increment the skipped counter');
     });
-}); 
+});
+
+describe('HeliusTransactionMapper - Fixture regression', () => {
+  const OUTPUT_DIR = pathMod.join(process.cwd(), 'debug_output');
+  const FLOAT_TOLERANCE = 1e-6;
+
+  // Set UPDATE_FIXTURES=1 environment variable to regenerate fixture files
+  const UPDATE_FIXTURES = process.env.UPDATE_FIXTURES === '1';
+
+  function readJson(filename: string) {
+    const filePath = pathMod.join(OUTPUT_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  }
+
+  function writeJson(filename: string, data: any) {
+    if (!fs.existsSync(OUTPUT_DIR)) {
+      fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+    }
+    const filePath = pathMod.join(OUTPUT_DIR, filename);
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  }
+
+  function sortRows(rows: Array<Record<string, any>>) {
+    return [...rows].sort((a, b) => {
+      const keyA = `${a.signature}:${a.mint}:${a.direction}:${a.amount}`;
+      const keyB = `${b.signature}:${b.mint}:${b.direction}:${b.amount}`;
+      return keyA.localeCompare(keyB);
+    });
+  }
+
+  function assertClose(actual: number | null | undefined, expected: number | null | undefined, label: string) {
+    const normalizedActual = actual ?? null;
+    const normalizedExpected = expected ?? null;
+    if (normalizedActual === null || normalizedExpected === null) {
+      assert.strictEqual(normalizedActual, normalizedExpected, `${label} should be ${normalizedExpected}`);
+      return;
+    }
+    assert.ok(
+      Math.abs(normalizedActual - normalizedExpected) < FLOAT_TOLERANCE,
+      `${label} should be ${normalizedExpected}, got ${normalizedActual}`,
+    );
+  }
+
+  function verifyFixture(signature: string) {
+    const rawTx = readJson(`${signature}_raw.json`) as HeliusTransaction | null;
+    let expectedRows = readJson(`${signature}_database_rows.json`) as Array<Record<string, any>> | null;
+
+    // If raw transaction doesn't exist, skip the test with a helpful message
+    if (!rawTx) {
+      console.log(`⚠️  Skipping ${signature}: Missing _raw.json fixture file.`);
+      console.log(`   Run: pnpm debug:mapper ${signature} -w <WALLET_ADDRESS>`);
+      console.log(`   to generate the fixture files in debug_output/`);
+      return;
+    }
+
+    // Extract wallet from existing fixture or use a placeholder
+    const wallet = expectedRows?.[0]?.walletAddress || 'WALLET_ADDRESS_NEEDED';
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [rawTx]);
+
+    // If UPDATE_FIXTURES mode or expected rows don't exist, regenerate them
+    if (UPDATE_FIXTURES || !expectedRows) {
+      console.log(`📝 ${UPDATE_FIXTURES ? 'Updating' : 'Generating'} fixture for ${signature}`);
+      writeJson(`${signature}_database_rows.json`, analysisInputs);
+      expectedRows = analysisInputs;
+
+      if (!UPDATE_FIXTURES) {
+        console.log(`✅ Generated fixture file: ${signature}_database_rows.json`);
+        return; // Skip comparison on first generation
+      }
+    }
+
+    assert.ok(expectedRows.length > 0, 'Fixture should contain expected rows');
+
+    assert.strictEqual(
+      analysisInputs.length,
+      expectedRows.length,
+      `Expected ${expectedRows.length} rows, got ${analysisInputs.length}`,
+    );
+
+    const actualSorted = sortRows(analysisInputs);
+    const expectedSorted = sortRows(expectedRows);
+
+    for (let i = 0; i < expectedSorted.length; i += 1) {
+      const actual = actualSorted[i] as Record<string, any>;
+      const expected = expectedSorted[i];
+      assert.strictEqual(actual.walletAddress, expected.walletAddress, 'walletAddress mismatch');
+      assert.strictEqual(actual.signature, expected.signature, 'signature mismatch');
+      assert.strictEqual(actual.timestamp, expected.timestamp, 'timestamp mismatch');
+      assert.strictEqual(actual.mint, expected.mint, 'mint mismatch');
+      assertClose(actual.amount, expected.amount, 'amount');
+      assert.strictEqual(actual.direction, expected.direction, 'direction mismatch');
+      assertClose(actual.associatedSolValue, expected.associatedSolValue, 'associatedSolValue');
+      assertClose(actual.associatedUsdcValue, expected.associatedUsdcValue, 'associatedUsdcValue');
+      assert.strictEqual(actual.interactionType, expected.interactionType, 'interactionType mismatch');
+      assertClose(actual.feeAmount, expected.feeAmount, 'feeAmount');
+      assertClose(actual.feePercentage, expected.feePercentage, 'feePercentage');
+    }
+  }
+
+  // Re-enabled (2026-01-26): Auto-generates fixtures from debug_output/ _raw.json files
+  //
+  // How it works:
+  // 1. First, generate raw transaction data using debug:mapper script:
+  //    pnpm debug:mapper <SIGNATURE> -w <WALLET_ADDRESS>
+  //    This creates <SIGNATURE>_raw.json in debug_output/
+  //
+  // 2. Run tests normally - they will auto-generate _database_rows.json fixtures
+  //    from the _raw.json files on first run
+  //
+  // 3. To update all fixtures after mapper changes:
+  //    UPDATE_FIXTURES=1 pnpm test
+  //
+  // 4. Keep debug_output/ in version control (remove from .gitignore) to preserve fixtures
+  //
+  it('matches USD1 routing fixture output', () => {
+    verifyFixture('2qajRsuMmRyguEkuG94b52iFwvG6Lk45yQbSs9Fkay7MJqpfoCMQW9sVD3pRnCLG5C3a9JhQedYirVFnqNYoXwFM');
+  });
+
+  it('matches WSOL movement with stable routing fixture output', () => {
+    verifyFixture('kCTmj2gogfiBKqch9QB8kw7UK1M26cW9cENK8fS6hXAeQ6USyDfy3aewCQXqJ6WchmYPYUiqE8zbubHK4M2KR3U');
+  });
+
+  it('matches SPL-to-SPL fixture output', () => {
+    verifyFixture('3zpdKaPGK2cCN2AoaiVJfsTiYqBPeeYfRq8RXF5qHPi9t9JUvtrg6hH8UFw5Q3KrzPQ3BLcw2hyZzAcK2ufDvttB');
+  });
+
+  it('matches multi-hop stable routing fixture output', () => {
+    verifyFixture('wdLCBpZFJXmV1uThjVNU3VuvzM44QR5v61oGq22BHPGWXJNUAtxjF9dCNFcmoikwgFLJxciAcPZzFbS8bsA7j79');
+  });
+
+  // 2026-01-26: Regression test for burn detection bug fix
+  // Bug: SPL → USDC swaps were incorrectly flagged as burns when toUserAccount was empty
+  // This fixture validates that token OUT correctly gets associatedUsdcValue from stable movement
+  it('correctly maps SPL to stablecoin swap (not a burn) - regression for 2026-01-26 fix', () => {
+    verifyFixture('7LvoT6YeDKCrkwMK6bFnaw8TKrJeo811V8pphX2S2X1J4YTAfb6Nq7ZKX2hk4PQSfCRNpXddTqMAXFLvudQbXvF');
+  });
+
+  // 2026-01-26: Regression test for the reverse case (buy)
+  it('correctly maps stablecoin to SPL swap (buy) - regression for 2026-01-26 fix', () => {
+    verifyFixture('5e2jKVQqazA4TFFTuMCXtLj57xj8mH9ccxLXyWfUo35LVFpUMd45aY4KHzpmh5RwAp8pzr8oCGD8aA6HnvXaXDNB');
+  });
+});

@@ -24,6 +24,8 @@ import { WalletInfo } from '@/types/wallet';
 import { BehaviorAnalysisConfig } from '@/types/analysis';
 // Import the shared utility function
 import { parseTimeRange } from 'core/utils/cliUtils';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 // Initialize logger
 const logger = createLogger('WalletBehaviorAnalyzerScript');
@@ -128,7 +130,7 @@ async function main() {
     } catch (error) {
         // Use 'unknown' type for error and check instance if needed
         if (error instanceof Error) {
-             logger.error(`An error occurred during the analysis for wallet ${walletId}: ${error.message}`, { stack: error.stack });
+             logger.error(`An error occurred during the analysis for wallet ${walletId}: ${error.message}`, getErrorDetails(error));
         } else {
              logger.error(`An unknown error occurred during the analysis for wallet ${walletId}:`, error);
         }
@@ -147,7 +149,7 @@ async function main() {
 main().catch((error) => {
     // Catch unhandled errors in the main async function execution
     if (error instanceof Error) {
-        logger.error(`Unhandled error in main execution: ${error.message}`, { stack: error.stack });
+        logger.error(`Unhandled error in main execution: ${error.message}`, getErrorDetails(error));
     } else {
         logger.error('Unhandled unknown error in main execution:', error);
     }

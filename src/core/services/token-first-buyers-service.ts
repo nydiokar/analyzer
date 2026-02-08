@@ -6,6 +6,7 @@ import { PnlAnalysisService } from './pnl-analysis-service';
 import { DatabaseService } from './database-service';
 import { SwapAnalysisSummary } from '@/types/helius-api';
 import { mapHeliusTransactionsToIntermediateRecords } from './helius-transaction-mapper';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('TokenFirstBuyersService');
 
@@ -458,7 +459,7 @@ export class TokenFirstBuyersService {
       try {
         await this.databaseService.ensureWalletExists(walletAddress);
       } catch (error) {
-        logger.warn(`Failed to ensure wallet exists: ${walletAddress}`, error);
+        logger.warn(`Failed to ensure wallet exists: ${walletAddress}: ${getErrorMessage(error)}`);
       }
     }
 
@@ -474,7 +475,7 @@ export class TokenFirstBuyersService {
       });
       logger.info(`Found ${existingResults.length} existing analysis results in database`);
     } catch (error) {
-      logger.warn(`Error fetching existing analysis results:`, error);
+      logger.warn(`Error fetching existing analysis results: ${getErrorMessage(error)}`);
       existingResults = [];
     }
 
@@ -542,7 +543,7 @@ export class TokenFirstBuyersService {
       });
       logger.info(`Retrieved ${allResults.length} total analysis results from database`);
     } catch (error) {
-      logger.error(`Error fetching analysis results from database:`, error);
+      logger.error(`Error fetching analysis results from database: ${getErrorMessage(error)}`);
       allResults = [];
     }
 
@@ -554,7 +555,7 @@ export class TokenFirstBuyersService {
        
        if (analysisResult) {
          // Use database result if available
-         const realizedPnl = analysisResult.netSolProfitLoss || 0;
+        const realizedPnl = analysisResult.realizedPnlSol ?? analysisResult.totalPnlSol ?? analysisResult.netSolProfitLoss ?? 0;
          const totalVolume = (analysisResult.totalSolSpent || 0) + (analysisResult.totalSolReceived || 0);
          const profitableTokensCount = realizedPnl > 0 ? 1 : 0;
          const unprofitableTokensCount = realizedPnl <= 0 ? 1 : 0;

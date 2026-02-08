@@ -1,79 +1,1398 @@
-'use client';
+"use client";
 
-import { AppShell } from '@/components/layout/AppShell';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import Link from 'next/link';
-import { ChevronRightIcon, Compass } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Compass,
+  Info,
+  Loader2,
+  RefreshCcw,
+  SearchX,
+} from "lucide-react";
+import { toast } from "sonner";
+import { AppShell } from "@/components/layout/AppShell";
+import { WalletBadge } from "@/components/shared/WalletBadge";
+import { useFavorites } from "@/hooks/useFavorites";
+import { useFavoriteActions } from "@/providers/FavoriteModalProvider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { fetcher } from "@/lib/fetcher";
+import { cn } from "@/lib/utils";
+import { buildSpeedNarrative, buildFlowNarrative } from "@/lib/behavior-narratives";
+import { DiscoverWallet, DiscoverWalletsResponse } from "@/types/discover";
+import { FavoriteWallet } from "@/types/api";
+// QuickAddForm removed - using global FavoriteModalProvider
+import { getSpeedColor, getFlowColor, getSpeedColorHex, getFlowColorHex, getSpeedLabel, getFlowLabel } from "@/lib/strategy-colors";
+import EmptyState from "@/components/shared/EmptyState";
+import { PageTitle } from "@/components/shared/PageTitle";
+import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import ReactECharts from 'echarts-for-react';
 
-const FEATURED_WALLETS = [
-  { address: 'DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm', name: 'Gake', suggested: true, description: "High-volume trader, risky profile" },
-  { address: '96sErVjEN7LNJ6Uvj63bdRWZxNuBngj56fnT9biHLKBf', name: 'Orange', suggested: true, description: "Momentum strategy, mid-cap bias" },
-  { address: 'Hnnw2hAgPgGiFKouRWvM3fSk3HnYgRv4Xq1PjUEBEuWM', name: 'SmartMoney', suggested: false, description: "Frequent sniping, low win rate" },
-];
+const PAGE_SIZE = 24;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+const sortOptions = [
+  { value: 'interesting', label: 'Interesting', hint: 'Activity + PnL + recency' },
+  { value: 'most_active', label: 'Most active', hint: 'Trade count first' },
+  { value: 'best_pnl', label: 'Best PnL', hint: 'Realized PnL focus' },
+  { value: 'longest_holders', label: 'Longest holders', hint: 'Hold time' },
+  { value: 'recently_updated', label: 'Recently updated', hint: 'Fresh data' },
+] as const;
+
+// NEW: Separate Speed and Flow filters (2025-12-26)
+const speedOptions = [
+  { value: 'any', label: 'Any Speed', hint: '' },
+  { value: 'SNIPER', label: 'Sniper', hint: '< 5 min exits' },
+  { value: 'SCALPER', label: 'Scalper', hint: '5-30 min exits' },
+  { value: 'MOMENTUM', label: 'Momentum', hint: '30min-6h exits' },
+  { value: 'INTRADAY', label: 'Intraday', hint: '6-12h exits' },
+  { value: 'DAY_TRADER', label: 'Day Trader', hint: '12-24h exits' },
+  { value: 'SWING', label: 'Swing', hint: '1-7 day holds' },
+  { value: 'POSITION', label: 'Position', hint: '7-30 day holds' },
+  { value: 'HODLER', label: 'Hodler', hint: '30+ day holds' },
+] as const;
+
+const flowOptions = [
+  { value: 'any', label: 'Any Flow', hint: '' },
+  { value: 'BUY_ONLY', label: 'Buy-Only', hint: 'Never sells, pure accumulation' },
+  { value: 'ACCUMULATOR', label: 'Accumulator', hint: 'Heavy buy bias (buys >> sells)' },
+  { value: 'BALANCED', label: 'Balanced', hint: 'Equal buy/sell activity' },
+  { value: 'DISTRIBUTOR', label: 'Distributor', hint: 'Heavy sell bias (sells >> buys)' },
+  { value: 'SELL_ONLY', label: 'Sell-Only', hint: 'Only sells, no buys' },
+  { value: 'MIXED', label: 'Mixed', hint: 'Chaotic, no clear pattern' },
+] as const;
+
+
+const holdBiasOptions = [
+  { value: 'any', label: 'Any' },
+  { value: 'short', label: 'Short (<12h)' },
+  { value: 'medium', label: 'Medium (12–72h)' },
+  { value: 'long', label: 'Long (>72h)' },
+] as const;
+
+const speedLegend = speedOptions.filter((option) => option.value !== "any");
+const flowLegend = flowOptions.filter((option) => option.value !== "any");
+
+const formatSOL = (val: number): string => {
+  const absVal = Math.abs(val);
+  const sign = val >= 0 ? "+" : "-";
+
+  if (absVal >= 1000000) {
+    return `${sign}${(absVal / 1000000).toFixed(1)}M`;
+  } else if (absVal >= 1000) {
+    return `${sign}${(absVal / 1000).toFixed(1)}k`;
+  } else if (absVal >= 100) {
+    return `${sign}${absVal.toFixed(0)}`;
+  } else {
+    return `${sign}${absVal.toFixed(2)}`;
+  }
+};
+
+const formatPnLValue = (val?: number | null) => {
+  if (val === null || val === undefined) return "—";
+  return formatSOL(val);
+};
+
+type CacheShape = { timestamp: number; data: DiscoverWalletsResponse };
+
+const readCache = (key: string): DiscoverWalletsResponse | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed: CacheShape = JSON.parse(raw);
+    if (Date.now() - parsed.timestamp > CACHE_TTL_MS) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+};
+
+const writeCache = (key: string, data: DiscoverWalletsResponse) => {
+  if (typeof window === 'undefined') return;
+  const payload: CacheShape = { timestamp: Date.now(), data };
+  try {
+    localStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // Ignore
+  }
+};
 
 export default function DiscoverPage() {
+  const [wallets, setWallets] = useState<DiscoverWallet[]>([]);
+  const [sort, setSort] = useState<string>('interesting');
+  const [minTradeCount, setMinTradeCount] = useState<number | ''>('');
+  const [minUniqueTokens, setMinUniqueTokens] = useState<number | ''>('');
+  const [speedCategory, setSpeedCategory] = useState<string>('any');
+  const [flowPattern, setFlowPattern] = useState<string>('any');
+  const [holdBias, setHoldBias] = useState<string>('any');
+  const [active48H, setActive48H] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [error, setError] = useState<ErrorMessage | null>(null);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+
+  // Refs for chart instances
+  const speedChartRef = useRef<any>(null);
+  const flowChartRef = useRef<any>(null);
+
+  // Get user's favorite wallets
+  const { favorites, mutate: mutateFavorites } = useFavorites();
+  const { openFavoriteDialog, isFavorite: checkIsFavorite } = useFavoriteActions();
+  const favoriteAddresses = useMemo(() => new Set(favorites.map(f => f.walletAddress)), [favorites]);
+  const favoritesMap = useMemo(() => {
+    const map = new Map();
+    favorites.forEach(fav => map.set(fav.walletAddress, fav));
+    return map;
+  }, [favorites]);
+
+  // Favorite management modals
+  // Removed local modal state - now using global FavoriteModalProvider
+
+  const cacheKey = useMemo(
+    () =>
+      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
+    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias],
+  );
+
+  const pageCount = useMemo(
+    () => Math.max(1, Math.ceil((total || wallets.length || PAGE_SIZE) / PAGE_SIZE)),
+    [total, wallets.length],
+  );
+
+  const fetchWallets = useCallback(async () => {
+    setError(null);
+    setIsUpdating(true);
+    try {
+      const params = new URLSearchParams({
+        sort,
+        timeframe: 'all',
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+      });
+
+      if (minTradeCount !== '' && minTradeCount > 0) params.set('minTradeCount', String(minTradeCount));
+      if (minUniqueTokens !== '' && minUniqueTokens > 0) params.set('minUniqueTokens', String(minUniqueTokens));
+      if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
+      if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
+      if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
+
+      const data = (await fetcher(`/discover/wallets?${params.toString()}`)) as DiscoverWalletsResponse;
+      setWallets(data.items || []);
+      setTotal(data.total || 0);
+      writeCache(cacheKey, data);
+    } catch (err: unknown) {
+      setError(getErrorMessage("discover-wallets", err));
+    } finally {
+      setLoading(false);
+      setIsUpdating(false);
+    }
+  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern]);
+
+  useEffect(() => {
+    const cached = readCache(cacheKey);
+    if (cached) {
+      setWallets(cached.items || []);
+      setTotal(cached.total || 0);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    fetchWallets();
+  }, [cacheKey, fetchWallets]);
+
+  // Handle favorite add - opens modal
+  // Use global favorite dialog - single source of truth
+  const handleAddFavorite = (address: string) => {
+    openFavoriteDialog(address);
+  };
+
+  const handleRemoveFavorite = (address: string, nickname?: string) => {
+    openFavoriteDialog(address);
+  };
+
+  // Removed local handlers - now using global FavoriteModalProvider
+  // All add/remove logic is handled by the provider with consistent modals
+
+  const resetFilters = () => {
+    setSort('interesting');
+    setSpeedCategory('any');
+    setFlowPattern('any');
+    setHoldBias('any');
+    setMinTradeCount('');
+    setMinUniqueTokens('');
+    setPage(1);
+    setActivePreset(null);
+  };
+
+  const applyPreset = (preset: 'fast-traders' | 'balanced-fast' | 'patient-holder') => {
+    setActivePreset(preset);
+    if (preset === 'fast-traders') {
+      // Fast traders: Sniper/Scalper/Momentum speed + any flow pattern
+      setSpeedCategory('SNIPER'); // Could also be SCALPER or MOMENTUM
+      setFlowPattern('any'); // Fast traders can have any flow pattern
+      setHoldBias('short');
+      setMinTradeCount(20);
+      setMinUniqueTokens(5);
+    } else if (preset === 'balanced-fast') {
+      // Balanced fast: Swing/Day trader speed + balanced flow
+      setSpeedCategory('SWING'); // 1-7 day holds
+      setFlowPattern('BALANCED'); // Equal buy/sell activity
+      setHoldBias('medium');
+      setMinTradeCount(30);
+      setMinUniqueTokens(8);
+    } else if (preset === 'patient-holder') {
+      // Patient holders: Long holds + buy-only/accumulator flow
+      setSpeedCategory('HODLER'); // 30+ day holds
+      setFlowPattern('BUY_ONLY'); // Pure accumulation
+      setHoldBias('long');
+      setMinTradeCount(10);
+      setMinUniqueTokens(3);
+    }
+    setPage(1);
+  };
+
+  // Fetch aggregated distribution stats for the entire filtered dataset
+  const [speedDistribution, setSpeedDistribution] = useState<{ category: string; count: number; percentage: number; totalPnl: number }[]>([]);
+  const [flowDistribution, setFlowDistribution] = useState<{ pattern: string; count: number; percentage: number; totalPnl: number }[]>([]);
+  const [aggregationTotal, setAggregationTotal] = useState<number>(0);
+
+  const fetchAggregation = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        sort,
+        timeframe: 'all',
+      });
+
+      if (minTradeCount !== '' && minTradeCount > 0) params.set('minTradeCount', String(minTradeCount));
+      if (minUniqueTokens !== '' && minUniqueTokens > 0) params.set('minUniqueTokens', String(minUniqueTokens));
+      if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
+      if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
+      if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
+
+      const data = await fetcher(`/discover/aggregation?${params.toString()}`);
+      setSpeedDistribution(data.speedDistribution || []);
+      setFlowDistribution(data.flowDistribution || []);
+      setAggregationTotal(data.total || 0);
+    } catch (err) {
+      console.error('Failed to fetch aggregation stats:', err);
+      // Non-critical, just log it
+    }
+  }, [minTradeCount, minUniqueTokens, speedCategory, flowPattern, holdBias, sort]);
+
+  useEffect(() => {
+    fetchAggregation();
+  }, [fetchAggregation]);
+
+  const getCategoryStat = (category: string) =>
+    speedDistribution.find((item) => item.category === category) || { count: 0, percentage: 0 };
+
+  const getFlowStat = (pattern: string) =>
+    flowDistribution.find((item) => item.pattern === pattern) || { count: 0, percentage: 0 };
+
+  const showTableSkeleton = (loading || isUpdating) && !error;
+  const showSidebarSkeleton = showTableSkeleton && wallets.length === 0;
+
+  const tableHeader = (
+    <thead className="border-b bg-gradient-to-r from-muted/60 to-muted/40">
+      <tr className="align-bottom">
+        <th className="text-left px-3 py-2 font-medium text-sm whitespace-nowrap">
+          <div className="inline-flex items-center gap-1">
+            Wallet
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Shows wallet address with key metrics: trades (buy↑/sell↓) and last activity.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-2 py-2 font-medium text-sm whitespace-nowrap w-32">
+          <div className="inline-flex items-center gap-1">
+            PnL
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Total PNL, broken down to realized and unrealized profit/loss in SOL.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-2 py-2 font-medium text-sm whitespace-nowrap w-20">
+          <div className="inline-flex items-center gap-1">
+            Winrate
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Token-level win rate: percentage of tokens with profitable outcomes.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-2 py-2 font-medium text-sm whitespace-nowrap w-20">
+          <div className="inline-flex items-center gap-1">
+            SOL
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Current SOL balance in wallet.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-3 py-2 font-medium text-sm">
+          <div className="inline-flex items-center gap-1">
+            Speed
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Exit timing patterns. Click Speed pie chart on right to filter.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-left px-3 py-2 font-medium text-sm">
+          <div className="inline-flex items-center gap-1">
+            Flow
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Buy/sell behavior patterns. Click Flow pie chart on right to filter.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+        <th className="text-right px-2 py-2 font-medium text-xs whitespace-nowrap w-16">
+          <div className="inline-flex items-center gap-1 justify-end">
+            Unp
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Percentage of tokens with incomplete buy/sell cycles. High values may indicate spam/dust.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </th>
+      </tr>
+    </thead>
+  );
+
   return (
     <AppShell>
-      <div className="container max-w-6xl mx-auto px-6 py-12">
-        {/* Header */}
-        <div className="mb-12">
-          <div className="flex items-center gap-3 mb-4">
-            <Compass className="h-8 w-8 text-blue-500" />
-            <h1 className="text-4xl font-bold">Discover</h1>
+      <div className="w-full px-6 py-4 space-y-3">
+        {/* Header row */}
+        <PageTitle title="Discover" icon={Compass} />
+
+        {/* Filter row */}
+        <div className="flex items-center gap-2">
+          {/* Active (48H) Badge - First for prominence */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant={active48H ? "default" : "outline"}
+                  className={cn(
+                    "cursor-pointer h-7 px-2.5 text-xs font-medium transition-all",
+                    active48H && "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/50 hover:bg-amber-500/30",
+                    !active48H && "hover:bg-accent"
+                  )}
+                  onClick={() => {
+                    setActive48H(!active48H);
+                    setPage(1);
+                  }}
+                >
+                  Active (48H)
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">
+                  {active48H ? "Showing wallets active in last 48 hours" : "Click to filter wallets active in last 48 hours"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Sort filter */}
+          <div className="flex items-center gap-2 text-sm">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                    Sort: <Info className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Order results by different criteria</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Select value={sort} onValueChange={(v) => { setSort(v); setPage(1); setActivePreset(null); }}>
+              <SelectTrigger className="w-[130px] h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <TooltipProvider>
+                  {sortOptions.map((o) => (
+                    <Tooltip key={o.value}>
+                      <TooltipTrigger asChild>
+                        <SelectItem value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <p className="text-xs font-semibold">{o.label}</p>
+                        <p className="text-xs text-muted-foreground">{o.hint}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </TooltipProvider>
+              </SelectContent>
+            </Select>
           </div>
-          <p className="text-lg text-muted-foreground">
-            Explore featured wallets and discover trading patterns on Solana.
-          </p>
+
+          {/* Hold filter */}
+          <div className="flex items-center gap-2 text-sm">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                    Hold: <Info className="h-3 w-3" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Filter by median hold time duration</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Select value={holdBias} onValueChange={(v) => { setHoldBias(v); setPage(1); setActivePreset(null); }}>
+              <SelectTrigger className="w-[100px] h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {holdBiasOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Min trades input */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Min trades"
+                  className="w-[80px] h-7 text-xs"
+                  value={minTradeCount === '' ? '' : String(minTradeCount)}
+                  onChange={(e) => {
+                    setMinTradeCount(e.target.value === '' ? '' : Number(e.target.value));
+                    setPage(1);
+                    setActivePreset(null);
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Filter by minimum total trades (buys + sells)</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Min tokens input */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="Min tokens"
+                  className="w-[80px] h-7 text-xs"
+                  value={minUniqueTokens === '' ? '' : String(minUniqueTokens)}
+                  onChange={(e) => {
+                    setMinUniqueTokens(e.target.value === '' ? '' : Number(e.target.value));
+                    setPage(1);
+                    setActivePreset(null);
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Filter by minimum unique tokens traded</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Reset + Refresh buttons */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={resetFilters} className="h-7 px-2 text-xs">
+                  Reset
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Reset all filters to default</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={fetchWallets} disabled={isUpdating} className="h-7 px-2">
+                  {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Refresh results</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Divider */}
+          <div className="h-6 w-px bg-border mx-1" />
+
+          {/* Time Period Filter - After divider */}
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/30">
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+              1d
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+              7d
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+              30d
+            </Button>
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+              All
+            </Button>
+          </div>
         </div>
 
-        {/* Featured Wallets */}
-        <section>
-          <h2 className="text-2xl font-semibold mb-6">Featured Wallets</h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {FEATURED_WALLETS.map(wallet => (
-              <Link
-                key={wallet.address}
-                href={`/wallets/${wallet.address}`}
-                className="block group"
-              >
-                <Card className="p-6 rounded-xl hover:shadow-hover transition-shadow h-full">
-                  <div className="flex justify-between items-start mb-3">
-                    <p className="text-lg font-semibold group-hover:text-blue-500 transition-colors">
-                      {wallet.name}
-                    </p>
-                    {wallet.suggested && (
-                      <Badge className="bg-green-700 text-green-100 text-xs border-green-600">
-                        Suggested
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-4">{wallet.description}</p>
-                  <div className="flex justify-between items-center">
-                    <p className="font-mono text-xs text-muted-foreground truncate" title={wallet.address}>
-                      {wallet.address.substring(0, 8)}...{wallet.address.substring(wallet.address.length - 6)}
-                    </p>
-                    <ChevronRightIcon className="h-5 w-5 text-muted-foreground group-hover:text-blue-500 group-hover:translate-x-1 transition-all" />
-                  </div>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        </section>
+        <div className="flex gap-4">
+          <div className="flex-1 max-w-[calc(100%-400px)] space-y-3">
+            {error && (
+              <Alert variant="destructive">
+                <AlertTitle>{error.title}</AlertTitle>
+                <AlertDescription className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm">{error.description}</span>
+                  <Button size="sm" variant="secondary" onClick={fetchWallets} disabled={isUpdating}>
+                    {isUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                    <span className="ml-2">Retry</span>
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
 
-        {/* Coming Soon Section */}
-        <section className="mt-16">
-          <Card className="p-12 rounded-xl border-dashed text-center">
-            <div className="max-w-md mx-auto">
-              <Compass className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-xl font-semibold mb-2">More Features Coming Soon</h3>
-              <p className="text-sm text-muted-foreground">
-                Token search, wallet rankings, trending strategies, and more discovery tools are on the way.
-              </p>
-            </div>
-          </Card>
-        </section>
+            {showTableSkeleton && (
+              <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    {tableHeader}
+                    <tbody>
+                      {Array.from({ length: 8 }).map((_, index) => (
+                        <tr key={`skeleton-row-${index}`} className="border-b last:border-0">
+                          <td className="px-3 py-2.5">
+                            <Skeleton className="h-5 w-40" />
+                            <Skeleton className="h-3 w-24 mt-2" />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Skeleton className="h-5 w-24" />
+                            <Skeleton className="h-3 w-20 mt-2" />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-3 w-56 mt-2" />
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Skeleton className="h-4 w-28" />
+                            <Skeleton className="h-3 w-56 mt-2" />
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <Skeleton className="h-4 w-14 ml-auto" />
+                            <Skeleton className="h-3 w-16 mt-2 ml-auto" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {!showTableSkeleton && wallets.length > 0 && (
+              <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    {tableHeader}
+                    <tbody>
+                      {wallets.map((wallet) => (
+                        <WalletRow
+                          key={wallet.walletAddress}
+                          wallet={wallet}
+                          isFavorite={favoriteAddresses.has(wallet.walletAddress)}
+                          favoriteData={favoritesMap.get(wallet.walletAddress)}
+                          onFavoriteAdd={handleAddFavorite}
+                          onFavoriteRemove={handleRemoveFavorite}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {!showTableSkeleton && !error && wallets.length === 0 && (
+              <div className="space-y-4">
+                <EmptyState
+                  variant="info"
+                  icon={SearchX}
+                  title="No wallets found"
+                  description="No wallets match your current filters. Try widening the criteria or reset filters to start fresh."
+                  actionText="Reset filters"
+                  onActionClick={resetFilters}
+                />
+                <div className="flex items-center justify-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => applyPreset('balanced-fast')}>
+                    Try Balanced Fast
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => applyPreset('fast-traders')}>
+                    Try Fast Traders
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {!showTableSkeleton && wallets.length > 0 && (
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-muted-foreground">
+                  Page {page} of {pageCount} · {total} wallets
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                    Previous
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}>
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="w-96 flex-shrink-0 space-y-4">
+            {showSidebarSkeleton ? (
+              <>
+                <Card>
+                  <CardHeader>
+                    <Skeleton className="h-5 w-32" />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Skeleton className="h-2 w-full" />
+                    <Skeleton className="h-2 w-5/6" />
+                    <Skeleton className="h-2 w-2/3" />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <Skeleton className="h-5 w-36" />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <>
+                {/* Speed Distribution - Visual Donut Chart */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <CardTitle className="text-sm cursor-help flex items-center gap-1">
+                            Speed Distribution
+                            <Info className="h-3 w-3 text-muted-foreground" />
+                          </CardTitle>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          Exit timing distribution for {aggregationTotal.toLocaleString()} wallets matching your filters
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </CardHeader>
+                  <CardContent className="pb-4 px-0">
+                    <ReactECharts
+                      ref={speedChartRef}
+                      option={{
+                        tooltip: {
+                          show: false,
+                        },
+                        graphic: [
+                          {
+                            id: 'centerText1',
+                            type: 'text',
+                            left: 'center',
+                            top: '42%',
+                            z: 100,
+                            style: {
+                              text: `${aggregationTotal.toLocaleString()} wallets`,
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 11,
+                              fontWeight: 'normal',
+                            },
+                          },
+                          {
+                            id: 'centerText2',
+                            type: 'text',
+                            left: 'center',
+                            top: '50%',
+                            z: 100,
+                            style: {
+                              text: 'Hover a slice for details',
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 12,
+                              fontWeight: '500',
+                            },
+                          },
+                          {
+                            id: 'centerText3',
+                            type: 'text',
+                            left: 'center',
+                            top: '58%',
+                            z: 100,
+                            style: {
+                              text: '',
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 11,
+                              fontWeight: 'normal',
+                            },
+                          },
+                        ],
+                        series: [{
+                          type: 'pie',
+                          radius: ['50%', '75%'],
+                          center: ['50%', '50%'],
+                          label: {
+                            show: true,
+                            position: 'outside',
+                            formatter: '{d}%',
+                            fontSize: 11,
+                            color: 'hsl(var(--foreground))',
+                            fontWeight: '600',
+                            alignTo: 'edge',
+                            margin: 8,
+                          },
+                          labelLine: {
+                            show: true,
+                            length: 10,
+                            length2: 10,
+                            lineStyle: {
+                              color: 'hsl(var(--border))',
+                              width: 1,
+                            },
+                          },
+                          emphasis: {
+                            label: {
+                              show: true,
+                            },
+                          },
+                          data: speedDistribution.filter(d => d.count > 0).map(entry => {
+                            return {
+                              name: entry.category,
+                              value: entry.count,
+                              itemStyle: {
+                                color: getSpeedColorHex(entry.category),
+                                borderRadius: 4,
+                                borderColor: 'rgba(255, 255, 255, 0.15)',
+                                borderWidth: 2,
+                              },
+                            };
+                          }),
+                        }],
+                      }}
+                      style={{ height: '260px', width: '100%' }}
+                      opts={{ renderer: 'svg' }}
+                      onEvents={{
+                        click: (params: any) => {
+                          if (params.componentType === 'series' && params.seriesType === 'pie') {
+                            const clickedCategory = params.name;
+                            if (speedCategory === clickedCategory) {
+                              // If already filtered by this category, reset to 'any'
+                              setSpeedCategory('any');
+                            } else {
+                              // Filter by clicked category
+                              setSpeedCategory(clickedCategory);
+                            }
+                            setPage(1);
+                            setActivePreset(null);
+                          }
+                        },
+                        mouseover: (params: any) => {
+                          if (params.componentType === 'series' && params.seriesType === 'pie' && speedChartRef.current) {
+                            // Find the matching distribution entry to get totalPnl
+                            const categoryData = speedDistribution.find(d => d.category === params.name);
+                            const pnl = categoryData?.totalPnl || 0;
+                            const pnlFormatted = formatSOL(pnl);
+                            const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
+                            const categoryColor = getSpeedColorHex(params.name);
+                            const categoryLabel = getSpeedLabel(params.name);
+
+                            const echarts = speedChartRef.current.getEchartsInstance();
+                            echarts.setOption({
+                              graphic: [
+                                {
+                                  id: 'centerText1',
+                                  style: {
+                                    text: `${params.value} wallets (${params.percent.toFixed(1)}%)`,
+                                  },
+                                },
+                                {
+                                  id: 'centerText2',
+                                  style: {
+                                    text: categoryLabel,
+                                    fill: categoryColor,
+                                    fontSize: 13,
+                                    fontWeight: 'bold',
+                                  },
+                                },
+                                {
+                                  id: 'centerText3',
+                                  style: {
+                                    text: `${pnlFormatted} SOL`,
+                                    fill: pnlColor,
+                                    fontSize: 14,
+                                    fontWeight: 'bold',
+                                  },
+                                },
+                              ],
+                            });
+                          }
+                        },
+                        mouseout: () => {
+                          if (speedChartRef.current) {
+                            const echarts = speedChartRef.current.getEchartsInstance();
+                            echarts.setOption({
+                              graphic: [
+                                {
+                                  id: 'centerText1',
+                                  style: {
+                                    text: `${aggregationTotal.toLocaleString()} wallets`,
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 11,
+                                    fontWeight: 'normal',
+                                  },
+                                },
+                                {
+                                  id: 'centerText2',
+                                  style: {
+                                    text: 'Hover a slice for details',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 12,
+                                    fontWeight: '500',
+                                  },
+                                },
+                                {
+                                  id: 'centerText3',
+                                  style: {
+                                    text: '',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                  },
+                                },
+                              ],
+                            });
+                          }
+                        },
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Flow Distribution - Visual Donut Chart */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <CardTitle className="text-sm cursor-help flex items-center gap-1">
+                            Flow Distribution
+                            <Info className="h-3 w-3 text-muted-foreground" />
+                          </CardTitle>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          Buy/sell pattern distribution for {aggregationTotal.toLocaleString()} wallets matching your filters
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </CardHeader>
+                  <CardContent className="pb-4 px-0">
+                    <ReactECharts
+                      ref={flowChartRef}
+                      option={{
+                        tooltip: {
+                          show: false,
+                        },
+                        graphic: [
+                          {
+                            id: 'flowCenterText1',
+                            type: 'text',
+                            left: 'center',
+                            top: '42%',
+                            z: 100,
+                            style: {
+                              text: `${aggregationTotal.toLocaleString()} wallets`,
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 11,
+                              fontWeight: 'normal',
+                            },
+                          },
+                          {
+                            id: 'flowCenterText2',
+                            type: 'text',
+                            left: 'center',
+                            top: '50%',
+                            z: 100,
+                            style: {
+                              text: 'Hover a slice for details',
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 12,
+                              fontWeight: '500',
+                            },
+                          },
+                          {
+                            id: 'flowCenterText3',
+                            type: 'text',
+                            left: 'center',
+                            top: '58%',
+                            z: 100,
+                            style: {
+                              text: '',
+                              textAlign: 'center',
+                              fill: 'hsl(var(--muted-foreground))',
+                              fontSize: 11,
+                              fontWeight: 'normal',
+                            },
+                          },
+                        ],
+                        series: [{
+                          type: 'pie',
+                          radius: ['50%', '75%'],
+                          center: ['50%', '50%'],
+                          label: {
+                            show: true,
+                            position: 'outside',
+                            formatter: '{d}%',
+                            fontSize: 11,
+                            color: 'hsl(var(--foreground))',
+                            fontWeight: '600',
+                            alignTo: 'edge',
+                            margin: 8,
+                          },
+                          labelLine: {
+                            show: true,
+                            length: 10,
+                            length2: 10,
+                            lineStyle: {
+                              color: 'hsl(var(--border))',
+                              width: 1,
+                            },
+                          },
+                          emphasis: {
+                            label: {
+                              show: true,
+                            },
+                          },
+                          data: flowDistribution.filter(d => d.count > 0).map(entry => {
+                            return {
+                              name: entry.pattern,
+                              value: entry.count,
+                              itemStyle: {
+                                color: getFlowColorHex(entry.pattern),
+                                borderRadius: 4,
+                                borderColor: 'rgba(255, 255, 255, 0.15)',
+                                borderWidth: 2,
+                              },
+                            };
+                          }),
+                        }],
+                      }}
+                      style={{ height: '260px', width: '100%' }}
+                      opts={{ renderer: 'svg' }}
+                      onEvents={{
+                        click: (params: any) => {
+                          if (params.componentType === 'series' && params.seriesType === 'pie') {
+                            const clickedPattern = params.name;
+                            if (flowPattern === clickedPattern) {
+                              // If already filtered by this pattern, reset to 'any'
+                              setFlowPattern('any');
+                            } else {
+                              // Filter by clicked pattern
+                              setFlowPattern(clickedPattern);
+                            }
+                            setPage(1);
+                            setActivePreset(null);
+                          }
+                        },
+                        mouseover: (params: any) => {
+                          if (params.componentType === 'series' && params.seriesType === 'pie' && flowChartRef.current) {
+                            // Find the matching distribution entry to get totalPnl
+                            const patternData = flowDistribution.find(d => d.pattern === params.name);
+                            const pnl = patternData?.totalPnl || 0;
+                            const pnlFormatted = formatSOL(pnl);
+                            const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
+                            const categoryColor = getFlowColorHex(params.name);
+                            const categoryLabel = getFlowLabel(params.name);
+
+                            const echarts = flowChartRef.current.getEchartsInstance();
+                            echarts.setOption({
+                              graphic: [
+                                {
+                                  id: 'flowCenterText1',
+                                  style: {
+                                    text: `${params.value} wallets (${params.percent.toFixed(1)}%)`,
+                                  },
+                                },
+                                {
+                                  id: 'flowCenterText2',
+                                  style: {
+                                    text: categoryLabel,
+                                    fill: categoryColor,
+                                    fontSize: 13,
+                                    fontWeight: 'bold',
+                                  },
+                                },
+                                {
+                                  id: 'flowCenterText3',
+                                  style: {
+                                    text: `${pnlFormatted} SOL`,
+                                    fill: pnlColor,
+                                    fontSize: 14,
+                                    fontWeight: 'bold',
+                                  },
+                                },
+                              ],
+                            });
+                          }
+                        },
+                        mouseout: () => {
+                          if (flowChartRef.current) {
+                            const echarts = flowChartRef.current.getEchartsInstance();
+                            echarts.setOption({
+                              graphic: [
+                                {
+                                  id: 'flowCenterText1',
+                                  style: {
+                                    text: `${aggregationTotal.toLocaleString()} wallets`,
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 11,
+                                    fontWeight: 'normal',
+                                  },
+                                },
+                                {
+                                  id: 'flowCenterText2',
+                                  style: {
+                                    text: 'Hover a slice for details',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                    fontSize: 12,
+                                    fontWeight: '500',
+                                  },
+                                },
+                                {
+                                  id: 'flowCenterText3',
+                                  style: {
+                                    text: '',
+                                    fill: 'hsl(var(--muted-foreground))',
+                                  },
+                                },
+                              ],
+                            });
+                          }
+                        },
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Modals removed - now using global FavoriteModalProvider */}
     </AppShell>
+  );
+}
+
+function WalletRow({
+  wallet,
+  isFavorite,
+  favoriteData,
+  onFavoriteAdd,
+  onFavoriteRemove
+}: {
+  wallet: DiscoverWallet;
+  isFavorite: boolean;
+  favoriteData?: FavoriteWallet;
+  onFavoriteAdd: (address: string) => void;
+  onFavoriteRemove: (address: string, nickname?: string) => void;
+}) {
+  // PnL - show BOTH realized and unrealized
+  const realizedPnl = wallet.metrics.realizedPnl;
+  const unrealizedPnl = wallet.metrics.unrealizedPnl;
+
+  const hasRealized = realizedPnl !== null && realizedPnl !== undefined;
+  const hasUnrealized = unrealizedPnl !== null && unrealizedPnl !== undefined;
+
+  // Calculate total
+  const totalPnl = (hasRealized ? realizedPnl : 0) + (hasUnrealized ? unrealizedPnl : 0);
+  const hasPnl = hasRealized || hasUnrealized;
+
+  const totalPnlClass = hasPnl && totalPnl > 0
+    ? "text-green-600 dark:text-green-500"
+    : hasPnl && totalPnl < 0
+      ? "text-red-600 dark:text-red-500"
+      : "";
+
+  const totalPnlBgClass = hasPnl && totalPnl > 0
+    ? "bg-green-50 dark:bg-green-950/20"
+    : hasPnl && totalPnl < 0
+      ? "bg-red-50 dark:bg-red-950/20"
+      : "";
+
+  // Handle favorite toggle - call appropriate handler based on current state
+  const handleFavoriteToggle = () => {
+    if (isFavorite) {
+      onFavoriteRemove(wallet.walletAddress, favoriteData?.nickname);
+    } else {
+      onFavoriteAdd(wallet.walletAddress);
+    }
+  };
+
+  // Build DATA-DRIVEN narratives from backend classifications + metrics using templates
+  const totalBuys = wallet.metrics.totalBuys ?? 0;
+  const totalSells = wallet.metrics.totalSells ?? 0;
+  const valueHeldPct = wallet.metrics.percentOfValueInCurrentHoldings?.toFixed(0) ?? null;
+
+  // SPEED NARRATIVE: Use template-based storytelling with emphasized numbers
+  const speedNarrative = buildSpeedNarrative(wallet.metrics.speedCategory, {
+    medianHoldHours: wallet.metrics.medianHoldHours,
+    avgHoldHours: wallet.metrics.averageHoldHours,
+    currentHoldHours: wallet.metrics.medianCurrentHoldingDurationHours,
+    totalBuys,
+    totalSells,
+    unrealizedPnl,
+    reasonCode: wallet.reasonCode,
+    uniqueTokensTraded: wallet.metrics.uniqueTokensTraded,
+    velocityScore: wallet.metrics.velocityScore, // 0-100 trading velocity
+  });
+
+  // FLOW NARRATIVE: Use template-based storytelling with emphasized numbers
+  // NEW: Include current holdings data (% value held, duration) - belongs in FLOW not SPEED!
+  const flowNarrative = buildFlowNarrative(wallet.metrics.flowPattern, {
+    totalBuys,
+    totalSells,
+    buySellRatio: wallet.metrics.buySellRatio,
+    buySellSymmetry: wallet.metrics.buySellSymmetry,
+    sequenceConsistency: wallet.metrics.sequenceConsistency,
+    exitPattern: wallet.metrics.exitPattern,
+    unrealizedPnl,
+    uniqueTokensTraded: wallet.metrics.uniqueTokensTraded,
+    // NEW: Current holdings context (accumulation/distribution indicator)
+    valueHeldPct: valueHeldPct ? parseFloat(valueHeldPct) : null,
+    currentHoldHours: wallet.metrics.medianCurrentHoldingDurationHours,
+    avgCurrentHoldHours: wallet.metrics.averageHoldHours, // Show both if available
+  });
+
+  const unpairedPct = wallet.metrics.percentageOfUnpairedTokens?.toFixed(0) ?? null;
+  const isHighUnpaired = wallet.metrics.percentageOfUnpairedTokens && wallet.metrics.percentageOfUnpairedTokens > 50;
+
+  // Staleness indicator
+  const stalenessMinutes = wallet.metrics.stalenessMinutes;
+  const isStale = stalenessMinutes && stalenessMinutes > 1440; // > 24 hours
+  const stalenessHours = stalenessMinutes ? Math.floor(stalenessMinutes / 60) : null;
+
+  return (
+    <tr className="border-b last:border-0 hover:bg-accent/30 transition-all duration-150 align-top group">
+      {/* Column 1: Wallet */}
+      <td className="px-3 py-2.5">
+        <div className="flex flex-col gap-0.5">
+          <WalletBadge
+            address={wallet.walletAddress}
+            variant="inline"
+            size="s"
+            isFavorite={isFavorite}
+            favoriteData={favoriteData}
+            onFavoriteToggle={handleFavoriteToggle}
+            metrics={{
+              totalBuys: wallet.metrics.totalBuys,
+              totalSells: wallet.metrics.totalSells,
+              lastActiveAt: wallet.metrics.lastActiveAt,
+            }}
+            showActions={true}
+            knownType={wallet.knownType ?? undefined}
+            knownLabel={wallet.knownLabel ?? undefined}
+          />
+          {isStale && stalenessHours !== null && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-[0.65rem] text-amber-600 dark:text-amber-500 cursor-help inline-flex items-center gap-0.5">
+                    ⚠️ Data {stalenessHours}h old
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p>Analysis was last updated {stalenessHours} hours ago. Metrics may not reflect recent activity.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
+      </td>
+
+      {/* Column 2: PnL (tight, compact) */}
+      <td className="px-2 py-2.5 align-top">
+        {hasPnl ? (
+          <div className={cn("inline-flex flex-col gap-0.5 px-2.5 py-1 rounded-md transition-all", totalPnlBgClass)}>
+            <div className={cn("text-sm font-bold tabular-nums", totalPnlClass)}>
+              {formatSOL(totalPnl)} SOL
+            </div>
+            <div className="text-xs text-muted-foreground tabular-nums">
+              {hasRealized && hasUnrealized ? (
+                <>{formatPnLValue(realizedPnl)}R / {formatPnLValue(unrealizedPnl)}U</>
+              ) : hasRealized ? (
+                <>realized</>
+              ) : (
+                <>unrealized</>
+              )}
+            </div>
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+      </td>
+
+      {/* Column 3: Winrate (tight) */}
+      <td className="px-2 py-2.5 align-top">
+        {wallet.metrics.winRatePercent !== null && wallet.metrics.winRatePercent !== undefined ? (
+          <span className="text-sm font-medium tabular-nums">
+            {wallet.metrics.winRatePercent.toFixed(1)}%
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+      </td>
+
+      {/* Column 4: SOL Balance (tight) */}
+      <td className="px-2 py-2.5 align-top">
+        {wallet.metrics.currentSolBalance !== null && wallet.metrics.currentSolBalance !== undefined ? (
+          <span className="text-sm font-medium tabular-nums">
+            {wallet.metrics.currentSolBalance.toFixed(1)}
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+      </td>
+
+      {/* Column 5: Speed (narrative with range) */}
+      <td className="px-3 py-2.5 align-top">
+        <div className="space-y-1">
+          <div className="text-sm font-semibold">
+            <span className={getSpeedColor(wallet.metrics.speedCategory)}>
+              {speedNarrative.label}
+            </span>
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">({speedNarrative.range})</span>
+          </div>
+          <div className="text-xs text-muted-foreground leading-relaxed">
+            {speedNarrative.story}
+          </div>
+        </div>
+      </td>
+
+      {/* Column 6: Flow (narrative) */}
+      <td className="px-3 py-2.5 align-top">
+        {flowNarrative ? (
+          <div className="space-y-1">
+            <div className="text-sm font-semibold">
+              <span className={getFlowColor(wallet.metrics.flowPattern)}>
+                {flowNarrative.label}
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              {flowNarrative.story}
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">Limited data - flow pattern developing.</div>
+        )}
+      </td>
+
+      {/* Column 7: Unpaired % (spam/dust indicator) */}
+      <td className="px-2 py-2.5 text-right align-top">
+        {unpairedPct !== null ? (
+          <span className={cn("text-xs font-medium tabular-nums", isHighUnpaired ? "text-amber-600 dark:text-amber-500" : "")}>
+            {unpairedPct}%
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </td>
+    </tr>
   );
 }

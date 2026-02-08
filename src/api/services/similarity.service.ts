@@ -8,6 +8,7 @@ import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 import { TokenInfoService } from '../services/token-info.service';
 import { CombinedSimilarityResult } from '@/types/similarity';
 import { WalletBalance } from '@/types/wallet';
+import { getKnownWallet } from '../../config/known-wallets';
 
 const logger = createLogger('SimilarityApiService');
 
@@ -36,42 +37,52 @@ export class SimilarityApiService {
             };
 
             const similarityAnalyzer = new SimilarityService(this.databaseService, config);
+
+            const includeBalances = dto.includeBalances === true;
+            const includeVectors = dto.includeVectors === true;
             
             // --- Balances are now pre-fetched and passed in ---
 
-            // --- Pre-enrich balances with existing metadata ---
-            const uniqueMints = Array.from(new Set(
-                [...balancesMap.values()].flatMap(balance => balance.tokenBalances.map(tb => tb.mint))
-            ));
+            if (includeBalances) {
+                // --- Pre-enrich balances with existing metadata ---
+                const uniqueMints = Array.from(new Set(
+                    [...balancesMap.values()].flatMap(balance => balance.tokenBalances.map(tb => tb.mint))
+                ));
 
-            const tokenInfo = await this.tokenInfoService.findManyPartial(uniqueMints);
-            const tokenInfoMap = new Map(tokenInfo.map(info => [info.tokenAddress, info]));
+                const tokenInfo = await this.tokenInfoService.findManyPartial(uniqueMints);
+                const tokenInfoMap = new Map(tokenInfo.map(info => [info.tokenAddress, info]));
 
-            for (const [walletAddress, balance] of balancesMap) {
-                for (const tokenBalance of balance.tokenBalances) {
-                    const info = tokenInfoMap.get(tokenBalance.mint);
-                    if (info) {
-                        tokenBalance.name = info.name;
-                        tokenBalance.symbol = info.symbol;
-                        tokenBalance.imageUrl = info.imageUrl;
+                for (const [, balance] of balancesMap) {
+                    for (const tokenBalance of balance.tokenBalances) {
+                        const info = tokenInfoMap.get(tokenBalance.mint);
+                        if (info) {
+                            tokenBalance.name = info.name;
+                            tokenBalance.symbol = info.symbol;
+                            tokenBalance.imageUrl = info.imageUrl;
 
-                        if (info.priceUsd) {
-                            const price = parseFloat(info.priceUsd);
-                            const rawBalance = BigInt(tokenBalance.balance);
-                            const divisor = BigInt(10 ** tokenBalance.decimals);
-                            const numericBalance = Number(rawBalance) / Number(divisor);
-                            
-                            tokenBalance.priceUsd = price;
-                            tokenBalance.valueUsd = numericBalance * price;
+                            if (info.priceUsd) {
+                                const price = parseFloat(info.priceUsd);
+                                const rawBalance = BigInt(tokenBalance.balance);
+                                const divisor = BigInt(10 ** tokenBalance.decimals);
+                                const numericBalance = Number(rawBalance) / Number(divisor);
+                                
+                                tokenBalance.priceUsd = price;
+                                tokenBalance.valueUsd = numericBalance * price;
+                            }
                         }
                     }
                 }
             }
             
-            // Kick off the core analysis.
+            const transactionData = await this.databaseService.getTransactionsForAnalysis(dto.walletAddresses, config);
+            if (!transactionData || Object.keys(transactionData).length < 2) {
+                throw new UnprocessableEntityException('Insufficient valid wallets for similarity analysis. Some wallets may be invalid or have no transaction data.');
+            }
+
+            // Kick off the core analysis with shared transaction data.
             const analysisPromise = Promise.all([
-                similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'binary', balancesMap),
-                similarityAnalyzer.calculateWalletSimilarity(dto.walletAddresses, 'capital', balancesMap)
+                similarityAnalyzer.calculateWalletSimilarityFromTransactions(transactionData, 'binary', balancesMap, { includeVectors }),
+                similarityAnalyzer.calculateWalletSimilarityFromTransactions(transactionData, 'capital', balancesMap, { includeVectors })
             ]);
             
             const [binaryResults, capitalResults] = await analysisPromise;
@@ -89,10 +100,28 @@ export class SimilarityApiService {
                 };
             });
 
+            const walletRecords = await this.databaseService.getWallets(dto.walletAddresses, true) as Array<{ address: string; knownType?: string | null; knownLabel?: string | null }>;
+            const walletRecordMap = new Map(walletRecords.map(wallet => [wallet.address, wallet]));
+            const walletLabels: Record<string, { knownType?: string; knownLabel?: string }> = {};
+
+            for (const address of dto.walletAddresses) {
+                const walletRecord = walletRecordMap.get(address);
+                const knownEntry = getKnownWallet(address);
+                const knownType = walletRecord?.knownType ?? knownEntry?.type ?? undefined;
+                const knownLabel = walletRecord?.knownLabel ?? knownEntry?.label ?? undefined;
+
+                if (knownType || knownLabel) {
+                    walletLabels[address] = {
+                        knownType,
+                        knownLabel: knownLabel ?? knownType,
+                    };
+                }
+            }
+
             const combinedResults: CombinedSimilarityResult = {
                 vectorTypeUsed: 'combined',
                 pairwiseSimilarities: binaryResults.pairwiseSimilarities.map(binaryPair => {
-                    const capitalPair = capitalResults.pairwiseSimilarities.find(p => 
+                    const capitalPair = capitalResults.pairwiseSimilarities.find(p =>
                         (p.walletA === binaryPair.walletA && p.walletB === binaryPair.walletB) ||
                         (p.walletA === binaryPair.walletB && p.walletB === binaryPair.walletA)
                     );
@@ -109,7 +138,7 @@ export class SimilarityApiService {
                         capitalScore: capitalPair?.similarityScore || 0,
                         sharedTokens: binaryPair.sharedTokens.map(t => ({ mint: t.mint })),
                         capitalAllocation: capitalAllocation || {},
-                        
+
                         binarySharedTokenCount: binaryPair.sharedTokenCount,
                         binaryUniqueTokenCountA: binaryPair.uniqueTokenCountA,
                         binaryUniqueTokenCountB: binaryPair.uniqueTokenCountB,
@@ -119,16 +148,24 @@ export class SimilarityApiService {
                         capitalUniqueTokenCountB: capitalPair?.uniqueTokenCountB || 0,
                     };
                 }),
-                globalMetrics: capitalResults.globalMetrics,
-                walletVectorsUsed: capitalResults.walletVectorsUsed,
+                globalMetrics: binaryResults.globalMetrics,
                 uniqueTokensPerWallet: combinedUniqueTokens,
-                walletBalances: Object.fromEntries(balancesMap),
                 sharedTokenCountsMatrix: capitalResults.sharedTokenCountsMatrix,
                 jaccardSimilarityMatrix: capitalResults.jaccardSimilarityMatrix,
                 holdingsPresenceJaccardMatrix: capitalResults['holdingsPresenceFilteredJaccardMatrix'] || capitalResults.holdingsPresenceJaccardMatrix,
                 holdingsPresenceCosineMatrix: capitalResults.holdingsPresenceCosineMatrix,
                 holdingsPresenceJaccardMatrixAllTokens: capitalResults.holdingsPresenceJaccardMatrix,
+                summary: capitalResults.summary,
+                walletLabels: Object.keys(walletLabels).length > 0 ? walletLabels : undefined,
             };
+
+            if (includeVectors && capitalResults.walletVectorsUsed) {
+                combinedResults.walletVectorsUsed = capitalResults.walletVectorsUsed;
+            }
+
+            if (includeBalances) {
+                combinedResults.walletBalances = Object.fromEntries(balancesMap);
+            }
 
             return combinedResults;
         } catch (error) {

@@ -12,6 +12,8 @@ import { ALLOW_UNVERIFIED_EMAIL_KEY } from '../decorators/allow-unverified.decor
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -21,13 +23,10 @@ interface AuthenticatedRequest extends Request {
 @Injectable()
 export class CompositeAuthGuard implements CanActivate {
   private readonly logger = new Logger(CompositeAuthGuard.name);
-  private readonly demoWallets: string[];
   private readonly apiKeyCache = new Map<string, {user: User, expiresAt: number}>();
   private readonly jwtCache = new Map<string, {user: User, expiresAt: number}>();
   private readonly JWT_CACHE_TTL = 15 * 60 * 1000; // 15 minutes in milliseconds
   private readonly API_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
-  private static instanceCount = 0;
-  private readonly instanceId: number;
 
   constructor(
     private readonly databaseService: JwtDatabaseService,
@@ -39,14 +38,7 @@ export class CompositeAuthGuard implements CanActivate {
     private readonly configService: ConfigService,
     // Security logging will be handled at controller level to avoid circular dependencies
   ) {
-    this.instanceId = ++CompositeAuthGuard.instanceCount;
-    this.logger.log(`CompositeAuthGuard instance #${this.instanceId} created`);
-
-    const demoWalletsFromEnv = this.configService.get<string>('DEMO_WALLETS');
-    this.demoWallets = demoWalletsFromEnv ? demoWalletsFromEnv.split(',').map(w => w.trim()) : [];
-    if (this.demoWallets.length > 0) {
-      this.logger.log(`Instance #${this.instanceId} initialized with ${this.demoWallets.length} demo wallets.`);
-    }
+    this.logger.debug(`CompositeAuthGuard instance created`);
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -74,7 +66,6 @@ export class CompositeAuthGuard implements CanActivate {
         if (user) {
           this.ensureEmailVerified(allowUnverified, request, user);
           request.user = user;
-          this.checkDemoPermissions(request, user);
           // Security logging handled at controller level
           this.logger.debug(`User ${user.id} authenticated via JWT`);
           return true;
@@ -95,7 +86,6 @@ export class CompositeAuthGuard implements CanActivate {
           this.ensureEmailVerified(allowUnverified, request, result.user);
           request.user = result.user;
           request.apiKeyScopes = result.scopes;
-          this.checkDemoPermissions(request, result.user);
           // Security logging handled at controller level
           this.logger.debug(`User ${result.user.id} authenticated via API key with scopes: ${result.scopes?.join(', ')}`);
           return true;
@@ -236,38 +226,6 @@ export class CompositeAuthGuard implements CanActivate {
     }
   }
 
-  private checkDemoPermissions(request: Request, user: User) {
-    if (user.isDemo) {
-      this.logger.debug(`User ${user.id} is a demo user. Applying restrictions.`);
-      
-      const walletAddress = request.params.walletAddress;
-
-      // RULE 1: If accessing a specific wallet, it must be in the demo list.
-      if (walletAddress && !this.demoWallets.includes(walletAddress)) {
-        this.logger.warn(`Demo user ${user.id} attempting to access non-demo wallet ${walletAddress}.`);
-        throw new ForbiddenException('This wallet is not available in the Demo account.');
-      }
-
-      const isFavoritesRoute = request.path.includes('/users/me/favorites');
-      const isNotesRoute = request.path.includes('/notes');
-
-      // RULE 2: Demo users can manage favorites.
-      if (isFavoritesRoute && (request.method === 'POST' || request.method === 'DELETE')) {
-          this.logger.verbose(`Demo user ${user.id} allowed favorite management action: ${request.method}`);
-      } 
-      // RULE 3: Demo users cannot perform write actions on notes.
-      else if (isNotesRoute && request.method !== 'GET') {
-        this.logger.warn(`Demo user ${user.id} blocked from performing a ${request.method} action on notes route: ${request.path}`);
-        throw new ForbiddenException('Adding, editing, or deleting notes is not available for demo accounts.');
-      }
-      // RULE 4: For all other routes, block general write actions.
-      else if (request.method !== 'GET') {
-        this.logger.warn(`Demo user ${user.id} blocked from performing a ${request.method} action on path: ${request.path}`);
-        throw new ForbiddenException('The demo account is read-only and cannot perform this action.');
-      }
-    }
-  }
-
   // Clean cache when needed to prevent memory leaks and remove expired entries
   private cleanCacheIfNeeded() {
     const now = Date.now();
@@ -303,7 +261,7 @@ export class CompositeAuthGuard implements CanActivate {
       const headerJson = Buffer.from(headerB64, 'base64url').toString();
       return JSON.parse(headerJson);
     } catch (error) {
-      this.logger.warn('Failed to decode JWT header:', error);
+      this.logger.warn('Failed to decode JWT header:', getErrorMessage(error));
       return null;
     }
   }
@@ -330,7 +288,7 @@ export class CompositeAuthGuard implements CanActivate {
     if (payload.keyId) context.keyId = payload.keyId;
     if (payload.prefix) context.prefix = payload.prefix;
 
-    this.logger.warn(`Instance #${this.instanceId} - SECURITY: Authentication caches cleared. Reason: ${payload.reason}`,
+    this.logger.warn(`SECURITY: Authentication caches cleared. Reason: ${payload.reason}`,
       Object.keys(context).length > 0 ? context : undefined
     );
   }

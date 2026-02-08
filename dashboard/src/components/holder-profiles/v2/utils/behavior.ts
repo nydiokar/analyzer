@@ -1,13 +1,43 @@
+import type React from 'react';
+import { SPEED_CATEGORY_COLORS } from '@/lib/strategy-colors';
+
 export interface BehaviorMeta {
   key: string;
   label: string;
   description: string;
   timeframe: string;
   palette: {
-    badge: string;
-    bar: string;
+    badge: {
+      className: string;
+      style: React.CSSProperties;
+    };
+    bar: {
+      className: string;
+      style: React.CSSProperties;
+    };
   };
 }
+
+// Convert hex to rgba for proper opacity
+const hexToRgba = (hex: string, alpha: number) => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+// Create badge and bar styles from centralized colors
+// Returns both className and style for proper color matching
+const createPaletteFromHex = (hex: string) => ({
+  badge: {
+    className: 'font-medium',
+    style: { backgroundColor: hexToRgba(hex, 0.15), color: hex },
+  },
+  bar: {
+    className: '',
+    style: { backgroundColor: hex },
+  },
+});
 
 const BEHAVIOR_META: Record<string, BehaviorMeta> = {
   SNIPER: {
@@ -15,80 +45,56 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     label: 'Sniper',
     description: 'Instant exits executed in seconds; often bot-driven or arb focused.',
     timeframe: '< 10 seconds',
-    palette: {
-      badge: 'bg-rose-500/15 text-rose-800 dark:text-rose-100',
-      bar: 'bg-rose-600',
-    },
+    palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.SNIPER.hex),
   },
   SCALPER: {
     key: 'SCALPER',
     label: 'Scalper',
     description: 'High-frequency flips targeting tiny moves with tight stops.',
     timeframe: '< 1 minute',
-    palette: {
-      badge: 'bg-orange-500/15 text-orange-800 dark:text-orange-100',
-      bar: 'bg-orange-600',
-    },
+    palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.SCALPER.hex),
   },
   MOMENTUM: {
     key: 'MOMENTUM',
     label: 'Momentum',
     description: 'Rides short bursts of momentum; exits quickly when trend cools.',
     timeframe: '5-30 minutes',
-    palette: {
-      badge: 'bg-amber-400/20 text-amber-900 dark:text-amber-100',
-      bar: 'bg-amber-500',
-    },
+    palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.MOMENTUM.hex),
   },
   INTRADAY: {
     key: 'INTRADAY',
     label: 'Intraday',
     description: 'Holds through the session but flattens out before day end.',
     timeframe: '30 min - 4 hours',
-    palette: {
-      badge: 'bg-emerald-200/30 text-emerald-900 dark:text-emerald-100',
-      bar: 'bg-emerald-500',
-    },
+    palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.INTRADAY.hex),
   },
   DAY_TRADER: {
     key: 'DAY_TRADER',
     label: 'Day Trader',
     description: 'Keeps positions open for up to a day; may hold overnight occasionally.',
     timeframe: '4-24 hours',
-    palette: {
-      badge: 'bg-teal-300/25 text-teal-900 dark:text-teal-100',
-      bar: 'bg-teal-500',
-    },
+    palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.DAY_TRADER.hex),
   },
   SWING: {
     key: 'SWING',
     label: 'Swing',
     description: 'Carries trades across days to capture larger moves.',
     timeframe: '1-7 days',
-    palette: {
-      badge: 'bg-sky-300/25 text-sky-900 dark:text-sky-100',
-      bar: 'bg-sky-500',
-    },
+    palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.SWING.hex),
   },
   POSITION: {
     key: 'POSITION',
     label: 'Position',
     description: 'Conviction trades held for weeks; tolerant of volatility.',
     timeframe: '7+ days',
-    palette: {
-      badge: 'bg-indigo-300/25 text-indigo-900 dark:text-indigo-100',
-      bar: 'bg-indigo-600',
-    },
+    palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.POSITION.hex),
   },
   HOLDER: {
     key: 'HOLDER',
     label: 'Holder',
     description: 'Lack of exited tokens; accumulates and waiting.',
     timeframe: 'Holds until it is not',
-    palette: {
-      badge: 'bg-purple-300/25 text-purple-900 dark:text-purple-100',
-      bar: 'bg-purple-600',
-    },
+    palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.HODLER.hex),
   },
 };
 
@@ -104,9 +110,9 @@ export const QUALITY_COLORS: Record<string, string> = {
   INSUFFICIENT: 'bg-red-500/15 text-red-500',
 };
 
-export function getBehaviorColor(type?: string | null) {
+export function getBehaviorColor(type?: string | null): { className: string; style: React.CSSProperties } {
   const meta = getBehaviorMeta(type);
-  if (!meta) return 'bg-muted text-muted-foreground';
+  if (!meta) return { className: 'bg-muted text-muted-foreground', style: {} };
   return meta.palette.badge;
 }
 

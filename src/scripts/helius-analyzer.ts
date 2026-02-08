@@ -10,9 +10,10 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import dotenv from 'dotenv';
-import { createLogger } from 'core/utils/logger';
-import { parseTimeRange } from 'core/utils/cliUtils';
-import { displaySummary, displayDetailedResults } from 'core/utils/display-utils'; 
+import fs from 'fs';
+import { createLogger } from '../core/utils/logger';
+import { parseTimeRange } from '../core/utils/cliUtils';
+import { displaySummary, displayDetailedResults } from '../core/utils/display-utils'; 
 
 // Import Services
 import { HeliusSyncService, SyncOptions } from 'core/services/helius-sync-service';
@@ -33,178 +34,242 @@ dotenv.config();
 
 const logger = createLogger('HeliusAnalyzerScript');
 
-/**
- * Main analysis function.
- */
-async function analyzeWalletWithHelius() {
-  // --- Argument Parsing ---
-  const argv = await yargs(hideBin(process.argv))
-    .option('walletAddress', {
-      alias: 'w',
-      type: 'string',
-      description: 'The Solana wallet address to analyze',
-      required: true,
-    })
-    .option('limit', {
-      alias: 'l',
-      type: 'number',
-      default: 100,
-      description: 'Batch size for fetching transactions from Helius API',
-    })
-    .option('maxSignatures', {
-        alias: 'm',
-        type: 'number',
-        description: 'Maximum number of signatures to fetch/process. Overrides fetchAll if set. Useful for initial large fetches or limiting history.',
-    })
-    .option('fetchAll', {
-      type: 'boolean',
-      default: false,
-      description: 'Attempt to fetch all transaction history (can be very slow, use maxSignatures if possible)',
-    })
-    .option('fetchOlder', {
-        type: 'boolean',
-        default: false,
-        description: 'Force fetching older transactions, ignoring last processed state in DB.'
-    })
-    .option('smartFetch', {
-        type: 'boolean',
-        default: false,
-        description: 'Fetch new transactions first, then older up to maxSignatures. Requires --maxSignatures.'
-    })
-    .option('skipApi', {
-      type: 'boolean',
-      default: false,
-      description: 'Skip Helius API calls and analyze only data already in the database',
-    })
-    .option('analyzeBehavior', {
-        type: 'boolean',
-        default: false,
-        description: 'Perform behavioral analysis in addition to P/L analysis',
-    })
-    .option('startDate', { 
-        type: 'string', 
-        description: 'Start date (YYYY-MM-DD) for analysis period (inclusive)' 
-    })
-    .option('endDate', { 
-        type: 'string', 
-        description: 'End date (YYYY-MM-DD) for analysis period (inclusive)' 
-    })
-    .option('saveAnalysisCsv', {
-      type: 'boolean',
-      default: false,
-      description: 'Save the detailed analysis results to a CSV file',
-    })
-    .option('saveReportMd', {
-        type: 'boolean',
-        default: true, // Default to saving markdown report
-        description: 'Save the summary analysis report to a Markdown file'
-    })
-    .option('displayLimit', {
-        alias: 'd',
-        type: 'number',
-        default: 20,
-        description: 'Number of top/bottom results to display in console summary'
-    })
-    .check((argv) => {
-        if (!argv.walletAddress) {
-            throw new Error('Wallet address is required.');
-        }
-        if (argv.smartFetch && !argv.maxSignatures) {
-            throw new Error('--smartFetch requires --maxSignatures to be set.');
-        }
-        // Add other validation as needed
-        return true;
-    })
-    .parseAsync();
+type AnalyzerRunOptions = {
+  limit: number;
+  maxSignatures?: number;
+  fetchAll: boolean;
+  fetchOlder: boolean;
+  smartFetch: boolean;
+  skipApi: boolean;
+  force: boolean;
+  analyzeBehavior: boolean;
+  startDate?: string;
+  endDate?: string;
+  saveAnalysisCsv: boolean;
+  saveReportMd: boolean;
+  displayLimit: number;
+};
 
-  const { 
-      walletAddress, 
-      limit, 
-      maxSignatures, 
-      fetchAll, 
-      fetchOlder, 
-      smartFetch,
-      skipApi, 
-      startDate, 
-      endDate, 
-      saveAnalysisCsv, 
-      saveReportMd,
-      displayLimit,
-      analyzeBehavior,
-    } = argv;
+type AnalyzerServices = {
+  dbService: DatabaseService;
+  heliusApiClient: HeliusApiClient;
+  syncService: HeliusSyncService | null;
+  pnlAnalysisService: PnlAnalysisService;
+  reportingService: ReportingService;
+  behaviorService: BehaviorService | null;
+};
 
-  logger.info(`Starting analysis for wallet: ${walletAddress}`);
-  logger.debug('CLI Arguments:', argv);
+function normalizeWalletList(input: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of input) {
+    const address = raw.trim();
+    if (!address || seen.has(address)) continue;
+    seen.add(address);
+    result.push(address);
+  }
+  return result;
+}
 
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  if (!heliusApiKey && !skipApi) {
-    logger.error('HELIUS_API_KEY environment variable is not set. Cannot fetch data from Helius.');
-    process.exit(1);
+function parseWalletsFromFile(filePath: string): string[] {
+  const content = fs.readFileSync(filePath, 'utf-8').trim();
+  if (!content) return [];
+
+  const looksJson = content.startsWith('[') || content.startsWith('{');
+  if (looksJson) {
+    const data = JSON.parse(content);
+    const list = Array.isArray(data) ? data : Array.isArray(data?.wallets) ? data.wallets : null;
+    if (Array.isArray(list)) {
+      const addresses = list.map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item.address === 'string') return item.address;
+        if (item && typeof item.walletAddress === 'string') return item.walletAddress;
+        return '';
+      });
+      return normalizeWalletList(addresses);
+    }
+    throw new Error('Wallets file JSON must be an array or contain a wallets array.');
   }
 
-  // --- Instantiate Services ---
-  const dbService = new DatabaseService();
+  const lines = content.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  if (lines.length === 0) return [];
 
-  // Instantiate HeliusApiClient once
-  let heliusApiClient: HeliusApiClient | null = null;
-  if (heliusApiKey) {
-    heliusApiClient = new HeliusApiClient({ 
-        apiKey: heliusApiKey, 
-        network: 'mainnet' // Or make configurable if needed
-    }, dbService); // Pass dbService if HeliusApiClient constructor needs it
-  }
+  const headerCells = lines[0].split(',').map(cell => cell.trim().toLowerCase());
+  const addressColumn = headerCells.findIndex(cell => cell.includes('address') || cell.includes('wallet'));
+  const hasHeader = addressColumn !== -1;
+  const startIndex = hasHeader ? 1 : 0;
 
-  let syncService: HeliusSyncService | null = null;
-  if (heliusApiClient) { 
-      syncService = new HeliusSyncService(dbService, heliusApiClient); // Pass the client instance
-  } else if (!skipApi) {
-      logger.error("Cannot proceed with sync service without Helius API key/client when skipApi is false.");
-      process.exit(1);
+  const addresses = lines.slice(startIndex).map(line => {
+    const cells = line.split(',').map(cell => cell.trim());
+    if (hasHeader) {
+      return cells[addressColumn] || '';
+    }
+    return cells[0] || '';
+  });
+  return normalizeWalletList(addresses);
+}
+
+function parseWalletInputs(argv: any): string[] {
+  if (argv.walletAddress) {
+    return normalizeWalletList([argv.walletAddress]);
   }
-  
-  // Pass HeliusApiClient to PnlAnalysisService
-  // Ensure PnlAnalysisService also uses dbService as its first argument if needed
-  const httpService = new HttpService();
-  // Create Redis client for services that require it
-  const redisClient = new Redis({
+  if (argv.wallets) {
+    return normalizeWalletList(argv.wallets.split(','));
+  }
+  if (argv.walletsFile) {
+    return parseWalletsFromFile(argv.walletsFile);
+  }
+  return [];
+}
+
+function createSafeRedisClient(): Redis {
+  const client = new Redis({
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
     password: process.env.REDIS_PASSWORD,
     db: parseInt(process.env.REDIS_DB || '0', 10),
     lazyConnect: true,
-    maxRetriesPerRequest: 3,
+    enableOfflineQueue: false,
+    connectTimeout: 2000,
+    maxRetriesPerRequest: 1,
   });
+
+  client.on('error', (error) => {
+    logger.warn('Redis error (cache will be skipped)', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
+
+  const rawGet = client.get.bind(client);
+  const rawSet = client.set.bind(client);
+  const clientAny = client as unknown as {
+    get: (...args: any[]) => Promise<any>;
+    set: (...args: any[]) => Promise<any>;
+  };
+
+  clientAny.get = async (...args: any[]) => {
+    try {
+      return await rawGet(...args);
+    } catch (error) {
+      logger.warn('Redis get failed (cache miss)', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  };
+
+  clientAny.set = async (...args: any[]) => {
+    try {
+      return await rawSet(...args);
+    } catch (error) {
+      logger.warn('Redis set failed (cache disabled)', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return 'OK';
+    }
+  };
+
+  return client;
+}
+
+function buildServices(options: AnalyzerRunOptions): AnalyzerServices {
+  const heliusApiKey = process.env.HELIUS_API_KEY;
+  if (!heliusApiKey && !options.skipApi) {
+    throw new Error('HELIUS_API_KEY environment variable is not set. Cannot fetch data from Helius.');
+  }
+
+  const dbService = new DatabaseService();
+
+  let heliusApiClient: HeliusApiClient | null = null;
+  if (heliusApiKey) {
+    heliusApiClient = new HeliusApiClient(
+      { apiKey: heliusApiKey, network: 'mainnet' },
+      dbService
+    );
+  }
+
+  if (!heliusApiClient) {
+    throw new Error('HeliusApiClient is required for analysis services.');
+  }
+
+  let syncService: HeliusSyncService | null = null;
+  if (heliusApiClient) {
+    syncService = new HeliusSyncService(dbService, heliusApiClient);
+  } else if (!options.skipApi) {
+    throw new Error('Cannot proceed with sync service without Helius API key/client when skipApi is false.');
+  }
+
+  const httpService = new HttpService();
+  const redisClient = createSafeRedisClient();
 
   const dexscreenerService = new DexscreenerService(dbService, httpService, redisClient);
   const dexscreenerProvider = new (require('../api/services/dexscreener-price-provider').DexscreenerPriceProvider)(
     dbService,
     httpService
   );
-  // OnchainMetadataService requires HeliusApiClient
-  if (!heliusApiClient) {
-    throw new Error('HeliusApiClient is required for TokenInfoService (needed for OnchainMetadataService)');
-  }
   const onchainMetadataService = new OnchainMetadataService(heliusApiClient);
-  const tokenInfoService = new TokenInfoService(dbService, dexscreenerService, dexscreenerProvider, onchainMetadataService, heliusApiClient, redisClient);
+  const tokenInfoService = new TokenInfoService(
+    dbService,
+    dexscreenerService,
+    dexscreenerProvider,
+    onchainMetadataService,
+    heliusApiClient,
+    redisClient
+  );
   const pnlAnalysisService = new PnlAnalysisService(dbService, heliusApiClient, tokenInfoService);
-  
-  // Use undefined instead of null for optional service dependencies
-  const reportingService = new ReportingService(undefined, undefined, undefined, undefined, pnlAnalysisService);
-  let behaviorService: BehaviorService | null = null;
-  let behavioralMetrics: any = null;
 
-  // Instantiate BehaviorService if requested
-  if (analyzeBehavior) {
-    // Define a default behavior config, potentially allowing overrides later via CLI
+  const reportingService = new ReportingService(undefined, undefined, undefined, undefined, pnlAnalysisService);
+
+  let behaviorService: BehaviorService | null = null;
+  if (options.analyzeBehavior) {
     const defaultBehaviorConfig: BehaviorAnalysisConfig = {
-        // Uses defaults from BehaviorAnalyzer for thresholds if not specified here
-        // timeRange can be inherited from the main PNL timeRange if appropriate
-        timeRange: parseTimeRange(startDate, endDate),
-        excludedMints: [], // Add CLI option for this if needed, or use a shared one
+      timeRange: parseTimeRange(options.startDate, options.endDate),
+      excludedMints: [],
     };
     behaviorService = new BehaviorService(dbService, defaultBehaviorConfig);
     logger.info('Behavioral analysis will be performed.');
   }
+
+  return {
+    dbService,
+    heliusApiClient,
+    syncService,
+    pnlAnalysisService,
+    reportingService,
+    behaviorService,
+  };
+}
+
+/**
+ * Main analysis function.
+ */
+async function analyzeWalletWithHelius(
+  walletAddress: string,
+  options: AnalyzerRunOptions,
+  services: AnalyzerServices
+) {
+  const {
+    limit,
+    maxSignatures,
+    fetchAll,
+    fetchOlder,
+    smartFetch,
+    skipApi,
+    force,
+    startDate,
+    endDate,
+    saveAnalysisCsv,
+    saveReportMd,
+    analyzeBehavior,
+  } = options;
+
+  const { dbService, syncService, pnlAnalysisService, reportingService, behaviorService } = services;
+  let behavioralMetrics: any = null;
+
+  // Set maxSignatures to a large number when fetchAll is true
+  const effectiveMaxSignatures = fetchAll && !maxSignatures ? 100000 : maxSignatures;
+
+  logger.info(`Starting analysis for wallet: ${walletAddress}`);
 
   // --- Orchestration Flow ---
   let runId: number | null = null;
@@ -221,7 +286,7 @@ async function analyzeWalletWithHelius() {
         fetchAll: fetchAll,
         skipApi: skipApi, // Should be false here
         fetchOlder: fetchOlder,
-        maxSignatures: maxSignatures,
+        maxSignatures: effectiveMaxSignatures,
         smartFetch: smartFetch,
       };
       await syncService.syncWalletData(walletAddress, syncOptions);
@@ -267,9 +332,12 @@ async function analyzeWalletWithHelius() {
         const noNewOlderData = effectiveMinFetchedForPnlCheck >= wallet.analyzedTimestampStart;
         const noNewNewerData = effectiveMaxFetchedForPnlCheck <= wallet.analyzedTimestampEnd;
 
-        if (noNewOlderData && noNewNewerData) {
+        if (noNewOlderData && noNewNewerData && !force) {
           logger.info(`--- Skipping P/L Analysis for ${walletAddress}: No new transactions outside the previously analyzed range (${wallet.analyzedTimestampStart} - ${wallet.analyzedTimestampEnd}). Effective fetched range for check based on wallet state: ${effectiveMinFetchedForPnlCheck} - ${effectiveMaxFetchedForPnlCheck}. (Wallet fields: firstProcessedTimestamp=${globalFirstProcessedTs}, newestProcessedTimestamp=${globalNewestProcessedTs}) ---`);
           pnlAnalysisSkipped = true;
+        } else if (noNewOlderData && noNewNewerData && force) {
+          logger.info(`--- Performing P/L Analysis for ${walletAddress}: --force flag set, bypassing skip logic. ---`);
+          // pnlAnalysisSkipped remains false
         } else {
           let reason = [];
           if (!noNewOlderData) reason.push(`older data (batch min ${effectiveMinFetchedForPnlCheck} < analyzed start ${wallet.analyzedTimestampStart})`);
@@ -436,15 +504,188 @@ async function analyzeWalletWithHelius() {
              logger.error(`Failed to update run status to FAILED for run ${runId}:`, updateError);
          }
     }
-    process.exit(1); // Exit with error code
+    throw error;
   }
 }
 
 // --- Script Execution ---
 if (require.main === module) {
-  analyzeWalletWithHelius().catch(error => {
-    // Catch any unhandled errors from the main function itself
-    logger.error('Unhandled error in main execution:', { error });
+  const argv = yargs(hideBin(process.argv))
+    .option('walletAddress', {
+      alias: 'w',
+      type: 'string',
+      description: 'The Solana wallet address to analyze',
+    })
+    .option('wallets', {
+      type: 'string',
+      description: 'Comma-separated list of Solana wallet addresses to analyze',
+    })
+    .option('walletsFile', {
+      type: 'string',
+      description: 'Path to JSON or CSV file containing wallet addresses',
+    })
+    .option('concurrency', {
+      type: 'number',
+      default: 3,
+      description: 'Number of wallets to process concurrently',
+    })
+    .option('limit', {
+      alias: 'l',
+      type: 'number',
+      default: 100,
+      description: 'Batch size for fetching transactions from Helius API',
+    })
+    .option('maxSignatures', {
+      alias: 'm',
+      type: 'number',
+      description: 'Maximum number of signatures to fetch/process. Overrides fetchAll if set. Useful for initial large fetches or limiting history.',
+    })
+    .option('fetchAll', {
+      type: 'boolean',
+      default: false,
+      description: 'Attempt to fetch all transaction history (can be very slow, use maxSignatures if possible)',
+    })
+    .option('fetchOlder', {
+      type: 'boolean',
+      default: false,
+      description: 'Force fetching older transactions, ignoring last processed state in DB.',
+    })
+    .option('smartFetch', {
+      type: 'boolean',
+      default: false,
+      description: 'Fetch new transactions first, then older up to maxSignatures. Requires --maxSignatures.',
+    })
+    .option('skipApi', {
+      type: 'boolean',
+      default: false,
+      description: 'Skip Helius API calls and analyze only data already in the database',
+    })
+    .option('force', {
+      type: 'boolean',
+      default: false,
+      description: 'Force re-analysis even if no new transactions detected',
+    })
+    .option('analyzeBehavior', {
+      type: 'boolean',
+      default: false,
+      description: 'Perform behavioral analysis in addition to P/L analysis',
+    })
+    .option('startDate', {
+      type: 'string',
+      description: 'Start date (YYYY-MM-DD) for analysis period (inclusive)',
+    })
+    .option('endDate', {
+      type: 'string',
+      description: 'End date (YYYY-MM-DD) for analysis period (inclusive)',
+    })
+    .option('saveAnalysisCsv', {
+      type: 'boolean',
+      default: false,
+      description: 'Save the detailed analysis results to a CSV file',
+    })
+    .option('saveReportMd', {
+      type: 'boolean',
+      default: true, // Default to saving markdown report
+      description: 'Save the summary analysis report to a Markdown file',
+    })
+    .option('displayLimit', {
+      alias: 'd',
+      type: 'number',
+      default: 20,
+      description: 'Number of top/bottom results to display in console summary',
+    })
+    .check((argv) => {
+      const sources = [argv.walletAddress, argv.wallets, argv.walletsFile].filter(Boolean).length;
+      if (sources === 0) {
+        throw new Error('One of --walletAddress, --wallets, or --walletsFile is required.');
+      }
+      if (sources > 1) {
+        throw new Error('Provide only one of --walletAddress, --wallets, or --walletsFile.');
+      }
+      if (argv.smartFetch && !argv.maxSignatures) {
+        throw new Error('--smartFetch requires --maxSignatures to be set.');
+      }
+      if (argv.concurrency <= 0) {
+        throw new Error('--concurrency must be greater than 0.');
+      }
+      return true;
+    })
+    .parseSync();
+
+  const walletAddresses = parseWalletInputs(argv);
+  if (walletAddresses.length === 0) {
+    logger.error('No valid wallet addresses found.');
+    process.exit(1);
+  }
+
+  const options: AnalyzerRunOptions = {
+    limit: argv.limit,
+    maxSignatures: argv.maxSignatures,
+    fetchAll: argv.fetchAll,
+    fetchOlder: argv.fetchOlder,
+    smartFetch: argv.smartFetch,
+    skipApi: argv.skipApi,
+    force: argv.force,
+    analyzeBehavior: argv.analyzeBehavior,
+    startDate: argv.startDate,
+    endDate: argv.endDate,
+    saveAnalysisCsv: argv.saveAnalysisCsv,
+    saveReportMd: argv.saveReportMd,
+    displayLimit: argv.displayLimit,
+  };
+
+  let services: AnalyzerServices;
+  try {
+    services = buildServices(options);
+  } catch (error) {
+    logger.error('Failed to initialize services:', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    process.exit(1);
+  }
+
+  const concurrency = Math.max(1, Math.floor(argv.concurrency));
+  const totalWallets = walletAddresses.length;
+  let failures = 0;
+
+  const runBatch = async (batch: string[], offset: number) => {
+    const tasks = batch.map(async (walletAddress, index) => {
+      const position = offset + index + 1;
+      logger.info(`Processing wallet ${position}/${totalWallets}: ${walletAddress}`);
+      await analyzeWalletWithHelius(walletAddress, options, services);
+    });
+    const results = await Promise.allSettled(tasks);
+    let batchFailures = 0;
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        batchFailures += 1;
+        logger.error(`Wallet failed: ${batch[index]}`, {
+          message: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    });
+    return batchFailures;
+  };
+
+  (async () => {
+    for (let i = 0; i < walletAddresses.length; i += concurrency) {
+      const batch = walletAddresses.slice(i, i + concurrency);
+      const batchFailures = await runBatch(batch, i);
+      failures += batchFailures;
+    }
+
+    if (failures > 0) {
+      logger.warn(`Completed with ${failures} failed wallet(s).`);
+      process.exitCode = 1;
+    } else {
+      logger.info('All wallet analyses completed successfully.');
+    }
+  })().catch(error => {
+    logger.error('Unhandled error in main execution:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     process.exit(1);
   });
 }

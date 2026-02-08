@@ -6,6 +6,10 @@ Working playbook for the Sova Intel codebase. Treat the scaling plan and the Nes
 
 ## Primary Goal
 
+Launch dashboard with the right math and functional.
+
+## Secondary goal 
+
 Finish Scaling Plan Phase 6 by turning the existing similarity engine into an AI-interpreted report that the dashboard can serve immediately, without breaking the queue-driven flows already in production.
 
 ---

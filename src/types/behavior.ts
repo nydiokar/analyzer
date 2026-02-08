@@ -53,7 +53,7 @@ export interface WalletHistoricalPattern {
   medianCompletedHoldTimeHours: number;    // Median of completed cycles
 
   // Behavioral classification (granular memecoin trading patterns)
-  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HODLER';
   exitPattern: 'GRADUAL' | 'ALL AT ONCE';  // Based on sell distribution
 
   // Confidence metrics
@@ -126,7 +126,7 @@ export interface WalletTokenPrediction {
   // Historical context (from OTHER completed tokens)
   historicalMedianHoldHours: number;        // Wallet's typical median hold time
   historicalSampleSize: number;             // Number of completed cycles
-  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HOLDER';
+  behaviorType: 'SNIPER' | 'SCALPER' | 'MOMENTUM' | 'INTRADAY' | 'DAY_TRADER' | 'SWING' | 'POSITION' | 'HODLER';
   exitPattern: 'GRADUAL' | 'ALL AT ONCE';
 
   // Current position (for THIS specific token)
@@ -192,6 +192,7 @@ export interface BehavioralMetrics {
   percentOfCurrentPortfolioValue?: number; // % of current portfolio vs historical trades
   sequenceConsistency: number;
   flipperScore: number;
+  velocityScore?: number; // 0-100 trading velocity score
   uniqueTokensTraded: number;
   tokensWithBothBuyAndSell: number;
   tokensWithOnlyBuys: number;
@@ -213,6 +214,10 @@ export interface BehavioralMetrics {
   percentTradesUnder1Hour: number;
   percentTradesUnder4Hours: number;
   tradingStyle: string;
+  speedCategory?: SpeedCategory | null; // Null if no completed cycles
+  flowPattern?: FlowPattern | null;
+  strategyType?: StrategyType;
+  medianActiveHoldingHours?: number;
   confidenceScore: number;
   tradingFrequency: {
     tradesPerDay: number;
@@ -242,4 +247,51 @@ export interface BehavioralMetrics {
 
   // New: Trading interpretation (optional, provides clear speed vs economic analysis)
   tradingInterpretation?: TradingInterpretation;
-} 
+}
+
+// ============================================================================
+// NEW: Classification System Enums (for refactor)
+// ============================================================================
+
+/**
+ * Speed Category - How fast does this wallet exit positions?
+ * Based on median hold time of COMPLETED cycles only.
+ * Null if wallet has no completed exit cycles.
+ */
+export type SpeedCategory =
+  | 'SNIPER'      // < 1 min
+  | 'SCALPER'     // 1-5 min
+  | 'MOMENTUM'    // 5-30 min
+  | 'INTRADAY'    // 30min-4h
+  | 'DAY_TRADER'  // 4-24h
+  | 'SWING'       // 1-7 days
+  | 'POSITION'    // 7-30 days
+  | 'HODLER';     // 30+ days (crypto spelling for long-term exited positions)
+
+/**
+ * Flow Pattern - What's the directional flow of trading activity?
+ * Based on buy/sell ratio and counts.
+ */
+export type FlowPattern =
+  | 'BUY_ONLY'      // No sells, only buys (pure accumulation)
+  | 'SELL_ONLY'     // No buys, only sells (pure distribution)
+  | 'ACCUMULATOR'   // Heavy buy bias (ratio > 2.0)
+  | 'DISTRIBUTOR'   // Heavy sell bias (ratio < 0.5)
+  | 'BALANCED'      // Symmetric buy/sell (0.5 < ratio < 2.0)
+  | 'MIXED';        // No clear pattern
+
+/**
+ * Strategy Type - Canonical filter for UI/API
+ * Combines speed + flow + holder signals into single enum.
+ * This is THE field to filter on in Discover page.
+ */
+export type StrategyType =
+  | 'FAST_TRADER'       // SNIPER, SCALPER, or MOMENTUM speed
+  | 'DAY_TRADER'        // INTRADAY or DAY_TRADER speed
+  | 'SWING_TRADER'      // SWING speed
+  | 'POSITION_TRADER'   // POSITION or HODLER speed (with exits)
+  | 'PURE_HOLDER'       // BUY_ONLY flow (no exits yet)
+  | 'ACCUMULATOR'       // ACCUMULATOR flow (any speed)
+  | 'DISTRIBUTOR'       // DISTRIBUTOR or SELL_ONLY flow
+  | 'BALANCED_TRADER'   // BALANCED flow
+  | 'LOW_ACTIVITY';     // Insufficient data (< 5 trades, < 2 tokens) 

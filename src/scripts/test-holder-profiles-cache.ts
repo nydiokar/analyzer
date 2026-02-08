@@ -64,6 +64,10 @@ import { hideBin } from 'yargs/helpers';
 import { DatabaseService } from '../api/services/database.service';
 import { HolderProfilesCacheService } from '../api/services/holder-profiles-cache.service';
 import { HolderProfilesResult, HolderProfile } from '../queues/jobs/types';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import logger from '../core/utils/logger';
+
+
 import type { HolderProfileSnapshot } from '@prisma/client';
 
 dotenv.config();
@@ -687,7 +691,7 @@ async function main() {
     // Exit with appropriate code
     process.exit(summary.failed > 0 ? 1 : 0);
   } catch (error) {
-    console.error(`\n${colors.red}Fatal error during test execution:${colors.reset}`, error);
+    logger.error(`\n${colors.red}Fatal error during test execution:${colors.reset}`, getErrorMessage(error));
     process.exit(1);
   }
 }

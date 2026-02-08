@@ -14,21 +14,33 @@ export class WalletSummaryResponse {
   })
   walletAddress: string;
 
+  @ApiPropertyOptional({
+    description: 'Known wallet type from registry (if applicable).',
+    example: 'LP',
+  })
+  knownType?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Known wallet display label from registry (if applicable).',
+    example: '💧 LP',
+  })
+  knownLabel?: string | null;
+
   @ApiPropertyOptional({ 
     description: 'ISO 8601 timestamp of when the wallet was last analyzed.',
     example: '2023-05-21T10:00:00.000Z' 
   })
   lastAnalyzedAt?: string | null;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: "Timestamp of the wallet's last known transaction (Unix seconds).",
-    example: 1684663200 
+    example: 1684663200
   })
   lastActiveTimestamp?: number | null;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'Number of days the wallet has been active.',
-    example: 42 
+    example: 42
   })
   daysActive?: number | string;
 
@@ -107,9 +119,9 @@ export class WalletSummaryResponse {
   })
   totalTradesCount?: number | null;
 
-  @ApiPropertyOptional({ 
+  @ApiPropertyOptional({
     description: 'ISO 8601 timestamp of when the balance was last fetched.',
-    example: '2023-05-21T10:00:00.000Z' 
+    example: '2023-05-21T10:00:00.000Z'
   })
   balancesFetchedAt?: string | null;
 } 

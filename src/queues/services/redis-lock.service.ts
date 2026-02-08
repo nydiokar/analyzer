@@ -1,6 +1,8 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../config/redis.provider';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 const truncate = (str: string, length = 64) => {
   if (str.length <= length) return str;
@@ -219,7 +221,7 @@ export class RedisLockService {
       this.logger.log(`Startup orphaned lock cleanup completed. Cleaned ${cleanedCount} orphaned locks (scanned ${scannedCount} keys matching ${pattern})`);
       return cleanedCount;
     } catch (error) {
-      this.logger.error('Error during startup orphaned lock cleanup:', error);
+      this.logger.error('Error during startup orphaned lock cleanup:', getErrorMessage(error));
       return 0;
     }
   }

@@ -6,6 +6,9 @@ import { JobProgressGateway } from '../../api/shared/job-progress.gateway';
 import { RedisLockService } from './redis-lock.service';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import { Redis } from 'ioredis';
+import { sanitizeErrorMessage } from '../utils/error-sanitizer';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 @Injectable()
 export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
@@ -46,7 +49,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
             errorMessage.includes('writeable')) {
           this.logger.warn('⚠️  Redis not ready for cleanup - skipping. Make sure Redis is running for lock management.');
         } else {
-          this.logger.error('Error during startup lock cleanup:', error);
+          this.logger.error('Error during startup lock cleanup:', getErrorMessage(error));
         }
       }
     }, 10000); // Wait 10 seconds for Redis to be fully ready
@@ -61,7 +64,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       try {
         await queue.close();
       } catch (error) {
-        this.logger.warn(`Error closing queue ${queue.name} during shutdown`, error as Error);
+        this.logger.warn(`Error closing queue ${queue.name} during shutdown: ${getErrorMessage(error)}`);
       }
     }
     this.queueEventsMap.clear();
@@ -132,13 +135,19 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
       const userId = await this.resolveUserId(job, jobId);
 
-      this.logger.warn(`Job failed: ${jobId} - ${failedReason}`);
-      await this.jobProgressGateway.publishFailedEvent(jobId, queueName, failedReason, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
+      // Log the full error for debugging
+      this.logger.error(`Job failed: ${jobId}\nFull error:\n${failedReason}`);
+
+      // Sanitize error message for user-friendly display
+      const sanitizedError = sanitizeErrorMessage(failedReason);
+      this.logger.log(`Sanitized error: ${sanitizedError}`);
+
+      await this.jobProgressGateway.publishFailedEvent(jobId, queueName, sanitizedError, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
       await this.cleanupUserMapping(jobId);
     });
 
     queueEvents.on('error', (err) => {
-      this.logger.error(`Queue events error for ${queueName}:`, err);
+      this.logger.error(`Queue events error for ${queueName}: ${getErrorMessage(err)}`);
     });
 
     this.queueEventsMap.set(queueName, queueEvents);
@@ -154,7 +163,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const cached = await this.redisClient.get(`job:user:${jobId}`);
       return cached || undefined;
     } catch (error) {
-      this.logger.warn(`Failed to resolve userId for job ${jobId}:`, error as Error);
+      this.logger.warn(`Failed to resolve userId for job ${jobId}: ${getErrorMessage(error)}`);
       return undefined;
     }
   }
@@ -163,7 +172,7 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.redisClient.del(`job:user:${jobId}`);
     } catch (error) {
-      this.logger.warn(`Failed to clean user mapping for job ${jobId}:`, error as Error);
+      this.logger.warn(`Failed to clean user mapping for job ${jobId}: ${getErrorMessage(error)}`);
     }
   }
 }

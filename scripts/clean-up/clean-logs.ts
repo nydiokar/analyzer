@@ -2,6 +2,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { getErrorMessage, getErrorDetails } from '../../src/core/utils/error-utils';
+import logger from '../../src/core/utils/logger';
+
+
 
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 
@@ -62,7 +66,7 @@ function cleanOldLogs(daysToKeep: number = 7): void {
         filesRemoved++;
         console.log(`🗑️  Removed: ${file.name} (${formatBytes(file.size)})`);
       } catch (error) {
-        console.error(`❌ Failed to remove ${file.name}:`, error);
+        logger.error(`❌ Failed to remove ${file.name}:`, getErrorMessage(error));
       }
     }
   }
@@ -109,7 +113,7 @@ function backupCurrentLogs(): void {
         fs.copyFileSync(file.path, backupPath);
         console.log(`📋 Backed up: ${file.name}`);
       } catch (error) {
-        console.error(`❌ Failed to backup ${file.name}:`, error);
+        logger.error(`❌ Failed to backup ${file.name}:`, getErrorMessage(error));
       }
     }
   }

@@ -10,6 +10,10 @@
  */
 
 import { prisma } from '../core/services/database-service';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import logger from '../core/utils/logger';
+
+
 
 
 function extractRawUrl(url: string | null): string | null {
@@ -85,7 +89,7 @@ async function main() {
         console.log(`   Progress: ${fixedCount}/${tokensWithCdnUrls.length} fixed...`);
       }
     } catch (error) {
-      console.error(`   ❌ Failed to fix ${token.tokenAddress}:`, error);
+      logger.error(`   ❌ Failed to fix ${token.tokenAddress}:`, getErrorMessage(error));
       errorCount++;
     }
   }
@@ -99,7 +103,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error('❌ Script failed:', error);
+    logger.error('❌ Script failed:', getErrorMessage(error));
     process.exit(1);
   })
   .finally(async () => {

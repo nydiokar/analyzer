@@ -5,6 +5,8 @@ import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { ApiKeyDatabaseService } from './api-key-database.service';
 import { JwtDatabaseService } from './jwt-database.service';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 export type ApiKeyScope = 'read' | 'report' | 'analysis' | 'admin' | 'full';
 
@@ -156,7 +158,7 @@ export class ApiKeyService {
       };
 
     } catch (error) {
-      this.logger.error('Error validating API key:', error);
+      this.logger.error('Error validating API key:', getErrorMessage(error));
       return { isValid: false };
     }
   }
@@ -376,7 +378,7 @@ export class ApiKeyService {
     try {
       return await bcrypt.hash(apiKey, this.API_KEY_SALT_ROUNDS);
     } catch (error) {
-      this.logger.error('Failed to hash API key', error);
+      this.logger.error('Failed to hash API key', getErrorMessage(error));
       throw new UnauthorizedException('API key processing failed');
     }
   }
@@ -385,7 +387,7 @@ export class ApiKeyService {
     try {
       return await bcrypt.compare(apiKey, hash);
     } catch (error) {
-      this.logger.error('Failed to verify API key', error);
+      this.logger.error('Failed to verify API key', getErrorMessage(error));
       return false;
     }
   }

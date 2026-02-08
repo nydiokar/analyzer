@@ -1,0 +1,215 @@
+# Prometheus Configuration for Sova Intel Wallet Analyzer
+#
+# This configuration scrapes metrics from:
+# - Application API (app metrics + BullMQ queue metrics)
+# - Node Exporter (host metrics)
+# - Postgres Exporter (database metrics)
+# - Redis Exporter (cache metrics)
+#
+# Installation Instructions:
+# 1. Copy this file to your Prometheus config directory (usually /etc/prometheus/)
+# 2. Replace PLACEHOLDER values with your actual IPs/hostnames
+# 3. Reload Prometheus: sudo systemctl reload prometheus
+#   OR send SIGHUP: kill -HUP $(pidof prometheus)
+#
+# Verification:
+# - Check targets: http://localhost:9090/targets
+# - All targets should show "UP" state
+
+global:
+  # How often to scrape targets
+  scrape_interval: 15s
+
+  # How often to evaluate alerting rules
+  evaluation_interval: 15s
+
+  # Attach these labels to all time series
+  external_labels:
+    cluster: 'sova-intel'
+    environment: 'production'  # Change to 'staging' or 'development' as needed
+
+# Scrape configurations
+scrape_configs:
+  # ======================
+  # Application Metrics
+  # ======================
+  - job_name: 'app'
+    scrape_interval: 10s  # Scrape more frequently for app metrics
+    static_configs:
+      - targets:
+          # REPLACE WITH YOUR APP HOST:PORT
+          # Examples:
+          # - 'localhost:3001'           # Local development
+          # - 'sova-intel.duckdns.org'   # Production domain (uses port 80/443)
+          # - '192.168.1.10:3001'        # LAN IP
+          - 'REPLACE_WITH_YOUR_APP_HOST:3001'
+        labels:
+          component: 'backend'
+
+    # Metrics path (default is /metrics, but we use /api/v1/metrics)
+    metrics_path: '/api/v1/metrics'
+
+    # Optional: Add scheme if using HTTPS
+    # scheme: https
+    # tls_config:
+    #   insecure_skip_verify: false
+
+  # ======================
+  # BullMQ Queue Metrics
+  # ======================
+  # Note: BullMQ metrics are exposed on the same endpoint as app metrics
+  # This is just an alias for clarity in Grafana dashboards
+  - job_name: 'bullmq'
+    scrape_interval: 5s  # Poll queue depth frequently
+    static_configs:
+      - targets:
+          - 'REPLACE_WITH_YOUR_APP_HOST:3001'
+        labels:
+          component: 'queue'
+    metrics_path: '/api/v1/metrics'
+    metric_relabel_configs:
+      # Only keep BullMQ-related metrics for this job
+      - source_labels: [__name__]
+        regex: 'bullmq_.*'
+        action: keep
+
+  # ======================
+  # Host Metrics (Node Exporter)
+  # ======================
+  - job_name: 'node'
+    static_configs:
+      - targets:
+          # REPLACE WITH YOUR HOST IP
+          # Examples:
+          # - 'localhost:9100'
+          # - '192.168.1.10:9100'
+          - 'REPLACE_WITH_YOUR_HOST_IP:9100'
+        labels:
+          component: 'host'
+          hostname: 'pi5'  # Change to your hostname
+
+  # ======================
+  # PostgreSQL Metrics
+  # ======================
+  - job_name: 'postgres'
+    static_configs:
+      - targets:
+          # REPLACE WITH YOUR POSTGRES EXPORTER HOST
+          # Usually same host as your app
+          # Examples:
+          # - 'localhost:9187'
+          # - '192.168.1.10:9187'
+          - 'REPLACE_WITH_YOUR_HOST_IP:9187'
+        labels:
+          component: 'database'
+          dbname: 'wallet_analyzer'  # Change to your database name
+
+  # ======================
+  # Redis Metrics
+  # ======================
+  - job_name: 'redis'
+    static_configs:
+      - targets:
+          # REPLACE WITH YOUR REDIS EXPORTER HOST
+          # Usually same host as your app
+          # Examples:
+          # - 'localhost:9121'
+          # - '192.168.1.10:9121'
+          - 'REPLACE_WITH_YOUR_HOST_IP:9121'
+        labels:
+          component: 'cache'
+
+  # ======================
+  # Prometheus Self-Monitoring
+  # ======================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+          - 'localhost:9090'
+        labels:
+          component: 'monitoring'
+
+# ======================
+# Alerting Configuration
+# ======================
+# Uncomment and configure if you want to set up alerting
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#             - 'localhost:9093'
+
+# ======================
+# Rule Files
+# ======================
+# Uncomment to load alerting/recording rules from files
+# rule_files:
+#   - '/etc/prometheus/rules/*.yml'
+
+# ======================
+# Storage Configuration
+# ======================
+# Prometheus stores data in ./data by default
+# Adjust retention time based on your disk space:
+# --storage.tsdb.retention.time=15d  (15 days - default)
+# --storage.tsdb.retention.size=10GB (size-based limit)
+#
+# Pass these as command-line flags when starting Prometheus:
+# prometheus --config.file=/etc/prometheus/prometheus.yml \
+#            --storage.tsdb.path=/var/lib/prometheus \
+#            --storage.tsdb.retention.time=30d \
+#            --storage.tsdb.retention.size=50GB
+
+# ======================
+# Example: Pi 5 Configuration
+# ======================
+# If running on Raspberry Pi 5 at 192.168.1.10:
+#
+# scrape_configs:
+#   - job_name: 'app'
+#     static_configs:
+#       - targets: ['192.168.1.10:3001']
+#     metrics_path: '/api/v1/metrics'
+#
+#   - job_name: 'bullmq'
+#     static_configs:
+#       - targets: ['192.168.1.10:3001']
+#     metrics_path: '/api/v1/metrics'
+#
+#   - job_name: 'node'
+#     static_configs:
+#       - targets: ['192.168.1.10:9100']
+#
+#   - job_name: 'postgres'
+#     static_configs:
+#       - targets: ['192.168.1.10:9187']
+#
+#   - job_name: 'redis'
+#     static_configs:
+#       - targets: ['192.168.1.10:9121']
+
+# ======================
+# Example: VPS Migration Configuration
+# ======================
+# When migrating to VPS, you can keep Pi metrics for comparison:
+#
+# scrape_configs:
+#   # VPS targets
+#   - job_name: 'app-vps'
+#     static_configs:
+#       - targets: ['your-vps-domain.com:3001']
+#     metrics_path: '/api/v1/metrics'
+#
+#   - job_name: 'node-vps'
+#     static_configs:
+#       - targets: ['your-vps-ip:9100']
+#
+#   # Keep Pi metrics for comparison (optional)
+#   - job_name: 'app-pi'
+#     static_configs:
+#       - targets: ['192.168.1.10:3001']
+#     metrics_path: '/api/v1/metrics'
+#
+#   - job_name: 'node-pi'
+#     static_configs:
+#       - targets: ['192.168.1.10:9100']

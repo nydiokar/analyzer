@@ -2,12 +2,10 @@ import { Module } from '@nestjs/common';
 import { JobsController } from '../controllers/jobs.controller';
 import { JobsService } from '../services/jobs.service';
 import { QueueModule } from '../../queues/queue.module';
-import { RedisModule } from '../../queues/config/redis.module';
 
 @Module({
   imports: [
-    QueueModule, // Import QueueModule to access queue services
-    RedisModule, // Import RedisModule to access REDIS_CLIENT
+    QueueModule, // Import QueueModule to access queue services + REDIS_CLIENT (globally available)
   ],
   controllers: [JobsController],
   providers: [JobsService],

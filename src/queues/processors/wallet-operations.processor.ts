@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Job, Worker } from 'bullmq';
+import { Job, Worker, UnrecoverableError } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { SyncWalletJobData, FetchBalanceJobData, WalletSyncResult } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
@@ -10,6 +10,8 @@ import { DatabaseService } from '../../api/services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 @Injectable()
 export class WalletOperationsProcessor implements OnModuleDestroy {
@@ -36,11 +38,11 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} failed:`, err);
+      this.logger.error(`Job ${job?.id} failed: ${getErrorMessage(err)}`);
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error:', err);
+      this.logger.error(`Worker error: ${getErrorMessage(err)}`);
     });
 
           this.logger.debug('WalletOperationsProcessor initialized with worker');
@@ -79,9 +81,18 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     // 1. Acquire Redis lock to prevent concurrent processing
     const lockKey = RedisLockService.createSyncLockKey(walletAddress);
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
-    
+
     if (!lockAcquired) {
-      throw new Error(`Wallet ${walletAddress} is already being synced`);
+      // 🚨 FAIL FAST: Prevent retry storms
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+      this.logger.warn(
+        `❌ Cannot acquire lock for wallet sync on ${walletAddress}. ` +
+        `Locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. Job ${job.id} FAILED (no retry).`
+      );
+      throw new UnrecoverableError(
+        `Wallet ${walletAddress} is already being synced (locked by: ${lockOwner})`
+      );
     }
 
     try {
@@ -150,7 +161,7 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
       return result;
 
     } catch (error) {
-      this.logger.error(`Wallet sync failed for ${walletAddress}:`, error);
+      this.logger.error(`Wallet sync failed for ${walletAddress}:`, getErrorMessage(error));
       
       const result: WalletSyncResult = {
         success: false,
@@ -203,7 +214,7 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
       return result;
 
     } catch (error) {
-      this.logger.error(`Balance fetch failed for ${walletAddress}:`, error);
+      this.logger.error(`Balance fetch failed for ${walletAddress}:`, getErrorMessage(error));
       throw error;
     }
   }
@@ -229,7 +240,7 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     try {
       await this.shutdown();
     } catch (err) {
-      this.logger.warn('Error shutting down WalletOperationsProcessor worker', err as Error);
+      this.logger.warn(`Error shutting down WalletOperationsProcessor worker: ${getErrorMessage(err)}`);
     }
   }
 } 

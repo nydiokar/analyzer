@@ -1,6 +1,6 @@
 import { useAuthStore } from '@/store/auth-store';
+import { useUIStore } from '@/store/ui-store';
 import { toast } from 'sonner';
-
 // Build auth headers from stores (JWT preferred, API key fallback)
 const buildAuthHeaders = () => {
   const authState = useAuthStore.getState();
@@ -23,13 +23,20 @@ const attemptRefreshAndRetry = async (
 ) => {
   const authStore = useAuthStore.getState();
 
+  // Double-check we still have a token before attempting refresh
+  // (could have been cleared by another concurrent request)
+  if (!authStore.token || authStore.isUsingApiKey) {
+    const error = new Error('No valid session to refresh');
+    Object.defineProperty(error, 'status', { value: 401 });
+    Object.defineProperty(error, 'code', { value: 'NO_SESSION' });
+    throw error;
+  }
+
   console.log('Access token expired, attempting automatic refresh...');
   const refreshed = await authStore.refreshToken();
 
   if (!refreshed) {
     console.log('Automatic refresh failed - refresh token may be expired');
-    // Don't throw error immediately - let the 401 propagate naturally
-    // The logout will be handled by the auth store if refresh token is truly expired
     const error = new Error('Unable to refresh session. Please log in again.');
     Object.defineProperty(error, 'status', { value: 401 });
     Object.defineProperty(error, 'code', { value: 'REFRESH_FAILED' });
@@ -81,15 +88,19 @@ export const fetcher = async (url: string, options?: RequestInit) => {
     try {
       res = await attemptRefreshAndRetry(absoluteUrl, options);
     } catch (refreshError) {
-      // If refresh fails, show a user-friendly toast and redirect to login
-      const authStore = useAuthStore.getState();
-      if (!authStore.isAuthenticated) {
-        // Already logged out by refresh logic, just redirect
-        toast.error('Your session has expired. Please log in again.');
-        if (typeof window !== 'undefined') {
-          window.location.href = '/';
+      // If refresh fails, show login modal instead of redirecting
+      // Note: logout() is already called by refreshToken() in auth-store when it gets 401
+      // We just need to show the UI feedback here
+      if (typeof window !== 'undefined') {
+        const uiStore = useUIStore.getState();
+
+        // Only show modal if not already showing (prevent multiple modals from concurrent requests)
+        if (!uiStore.showAuthModal) {
+          uiStore.setShowAuthModal(true, 'session_expired');
+          toast.error('Your session has expired. Please log in to continue.');
         }
       }
+
       throw refreshError;
     }
   }
@@ -112,9 +123,16 @@ export const fetcher = async (url: string, options?: RequestInit) => {
       }
     }
 
+    const message = String(errorPayload.message || '');
+    const isExpectedValidationError =
+      res.status === 400 &&
+      (message.startsWith('Invalid Solana address') || message.startsWith('Invalid token mint address'));
+    const isExpectedNotFound =
+      res.status === 404 && message.startsWith('Token mint not found');
+
     // Don't emit session expired events - let automatic refresh handle it
-    // Only show user-facing error for non-auth issues
-    if (res.status !== 401) {
+    // Only log unexpected errors to avoid console spam during typing.
+    if (res.status !== 401 && !isExpectedValidationError && !isExpectedNotFound) {
       console.error('API Error:', error);
     }
 

@@ -7,7 +7,7 @@ The Helius Transaction Mapper (`src/core/services/helius-transaction-mapper.ts`)
 ## Core Responsibilities
 
 1. **Transaction Parsing**: Convert Helius `HeliusTransaction` objects into normalized database records
-2. **Value Attribution**: Associate SOL/USDC values with token transfers using multiple heuristics
+2. **Value Attribution**: Associate SOL/stable values with token transfers using multiple heuristics (stable = USDC/USDT/USD1)
 3. **Swap Detection**: Identify SPL-to-SPL swaps, including those using WSOL as an intermediary
 4. **Fee Calculation**: Calculate and attribute network fees and protocol fees to trades
 5. **Deduplication**: Prevent duplicate records from being created for the same transaction
@@ -42,7 +42,7 @@ Build a `Set<string>` of all accounts belonging to the user:
 Calculate net changes across the transaction:
 ```typescript
 finalNetUserSolChange = netNativeSolChange + wsolChange
-finalNetUserUsdcChange = usdcChange
+finalNetUserStableChange = selectedStableChange
 ```
 
 These values serve as ground truth for validation and self-healing.
@@ -51,44 +51,66 @@ These values serve as ground truth for validation and self-healing.
 
 **⚠️ HELIUS API BUG MITIGATION (Critical)**
 
-Helius documentation claims `tokenAmount` in `tokenTransfers` is human-readable (already scaled by decimals), but **sometimes provides raw lamport values** for WSOL instead. This can cause catastrophic errors like assigning -20 million SOL to a wallet for a 0.02 SOL swap.
+Helius documentation claims `tokenAmount` in `tokenTransfers` is human-readable (already scaled by decimals), but **sometimes provides raw lamport values** for WSOL instead. This can cause catastrophic errors like assigning millions of SOL to a wallet for a small swap.
 
-**Self-Healing Logic** (Lines 489-512, 775-806):
+**Real-World Impact Example**:
+- Wallet: `qdnviuUs22gNUEzSK6pLxQVsYqzGBYvqe8jznbFhJiW`
+- Helius sent: `80730` (raw lamports)
+- Correct value: `0.00008073 SOL`
+- Without fix: P&L showed `-6,005,592 SOL (-$749.5M)` instead of `-0.006 SOL`
+
+**Self-Healing Logic** (Lines 791-870):
 
 ```typescript
-if (wsolAmount > 100000) {
-    // Likely raw lamports - validate against native balance changes
-    const expectedSolChange = Math.abs(finalNetUserSolChange);
+// Only check suspiciously large values (> 1000 SOL)
+if (wsolAmount > 1000) {
     const scaledAmount = wsolAmount / LAMPORTS_PER_SOL;
+    const expectedSolChange = Math.abs(finalNetUserSolChange); // Ground truth
 
-    // Cross-validate with 20% tolerance
-    const tolerance = 0.20;
-    const lowerBound = expectedSolChange * (1 - tolerance);
-    const upperBound = expectedSolChange * (1 + tolerance);
+    // Compare which value is closer to actual net SOL change
+    const rawDiff = Math.abs(wsolAmount - expectedSolChange);
+    const scaledDiff = Math.abs(scaledAmount - expectedSolChange);
 
-    if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
-        // CONFIRMED: Raw lamports detected, auto-correct
-        wsolAmount = scaledAmount;
-        // logger.warn(`Helius API bug detected - auto-corrected`);
-    } else {
-        // Genuine whale transfer (>100k SOL), keep as-is
+    // PRIMARY CHECK: Is scaled 10x+ closer? (high confidence)
+    if (scaledDiff < rawDiff * 0.1) {
+        wsolAmount = scaledAmount; // Auto-correct
     }
+    // EDGE CASE: Millions+ that scales to dust (definitely lamports)
+    else if (wsolAmount > 1000000 && scaledAmount < 0.001) {
+        wsolAmount = scaledAmount; // Auto-correct
+    }
+    // Otherwise: Keep raw value (genuine whale transfer)
 }
 ```
 
-**Why 100,000 SOL threshold?**
-- Raw lamports are always in millions (1 SOL = 1e9 lamports)
-- Legitimate single WSOL transfers rarely exceed 100k SOL
-- Provides clear separation between data errors and genuine whale activity
+**Design Principles**:
 
-**Why 20% tolerance?**
-- Network fees cause small discrepancies
-- Multiple WSOL wraps/unwraps in same transaction
-- Accounts for routing through intermediary accounts
+1. **Non-invasive**: Only triggers when `wsolAmount > 1000` SOL
+   - Normal swaps (0.001 - 100 SOL): ✅ Untouched
+   - Medium swaps (100 - 1000 SOL): ✅ Untouched
+   - Suspicious values (> 1000): ⚠️ Validated before converting
+
+2. **Cross-referenced validation**: Uses reliable `nativeBalanceChange` as ground truth
+   - Compares which value (raw or scaled) is closer to expected
+   - Only converts if scaled is **10x+ closer** (very high confidence)
+   - Protects legitimate whale transfers (5000 SOL transactions)
+
+3. **Edge case handling**: Values > 1 million that scale to dust
+   - Example: 6,005,592 → 0.006 SOL (clearly lamports)
+   - Auto-corrects even if validation comparison is inconclusive
+
+**Validation Examples**:
+
+| Scenario | Raw Value | Expected Change | Scaled Value | Action | Reason |
+|----------|-----------|----------------|--------------|--------|--------|
+| Broken swap | 80730 | 0.000166718 | 0.00008073 | ✅ Convert | scaledDiff (0.000086) << rawDiff (80730) |
+| Normal swap | 0.008173 | 0.008166 | 0.000000008 | ✅ Keep | Value < 1000, no check needed |
+| Whale transfer | 5000 | 5000.12 | 0.000005 | ✅ Keep | rawDiff (0.12) << scaledDiff (5000) |
+| Edge case | 6005592 | 0.006 | 0.006005 | ✅ Convert | Value > 1M, scaled < 0.001 |
 
 This validation runs in **two locations**:
 1. **Line 489-512**: When calculating `largestWsolTransfer` (used for intermediary pricing)
-2. **Line 775-806**: When processing individual WSOL token transfers
+2. **Line 791-870**: When processing individual WSOL token transfers (NEW: improved logic)
 
 ### 5. SPL-to-SPL Swap Detection
 
@@ -114,7 +136,7 @@ if (hasTokensInBothDirections && largestWsolTransfer > 0 &&
 
 ### 6. Event Matcher
 
-Attempts to find consistent intermediary SOL/USDC values from `tx.events.swap.innerSwaps`:
+Attempts to find consistent intermediary SOL/stable values from `tx.events.swap.innerSwaps`:
 
 ```typescript
 const eventResult = findIntermediaryValueFromEvent(tx, userAccounts, stats);
@@ -127,7 +149,7 @@ Returns:
 
 **Logic**:
 1. Identify user's primary IN/OUT tokens from top-level transfers
-2. Scan `innerSwaps` for WSOL/USDC amounts associated with these tokens
+2. Scan `innerSwaps` for WSOL/stable amounts associated with these tokens
 3. Check consistency: amounts from "sell" leg should match "buy" leg (within 1% tolerance)
 4. Return matched value if consistent, otherwise return zeros
 
@@ -164,14 +186,18 @@ For each SPL token transfer involving the user:
 
 **Tiered Value Attribution Strategy**:
 
+**Note**: `associatedUsdcValue` represents a generic stable USD value (USDC/USDT/USD1). The mapper selects at most one stable value per leg within tolerance to avoid double-counting when routes hop across multiple stables.
+
+**Value Preference**: SOL is always preferred over stable when both are significant, as SOL is the single source of truth for transaction value.
+
 ```typescript
 if (isWsol) {
     // Apply self-healing bug mitigation (see section 4)
     associatedSolValue = wsolAmount;
-} else if (isUsdc) {
-    associatedUsdcValue = usdcAmount;
+} else if (isStable) {
+    associatedUsdcValue = stableAmount;
 } else {
-    // Non-WSOL/USDC tokens - use tiered logic:
+    // Non-WSOL/stable tokens - use tiered logic:
 
     // Tier 1: SPL-to-SPL swap detection
     if (isSplToSplSwap) {
@@ -181,20 +207,40 @@ if (isWsol) {
     else if (eventResult.solValue > 0 && matchesPrimaryMints) {
         associatedSolValue = eventResult.solValue;
     }
-    // Tier 3: Total movement heuristic
-    else if (totalWsolMovement >= threshold) {
+    // Tier 3: Total movement heuristic (prefers SOL over stable)
+    else if (totalWsolMovement >= SOL_SIGNIFICANCE_THRESHOLD) {
         associatedSolValue = totalWsolMovement;
+    } else if (totalStableMovement >= STABLE_SIGNIFICANCE_THRESHOLD) {
+        associatedUsdcValue = totalStableMovement;
     }
-    // Tier 4: Net user change fallback
-    else {
+    // Tier 3.5: Gross native SOL outflow (pump.fun pattern)
+    // When net change is near zero but user spent significant SOL,
+    // and there is NOT a large native SOL inflow (rent-return guard)
+    else if (netIsNearZero && grossNativeSolOut >= 0.001 && grossNativeSolIn <= grossNativeSolOut * GROSS_NATIVE_SOL_IN_RATIO_LIMIT) {
+        associatedSolValue = grossNativeSolOut;
+    }
+    // Tier 4: Net user change fallback (prefers SOL over stable)
+    else if (Math.abs(finalNetUserSolChange) >= SOL_SIGNIFICANCE_THRESHOLD) {
         associatedSolValue = Math.abs(finalNetUserSolChange);
+    } else if (Math.abs(finalNetUserStableChange) >= STABLE_SIGNIFICANCE_THRESHOLD) {
+        associatedUsdcValue = Math.abs(finalNetUserStableChange);
     }
 }
 ```
 
+**Value Source Tracking (Internal)**:
+The mapper tracks where an associated value came from, and uses that to decide whether "self-healing" is allowed to modify it.
+
+```typescript
+let associatedSolValueSource: 'none' | 'wsol' | 'stable' | 'event' | 'spl-to-spl' | 'total-movement' | 'gross-out' | 'net-change' = 'none';
+let associatedUsdcValueSource: 'none' | 'stable' | 'event' | 'total-movement' | 'net-change' = 'none';
+```
+
+Strong sources (`event`, `spl-to-spl`, `wsol`, `stable`) are trusted; weak sources (`net-change`, `total-movement`, `gross-out`) are eligible for self-healing if a fee would dwarf the value.
+
 ### 10. Fee Calculation
 
-For non-WSOL/USDC transfers with associated SOL value:
+For non-WSOL/stable transfers with associated SOL value:
 
 ```typescript
 let refinedFeeAmountSol = 0;
@@ -206,13 +252,26 @@ if (tx.fee > 0 && tx.feePayer === walletAddress) {
 
 // Small native transfers OUT (tips, routing fees)
 for (const nativeTransfer of tx.nativeTransfers) {
-    if (isFromUser && amountSol < FEE_TRANSFER_THRESHOLD_SOL) {
+    const maxFeeLikeTransfer = Math.min(
+        FEE_TRANSFER_THRESHOLD_SOL,
+        associatedSolValue * FEE_TRANSFER_VALUE_RATIO
+    );
+    if (isFromUser && amountSol <= maxFeeLikeTransfer) {
         refinedFeeAmountSol += amountSol;
     }
 }
 
 feePercentage = (refinedFeeAmountSol / associatedSolValue) * 100;
 ```
+
+**Fee Self-Healing Guard (Weak Sources Only)**:
+If the computed fee would exceed `FEE_SELF_HEALING_PERCENT_THRESHOLD` (default 50%) **and** the value came from a weak heuristic (`net-change`, `total-movement`, `gross-out`), the mapper assumes the value is actually fees/rent and zeroes it out. If the value came from a strong source, the fee is skipped but the value is kept.
+
+Configuration lives in `TRANSACTION_MAPPING_CONFIG` (see `src/config/constants.ts`):
+- `FEE_TRANSFER_THRESHOLD_SOL`
+- `FEE_TRANSFER_VALUE_RATIO`
+- `GROSS_NATIVE_SOL_IN_RATIO_LIMIT`
+- `FEE_SELF_HEALING_PERCENT_THRESHOLD`
 
 ### 11. Small Outgoing Transfer Heuristic
 
@@ -261,10 +320,13 @@ row.associatedSolValue = Math.abs(row.amount) * valuePerToken;
 | Constant | Value | Purpose |
 |----------|-------|---------|
 | `NATIVE_SOL_LAMPORT_THRESHOLD` | Configurable | Minimum lamports for native transfer to be recorded |
+| `SOL_SIGNIFICANCE_THRESHOLD` | 0.0001 SOL | Minimum SOL value to be considered significant (~$0.02 at $200/SOL) |
+| `STABLE_SIGNIFICANCE_THRESHOLD` | 1.0 USDC | Minimum stable value to be considered significant ($1.00) |
 | `FEE_PRECISION_THRESHOLD` | 0.000000001 | Avoid assigning near-zero fees |
 | `FEE_TRANSFER_THRESHOLD_SOL` | 0.1 SOL | Native transfers OUT below this = likely fees/tips |
 | `TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD` | 0.05 (5%) | Small outgoing transfer detection |
 | `FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL` | 0.1 SOL | Min SOL value for fee-payer heuristic |
+| `FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC` | 1.0 USDC | Min USDC value for fee-payer heuristic |
 | `SOL_DUST_TRANSFER_THRESHOLD` | Configurable | Min SOL for standalone transfer record |
 
 ## Statistics Tracked
@@ -369,11 +431,47 @@ npm run debug:mapper -- <txId> -w <wallet>
 
 ## Changelog
 
-### October 2025 - WSOL Self-Healing
+### January 18, 2026 - Gross Native SOL Outflow & Significance Thresholds
+- **Issue #1**: Pump.fun transactions with zero net SOL change (SOL in = SOL out) had no `associatedSolValue`
+  - Example: User receives 0.404 SOL then spends 0.395 SOL to buy token → net change ~0, but token has value
+  - Previous logic only checked net change, missed gross outflow
+- **Solution #1**: Added Tier 3.5 - Gross Native SOL Outflow detection
+  - Tracks total SOL sent OUT by user in native transfers
+  - When net change < 0.001 SOL but gross outflow >= 0.001 SOL, use gross outflow as value
+  - Handles pump.fun and similar patterns where SOL is received and immediately spent
+- **Issue #2**: Significance thresholds were universal (0.0001) causing problems
+  - For SOL: 0.0001 SOL = ~$0.02 (reasonable)
+  - For USDC: 0.0001 USDC = $0.0001 (essentially dust, too low!)
+  - Small USDC values (e.g., $2.30) were being preferred over large SOL values (e.g., 1.5 SOL)
+- **Solution #2**: Separate significance thresholds for SOL vs stables
+  - `SOL_SIGNIFICANCE_THRESHOLD` = 0.0001 SOL (~$0.02)
+  - `STABLE_SIGNIFICANCE_THRESHOLD` = 1.0 USDC ($1.00 minimum)
+  - SOL is **always** preferred over stable when both are significant (SOL is single source of truth)
+- **Impact**:
+  - Fixes pump.fun transactions that previously had zero value
+  - Prevents tiny USDC routing values from being mistakenly used as primary value
+  - Ensures SOL is consistently preferred as the authoritative value source
+- **Files Modified**: Lines 629-643 (gross outflow tracking), 91-92 (threshold constants), 1121-1259 (tier logic), 1201-1202 (SOL preference)
+
+### January 2025 - Improved WSOL Self-Healing
+- **Issue**: Previous 100k threshold was too high, allowing values like 80730 to slip through
+  - Real example: Wallet `qdnviuUs22gNUEzSK6pLxQVsYqzGBYvqe8jznbFhJiW` showed -6M SOL P&L
+  - Old validation was too strict, failed for complex DeFi transactions
+- **Solution**:
+  - Lowered threshold to 1000 SOL (catches more cases)
+  - Distance-based comparison: convert if scaled is 10x+ closer to expected
+  - Added edge case handler for millions+ values that scale to dust
+- **Impact**:
+  - Fixes false negatives (values like 80730 now get converted)
+  - Protects legitimate whale transfers (5000+ SOL)
+  - More robust for complex multi-hop swaps
+- **Files Modified**: Lines 791-870
+
+### October 2025 - WSOL Self-Healing (Initial)
 - **Issue**: Helius occasionally provides raw lamports instead of human-readable WSOL amounts
 - **Solution**: Cross-validation against native balance changes with 20% tolerance
 - **Impact**: Prevents catastrophic balance calculation errors
-- **Files Modified**: Lines 489-512, 775-806
+- **Files Modified**: Lines 489-512, 775-806 (superseded by January 2025 improvements)
 
 ### June 2025 - Proportional Redistribution
 - **Issue**: Multiple transfer chunks of same token caused double-counting

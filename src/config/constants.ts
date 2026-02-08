@@ -10,7 +10,7 @@ export const DEFAULT_EXCLUDED_MINTS = [
   '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', // stSOL
   'rndrizKT3MK1iimdxRdWabcF7Zb7nx9Vi3CY6A5J9NK', // rndr
   '8888xhvqnTWZ6tNbfAyP8mLLfaKsqfiW33tgA8RZ8888', // memeSOL - fake/scam token
-  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // usdc1
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // USD1
 
   // Wrapped tokens (Wormhole, Sollet, Allbridge, etc.)
   'KgV1GvrHQmRBY8sHQQeUKwTm2r2h8t4C8qt12Cw1HVE', // Wrapped AVAX (Wormhole)
@@ -57,7 +57,16 @@ export const TRANSACTION_MAPPING_CONFIG = {
   // Dust filtering thresholds
   NATIVE_SOL_LAMPORT_THRESHOLD: 100000, // 0.0001 SOL
   SOL_DUST_TRANSFER_THRESHOLD: 0.001, // 0.001 SOL
-  
+
+  // Mapper fee/rent heuristics
+  // Fee attribution rules: only count tiny outgoing native transfers as fees, and only if small vs value.
+  FEE_TRANSFER_THRESHOLD_SOL: 0.01, // Native transfers OUT below this may be fees/tips
+  FEE_TRANSFER_VALUE_RATIO: 0.25, // Only treat as fee if <= 25% of associated SOL value
+  // Rent-return guard for pump.fun gross-out pricing.
+  GROSS_NATIVE_SOL_IN_RATIO_LIMIT: 0.2, // If native SOL in >= 20% of out, treat as rent-return (skip gross-out pricing)
+  // Self-healing guard when fee would dwarf inferred value from weak heuristics.
+  FEE_SELF_HEALING_PERCENT_THRESHOLD: 50, // Self-heal when fee would exceed this % of value
+
   // Bot activity thresholds
   HIGH_FREQUENCY_THRESHOLD: 10, // transactions
   MICRO_TRANSACTION_SOL_THRESHOLD: 0.1, // SOL value
@@ -89,7 +98,45 @@ const getEnvNumber = (key: string, fallback: number): number => {
 export const ANALYSIS_EXECUTION_CONFIG = {
   SIMILARITY_LAB_MAX_SIGNATURES: getEnvNumber('SIMILARITY_LAB_MAX_SIGNATURES', 500),
   DASHBOARD_MAX_SIGNATURES: getEnvNumber('DASHBOARD_MAX_SIGNATURES', 4000),
-  HOLDER_PROFILES_MAX_SIGNATURES: getEnvNumber('HOLDER_PROFILES_MAX_SIGNATURES', 2000), // Wallet sync cap for holder profiles
+  HOLDER_PROFILES_MAX_SIGNATURES: getEnvNumber('HOLDER_PROFILES_MAX_SIGNATURES', 1500), // Wallet sync cap for holder profiles
+  HOLDER_PROFILES_TOKEN_CACHE_MAX_AGE_SECONDS: getEnvNumber('HOLDER_PROFILES_TOKEN_CACHE_MAX_AGE_SECONDS', 300),
+  HOLDER_PROFILES_SNAPSHOT_MAX_AGE_MINUTES: getEnvNumber('HOLDER_PROFILES_SNAPSHOT_MAX_AGE_MINUTES', 60),
+  HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS: getEnvNumber('HOLDER_PROFILES_TOP_HOLDERS_TTL_SECONDS', 60),
+} as const;
+
+export const BALANCE_CACHE_CONFIG = {
+  DEFAULT_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_TTL_SECONDS', 300), // 5 minutes
+  MEDIUM_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_MEDIUM_TTL_SECONDS', 900), // 15 minutes
+  WHALE_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_WHALE_TTL_SECONDS', 2700), // 45 minutes
+  MEDIUM_TOKEN_THRESHOLD: getEnvNumber('BALANCE_CACHE_MEDIUM_TOKEN_THRESHOLD', 1000),
+  WHALE_TOKEN_THRESHOLD: getEnvNumber('BALANCE_CACHE_WHALE_TOKEN_THRESHOLD', 5000),
+  MIN_UI_BALANCE: getEnvNumber('BALANCE_CACHE_MIN_UI_BALANCE', 1000),
+} as const;
+
+export const USER_FAVORITES_CONFIG = {
+  // Core limits
+  MAX_FAVORITES: getEnvNumber('USER_FAVORITES_MAX', 300),
+  MAX_IMPORT_BATCH: getEnvNumber('USER_FAVORITES_MAX_IMPORT_BATCH', 300),
+
+  // Import auto-analysis
+  IMPORT_FLASH_IMMEDIATE: getEnvNumber('USER_FAVORITES_IMPORT_FLASH_IMMEDIATE', 50),        // High priority, runs now
+  IMPORT_FLASH_BACKGROUND: getEnvNumber('USER_FAVORITES_IMPORT_FLASH_BACKGROUND', 250),     // Low priority, spread over 1 hour
+  IMPORT_BACKGROUND_DELAY_MS: getEnvNumber('USER_FAVORITES_IMPORT_BACKGROUND_DELAY_MS', 14400), // 14.4 sec between background jobs
+
+  // Batch operations
+  BATCH_DEEP_ANALYSIS_LIMIT: getEnvNumber('USER_FAVORITES_BATCH_DEEP_ANALYSIS_LIMIT', 20), // Can queue 20 deep at once
+  COLLECTION_REFRESH_LIMIT: getEnvNumber('USER_FAVORITES_COLLECTION_REFRESH_LIMIT', 100),  // Can refresh full collection
+
+  // Import cooldown (prevent abuse)
+  IMPORT_COOLDOWN_SECONDS: getEnvNumber('USER_FAVORITES_IMPORT_COOLDOWN_SECONDS', 3600),   // 1 hour between bulk imports
+
+  // Deprecated - kept for backwards compatibility
+  IMPORT_FLASH_BATCH: getEnvNumber('USER_FAVORITES_IMPORT_FLASH_BATCH', 50),
+} as const;
+
+export const TOKEN_INFO_REFRESH_CONFIG = {
+  metadataStaleMs: getEnvNumber('TOKEN_INFO_METADATA_STALE_MS', 20 * 1000),
+  priceStaleMs: getEnvNumber('TOKEN_INFO_PRICE_STALE_MS', 20 * 1000),
 } as const;
 
 export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
@@ -97,19 +144,19 @@ export const DASHBOARD_ANALYSIS_SCOPE_DEFAULTS = {
     historyWindowDays: getEnvNumber('DASHBOARD_FLASH_HISTORY_DAYS', 7),
     targetSignatureCount: getEnvNumber('DASHBOARD_FLASH_TARGET_SIGNATURES', 250),
     freshnessMinutes: getEnvNumber('DASHBOARD_FLASH_FRESHNESS_MINUTES', 30),
-    timeoutMinutes: getEnvNumber('DASHBOARD_FLASH_TIMEOUT_MINUTES', 8),
+    timeoutMinutes: getEnvNumber('DASHBOARD_FLASH_TIMEOUT_MINUTES', 3),
   },
   working: {
     historyWindowDays: getEnvNumber('DASHBOARD_WORKING_HISTORY_DAYS', 30),
     targetSignatureCount: getEnvNumber('DASHBOARD_WORKING_TARGET_SIGNATURES', 2000),
     freshnessMinutes: getEnvNumber('DASHBOARD_WORKING_FRESHNESS_MINUTES', 180), // 3 hours
-    timeoutMinutes: getEnvNumber('DASHBOARD_WORKING_TIMEOUT_MINUTES', 15),
+    timeoutMinutes: getEnvNumber('DASHBOARD_WORKING_TIMEOUT_MINUTES', 3),
   },
   deep: {
     historyWindowDays: getEnvNumber('DASHBOARD_DEEP_HISTORY_DAYS', 0), // 0 = full history
     targetSignatureCount: getEnvNumber('DASHBOARD_DEEP_TARGET_SIGNATURES', ANALYSIS_EXECUTION_CONFIG.DASHBOARD_MAX_SIGNATURES),
     freshnessMinutes: getEnvNumber('DASHBOARD_DEEP_FRESHNESS_MINUTES', 720), // 12 hours
-    timeoutMinutes: getEnvNumber('DASHBOARD_DEEP_TIMEOUT_MINUTES', 30),
+    timeoutMinutes: getEnvNumber('DASHBOARD_DEEP_TIMEOUT_MINUTES', 5),
   },
 } as const;
 
@@ -136,8 +183,8 @@ export const USDC_MINT_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 // Performance configuration for Helius API
 export const HELIUS_CONFIG = {
-  DEFAULT_RPS: 40, // ⚡ OPTIMIZED: Using full Developer tier capacity (was 25, wasting 50% of available RPS!)
-  INTERNAL_CONCURRENCY: 10, // Sequential processing to avoid burst detection
+  DEFAULT_RPS: 40, // ⚡ OPTIMIZED: Using 80% of 50 RPS limit (10% safety buffer for burst protection)
+  INTERNAL_CONCURRENCY: 10, // BALANCED: Allows parallel fetching while respecting rate limits
   BATCH_SIZE: 100, // Reduced batch size
   SIGNATURE_FETCH_SAFETY_MULTIPLIER: getEnvNumber('HELIUS_SIGNATURE_SAFETY_MULTIPLIER', 5), // Stop pagination if we massively overshoot requested maxSignatures
 } as const;
@@ -159,9 +206,17 @@ const numFromEnv = (key: string, fallback: number): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+/**
+ * Helius V2 API Configuration
+ *
+ * V2 Pagination Changes (2024):
+ * - pageLimit increased from 5,000 → 10,000 (Helius V2 maximum)
+ * - Reduces pagination rounds for wallets with many tokens (e.g., 30k tokens: 3 pages vs 6)
+ * - Combined with pagination fix, now properly handles wallets with 10k+ token accounts
+ */
 export const HELIUS_V2_CONFIG = {
   enablePagination: boolFromEnv('ENABLE_HELIUS_V2_PAGINATION', true),
-  pageLimit: Math.max(1000, Math.min(10000, numFromEnv('HELIUS_V2_PAGE_LIMIT', 5000))),
+  pageLimit: Math.max(1000, Math.min(10000, numFromEnv('HELIUS_V2_PAGE_LIMIT', 10000))), // Helius V2 max: 10,000 accounts per request
   enableIncremental: boolFromEnv('ENABLE_HELIUS_V2_INCREMENTAL', false),
   // Phase 1 migration: getTransactionsForAddress (signatures mode)
   enableTransactionsForAddressSignatures: boolFromEnv('ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES', false),
@@ -192,11 +247,8 @@ export const METADATA_FETCHING_CONFIG = {
     baseWaitTimeMs: 800, // Reduced from 1000ms
     adaptiveRateLimiting: true, // Dynamically adjust based on response times
     maxRetries: 2,
-    // Caching for metadata ONLY (not price/balance data)
-    // FIXED: Use 24 hours to allow old tokens like POKE6900 to be refreshed
-    cacheExpiryHours: 1, // 24 hours - allows old tokens like POKE6900 to be refreshed
-    // Price data should be refreshed more frequently
-    priceCacheExpiryMinutes: 1, // 5 minutes for price data
+    // Staleness decisions are centralized in TokenInfoService (TOKEN_INFO_REFRESH_CONFIG).
+    // Keep only transport-level knobs here.
     prioritizeActiveTokens: true, // Prioritize tokens with recent trading activity
   },
   
@@ -246,140 +298,60 @@ export const METADATA_FETCHING_CONFIG = {
   }
 } as const;
 
-// Known system/bot/exchange wallets that should be tagged instead of analyzed
-export const KNOWN_SYSTEM_WALLETS = [
-// most of these are jupiter accounts
-  '2MFoS3MPtvyQ4Wh4M9pdfPjz6UhVoNbFbGJAskCPCj3h', 
-  '3CgvbiM3op4vjrrjH2zcrQUwsqh5veNVRjFCB9N6sRoD',  
-  '3LoAYHuSd7Gh8d7RTFnhvYtiTiefdZ5ByamU42vkzd76', 
-  '4xDsmeTWPNjgSVSS1VTfzFq3iHZhp77ffPkAmkZkdu71', 
-  '69yhtoJR4JYPPABZcSNkzuqbaFbwHsCkja1sP1Q2aVT5', 
-  '6LXutJvKUw8Q5ue2gCgKHQdAN4suWW8awzFVC6XCguFx', 
-  '6U91aKa8pmMxkJwBCfPTmUEfZi6dHe7DcFq2ALvB2tbB',  
-  '7iWnBRRhBCiNXXPhqiGzvvBkKrvFSWqqmxRyu9VyYBxE', 
-  '9nnLbotNTcUhvbrsA6Mdkx45Sm82G35zo28AqUvjExn8', 
-  'BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV', 
-  'CapuXNQoDviLvU1PxFiizLgPNQCxrsag1uMeyk6zLVps', 
-  'D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf', 
-  'DSN3j1ykL3obAVNv7ZX49VsFCPe4LqzxHnmtLiPwY6xg', 
-  'GGztQqQ6pCPaJQnNpXBgELr5cs3WwDakRbh1iEMzjgSJ', 
-  'GP8StUXNYSZjPikyRsvkTbvRV1GBxMErb59cpeCJnDf1', 
-  'HFqp6ErWHY6Uzhj8rFyjYuDya2mXUpYEk8VW75K9PSiY',
-  'HU23r7UoZbqTUuh3vA7emAGztFtqwTeVips789vqxxBw',
-  'Jx2c1k5iYrtk52KeBPSykEutbUMfS4Sjv9kmZm33LKn',
-  'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',
-  '45ruCyfdRkWpRNGEqWzjCiXRHkZs8WXCLQ67Pnpye7Hp', // jupiter partner referral fee vault
-  'HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC', // jupiter partner referral fee vault
-  
-  // Large system accounts (over 10k tokens but not necessarily Jupiter)
-  '34FKjAdVcTax2DHqV2XnbXa9J3zmyKcFuFKWbcmgxjgm', // 5.5k tokens - system account
-  'ZG98FUCjb8mJ824Gbs6RsgVmr1FhXb2oNiJHa2dwmPd', // 5.5k tokens - system account
-  '8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf', // 5.5k tokens - system account
-
-  
-  // Add more as they're discovered
-] as const;
+// =============================================================================
+// KNOWN WALLETS REGISTRY
+// ✅ MOVED to src/config/known-wallets.ts (single source of truth)
+// =============================================================================
+// All known wallet definitions (burn addresses, Jupiter accounts, LP vaults, etc.)
+// have been consolidated into the known-wallets module with typed entries.
+// Import from: src/config/known-wallets.ts
+//
+// Re-export for backwards compatibility:
+export { KNOWN_WALLETS as KNOWN_SYSTEM_WALLETS_MAP } from './known-wallets';
+export { getKnownWallet, isKnownWallet, type KnownWalletType } from './known-wallets';
 
 // =============================================================================
 // BEHAVIORAL ANALYSIS CONFIGURATION
+// ✅ MOVED to src/core/analysis/behavior/constants.ts (single source of truth)
 // =============================================================================
-
-// Holder Profile Analysis - Token Categorization Thresholds
-export const BEHAVIOR_ANALYSIS_CONFIG = {
-  // Token lifecycle completion criteria
-  HISTORICAL_PATTERN: {
-    MINIMUM_COMPLETED_CYCLES: 1,        // Accept tokens with at least 1 complete buy-sell cycle (was: 3)
-    MAXIMUM_DATA_AGE_DAYS: 10000,       // Include all historical data, no time limit (was: 90)
-    MIN_VALID_HOLD_HOURS: 0.0001,       // ~0.36 seconds minimum (prevents true zero/corruption) - from analyzer.ts:231
-    MAX_VALID_HOLD_HOURS: 18760,        // 1 year maximum - from analyzer.ts:232
-  },
-
-  // Position exit detection thresholds
-  HOLDING_THRESHOLDS: {
-    EXIT_THRESHOLD: 0.80,               // Position considered "exited" when <=80% of peak remains (was: 0.20) - creates binary split
-    MINIMUM_SOL_VALUE: 0.001,           // Minimum SOL value for dust filtering - from analyzer.ts:1212
-    MINIMUM_PERCENTAGE_REMAINING: 0.05, // Minimum % of original for dust filtering - from analyzer.ts:1213
-    MINIMUM_HOLDING_TIME_SECONDS: 60,   // Minimum time held for dust filtering - from analyzer.ts:1214
-  },
-
-  // Scam token filtering
-  SCAM_FILTERING: {
-    ENABLED: true,                      // Enable scam token filtering
-    LOG_FILTERED_TOKENS: false,         // Log details about filtered tokens
-    STRICT_MODE: false,                 // Use stricter thresholds
-    THRESHOLDS: {
-      MIN_TRADE_COUNT: 100,             // Minimum trade count for scam detection - from analyzer.ts:1957
-      MIN_TOTAL_VALUE: 0.001,           // Minimum total SOL value - from analyzer.ts:1958
-      MIN_TOTAL_USDC_VALUE: 5,          // Minimum total USDC value - from analyzer.ts:1959
-    },
-  },
-
-  // Session analysis parameters
-  SESSION_ANALYSIS: {
-    SESSION_GAP_THRESHOLD_HOURS: 2,     // Gap > 2 hours creates new session
-  },
-
-  // Trading analysis thresholds
-  TRADING_ANALYSIS: {
-    MIN_TRADES_FOR_ANALYSIS: 5,         // Minimum trades for reliable analysis - from analyzer.ts:1550
-    MIN_TOKENS_WITH_TRADES: 2,          // Minimum tokens with both buys/sells - from analyzer.ts:1550
-  },
-
-  // Time-based bucket boundaries (in hours) - shared between different analyses
-  TIME_BUCKETS: {
-    INSTANT: 0.0001,     // < 0.36 seconds (same transaction)
-    ULTRA_FAST: 1/60,    // < 1 minute
-    VERY_FAST: 1/60,     // < 1 minute (alias for consistency)
-    FAST: 5/60,          // 1-5 minutes
-    MOMENTUM: 0.5,       // 5-30 minutes / < 30 min for trading speed
-    MODERATE: 1,         // 30-60 min / 1 hour
-    INTRADAY: 4,         // 1-4 hours
-    DAY_TRADER: 8,       // 4-8 hours
-    DAY: 24,             // 8-24 hours / 4-24 hours for hold times
-    SWING: 168,          // 1-7 days (24*7)
-    // POSITION: > 168 hours (7+ days)
-  },
-
-  // Behavior classification thresholds
-  BEHAVIOR_CLASSIFICATION: {
-    FULL_HOLDER_THRESHOLD: 0.75,  // Position >75% remaining = FULL_HOLDER
-    BALANCED_SYMMETRY_MIN: 0.7,   // Min symmetry for BALANCED classification
-    BALANCED_CONSISTENCY_MIN: 0.7, // Min consistency for BALANCED classification
-    ACCUMULATOR_RATIO_MIN: 2.5,    // Buy/sell ratio >2.5 = ACCUMULATOR
-    DISTRIBUTOR_RATIO_MAX: 0.4,    // Buy/sell ratio <0.4 = DISTRIBUTOR
-    HOLDER_RATIO_MIN: 1.5,         // Buy/sell ratio >1.5 = HOLDER
-  },
-
-  // Flipper score calculation weights - from analyzer.ts:1514-1529
-  FLIPPER_SCORE: {
-    ULTRA_FAST_WEIGHT: 0.85,    // Weight for ultra-fast trading
-    VERY_FAST_WEIGHT: 0.10,     // Weight for very fast trading
-    FAST_WEIGHT: 0.05,          // Weight for fast trading
-    SPEED_WEIGHT: 0.7,          // Overall speed weight in final score
-    BALANCE_WEIGHT: 0.3,        // Balance weight in final score
-    ULTRA_FAST_DOMINANCE_MIN: 0.5, // Min ultra-fast % to trigger bonus
-    DOMINANCE_BONUS: 0.2,       // Bonus added when ultra-fast dominates
-  },
-
-  // Confidence score calculation weights - from analyzer.ts:1600-1617
-  CONFIDENCE_SCORE: {
-    DATA_QUALITY_WEIGHT: 0.4,   // Weight for data quality in confidence
-    DEFAULT_DATA_QUALITY: 0.5,  // Default data quality when not available
-    SAMPLE_SIZE_BONUS_10: 0.3,  // Bonus for 10+ completed cycles
-    SAMPLE_SIZE_BONUS_5: 0.2,   // Bonus for 5+ completed cycles
-    SAMPLE_SIZE_BONUS_3: 0.1,   // Bonus for 3+ completed cycles
-    BALANCE_WEIGHT: 0.3,        // Weight for balance consistency
-    MAX_CONFIDENCE: 1.0,        // Maximum confidence score
-  },
-} as const;
+// All behavior analysis constants have been consolidated into the behavior module.
+// Import from: src/core/analysis/behavior/constants.ts
+// This ensures a single source of truth for all classification thresholds.
 
 // Wallet classification types for database tagging
 export const WALLET_CLASSIFICATIONS = {
   NORMAL: 'NORMAL',           // Regular user wallet
-  SYSTEM: 'SYSTEM',           // System/protocol account
-  JUPITER: 'JUPITER',         // Jupiter aggregator account
+  SYSTEM: 'SYSTEM',           // System/protocol account (70k+ tokens OR in registry)
   EXCHANGE: 'EXCHANGE',       // CEX deposit/withdrawal account
   BOT: 'BOT',                 // Trading bot account
-  INVALID: 'INVALID',         // Invalid/empty wallet
-  LARGE: 'LARGE',             // Large wallet (>10k tokens) but not system
+  LARGE: 'LARGE',             // Large wallet (15k-70k tokens) - PROCESS but monitor
+} as const;
+
+// System wallet detection thresholds
+export const SYSTEM_WALLET_DETECTION_CONFIG = {
+  // Token count thresholds
+  GRAY_ZONE_THRESHOLD: 15000,        // 15k tokens - Mark as LARGE, monitor but process
+  CERTAIN_SYSTEM_THRESHOLD: 70000,  // 70k tokens - Mark as SYSTEM, skip processing
+
+  // Caching
+  REDIS_CACHE_KEY_PREFIX: 'system-wallet:',
+  REDIS_TTL_DAYS: 7,                 // How long to cache detection results
+  ENABLE_MEMORY_CACHE: true,         // In-process cache for known system wallets
+
+  // Behavior
+  AUTO_TAG_DATABASE: true,           // Automatically update Wallet.classification + knownType
+} as const;
+
+// Wallet data staleness configuration
+export const WALLET_STALENESS_CONFIG = {
+  // How old can wallet analysis data be before it's considered stale
+  ANALYSIS_STALENESS_HOURS: 24,
+  // Convenience getter for milliseconds
+  get ANALYSIS_STALENESS_MS() {
+    return this.ANALYSIS_STALENESS_HOURS * 60 * 60 * 1000;
+  },
+  // Convenience getter for seconds
+  get ANALYSIS_STALENESS_SECONDS() {
+    return this.ANALYSIS_STALENESS_HOURS * 60 * 60;
+  },
 } as const;

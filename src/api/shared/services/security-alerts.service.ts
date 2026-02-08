@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { SecurityLoggerService, SecurityEvent } from './security-logger.service';
 import { AdvancedThrottlerService } from './advanced-throttler.service';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 interface AlertThreshold {
   criticalEventsPerHour: number;
@@ -90,7 +92,7 @@ export class SecurityAlertsService {
       
       this.cleanupOldAlerts();
     } catch (error) {
-      this.logger.error('Failed to perform security check:', error);
+      this.logger.error('Failed to perform security check:', getErrorMessage(error));
     }
   }
 
@@ -103,7 +105,7 @@ export class SecurityAlertsService {
       const digest = await this.generateSecurityDigest();
       await this.sendDigest(digest);
     } catch (error) {
-      this.logger.error('Failed to send daily security summary:', error);
+      this.logger.error('Failed to send daily security summary:', getErrorMessage(error));
     }
   }
 
@@ -116,7 +118,7 @@ export class SecurityAlertsService {
       const weeklyDigest = await this.generateSecurityDigest('week');
       await this.sendReport(weeklyDigest);
     } catch (error) {
-      this.logger.error('Failed to send weekly security report:', error);
+      this.logger.error('Failed to send weekly security report:', getErrorMessage(error));
     }
   }
 
@@ -269,7 +271,7 @@ export class SecurityAlertsService {
         this.logger.log('Would send Telegram alert:', message.substring(0, 100) + '...');
       }
     } catch (error) {
-      this.logger.error('Failed to send Telegram alert:', error);
+      this.logger.error('Failed to send Telegram alert:', getErrorMessage(error));
     }
   }
 
@@ -282,7 +284,7 @@ export class SecurityAlertsService {
         this.logger.log('Would send webhook alert to:', webhookUrl);
       }
     } catch (error) {
-      this.logger.error('Failed to send webhook alert:', error);
+      this.logger.error('Failed to send webhook alert:', getErrorMessage(error));
     }
   }
 
@@ -295,7 +297,7 @@ export class SecurityAlertsService {
         this.logger.log('Would send email alert');
       }
     } catch (error) {
-      this.logger.error('Failed to send email alert:', error);
+      this.logger.error('Failed to send email alert:', getErrorMessage(error));
     }
   }
 

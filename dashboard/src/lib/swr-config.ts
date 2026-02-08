@@ -6,8 +6,8 @@ export const CACHE_DURATIONS = {
   // Wallet summary data – extended cache to prevent frequent re-fetches
   WALLET_SUMMARY: 20 * 60 * 1000, // 20 minutes
   
-  // Token performance data - longer cache to reduce requests
-  TOKEN_PERFORMANCE: 10 * 60 * 1000, // 10 minutes
+  // Token performance data - shorter cache to keep prices fresher
+  TOKEN_PERFORMANCE: 5 * 60 * 1000, // 5 minutes
   
   // Behavioral analysis - much longer caching as it's very expensive
   BEHAVIORAL_ANALYSIS: 30 * 60 * 1000, // 30 minutes
@@ -20,6 +20,15 @@ export const CACHE_DURATIONS = {
   
   // Search results - moderate caching
   SEARCH: 2 * 60 * 1000, // 2 minutes
+
+  // Token metadata - align with backend price cache (30s)
+  TOKEN_METADATA: 30 * 1000, // 30 seconds
+
+  // Top holders - stable view with occasional manual refresh
+  TOKEN_HOLDERS: 5 * 60 * 1000, // 5 minutes
+
+  // Wallet HUD - short cache for high-signal metrics
+  WALLET_HUD: 60 * 1000, // 60 seconds
 };
 
 // Optimized SWR configuration for performance
@@ -29,7 +38,7 @@ export const defaultSWRConfig: SWRConfiguration = {
   revalidateOnReconnect: false, // Disable to prevent unnecessary requests
   revalidateOnMount: true, // Allow initial data loading
   dedupingInterval: 5000, // 5 seconds - allow faster cache updates after enrichment
-  keepPreviousData: false, // CHANGED: Don't show stale data - show loading state instead
+  keepPreviousData: true, // Keep last known data during revalidation to prevent UI flicker
   revalidateIfStale: true, // CHANGED: Allow revalidation when cache is stale
   shouldRetryOnError: (error) => {
     // Don't retry on 4xx errors (client errors)
@@ -65,6 +74,8 @@ export const createCacheKey = {
   },
   favorites: () => '/users/me/favorites',
   search: (query: string) => `/wallets/search?query=${encodeURIComponent(query)}`,
+  walletHud: (walletAddress: string) => `/wallets/${walletAddress}/hud`,
+  walletHudBatch: (walletAddresses: string[]) => `/wallets/hud/batch:${walletAddresses.join(',')}`,
 };
 
 // Simplified cache invalidation patterns

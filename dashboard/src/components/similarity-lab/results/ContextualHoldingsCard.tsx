@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from "@/components/ui/button";
 import { RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useMemo, useCallback } from 'react';
+import { useCallback } from 'react';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { TokenHoldingRow } from './TokenHoldingRow'; // Import the new component
 
@@ -53,6 +53,7 @@ const formatUsdValue = (value: number | null | undefined) => {
 export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefreshPrices, isRefreshing }: ContextualHoldingsCardProps) => {
   const balancesSource = enrichedBalances || results.walletBalances;
   const { uniqueTokensPerWallet } = results;
+  const getWalletLabel = (address: string) => results.walletLabels?.[address];
   
   // Simplified state management - always show top 10, allow expansion
   const [expandedWallets, setExpandedWallets] = useState<Set<string>>(new Set());
@@ -143,7 +144,7 @@ export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefre
                     return (
                         <div key={walletAddress} className="border rounded-lg p-3 space-y-2 flex flex-col">
                             <div className="flex justify-between items-center">
-                                <WalletBadge address={walletAddress} />
+                                <WalletBadge address={walletAddress} size="s" knownType={getWalletLabel(walletAddress)?.knownType} knownLabel={getWalletLabel(walletAddress)?.knownLabel} />
                                 <div className="flex items-center gap-2">
                                   <Badge variant="outline">
                                       {uniqueCounts.capital} Tokens

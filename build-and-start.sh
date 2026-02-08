@@ -37,30 +37,52 @@ if [ ! -d "dashboard" ]; then
     exit 1
 fi
 
-# Step 1: Build Backend
-echo -e "${YELLOW}📦 Building backend...${NC}"
-if ! npm run build; then
-    echo -e "${RED}❌ Backend build failed!${NC}"
+# Build Backend and Frontend in parallel
+echo -e "${YELLOW}📦 Building backend and frontend in parallel...${NC}"
+
+# Start backend build in background
+npm run build > /tmp/backend-build.log 2>&1 &
+BACKEND_PID=$!
+
+# Start frontend build in background
+npm run build:dashboard > /tmp/frontend-build.log 2>&1 &
+FRONTEND_PID=$!
+
+# Wait for both and capture exit codes
+wait $BACKEND_PID
+BACKEND_EXIT=$?
+
+wait $FRONTEND_PID
+FRONTEND_EXIT=$?
+
+# Report results
+FAILED=0
+
+echo ""
+echo -e "${CYAN}--- Backend Build ---${NC}"
+cat /tmp/backend-build.log
+if [ $BACKEND_EXIT -ne 0 ]; then
+    echo -e "${RED}❌ Backend build FAILED (exit code: $BACKEND_EXIT)${NC}"
+    FAILED=1
+else
+    echo -e "${GREEN}✅ Backend built successfully${NC}"
+fi
+
+echo ""
+echo -e "${CYAN}--- Frontend Build ---${NC}"
+cat /tmp/frontend-build.log
+if [ $FRONTEND_EXIT -ne 0 ]; then
+    echo -e "${RED}❌ Frontend build FAILED (exit code: $FRONTEND_EXIT)${NC}"
+    FAILED=1
+else
+    echo -e "${GREEN}✅ Frontend built successfully${NC}"
+fi
+
+if [ $FAILED -ne 0 ]; then
+    echo -e "${RED}Build failed!${NC}"
     exit 1
 fi
-echo -e "${GREEN}✅ Backend built successfully${NC}"
 echo ""
-
-# Step 2: Build Frontend
-echo -e "${YELLOW}📦 Building frontend...${NC}"
-cd dashboard || { echo -e "${RED}❌ Failed to change to dashboard directory${NC}"; exit 1; }
-
-# Build with unbuffered output so we can see what's happening
-if ! npm run build 2>&1 | tee /tmp/frontend-build.log; then
-    echo -e "${RED}❌ Frontend build failed!${NC}"
-    echo -e "${YELLOW}Check /tmp/frontend-build.log for details${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✅ Frontend built successfully${NC}"
-echo ""
-
-# Return to root
-cd "$SCRIPT_DIR" || { echo -e "${RED}❌ Failed to return to root directory${NC}"; exit 1; }
 
 # Step 3: Start Backend in tmux session
 echo -e "${YELLOW}🔧 Starting backend with PM2...${NC}"

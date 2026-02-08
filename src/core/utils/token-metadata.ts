@@ -42,6 +42,12 @@ export const WELL_KNOWN_TOKENS: Record<string, WellKnownTokenMetadata> = {
     decimals: 6, 
     isStablecoin: true 
   },
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB': {
+    name: 'USD1',
+    symbol: 'USD1',
+    decimals: 6,
+    isStablecoin: true
+  },
 
   // Major DeFi tokens
   '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': { 

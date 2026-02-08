@@ -82,7 +82,7 @@ export function RequireVerifiedEmail({ children, redirectTo = '/' }: RequireVeri
             </div>
 
             <p className="text-xs text-slate-500">
-              Check your spam folder if you don't see the email.
+              Check your spam folder if you don&apos;t see the email.
             </p>
           </div>
         </Card>

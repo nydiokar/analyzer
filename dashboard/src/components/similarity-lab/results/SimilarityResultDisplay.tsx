@@ -2,7 +2,7 @@ import { MostCommonTokens } from './MostCommonTokens';
 import { EnhancedKeyInsights } from './EnhancedKeyInsights';
 import { CombinedSimilarityResult } from './types';
 import { GlobalMetricsCard } from './GlobalMetricsCard';
-import { ContextualHoldingsCard } from './ContextualHoldingsCard';
+// import { ContextualHoldingsCard } from './ContextualHoldingsCard'; // 🔧 REMOVED: Caused whale wallet issues
 import { HistoricalVsLiveComparison } from './HistoricalVsLiveComparison';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Sparkles } from 'lucide-react';
@@ -26,7 +26,9 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
           metrics={results.globalMetrics}
           pairwiseSimilarities={results.pairwiseSimilarities}
           walletBalances={results.walletBalances}
-          walletVectorsUsed={results.walletVectorsUsed}
+          uniqueTokensPerWallet={results.uniqueTokensPerWallet}
+          walletLabels={results.walletLabels}
+          summary={results.summary}
         />
       )}
       
@@ -44,18 +46,14 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
         </Alert>
       )}
 
-      {/* Most Common Tokens and Historical vs Live - Side by Side */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {/* Most Common Tokens and Historical vs Live - Auto-fit Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(400px,1fr))] gap-4">
         <MostCommonTokens results={results} enrichedBalances={enrichedBalances} />
         <HistoricalVsLiveComparison results={results} />
       </div>
 
-      <ContextualHoldingsCard 
-        results={results} 
-        enrichedBalances={enrichedBalances} 
-        onRefreshPrices={onRefreshPrices}
-        isRefreshing={isRefreshing}
-      />
+      {/* 🔧 REMOVED: ContextualHoldingsCard - caused whale wallet issues with 30k+ tokens */}
+      {/* Component fetched all current balances which triggered massive RPC calls and system choking */}
     </div>
   );
 } 

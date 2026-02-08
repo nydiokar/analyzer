@@ -2,14 +2,14 @@ import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { BehavioralMetrics, ActiveTradingPeriods, IdentifiedTradingWindow, WalletHistoricalPattern, TokenPositionLifecycle, WalletTokenPrediction, EnrichedHoldTimeDistribution, EnrichedHoldTimeBucket } from '@/types/behavior';
 import { SwapAnalysisInput } from '@prisma/client';
 import { createLogger } from 'core/utils/logger';
-import { classifyHolderBehavior, classifyTradingSpeed } from './constants';
-import { BEHAVIOR_ANALYSIS_CONFIG } from '../../../config/constants';
+import { classifyHolderBehavior, classifyTradingSpeed, BEHAVIOR_ANALYSIS_CONFIG } from './constants'; // ✅ SINGLE SOURCE OF TRUTH
 
 // List of common utility token mints to exclude from behavioral analysis
 const EXCLUDED_TOKEN_MINTS: string[] = [
   'So11111111111111111111111111111111111111112', // SOL / wSOL
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // USD1
   // Add other quasi-native or stablecoin mints here if needed (e.g., JitoSOL, mSOL, other stables)
 ];
 
@@ -22,7 +22,7 @@ interface TokenTrade {
   direction: 'in' | 'out';
   amount: number;
   associatedSolValue: number;
-  associatedUsdcValue?: number; // Optional since some trades might not have USDC value
+  associatedUsdcValue?: number; // Optional since some trades might not have stable USD value
 }
 
 interface TokenTradeSequence {
@@ -1288,6 +1288,20 @@ export class BehaviorAnalyzer {
     const avgDuration = sumDurations / totalFlips;
     const medianDuration = this.calculateMedian(allDurations);
 
+    // Distribution logging for threshold validation (only for sufficient sample sizes)
+    if (allDurations.length >= 10) {
+      const sorted = [...allDurations].sort((a, b) => a - b);
+      const distribution = {
+        p10: sorted[Math.floor(sorted.length * 0.1)],
+        p25: sorted[Math.floor(sorted.length * 0.25)],
+        p50: sorted[Math.floor(sorted.length * 0.5)],
+        p75: sorted[Math.floor(sorted.length * 0.75)],
+        p90: sorted[Math.floor(sorted.length * 0.9)],
+        count: sorted.length,
+      };
+      this.logger.debug('Hold time distribution (hours):', distribution);
+    }
+
     return { durations: allDurations, distribution, percentUnder1Hour, percentUnder4Hours, avgDuration, medianDuration };
   }
 
@@ -1335,7 +1349,23 @@ export class BehaviorAnalyzer {
     metrics.tokensWithBothBuyAndSell = sequences.filter(s => s.buyCount > 0 && s.sellCount > 0).length;
     metrics.tokensWithOnlyBuys = sequences.filter(s => s.buyCount > 0 && s.sellCount === 0).length;
     metrics.tokensWithOnlySells = sequences.filter(s => s.sellCount > 0 && s.buyCount === 0).length;
-    
+
+    // NEW: Calculate largest active position SOL value (for holder bypass)
+    let largestActivePositionSol = 0;
+    sequences
+      .filter(s => s.buyCount > 0 && s.sellCount === 0) // Only active holdings
+      .forEach(s => {
+        const totalSolValue = s.trades
+          .filter(t => t.direction === 'in')
+          .reduce((sum, t) => sum + t.associatedSolValue, 0);
+        if (totalSolValue > largestActivePositionSol) {
+          largestActivePositionSol = totalSolValue;
+        }
+      });
+
+    // Store in metrics for later use (internal field, not part of official type)
+    (metrics as any)._largestActivePositionSol = largestActivePositionSol;
+
     // Verification (can be logged or asserted during development)
     if (metrics.uniqueTokensTraded !== (metrics.tokensWithBothBuyAndSell + metrics.tokensWithOnlyBuys + metrics.tokensWithOnlySells)) {
       this.logger.warn(
@@ -1404,8 +1434,9 @@ export class BehaviorAnalyzer {
     const currentHoldingsCalcs = this.calculateCurrentHoldingsDistributions(sequences, analysisTimestamp);
     metrics.averageCurrentHoldingDurationHours = currentHoldingsCalcs.avgDuration;
     metrics.medianCurrentHoldingDurationHours = currentHoldingsCalcs.medianDuration;
+    metrics.medianActiveHoldingHours = currentHoldingsCalcs.medianDuration; // NEW: For holder bypass
     metrics.percentOfValueInCurrentHoldings = currentHoldingsCalcs.percentOfValueInCurrentHoldings;
-    
+
     // Calculate weighted average combining flips and current holdings
     const flipValueWeight = 1 - (currentHoldingsCalcs.percentOfValueInCurrentHoldings / 100);
     const currentValueWeight = currentHoldingsCalcs.percentOfValueInCurrentHoldings / 100;
@@ -1432,7 +1463,7 @@ export class BehaviorAnalyzer {
         if (trade.timestamp < firstSeen) firstSeen = trade.timestamp;
         if (trade.timestamp > lastSeen) lastSeen = trade.timestamp;
         totalValue += trade.associatedSolValue;
-        totalUsdcValue += trade.associatedUsdcValue ?? 0; // Use actual USDC value from database
+        totalUsdcValue += trade.associatedUsdcValue ?? 0; // Use stable USD value from database
       });
 
       tokenDataForMostTraded[seq.mint] = {
@@ -1452,9 +1483,9 @@ export class BehaviorAnalyzer {
     let scamTokensFiltered = 0;
     let totalTokensProcessed = 0;
 
-    // Check if scam filtering is enabled (default to true if not specified)
-    const scamFilteringEnabled = this.config.scamFiltering?.enabled !== false;
-    const logFilteredTokens = this.config.scamFiltering?.logFilteredTokens === true;
+    // Check if scam filtering is enabled (use constant as default, config can override)
+    const scamFilteringEnabled = this.config.scamFiltering?.enabled ?? BEHAVIOR_ANALYSIS_CONFIG.SCAM_FILTERING.ENABLED;
+    const logFilteredTokens = this.config.scamFiltering?.logFilteredTokens ?? BEHAVIOR_ANALYSIS_CONFIG.SCAM_FILTERING.LOG_FILTERED_TOKENS;
 
     for (const [mint, data] of Object.entries(tokenDataForMostTraded)) {
       totalTokensProcessed++;
@@ -1532,6 +1563,141 @@ export class BehaviorAnalyzer {
   }
 
   /**
+   * NEW: Compute speed category from median completed hold time
+   * Returns null if no completed cycles (wallet never exited)
+   */
+  private computeSpeedCategory(medianCompletedHoldTimeHours: number | null): import('@/types/behavior').SpeedCategory | null {
+    if (medianCompletedHoldTimeHours === null || medianCompletedHoldTimeHours === undefined) {
+      return null; // No completed cycles
+    }
+
+    const { SPEED_THRESHOLDS } = require('./constants');
+
+    if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.SNIPER) return 'SNIPER';
+    if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.SCALPER) return 'SCALPER';
+    if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.MOMENTUM) return 'MOMENTUM';
+    if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.INTRADAY) return 'INTRADAY';
+    if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.DAY_TRADER) return 'DAY_TRADER';
+    if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.SWING) return 'SWING';
+    if (medianCompletedHoldTimeHours < SPEED_THRESHOLDS.POSITION) return 'POSITION';
+    return 'HODLER';  // 30+ days - crypto spelling
+  }
+
+  /**
+   * NEW: Compute flow pattern from buy/sell metrics
+   */
+  private computeFlowPattern(
+    totalBuyCount: number,
+    totalSellCount: number,
+    buySellRatio: number
+  ): import('@/types/behavior').FlowPattern {
+    const { FLOW_THRESHOLDS } = require('./constants');
+
+    // Pure patterns
+    if (totalSellCount === 0 && totalBuyCount > 0) return 'BUY_ONLY';
+    if (totalBuyCount === 0 && totalSellCount > 0) return 'SELL_ONLY';
+
+    // Strong directional bias
+    if (buySellRatio >= FLOW_THRESHOLDS.STRONG_BUY_RATIO) return 'ACCUMULATOR';
+    if (buySellRatio <= FLOW_THRESHOLDS.STRONG_SELL_RATIO) return 'DISTRIBUTOR';
+
+    // Balanced (between 0.5 and 2.0)
+    if (buySellRatio > FLOW_THRESHOLDS.STRONG_SELL_RATIO &&
+        buySellRatio < FLOW_THRESHOLDS.STRONG_BUY_RATIO) {
+      return 'BALANCED';
+    }
+
+    return 'MIXED';
+  }
+
+  /**
+   * NEW: Derive strategy type from speed + flow + holder bypass
+   * This is the canonical filter field for UI
+   */
+  private deriveStrategyType(
+    speedCategory: import('@/types/behavior').SpeedCategory | null,
+    flowPattern: import('@/types/behavior').FlowPattern,
+    totalTradeCount: number,
+    tokensWithBothBuyAndSell: number,
+    tokensWithOnlyBuys: number,
+    medianActiveHoldingHours: number | null,
+    largestActivePositionSol: number
+  ): import('@/types/behavior').StrategyType {
+    const { MINIMUM_DATA, HOLDER_BYPASS } = require('./constants');
+
+    // Step 1: Check minimum data gate
+    const meetsMinimumData = totalTradeCount >= MINIMUM_DATA.trades &&
+                             tokensWithBothBuyAndSell >= MINIMUM_DATA.tokensWithCompletedCycles;
+
+    if (!meetsMinimumData) {
+      // Check holder bypass criteria
+      const meetsMultiTokenBypass = tokensWithOnlyBuys >= HOLDER_BYPASS.multiToken.minTokens &&
+                                     (medianActiveHoldingHours ?? 0) >= HOLDER_BYPASS.multiToken.minHoldHours;
+
+      const meetsSingleTokenBypass = tokensWithOnlyBuys >= 1 &&
+                                      largestActivePositionSol >= HOLDER_BYPASS.singleToken.minPositionSol;
+
+      const isMeaningfulHolder = meetsMultiTokenBypass || meetsSingleTokenBypass;
+
+      if (!isMeaningfulHolder) {
+        return 'LOW_ACTIVITY'; // Gate fails, not a meaningful holder
+      }
+      // Else: bypass gate, continue classification below
+    }
+
+    // Step 2: Pure holders (no exits)
+    if (flowPattern === 'BUY_ONLY') {
+      return 'PURE_HOLDER';
+    }
+
+    // Step 3: Flow-dominant patterns
+    if (flowPattern === 'ACCUMULATOR') return 'ACCUMULATOR';
+    if (flowPattern === 'DISTRIBUTOR' || flowPattern === 'SELL_ONLY') return 'DISTRIBUTOR';
+
+    // Step 4: Speed-based (requires completed cycles)
+    if (speedCategory === null) {
+      // No exits, not BUY_ONLY - check balanced
+      if (flowPattern === 'BALANCED') return 'BALANCED_TRADER';
+      return 'LOW_ACTIVITY';
+    }
+
+    if (speedCategory === 'SNIPER' || speedCategory === 'SCALPER' || speedCategory === 'MOMENTUM') {
+      return 'FAST_TRADER';
+    }
+    if (speedCategory === 'INTRADAY' || speedCategory === 'DAY_TRADER') {
+      return 'DAY_TRADER';
+    }
+    if (speedCategory === 'SWING') return 'SWING_TRADER';
+    if (speedCategory === 'POSITION' || speedCategory === 'HODLER') return 'POSITION_TRADER';
+
+    // Step 5: Fallback
+    if (flowPattern === 'BALANCED') return 'BALANCED_TRADER';
+    return 'LOW_ACTIVITY';
+  }
+
+  /**
+   * NEW: Compute velocity score (0-100) from median hold time
+   * Uses logarithmic scale for time perception
+   */
+  private computeVelocityScore(medianHoldTimeHours: number | null): number {
+    if (medianHoldTimeHours === null || medianHoldTimeHours === undefined) {
+      return 0; // No data
+    }
+
+    const { VELOCITY_SCORE } = require('./constants');
+
+    if (medianHoldTimeHours <= 0) return 100;
+
+    // Logarithmic scale: short holds = high velocity
+    const logHold = Math.log10(medianHoldTimeHours + 1);
+    const logMax = Math.log10(VELOCITY_SCORE.MAX_HOLD_HOURS + 1);
+
+    const score = 100 * (1 - logHold / logMax);
+
+    return Math.round(Math.max(0, Math.min(100, score)));
+  }
+
+  /**
    * Classifies the trading style based on calculated metrics.
    * ✅ REFACTORED: Uses median hold time (outlier-robust) + new speed thresholds
    * Combines speed category with behavioral pattern for comprehensive classification
@@ -1544,61 +1710,47 @@ export class BehaviorAnalyzer {
       buySellRatio,
       totalTradeCount,
       tokensWithBothBuyAndSell,
+      tokensWithOnlyBuys,
       totalBuyCount,
-      totalSellCount
+      totalSellCount,
+      medianActiveHoldingHours
     } = metrics;
 
-    // Check minimum data requirements
-    if (totalTradeCount < BEHAVIOR_ANALYSIS_CONFIG.TRADING_ANALYSIS.MIN_TRADES_FOR_ANALYSIS || tokensWithBothBuyAndSell < BEHAVIOR_ANALYSIS_CONFIG.TRADING_ANALYSIS.MIN_TOKENS_WITH_TRADES) {
-      metrics.tradingStyle = 'Low Activity';
-      metrics.confidenceScore = 1.0;
-      this.logger.debug(`Classified as Low Activity (${totalTradeCount} trades, ${tokensWithBothBuyAndSell} tokens)`);
-      return;
-    }
+    // Get internal field for holder bypass
+    const largestActivePositionSol = (metrics as any)._largestActivePositionSol || 0;
 
-    // ✅ NEW: Use MEDIAN hold time from historical pattern (outlier-robust)
-    // If historicalPattern is null (insufficient completed cycles), use legacy metric
-    // but this should be rare after wiring up the calculation
-    const medianHoldHours = metrics.historicalPattern?.medianCompletedHoldTimeHours ?? medianHoldTime;
+    // NEW: Compute classification fields using helper functions
+    // Get median completed hold time from historical pattern (or fallback)
+    const medianCompletedHoldTimeHours = metrics.historicalPattern?.medianCompletedHoldTimeHours ?? null;
 
-    if (!metrics.historicalPattern) {
-      this.logger.warn(
-        `No historical pattern available for classification (insufficient completed cycles). ` +
-        `Falling back to legacy medianHoldTime: ${medianHoldTime.toFixed(2)}h`
-      );
-    }
+    // 1. Compute speedCategory (null if no completed cycles)
+    metrics.speedCategory = this.computeSpeedCategory(medianCompletedHoldTimeHours);
 
-    // ✅ NEW: Classify trading SPEED based on median (typical behavior)
-    // Uses constants for single source of truth
-    const speedCategory = classifyTradingSpeed(medianHoldHours);
+    // 2. Compute flowPattern
+    metrics.flowPattern = this.computeFlowPattern(totalBuyCount, totalSellCount, buySellRatio);
 
-    // ✅ NEW: Classify BEHAVIORAL PATTERN (buy/sell characteristics)
-    let behavioralPattern: string;
-    const isBalanced = buySellSymmetry > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.BALANCED_SYMMETRY_MIN &&
-                       sequenceConsistency > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.BALANCED_CONSISTENCY_MIN;
+    // 3. Derive strategyType (includes holder bypass logic)
+    metrics.strategyType = this.deriveStrategyType(
+      metrics.speedCategory,
+      metrics.flowPattern,
+      totalTradeCount,
+      tokensWithBothBuyAndSell,
+      tokensWithOnlyBuys,
+      medianActiveHoldingHours ?? null,
+      largestActivePositionSol
+    );
 
-    if (totalSellCount === 0) {
-      behavioralPattern = 'HOLDER';
-    } else if (totalBuyCount === 0) {
-      behavioralPattern = 'DUMPER';
-    } else if (buySellRatio > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.ACCUMULATOR_RATIO_MIN &&
-               totalBuyCount > totalSellCount * 2) {
-      behavioralPattern = 'ACCUMULATOR';
-    } else if (buySellRatio < BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.DISTRIBUTOR_RATIO_MAX &&
-               totalSellCount > totalBuyCount * 2) {
-      behavioralPattern = 'DISTRIBUTOR';
-    } else if (isBalanced) {
-      behavioralPattern = 'BALANCED';
-    } else if (buySellRatio > BEHAVIOR_ANALYSIS_CONFIG.BEHAVIOR_CLASSIFICATION.HOLDER_RATIO_MIN) {
-      behavioralPattern = 'HOLDER';
-    } else {
-      behavioralPattern = 'MIXED';
-    }
+    // 4. Compute velocityScore
+    const velocityHoldTime = medianCompletedHoldTimeHours ?? medianHoldTime; // Fallback to all holds if no completed
+    metrics.velocityScore = this.computeVelocityScore(velocityHoldTime);
 
-    // ✅ NEW: Combine speed + pattern for comprehensive style
-    const combinedStyle = `${speedCategory} (${behavioralPattern})`;
+    // NEW: Create display string for backward compatibility
+    // Format: "SPEED_CATEGORY (FLOW_PATTERN)" or just strategyType for simple cases
+    const speedDisplay = metrics.speedCategory || 'Unknown Speed';
+    const flowDisplay = metrics.flowPattern || 'Unknown Pattern';
+    metrics.tradingStyle = `${speedDisplay} (${flowDisplay})`;
 
-    // ✅ NEW: Calculate confidence based on data quality
+    // Calculate confidence based on data quality
     const completedCycles = metrics.historicalPattern?.completedCycleCount || 0;
     const dataQuality = metrics.historicalPattern?.dataQuality || BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.DEFAULT_DATA_QUALITY;
 
@@ -1616,11 +1768,11 @@ export class BehaviorAnalyzer {
     // Bonus for pattern consistency
     confidence += (buySellSymmetry * sequenceConsistency) * BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.BALANCE_WEIGHT;
 
-    metrics.tradingStyle = combinedStyle;
     metrics.confidenceScore = Math.max(0, Math.min(BEHAVIOR_ANALYSIS_CONFIG.CONFIDENCE_SCORE.MAX_CONFIDENCE, confidence));
 
-    // ✅ NEW: Generate rich trading interpretation (speed vs economic analysis)
+    // Generate rich trading interpretation (speed vs economic analysis)
     // Use weighted average from historicalPattern, or fallback to median if pattern unavailable
+    const medianHoldHours = medianCompletedHoldTimeHours ?? medianHoldTime;
     const economicHoldTimeHours = metrics.historicalPattern?.historicalAverageHoldTimeHours || medianHoldHours;
 
     if (!metrics.historicalPattern) {
@@ -1629,15 +1781,20 @@ export class BehaviorAnalyzer {
       );
     }
 
+    // Map new enum values to old strings for tradingInterpretation (legacy compatibility)
+    const speedCategoryString = metrics.speedCategory || 'UNKNOWN';
+    const flowPatternString = metrics.flowPattern || 'UNKNOWN';
+
     metrics.tradingInterpretation = this.generateTradingInterpretation(
-      speedCategory,
-      behavioralPattern,
+      speedCategoryString,
+      flowPatternString,
       medianHoldHours,
       economicHoldTimeHours
     );
 
     this.logger.debug(
-      `Classified as ${combinedStyle} (median hold: ${medianHoldHours.toFixed(2)}h, ` +
+      `Classified: strategyType=${metrics.strategyType}, speed=${metrics.speedCategory}, flow=${metrics.flowPattern}, ` +
+      `velocityScore=${metrics.velocityScore}, median hold: ${medianHoldHours.toFixed(2)}h, ` +
       `confidence: ${metrics.confidenceScore.toFixed(2)}, cycles: ${completedCycles})`
     );
   }

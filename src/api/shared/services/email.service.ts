@@ -5,6 +5,8 @@ import { EmailEventService } from './email-event.service';
 import { Resend } from 'resend';
 import { render } from '@react-email/render';
 import { VerificationEmail } from '../../../emails/VerificationEmail';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 @Injectable()
 export class EmailService {
@@ -65,7 +67,7 @@ export class EmailService {
       this.isConfigured = true;
       this.logger.log('Email service configured successfully (SMTP)');
     } catch (error) {
-      this.logger.error('Failed to configure email service:', error);
+      this.logger.error('Failed to configure email service:', getErrorMessage(error));
     }
   }
 
@@ -154,6 +156,73 @@ If you didn't create an account, you can safely ignore this email.`.trim();
     });
   }
 
+  async sendPasswordResetConfirmationEmail(email: string): Promise<boolean> {
+    if (await this.emailEventService.isSuppressed(email)) {
+      this.logger.warn(`Skipping password reset confirmation email to suppressed address: ${email}`);
+      return false;
+    }
+
+    const appName = this.configService.get<string>('APP_NAME', 'Sova Intel');
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    const timestamp = new Date().toLocaleString('en-US', {
+      timeZone: 'UTC',
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+
+    const subject = `Your ${appName} password was changed`;
+    const html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Password changed</title>
+          </head>
+          <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #10b981; color: white; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+              <h2 style="margin: 0; font-size: 18px;">✓ Password Changed Successfully</h2>
+            </div>
+            <p>Your ${appName} password was successfully changed at ${timestamp} UTC.</p>
+            <p>If you made this change, no further action is needed.</p>
+            <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 3px;">
+              <p style="margin: 0; color: #92400e;"><strong>Didn't make this change?</strong></p>
+              <p style="margin: 10px 0 0 0; color: #92400e;">If you didn't reset your password, your account may be compromised. Please contact support immediately.</p>
+            </div>
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+              <p style="color: #666; font-size: 14px; margin: 5px 0;"><strong>Security tips:</strong></p>
+              <ul style="color: #666; font-size: 14px; line-height: 1.6;">
+                <li>Use a unique password for ${appName}</li>
+                <li>Never share your password with anyone</li>
+              </ul>
+            </div>
+            <p style="color: #999; font-size: 12px; margin-top: 30px;">
+              Need help? Visit <a href="${frontendUrl}" style="color: #3b82f6;">${frontendUrl}</a>
+            </p>
+          </body>
+          </html>
+        `;
+    const text = `Your ${appName} password was successfully changed at ${timestamp} UTC.
+
+If you made this change, no further action is needed.
+
+DIDN'T MAKE THIS CHANGE?
+If you didn't reset your password, your account may be compromised. Please contact support immediately.
+
+Security tips:
+- Use a unique password for ${appName}
+- Never share your password with anyone
+
+Need help? Visit ${frontendUrl}`;
+
+    return this.sendEmail({
+      to: email,
+      subject,
+      html,
+      text,
+      devLog: `Password reset confirmation email sent to ${email}`,
+    });
+  }
+
   private async sendEmail(params: {
     to: string;
     subject: string;
@@ -212,7 +281,7 @@ If you didn't create an account, you can safely ignore this email.`.trim();
       this.logger.error('Email provider configured but transporter missing');
       return false;
     } catch (error) {
-      this.logger.error(`Failed to send email to ${params.to}:`, error);
+      this.logger.error(`Failed to send email to ${params.to}:`, getErrorMessage(error));
       return false;
     }
   }

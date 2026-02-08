@@ -2,11 +2,12 @@ import { HeliusApiClient } from './helius-api-client';
 import { TokenBalanceDetails, WalletBalance } from '@/types/wallet';
 import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, TokenAccount } from '@/types/helius-api';
 import { createLogger } from 'core/utils/logger';
-import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '../../config/constants';
+import { SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, BALANCE_CACHE_CONFIG } from '../../config/constants';
 import { formatLargeNumber } from 'core/utils/number-formatting';
 import { TokenInfoService } from '../../api/services/token-info.service';
-import { TokenInfo } from '@prisma/client'; 
+import { TokenInfo } from '@prisma/client';
 import { DatabaseService } from './database-service';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('WalletBalanceService');
 const SOL_DECIMALS = 9;
@@ -53,7 +54,12 @@ export class WalletBalanceService {
     walletAddresses: string[],
     commitment?: string,
     preFetchedTokenCounts?: Record<string, number>,
-    preFetchedTokenData?: Record<string, any[]>
+    preFetchedTokenData?: Record<string, any[]>,
+    options?: {
+      changedSinceSlotByAddress?: Record<string, number>;
+      includeLowBalances?: boolean;
+      slotByAddress?: Record<string, number>;
+    }
   ): Promise<Map<string, WalletBalance>> {
     if (!walletAddresses || walletAddresses.length === 0) {
       return new Map();
@@ -98,7 +104,7 @@ export class WalletBalanceService {
           }
         });
       } catch (error: any) {
-        logger.warn(`Error fetching SOL balances for batch (offset ${i}, ${batchAddresses.length} addresses):`, error);
+        logger.warn(`Error fetching SOL balances for batch (offset ${i}, ${batchAddresses.length} addresses): ${getErrorMessage(error)}`);
         // For addresses in this failed batch, SOL balance will remain 0 or its default
       }
     }
@@ -109,6 +115,8 @@ export class WalletBalanceService {
     for (const address of walletAddresses) {
       try {
         let currentTokenAccounts: TokenAccount[] = [];
+        let contextSlot = 0;
+        const changedSinceSlot = options?.changedSinceSlotByAddress?.[address];
 
         // Check if we have pre-fetched token data
         if (preFetchedTokenData && preFetchedTokenData[address]) {
@@ -126,11 +134,16 @@ export class WalletBalanceService {
             undefined, // No specific mint, fetch all tokens
             SPL_TOKEN_PROGRAM_ID, // Standard SPL Token Program ID
             commitment,
-            'jsonParsed' // Crucial for getting structured token data
+            'jsonParsed', // Crucial for getting structured token data
+            undefined,
+            Number.isFinite(changedSinceSlot) ? { changedSinceSlot } : undefined
           );
 
           if (splTokenAccountsResult && splTokenAccountsResult.value) {
             currentTokenAccounts.push(...splTokenAccountsResult.value);
+          }
+          if (splTokenAccountsResult?.context?.slot) {
+            contextSlot = Math.max(contextSlot, splTokenAccountsResult.context.slot);
           }
         }
         
@@ -144,36 +157,85 @@ export class WalletBalanceService {
               TOKEN_2022_PROGRAM_ID,
               commitment,
               'jsonParsed',
+              undefined,
+              Number.isFinite(changedSinceSlot) ? { changedSinceSlot } : undefined
             );
 
             if (token2022AccountsResult && token2022AccountsResult.value) {
               logger.debug(`Address ${address}: Found ${token2022AccountsResult.value.length} Token-2022 accounts.`);
               currentTokenAccounts.push(...token2022AccountsResult.value);
             }
+            if (token2022AccountsResult?.context?.slot) {
+              contextSlot = Math.max(contextSlot, token2022AccountsResult.context.slot);
+            }
           } catch (error) {
-            logger.warn(`Address ${address}: Failed to fetch Token-2022 accounts:`, error);
+            logger.warn(`Address ${address}: Failed to fetch Token-2022 accounts: ${getErrorMessage(error)}`);
           }
         }
 
         const tokenBalances: TokenBalanceDetails[] = [];
         if (currentTokenAccounts.length > 0) {
+          const totalFetched = currentTokenAccounts.length;
+          let filteredCount = 0;
+
+          /**
+           * BALANCE FILTERING STRATEGY (2024):
+           *
+           * We filter tokens during balance fetch to reduce noise and memory usage.
+           * This filtering ONLY affects CURRENT balance storage, NOT historical data.
+           *
+           * What Gets Filtered:
+           * - Tokens with uiAmount === null or uiAmount === 0 (zero balance)
+           * - Tokens with uiAmount < 200 (dust - incomplete sells, tiny airdrops)
+           *
+           * What Gets Kept:
+           * - ALL tokens with balance ≥ 200 (including scam airdrops, sent tokens, etc.)
+           *
+           * Important Notes:
+           * - This does NOT filter transaction history (already in DB)
+           * - Past traded tokens still exist in AnalysisResult table
+           * - Tokens traded but now have balance < 200 will show as currentUiBalance = null
+           * - Future enhancement: Store non-traded tokens with balance ≥ 200 as "HOLD_ONLY"
+           */
           currentTokenAccounts.forEach((tokenAccount: TokenAccount) => {
-            // Type guard to ensure data is parsed as expected
             const accountData = tokenAccount.account.data;
             if (typeof accountData !== 'string' && !Array.isArray(accountData) && accountData.parsed) {
                 const parsedInfo = accountData.parsed.info;
                 if (parsedInfo && parsedInfo.tokenAmount) {
+                    const uiAmount = parsedInfo.tokenAmount.uiAmount;
+
+                    // Skip tokens with null balance. For incremental updates, keep low balances
+                    // so the caller can remove them during merge if needed.
+                    if (uiAmount === null) {
+                      filteredCount++;
+                      return;
+                    }
+
+                    if (!options?.includeLowBalances) {
+                      // Skip tokens with zero or dust balance (< 1000 tokens)
+                      // Increased from 200 to 1000 to filter spam/airdrop tokens more aggressively
+                      // This filters out: zero balances, incomplete sells, dust airdrops, spam tokens
+                      if (uiAmount < BALANCE_CACHE_CONFIG.MIN_UI_BALANCE) {
+                        filteredCount++;
+                        return;
+                      }
+                    }
+
                     tokenBalances.push({
-                    mint: parsedInfo.mint,
-                    tokenAccountAddress: tokenAccount.pubkey,
-                    balance: parsedInfo.tokenAmount.amount,
-                    decimals: parsedInfo.tokenAmount.decimals,
-                    uiBalance: parsedInfo.tokenAmount.uiAmount,
-                    uiBalanceString: formatLargeNumber(parsedInfo.tokenAmount.uiAmount),
+                      mint: parsedInfo.mint,
+                      tokenAccountAddress: tokenAccount.pubkey,
+                      balance: parsedInfo.tokenAmount.amount,
+                      decimals: parsedInfo.tokenAmount.decimals,
+                      uiBalance: uiAmount,
+                      uiBalanceString: formatLargeNumber(uiAmount),
                     });
                 }
             }
           });
+
+          if (filteredCount > 0) {
+            logger.debug(`Address ${address}: Filtered ${filteredCount} tokens (zero/dust), kept ${tokenBalances.length} from ${totalFetched} fetched.`);
+          }
         }
 
         // 3. FALLBACK: Check for missing tokens that should have balances
@@ -214,7 +276,7 @@ export class WalletBalanceService {
                 }
               }
             } catch (error) {
-              logger.warn(`Address ${address}: Failed to recover missing token ${missingToken.tokenAddress}:`, error);
+              logger.warn(`Address ${address}: Failed to recover missing token ${missingToken.tokenAddress}: ${getErrorMessage(error)}`);
             }
           }
           
@@ -227,6 +289,9 @@ export class WalletBalanceService {
         const existingBalance = walletBalances.get(address);
         if (existingBalance) {
           existingBalance.tokenBalances = tokenBalances;
+          if (options?.slotByAddress && contextSlot > 0) {
+            options.slotByAddress[address] = contextSlot;
+          }
         }
       } catch (error: any) {
         const errorMessage = error.message || 'Unknown error';
@@ -238,7 +303,7 @@ export class WalletBalanceService {
           logger.warn(`🚨 SYSTEM WALLET DETECTED: ${address} caused ${errorMessage} - likely has excessive tokens`);
           // Keep empty token balances for this wallet
         } else {
-          logger.warn(`Error fetching token balances for address ${address}:`, error);
+          logger.warn(`Error fetching token balances for address ${address}: ${getErrorMessage(error)}`);
         }
         // Token balances for this address will remain empty []
       }
@@ -285,7 +350,7 @@ export class WalletBalanceService {
 
       return missingTokens;
     } catch (error) {
-      logger.warn(`Error finding missing tokens for ${walletAddress}:`, error);
+      logger.warn(`Error finding missing tokens for ${walletAddress}: ${getErrorMessage(error)}`);
       return [];
     }
   }

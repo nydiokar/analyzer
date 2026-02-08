@@ -50,6 +50,7 @@ export interface AnalyzeHolderProfilesJobData {
   topN?: number;              // Number of top holders to analyze (default: 10) when token mode
   walletAddress?: string;     // Specific wallet to analyze when wallet mode
   requestId: string;
+  debugFailAfterProfiles?: number; // Dev-only: force failure after streaming N profiles
   _holderContext?: {
     rank: number;
     supplyPercent: number;
@@ -82,8 +83,11 @@ export interface ComprehensiveSimilarityFlowData {
   requestId: string;
   walletsNeedingSync?: string[]; // Specific wallets that need sync (empty array = no sync needed)
   enrichMetadata?: boolean;     // Whether to enrich token metadata (default true)
+  includeBalances?: boolean;    // Include wallet balances in result payload (default false)
+  includeVectors?: boolean;     // Include wallet vectors in result payload (default false)
   failureThreshold?: number;    // Partial failure tolerance (default 0.8)
   timeoutMinutes?: number;      // Job-level timeout (default 45)
+  skipSystemWalletDetection?: boolean; // Skip system wallet filtering (default false) - for pure similarity analysis
   similarityConfig?: {
     vectorType?: 'capital' | 'binary';
     minSharedTokens?: number;
@@ -99,12 +103,22 @@ export interface ComprehensiveSimilarityFlowData {
 
 // Enrichment Operations Job Data
 export interface EnrichTokenBalancesJobData {
-  walletBalances: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;
+  walletBalances?: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;
+  balancesKey?: string;
+  walletAddresses?: string[];
   userId?: string;              // User who triggered the job (for room-based WebSocket)
   requestId: string;
   priority?: number;
   optimizationHint?: 'small' | 'large' | 'massive'; // For smart batching
   enrichmentContext?: 'dashboard-analysis' | 'similarity-analysis' | 'manual'; // Context for filtering decisions
+}
+
+export interface ParallelEnrichmentJobData {
+  requestId: string;
+  userId?: string;
+  walletBalances?: Record<string, any>;
+  balancesKey?: string;
+  walletAddresses?: string[];
 }
 
 
@@ -127,6 +141,10 @@ export interface AnalysisResult extends JobResult {
   walletAddress: string;
   analysisType: 'pnl' | 'behavior';
   resultId?: string; // Reference to stored analysis result
+  analysisSkipped?: boolean; // True if analysis was skipped (e.g., system wallet)
+  skipReason?: string; // Reason for skipping
+  knownType?: string; // Wallet type if detected (e.g., 'SYSTEM', 'BURN')
+  knownLabel?: string; // Display label for known wallet type
 }
 
 export interface SimilarityFlowResult extends JobResult {
@@ -196,6 +214,11 @@ export interface HolderProfile {
   walletAddress: string;
   rank: number;
   supplyPercent: number;
+  tokenHoldingValueSol?: number | null;
+  // Known wallet registry info (when analysisSkipped=true)
+  knownType?: string;                   // BURN, LP, JUPITER, RAYDIUM, etc.
+  knownLabel?: string;                  // Display label (e.g., "🔥 Burn Address")
+  analysisSkipped?: boolean;            // true when wallet is known non-trader
   // Smart fallback metrics (typical → realized → current) - NOT deprecated
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;
@@ -231,6 +254,11 @@ export interface HolderProfile {
   unresolvedTokensCount?: number | null;
   activeHoldingsFilteredOut?: number | null;
   heldValueThresholdSol?: number | null;
+  walletPnlSol?: number | null;
+  walletPnlUsd?: number | null;
+  walletRealizedPnlSol?: number | null;
+  walletRealizedPnlUsd?: number | null;
+  solBalance?: number | null;
   oldestTransactionTimestamp?: number;
   newestTransactionTimestamp?: number;
 }

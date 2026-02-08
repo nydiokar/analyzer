@@ -54,11 +54,48 @@ export function useTokenMetadata(mint?: string) {
 
 export function useTopHolders(mint?: string, commitment?: 'finalized' | 'confirmed' | 'processed') {
   const key = mint ? `/token-info/${mint}/top-holders${commitment ? `?commitment=${commitment}` : ''}` : null;
+  const lastSuccessAtRef = useRef<number | null>(null);
+  const STALE_MS = 10 * 60 * 1000;
   const { data, error, isLoading, mutate } = useSWR<TopHoldersResponse>(
     key,
     fetcher,
-    { revalidateOnFocus: false, revalidateOnReconnect: false }
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      keepPreviousData: true,
+      dedupingInterval: 60 * 1000, // Avoid rapid refetches; manual refresh still works
+      onSuccess: () => {
+        lastSuccessAtRef.current = Date.now();
+      },
+    }
   );
+
+  useEffect(() => {
+    if (!key) return;
+    if (typeof window === 'undefined') return;
+
+    const maybeRevalidate = () => {
+      const lastSuccess = lastSuccessAtRef.current;
+      if (!lastSuccess) return;
+      if (Date.now() - lastSuccess >= STALE_MS) {
+        mutate();
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        maybeRevalidate();
+      }
+    };
+
+    window.addEventListener('focus', maybeRevalidate);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', maybeRevalidate);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [key, mutate]);
+
   return {
     data,
     error,

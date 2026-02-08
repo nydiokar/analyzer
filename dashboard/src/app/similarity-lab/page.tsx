@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo, memo, useCallback } from 'react';
+import { useState, useEffect, useMemo, memo, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { WalletInputForm } from '@/components/similarity-lab/WalletInputForm'; // Import the new form
-import { TopHoldersPanel } from '@/components/similarity-lab/TopHoldersPanel';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
-import { ArrowUp } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { ArrowUp, FlaskConical, X } from 'lucide-react';
 
+import { SmartWalletInput } from '@/components/similarity-lab/SmartWalletInput';
+import { TokenHolderPicker } from '@/components/similarity-lab/TokenHolderPicker';
 import { SimilarityResultDisplay } from '@/components/similarity-lab/results/SimilarityResultDisplay';
 import { CombinedSimilarityResult, TokenInfo } from '@/components/similarity-lab/results/types';
 import { fetcher } from '@/lib/fetcher';
@@ -15,6 +16,11 @@ import { useJobProgress } from '@/hooks/useJobProgress';
 import { JobProgressData, JobFailedData, EnrichmentCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { AppShell } from '@/components/layout/AppShell';
+import { TokenBadge } from '@/components/shared/TokenBadge';
+import { PageTitle } from '@/components/shared/PageTitle';
+import { useFavorites } from '@/hooks/useFavorites';
+import { BulkTrackModal } from '@/components/shared/BulkTrackModal';
+import { useSimilarityLabTrackersFlow } from '@/hooks/similarity-lab/useSimilarityLabTrackersFlow';
 
 
 // Removed TopProgressBar - progress now handled inline
@@ -25,22 +31,108 @@ const MemoizedSimilarityResultDisplay = memo(SimilarityResultDisplay);
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 
 export default function AnalysisLabPage() {
+  const PERSIST_KEY = 'similarityLab:lastJob';
+  // Core state management - textarea + selected holders are source of truth
+  const [inputText, setInputText] = useState<string>('');
+  const [tokenInput, setTokenInput] = useState<string>('');
+  const [selectedHolderAddresses, setSelectedHolderAddresses] = useState<string[]>([]);
+  const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
+  const { favorites: favoriteWallets, mutate: mutateFavorites } = useFavorites();
+
+  // SINGLE SOURCE OF TRUTH: Parse wallets from textarea once, reuse everywhere
+  const parsedTextareaWallets = useMemo(() => {
+    return inputText
+      .split(/[\n,\s]+/) // Split by newlines, commas, or spaces
+      .map(l => l.trim())
+      .filter(Boolean)
+      .filter(w => isValidSolanaAddress(w));
+  }, [inputText]);
+
+  const normalizedTokenInput = useMemo(() => tokenInput.trim(), [tokenInput]);
+
+  const tokenMint = useMemo(() => {
+    if (!normalizedTokenInput) return null;
+    return isValidSolanaAddress(normalizedTokenInput) ? normalizedTokenInput : null;
+  }, [normalizedTokenInput]);
+
+  const [activeTokenMint, setActiveTokenMint] = useState<string | null>(null);
+  const previousTokenMintRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (tokenMint) {
+      setActiveTokenMint(tokenMint);
+    } else if (!normalizedTokenInput) {
+      setActiveTokenMint(null);
+    }
+  }, [tokenMint, normalizedTokenInput]);
+
+  useEffect(() => {
+    if (activeTokenMint !== previousTokenMintRef.current) {
+      previousTokenMintRef.current = activeTokenMint;
+      setSelectedHolderAddresses([]);
+    }
+  }, [activeTokenMint]);
+
+  const tokenStatusMessage = useMemo(() => {
+    if (!normalizedTokenInput) return '';
+    if (!tokenMint) return 'Invalid token mint address';
+    return '';
+  }, [normalizedTokenInput, tokenMint]);
+
+  const tokenStatusColor = useMemo(() => {
+    if (!normalizedTokenInput) return 'text-muted-foreground';
+    if (!tokenMint) return 'text-red-600 dark:text-red-500';
+    return 'text-green-600 dark:text-green-500';
+  }, [normalizedTokenInput, tokenMint]);
+
+  const {
+    selectedHolderDetails,
+    defaultCollectionName,
+    defaultNicknamePrefix,
+    bulkTrack,
+  } = useSimilarityLabTrackersFlow({
+    tokenMint: activeTokenMint,
+    selectedAddresses: selectedHolderAddresses,
+    favorites: favoriteWallets,
+    onSaved: mutateFavorites,
+  });
+
+  // Job status
   const [jobStatuses, setJobStatuses] = useState<{ analysis: JobStatus, enrichment: JobStatus }>({
     analysis: 'idle',
     enrichment: 'idle',
   });
-  const [walletList, setWalletList] = useState<string[]>([]); // State to hold the final list of wallets
-  const [analysisResult, setAnalysisResult] = useState<CombinedSimilarityResult | null>(null);
-
   const [syncMessage, setSyncMessage] = useState('');
   const [, setError] = useState<string | null>(null);
-  
+
   // Job tracking for analysis
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  
+  const subscribedEnrichmentJobsRef = useRef<Set<string>>(new Set());
+
+  const persistJobPointer = useCallback((jobId: string, walletCount: number) => {
+    try {
+      localStorage.setItem(PERSIST_KEY, JSON.stringify({
+        jobId,
+        walletCount,
+        vectorType: 'capital',
+        createdAt: Date.now(),
+      }));
+    } catch (error) {
+      console.warn('Failed to persist similarity job pointer', error);
+    }
+  }, []);
+
+  const clearJobPointer = useCallback(() => {
+    try {
+      localStorage.removeItem(PERSIST_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // Back to top button state
   const [showBackToTop, setShowBackToTop] = useState(false);
 
@@ -58,7 +150,7 @@ export default function AnalysisLabPage() {
       // Only update the main progress bar for the main analysis job (not enrichment)
       if (data.jobId === currentJobId && jobStatuses.analysis === 'running') {
         if (jobSocketDebug) {
-          console.log('📊 Main analysis progress:', data.jobId, data.progress);
+        //  console.log('📊 Main analysis progress:', data.jobId, data.progress);
         }
         setJobProgress(data.progress);
         setSyncMessage(`Analyzing similarities... ${data.status || 'processing'}`);
@@ -92,7 +184,8 @@ export default function AnalysisLabPage() {
               ? data.result
               : { data: data.result };
           const walletCount =
-            resultData.data?.globalMetrics?.analyzedWallets ??
+            resultData.data?.summary?.walletCount ??
+            Object.keys(resultData.data?.uniqueTokensPerWallet ?? {}).length ??
             Object.keys(resultData.data?.walletBalances ?? {}).length;
           if (jobSocketDebug) {
             console.log('✅ Using similarity result data from WebSocket:', {
@@ -104,7 +197,7 @@ export default function AnalysisLabPage() {
           
           // The correct data structure is: resultData.data (the actual analysis data)
           // resultData is the SimilarityFlowResult wrapper, resultData.data is the analysis data
-          const analysisData = resultData.data;
+          const analysisData = resultData.data ?? resultData;
           
           if (analysisData?.pairwiseSimilarities?.length > 0) {
             setAnalysisResult(analysisData);
@@ -149,7 +242,7 @@ export default function AnalysisLabPage() {
           console.log('Ignoring completion for unrelated job:', data.jobId);
         }
       }
-    }, [toast, currentJobId, jobSocketDebug]),
+    }, [toast, currentJobId, jobSocketDebug, clearJobPointer]),
     
     onJobFailed: useCallback((data: JobFailedData) => {
       console.error('❌ Job failed (WebSocket):', data.jobId, data.error);
@@ -158,6 +251,7 @@ export default function AnalysisLabPage() {
         setJobProgress(0);
         setSyncMessage('');
         setCurrentJobId(null);
+        clearJobPointer();
         
         // Check if this is the "insufficient valid wallets" error
         const errorMessage = data.error;
@@ -188,10 +282,11 @@ export default function AnalysisLabPage() {
       }
       if (data.jobId === enrichmentJobId) {
         setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
+        setEnrichmentJobId(null);
         // Don't show toast for enrichment failures, they're non-critical
       }
       setError(data.error);
-    }, [toast, currentJobId, enrichmentJobId]),
+    }, [toast, currentJobId, enrichmentJobId, clearJobPointer]),
     
     onEnrichmentComplete: useCallback(async (data: EnrichmentCompletionData) => {
       if (jobSocketDebug) {
@@ -216,6 +311,7 @@ export default function AnalysisLabPage() {
         });
 
         setJobStatuses(prev => ({ ...prev, enrichment: 'completed' }));
+        setEnrichmentJobId(null);
         toast.success("Token Data Loaded", { description: "Prices and metadata have been updated." });
       } catch (error: any) {
         console.error('❌ Error processing enrichment data:', error);
@@ -239,22 +335,53 @@ export default function AnalysisLabPage() {
   }, [jobStatuses.enrichment]);
 
   useEffect(() => {
-    try {
-      const savedResult = localStorage.getItem('analysisResult');
-      if (savedResult) {
-        const parsedResult = JSON.parse(savedResult);
-        if (parsedResult?.pairwiseSimilarities?.[0] && parsedResult.pairwiseSimilarities[0].capitalAllocation === undefined) {
-          console.warn('Stale analysis result found in localStorage. Discarding.');
-          localStorage.removeItem('analysisResult');
-        } else {
-          setAnalysisResult(parsedResult);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to parse analysis result from localStorage", error);
-      localStorage.removeItem('analysisResult');
+    if (!enrichmentJobId) {
+      subscribedEnrichmentJobsRef.current.clear();
     }
-  }, []);
+  }, [enrichmentJobId]);
+
+  useEffect(() => {
+    const hydrateFromLastJob = async () => {
+      try {
+        const saved = localStorage.getItem(PERSIST_KEY);
+        if (!saved) return;
+
+        const parsed = JSON.parse(saved) as { jobId?: string; createdAt?: number };
+        if (!parsed?.jobId) {
+          clearJobPointer();
+          return;
+        }
+
+        // Clear job pointers older than 24 hours (jobs may have expired from queue)
+        const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+        if (parsed.createdAt && Date.now() - parsed.createdAt > MAX_AGE_MS) {
+          clearJobPointer();
+          return;
+        }
+
+        const jobStatus = await fetcher(`/jobs/${parsed.jobId}`);
+        if (jobStatus?.status === 'completed') {
+          const result = await fetcher(`/jobs/${parsed.jobId}/result`);
+          const resultData = result?.result;
+          const analysisData = resultData?.data ?? resultData;
+          if (analysisData?.pairwiseSimilarities?.length) {
+            setAnalysisResult(analysisData);
+          }
+        } else if (jobStatus?.status === 'failed' || jobStatus?.status === 'not_found') {
+          clearJobPointer();
+        }
+      } catch (error: any) {
+        // If the job is not found (404) or any other error, clear the stale pointer
+        // to prevent repeated errors on every page load
+        if (error?.status === 404 || error?.message?.includes('not found')) {
+          clearJobPointer();
+        }
+        // Silently ignore hydration errors - they're non-critical
+      }
+    };
+
+    hydrateFromLastJob();
+  }, [clearJobPointer]);
 
 
 
@@ -264,15 +391,14 @@ export default function AnalysisLabPage() {
       if (jobSocketDebug) {
         console.log('🔔 Subscribing to enrichment job:', enrichmentJobId);
       }
-      subscribeToJob(enrichmentJobId);
+      if (!subscribedEnrichmentJobsRef.current.has(enrichmentJobId)) {
+        subscribedEnrichmentJobsRef.current.add(enrichmentJobId);
+        subscribeToJob(enrichmentJobId);
+      }
       setJobStatuses(prev => ({ ...prev, enrichment: 'running' }));
     }
   }, [enrichmentJobId, wsConnected, subscribeToJob, jobSocketDebug]);
 
-  // This callback will be passed to the new form component
-  const handleWalletsChange = useCallback((wallets: string[]) => {
-    setWalletList(wallets);
-  }, []);
 
   // Back to top functionality - listen to the main container scroll
   useEffect(() => {
@@ -298,6 +424,7 @@ export default function AnalysisLabPage() {
     }
   };
 
+
   const handleRefreshPrices = useCallback(async () => {
     if (!analysisResult?.walletBalances) {
       toast.error('Cannot Refresh', {
@@ -318,7 +445,6 @@ export default function AnalysisLabPage() {
 
       if (job.jobId) {
         setEnrichmentJobId(job.jobId); // Set the ID to be tracked
-        subscribeToJob(job.jobId);     // Subscribe to its progress
       } else {
         throw new Error("Failed to queue enrichment job.");
       }
@@ -339,7 +465,24 @@ export default function AnalysisLabPage() {
       }
       return;
     }
-    
+
+    // Merge parsed textarea wallets with selected holders (single source of truth)
+    const allWallets = [...new Set([...parsedTextareaWallets, ...selectedHolderAddresses])];
+
+    if (allWallets.length === 0) {
+      toast.error("No Valid Wallets", {
+        description: "Please enter at least two valid wallet addresses or select holders.",
+      });
+      return;
+    }
+
+    if (allWallets.length < 2) {
+      toast.error("Insufficient Wallets", {
+        description: "Please enter at least two wallet addresses for comparison.",
+      });
+      return;
+    }
+
     setJobStatuses({ analysis: 'running', enrichment: 'idle' });
     // Only clear result if we're starting a new analysis (not if one just completed)
     if (jobStatuses.analysis !== 'completed') {
@@ -349,43 +492,8 @@ export default function AnalysisLabPage() {
     setCurrentJobId(null);
     setJobProgress(0);
 
-    if (walletList.length === 0) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast.error("No Wallets Provided", {
-        description: "Please enter at least two wallet addresses.",
-      });
-      return;
-    }
-
-    if (walletList.length < 2) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast.error("Insufficient Wallets", {
-        description: "Please enter at least two wallet addresses for comparison.",
-      });
-      return;
-    }
-
-    const invalidWallets = walletList.filter(w => !isValidSolanaAddress(w.trim()));
-    if (invalidWallets.length > 0) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast.error("Invalid Wallet Addresses", {
-        description: `Found ${invalidWallets.length} invalid address(es). Please ensure all addresses are correctbefore proceeding.`,
-      });
-      return;
-    }
-
-    // Final validation: ensure all wallets are valid
-    const validatedWallets = walletList.map(w => w.trim()).filter(w => isValidSolanaAddress(w));
-    if (validatedWallets.length !== walletList.length) {
-      setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
-      toast.error("Validation Error", {
-        description: "Some addresses failed validation. Please check all entries.",
-      });
-      return;
-    }
-
     // Skip status checking - let the similarity processor handle sync intelligently
-    await runAnalysis(validatedWallets);
+    await runAnalysis(allWallets);
   };
 
 
@@ -395,6 +503,8 @@ export default function AnalysisLabPage() {
     setJobProgress(0);
     
     try {
+      // NOTE: Similarity jobs currently perform their own balance fetch + system-wallet detection.
+      // TODO: Allow cache-only runs once BalanceCacheService exposes a cache-only helper.
       const jobResponse = await fetcher('/analyses/similarity/queue', {
         method: 'POST',
         body: JSON.stringify({
@@ -403,10 +513,12 @@ export default function AnalysisLabPage() {
           failureThreshold: 0.8,
           timeoutMinutes: 30,
           enrichMetadata: true,
+          includeBalances: true, // CRITICAL: Include wallet balances for USD value calculations
         }),
       });
 
       setCurrentJobId(jobResponse.jobId);
+      persistJobPointer(jobResponse.jobId, walletList.length);
       setSyncMessage(`Job submitted! ID: ${jobResponse.jobId.slice(0, 8)}...`);
       
       if (wsConnected) {
@@ -448,19 +560,20 @@ export default function AnalysisLabPage() {
       try {
         const jobStatus = await fetcher(`/jobs/${jobId}/status`);
         
-        if (jobStatus.status === 'completed') {
-          setJobProgress(100);
-          setSyncMessage('Analysis complete! Fetching results...');
+          if (jobStatus.status === 'completed') {
+            setJobProgress(100);
+            setSyncMessage('Analysis complete! Fetching results...');
           
-          const result = await fetcher(`/jobs/${jobId}/result`);
+            const result = await fetcher(`/jobs/${jobId}/result`);
           const resultData = result.result;
-          setAnalysisResult(resultData.data);
+          const analysisData = resultData?.data ?? resultData;
+          setAnalysisResult(analysisData);
           setJobStatuses(prev => ({ ...prev, analysis: 'completed' }));
           setCurrentJobId(null);
           setSyncMessage('');
           
           // Show user feedback about invalid wallets if any were filtered out 
-          if (resultData.metadata?.invalidWallets && resultData.metadata.invalidWallets.length > 0) {
+          if (resultData?.metadata?.invalidWallets && resultData.metadata.invalidWallets.length > 0) {
             const invalidCount = resultData.metadata.invalidWallets.length;
             const totalCount = resultData.metadata.requestedWallets;
             const invalidWalletsList = resultData.metadata.invalidWallets
@@ -523,99 +636,181 @@ export default function AnalysisLabPage() {
     setTimeout(poll, 1000);
   };
 
+  const tokenPanel = (
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <label htmlFor="tokenInput" className="text-sm font-medium">
+            Token Mint
+          </label>
+          {tokenInput && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setTokenInput('')}
+              disabled={jobStatuses.analysis === 'running'}
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3 w-3 mr-1" />
+              Clear
+            </Button>
+          )}
+        </div>
+        <Input
+          id="tokenInput"
+          placeholder="Token mint address"
+          value={tokenInput}
+          onChange={(e) => setTokenInput(e.target.value)}
+          disabled={jobStatuses.analysis === 'running'}
+          className="font-mono text-sm w-full max-w-[360px] bg-muted/30 border-foreground/20 shadow-sm focus-visible:ring-2 focus-visible:ring-primary/40"
+        />
+        {tokenMint && (
+          <TokenBadge
+            mint={tokenMint}
+            variant="inline"
+            size="m"
+            className="max-w-[360px]"
+          />
+        )}
+        {tokenStatusMessage && (
+          <p className={`text-xs ${tokenStatusColor}`}>{tokenStatusMessage}</p>
+        )}
+      </div>
+
+      {activeTokenMint ? (
+        <TokenHolderPicker
+          tokenMint={activeTokenMint}
+          selectedAddresses={selectedHolderAddresses}
+          onSelectionChange={setSelectedHolderAddresses}
+          onTrackSelected={() => {
+            const eligibleCount = selectedHolderDetails.filter(holder =>
+              holder.knownType ? !bulkTrack.excludedKnownTypes.has(holder.knownType) : true
+            ).length;
+            if (eligibleCount === 0) {
+              toast.info('No eligible wallets', {
+                description: 'All selected holders are system or LP wallets and will be skipped.',
+              });
+              return;
+            }
+            bulkTrack.open();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+
   return (
     <AppShell>
-      <div className="container mx-auto p-4 md:p-5">
-        <header className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-foreground">
-            Similarity LAB <span className="text-muted-foreground">- discover hidden connections</span>
-          </h1>
-        </header>
-      
-      <div className="bg-card p-6 rounded-lg shadow-sm border">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold mb-2">Wallet Group Similarity</h2>
-            <p className="text-muted-foreground mb-4">
-              Enter a list of wallet addresses to analyze their similarity based on trading behavior and capital allocation.
-            </p>
-          </div>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button
-                variant="outline"
-                className="relative border-primary/40 text-primary bg-gradient-to-r from-primary/5 via-indigo-500/5 to-fuchsia-500/5 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] hover:shadow-[0_0_18px_rgba(99,102,241,0.35)] hover:border-primary/60 transition-all duration-300 hover:-translate-y-0.5"
-              >
-                Add from token holders
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-5xl">
-              <DialogHeader>
-                <DialogTitle>Add wallets from token top holders</DialogTitle>
-                <DialogDescription>
-                  Enter a token mint, inspect the top holders, then add selected owners to your similarity set.
-                </DialogDescription>
-              </DialogHeader>
-              <TopHoldersPanel
-                maxHeightClass="h-[70vh]"
-                onAddToSet={(owners) => setWalletList(prev => Array.from(new Set([...prev, ...owners])))}
-              />
-            </DialogContent>
-          </Dialog>
-        </div>
-        
-        <WalletInputForm
-          onWalletsChange={handleWalletsChange}
-          onAnalyze={handleAnalyze}
-          isRunning={isRunning}
-          jobProgress={jobProgress}
-          progressMessage={syncMessage || ''}
-          externalWallets={walletList}
+      <div className="w-full px-[10%] lg:px-[15%] space-y-6 pb-8">
+        {/* Header */}
+        <PageTitle
+          title="Similarity Lab"
+          subtitle="Discover hidden connections between wallets through trading behavior and capital allocation patterns."
+          icon={FlaskConical}
         />
-        {/* Removed separate similarity set counter/clear to avoid confusion since we write directly into the textarea */}
-      </div>
 
-      {/* Lightweight launcher to the standalone Top Holders page */}
-      <div className="mt-2 text-xs text-muted-foreground/90">
-        Prefer a dedicated tool?{' '}
-        <a
-          href="/tools/top-holders"
-          className="underline decoration-primary/40 underline-offset-2 hover:decoration-primary text-foreground/90 hover:text-foreground transition-colors"
-        >
-          Open the standalone Top Holders utility
-        </a>
-      </div>
+        {/* Main Input Card - 2-column layout with controlled widths */}
+        <Card className="p-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[460px_minmax(0,1fr)] gap-6">
+            {/* Left: Wallet Input - Fixed width */}
+            <div className="flex-shrink-0">
+              <SmartWalletInput
+                value={inputText}
+                onChange={setInputText}
+                onAnalyze={handleAnalyze}
+                isAnalyzing={jobStatuses.analysis === 'running'}
+                selectedHolderCount={selectedHolderAddresses.length}
+              />
+            </div>
 
-      {analysisResult && (
-        <div className="mt-6">
-          <MemoizedSimilarityResultDisplay 
-            results={analysisResult} 
+            {/* Right: Token Panel - Fills remaining space */}
+            <div className="border-l pl-8 hidden lg:block min-w-0">
+              {tokenPanel}
+            </div>
+          </div>
+
+          {/* Mobile: Show holder picker below on small screens */}
+          <div className="mt-4 pt-4 border-t lg:hidden">
+            {tokenPanel}
+          </div>
+        </Card>
+
+        {/* Bulk Track Confirmation */}
+        <BulkTrackModal
+          bulkTrack={bulkTrack}
+          defaultCollectionName={defaultCollectionName}
+          defaultNicknamePrefix={defaultNicknamePrefix}
+        />
+
+        {/* Analysis Progress Indicator - Modern Pulsing Animation */}
+        {jobStatuses.analysis === 'running' && (
+          <Card className="relative p-6 overflow-hidden">
+            {/* Animated pulsing border effect */}
+            <div className="absolute inset-0 rounded-lg">
+              <div className="absolute inset-0 rounded-lg border-2 border-primary/30 animate-pulse" />
+              <div className="absolute inset-0 rounded-lg border-2 border-primary/50 animate-[pulse_2s_ease-in-out_infinite]" style={{ animationDelay: '0.5s' }} />
+            </div>
+
+            {/* Content */}
+            <div className="relative space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    {/* Pulsing dot indicator */}
+                    <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
+                    <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-primary/40 animate-ping" />
+                  </div>
+                  <h3 className="text-sm font-semibold">Analyzing Similarities</h3>
+                </div>
+                <span className="text-sm font-mono text-muted-foreground tabular-nums">{jobProgress.toFixed(0)}%</span>
+              </div>
+
+              {/* Progress bar with gradient */}
+              <div className="h-1.5 bg-muted/50 rounded-full overflow-hidden backdrop-blur-sm">
+                <div
+                  className="h-full bg-gradient-to-r from-primary via-primary/80 to-primary transition-all duration-500 ease-out relative"
+                  style={{ width: `${jobProgress}%` }}
+                >
+                  {/* Shimmer effect on progress bar */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_2s_infinite]" />
+                </div>
+              </div>
+
+              {syncMessage && (
+                <p className="text-xs text-muted-foreground">{syncMessage}</p>
+              )}
+            </div>
+          </Card>
+        )}
+
+        {/* Results Display */}
+        {analysisResult && (
+          <MemoizedSimilarityResultDisplay
+            results={analysisResult}
             onRefreshPrices={handleRefreshPrices}
             isRefreshing={isRefreshing}
           />
-        </div>
-      )}
-      {!analysisResult && jobStatuses.analysis === 'completed' && (
-        <div className="mt-6 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
-          <p>⚠️ Analysis completed but no results to display. This might be a data issue.</p>
-          <p>Debug info: analysisResult is {analysisResult ? 'truthy' : 'falsy'}</p>
-          <p>Job status: {jobStatuses.analysis}</p>
-          <p>Current job ID: {currentJobId || 'none'}</p>
-        </div>
-      )}
+        )}
 
+        {!analysisResult && jobStatuses.analysis === 'completed' && (
+          <div className="p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
+            <p>⚠️ Analysis completed but no results to display. This might be a data issue.</p>
+            <p>Debug info: analysisResult is {analysisResult ? 'truthy' : 'falsy'}</p>
+            <p>Job status: {jobStatuses.analysis}</p>
+            <p>Current job ID: {currentJobId || 'none'}</p>
+          </div>
+        )}
 
-      {/* Back to Top Button - Enhanced Visibility */}
-      {showBackToTop && (
-        <Button
-          onClick={scrollToTop}
-          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-2xl z-[100] bg-blue-600 hover:bg-blue-700 border-2 border-white/20 backdrop-blur-sm"
-          size="icon"
-        >
-          <ArrowUp className="h-5 w-5 text-white" />
-        </Button>
-      )}
-
+        {/* Back to Top Button */}
+        {showBackToTop && (
+          <Button
+            onClick={scrollToTop}
+            className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-2xl z-[100] bg-blue-600 hover:bg-blue-700 border-2 border-white/20 backdrop-blur-sm"
+            size="icon"
+          >
+            <ArrowUp className="h-5 w-5 text-white" />
+          </Button>
+        )}
       </div>
     </AppShell>
   );

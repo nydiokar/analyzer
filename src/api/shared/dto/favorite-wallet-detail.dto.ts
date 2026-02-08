@@ -5,11 +5,14 @@ export class FavoriteWalletDetailDto {
   @ApiProperty({ description: 'Wallet address', example: 'So11111111111111111111111111111111111111112' })
   walletAddress: string;
 
+  @ApiProperty({ description: 'Known wallet type from registry (if applicable).', required: false })
+  knownType?: string;
+
+  @ApiProperty({ description: 'Known wallet display label from registry (if applicable).', required: false })
+  knownLabel?: string;
+
   @ApiProperty({ description: 'User-defined nickname for the wallet', example: 'DeFi Whale #1', required: false })
   nickname?: string;
-
-  @ApiProperty({ description: 'Array of tags applied to this wallet', example: ['DeFi', 'High Performer', 'Research'], required: false })
-  tags?: string[];
 
   @ApiProperty({ description: 'Array of collections containing this wallet', example: ['Main Portfolio', 'Watchlist'], required: false })
   collections?: string[];
@@ -23,6 +26,12 @@ export class FavoriteWalletDetailDto {
   @ApiProperty({ description: 'Brief summary stat 2 (e.g., Win Rate)', example: 0.65, required: false })
   winRate?: number;
 
+  @ApiProperty({ description: 'Current SOL balance', example: 42.5, required: false })
+  currentSolBalance?: number;
+
+  @ApiProperty({ description: 'Unix timestamp (seconds) of last wallet activity', example: 1735497600, required: false })
+  lastActiveTimestamp?: number;
+
   @ApiProperty({ description: 'Timestamp when the wallet was favorited' })
   favoritedAt: Date;
 
@@ -34,9 +43,6 @@ export class FavoriteWalletDetailDto {
 export class UpdateFavoriteWalletDto {
   @ApiProperty({ description: 'User-defined nickname for the wallet', example: 'DeFi Whale #1', required: false })
   nickname?: string;
-
-  @ApiProperty({ description: 'Array of tags to apply to this wallet', example: ['DeFi', 'High Performer'], required: false })
-  tags?: string[];
 
   @ApiProperty({ description: 'Array of collections for this wallet', example: ['Main Portfolio'], required: false })
   collections?: string[];
@@ -52,9 +58,6 @@ export class AddFavoriteWalletDto {
 
   @ApiProperty({ description: 'Optional nickname for the wallet', example: 'DeFi Whale #1', required: false })
   nickname?: string;
-
-  @ApiProperty({ description: 'Optional tags to apply', example: ['DeFi', 'High Performer'], required: false })
-  tags?: string[];
 
   @ApiProperty({ description: 'Optional collections to add to', example: ['Main Portfolio'], required: false })
   collections?: string[];

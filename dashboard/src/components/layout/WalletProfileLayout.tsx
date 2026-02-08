@@ -9,20 +9,12 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import EmptyState from '@/components/shared/EmptyState'
-import { 
-  CopyIcon,
-  WalletIcon,
-  ChevronUp,
-  ChevronDown,
+import {
   ListChecks,      // Token Performance
   Calculator,      // Account Stats & PNL
   Users,           // Behavioral Patterns
   FileText,        // Notes
-  RefreshCw,       // Refresh button
-  Star,            // Favorites icon
-  Tags,
-  FolderOpen,
-  Edit2,
+  RefreshCw,
   Bot,             // Edit icon for wallet data
   Loader2
 } from 'lucide-react' 
@@ -38,11 +30,11 @@ import { cn } from '@/lib/utils';
 import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
 import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse, DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '@/types/api';
-import { createCacheKey, invalidateWalletCache } from '@/lib/swr-config';
+import { createCacheKey } from '@/lib/swr-config';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
-import { JobProgressData, JobCompletionData, JobFailedData, EnrichmentCompletionData, JobQueueToStartData } from '@/types/websockets';
+import { JobProgressData, JobCompletionData, JobFailedData, JobQueueToStartData } from '@/types/websockets';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +45,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { getTagColor, getCollectionColor } from '@/lib/color-utils';
+import { getCollectionColorFilled } from '@/lib/color-utils';
 import { useSearchParams } from 'next/navigation';
 import { useTimeRangeStore } from '@/store/time-range-store';
 
@@ -61,12 +53,12 @@ import type { BehavioralPatternsTabProps } from '@/components/dashboard/Behavior
 import type { TokenPerformanceTabProps } from '@/components/dashboard/TokenPerformanceTab';
 import type { AccountStatsPnlTabProps } from '@/components/dashboard/AccountStatsPnlTab';
 import type { ReviewerLogTabProps } from '@/components/dashboard/ReviewerLogTab';
-import { ThemeToggleButton } from "@/components/theme-toggle-button";
 import { WalletEditForm } from './WalletEditForm';
 import QuickAddForm from './QuickAddForm';
 import LazyTabContent from './LazyTabContent';
 import { FavoriteWallet } from '@/types/api';
 import { WalletBadge } from '@/components/shared/WalletBadge';
+import { WalletHudOverlay } from '@/components/shared/WalletHudOverlay';
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
@@ -160,30 +152,7 @@ export default function WalletProfileLayout({
   const { mutate: globalMutate, cache } = useSWRConfig();
   const { isDemo: isDemoAccount } = useApiKeyStore();
   const { startDate, endDate } = useTimeRangeStore();
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(true); // Start with true for SSR consistency
-  const [isHydrated, setIsHydrated] = useState(false); // Track hydration state
-
-  // Load saved header state from localStorage after hydration
-  useEffect(() => {
-    const saved = localStorage.getItem('wallet-profile-header-expanded');
-    if (saved !== null) {
-      setIsHeaderExpanded(JSON.parse(saved));
-    }
-    setIsHydrated(true);
-  }, []);
-
-  // Save the header expanded state to localStorage with throttling to prevent excessive writes
-  useEffect(() => {
-    // Only save to localStorage after hydration to avoid conflicts
-    if (typeof window !== 'undefined' && isHydrated) {
-      // Use a ref to throttle localStorage writes
-      const timeoutId = setTimeout(() => {
-        localStorage.setItem('wallet-profile-header-expanded', JSON.stringify(isHeaderExpanded));
-      }, 500); // Throttle to 500ms to reduce excessive writes
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [isHeaderExpanded, isHydrated]);
+  // REMOVED: Header expand/collapse state - no longer needed with natural scroll
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastAnalysisTimestamp, setLastAnalysisTimestamp] = useState<Date | null>(null);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState<boolean>(false);
@@ -234,7 +203,8 @@ export default function WalletProfileLayout({
   const [hasInitialTokenSnapshot, setHasInitialTokenSnapshot] = useState(false);
   const isAutoTriggeringRef = useRef(false);
 
-  const jobIdToScopeRef = useRef<Record<string, DashboardAnalysisScope>>({});
+  // REMOVED: jobIdToScopeRef - scope is now read directly from job completion event
+  // const jobIdToScopeRef = useRef<Record<string, DashboardAnalysisScope>>({});
 
   const isAnalyzing = React.useMemo(
     () => Object.values(scopeStates).some((state) => state.status === 'queued' || state.status === 'running'),
@@ -258,12 +228,12 @@ export default function WalletProfileLayout({
 
   const handleTokenPerformanceMutateReady = useCallback((mutate: () => Promise<void>) => {
     tokenPerformanceMutateRef.current = mutate;
-    // console.log('[WalletProfile] 📌 TokenPerformance mutate function registered');
   }, []);
 
   const registerJobSubscription = useCallback(
     async (scope: DashboardAnalysisScope, jobId: string) => {
-      jobIdToScopeRef.current[jobId] = scope;
+      // No more ref tracking - scope will be read from job completion event
+
       setScopeStates((prev) => ({
         ...prev,
         [scope]: {
@@ -277,7 +247,7 @@ export default function WalletProfileLayout({
 
       const subscribeFn = subscribeToJobRef.current;
       if (!subscribeFn) {
-        console.warn('subscribeToJob not ready when registering job subscription', jobId);
+        console.error('[WalletProfile] subscribeToJob not ready when registering job subscription', jobId);
         return;
       }
 
@@ -285,22 +255,20 @@ export default function WalletProfileLayout({
     },
     [],
   );
-
   const clearJobSubscription = useCallback(
     async (jobId: string) => {
-      if (jobIdToScopeRef.current[jobId]) {
-        delete jobIdToScopeRef.current[jobId];
-      }
+      // No more ref cleanup needed
 
       const unsubscribeFn = unsubscribeFromJobRef.current;
       if (!unsubscribeFn) {
+        console.error(`[WalletProfile] unsubscribeFromJob not available for jobId: ${jobId}`);
         return;
       }
 
       try {
         unsubscribeFn(jobId);
       } catch (err) {
-        // ignore unsubscribe failures
+        console.error(`[WalletProfile] Error unsubscribing from job ${jobId}:`, err);
       }
     },
     [],
@@ -310,20 +278,46 @@ export default function WalletProfileLayout({
 
   useEffect(() => {
     const jobIdFromUrl = searchParams.get('jobId');
-    if (jobIdFromUrl && !jobIdToScopeRef.current[jobIdFromUrl]) {
-      registerJobSubscription('deep', jobIdFromUrl).catch((error) =>
-        console.error('Failed to subscribe to job from URL', error),
-      );
+
+    // Check if this job is already being tracked
+    const isJobTracked = Object.values(scopeStates).some(state => state.jobId === jobIdFromUrl);
+
+    if (jobIdFromUrl && !isJobTracked) {
+      // Validate job exists before subscribing (prevents phantom job subscriptions)
+      const validateAndSubscribe = async () => {
+        try {
+          const job = await fetcher(`/jobs/${jobIdFromUrl}`);
+          if (job && (job.status === 'running' || job.status === 'queued')) {
+            // Job exists and is active - subscribe to it
+            await registerJobSubscription('deep', jobIdFromUrl);
+          } else if (job && (job.status === 'completed' || job.status === 'failed')) {
+            console.log(`[WalletProfile] Job ${jobIdFromUrl} from URL already ${job.status} - skipping subscription`);
+          }
+        } catch (error: any) {
+          if (error.status === 404) {
+            console.warn(`[WalletProfile] Job ${jobIdFromUrl} from URL not found - may have expired or never existed`);
+          } else {
+            console.error('Failed to validate job from URL', error);
+          }
+        }
+      };
+
+      validateAndSubscribe();
     }
-  }, [searchParams, registerJobSubscription]);
+  }, [searchParams, registerJobSubscription, scopeStates]);
 
   // Job progress callbacks
   const jobProgressCallbacks: UseJobProgressCallbacks = {
     onJobProgress: (data: JobProgressData) => {
-      const scope = jobIdToScopeRef.current[data.jobId];
+      // Find scope from current state by matching jobId
+      const scope = Object.entries(scopeStates).find(
+        ([_, state]) => state.jobId === data.jobId
+      )?.[0] as DashboardAnalysisScope | undefined;
+
       if (!scope) {
-        return;
+        return; // Job not tracked in this component
       }
+
       if (typeof data.progress === 'number') {
         setScopeProgress((prev) => {
           const current = prev[scope];
@@ -339,17 +333,55 @@ export default function WalletProfileLayout({
       }));
     },
     onJobCompleted: async (data: JobCompletionData) => {
-      const scope = jobIdToScopeRef.current[data.jobId];
+      // Read scope from job result (backend includes this in the return value)
+      const resultData = data.result;
+      const scope = resultData?.analysisScope as DashboardAnalysisScope | undefined;
+
       if (!scope) {
+        console.warn(
+          `[WalletProfile] Job completed without scope in result. JobId: ${data.jobId}`,
+          `Result:`, resultData
+        );
+
+        // Fallback: try to find scope by matching jobId in scopeStates
+        const matchingScope = Object.entries(scopeStates).find(
+          ([_, state]) => state.jobId === data.jobId
+        )?.[0] as DashboardAnalysisScope | undefined;
+
+        // Clean up subscription even if scope wasn't found
+        await clearJobSubscription(data.jobId);
+
+        if (matchingScope) {
+          console.log(`[WalletProfile] Recovered scope from state: ${matchingScope}`);
+
+          const wasSkipped = resultData?.analysisSkipped === true;
+          const finalStatus = wasSkipped ? 'skipped' : 'completed';
+
+          setScopeProgress((prev) => ({ ...prev, [matchingScope]: 100 }));
+          setScopeStates((prev) => ({
+            ...prev,
+            [matchingScope]: {
+              ...prev[matchingScope],
+              status: finalStatus,
+              jobId: null,
+              lastCompletedAt: new Date(data.timestamp),
+              errorMessage: undefined,
+            },
+          }));
+          setLastAnalysisStatus('success');
+          setLastAnalysisTimestamp(new Date(data.timestamp));
+        }
         return;
       }
 
-      await clearJobSubscription(data.jobId);
-
-      const resultData = data.result;
+      // Scope found in result - proceed with normal completion handling
       const followUpQueue = Array.isArray(resultData?.followUpJobsQueued)
         ? resultData.followUpJobsQueued
         : [];
+
+      // Check if analysis was skipped (known wallet)
+      const wasSkipped = resultData?.analysisSkipped === true;
+      const finalStatus = wasSkipped ? 'skipped' : 'completed';
 
       setScopeProgress((prev) => ({ ...prev, [scope]: 100 }));
       setScopeStates((prev) => {
@@ -357,7 +389,7 @@ export default function WalletProfileLayout({
           ...prev,
           [scope]: {
             ...prev[scope],
-            status: 'completed',
+            status: finalStatus,
             jobId: null,
             lastCompletedAt: new Date(data.timestamp),
             errorMessage: undefined,
@@ -410,6 +442,9 @@ export default function WalletProfileLayout({
       }
 
       try {
+        // Small delay to ensure backend has finished writing updated data
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         // Refresh wallet summary for all time ranges (invalidate all summary cache keys)
         await globalMutate(
           (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/summary`),
@@ -421,6 +456,16 @@ export default function WalletProfileLayout({
         await globalMutate(
           (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/pnl-overview`),
         );
+        await globalMutate(
+          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/behavioral-patterns`),
+        );
+        // Invalidate HUD cache so the overlay re-fetches after analysis
+        await globalMutate(
+          (key) => typeof key === 'string' && (
+            key === `/wallets/${walletAddress}/hud` ||
+            (key.startsWith(`/wallets/hud/batch:`) && key.includes(walletAddress))
+          ),
+        );
       } catch (error) {
         console.error('Error refreshing wallet summary after completion', error);
       }
@@ -428,25 +473,32 @@ export default function WalletProfileLayout({
       // CHANGED: Direct mutate call instead of global cache invalidation
       // This ensures TokenPerformanceTab immediately refetches data
       if (scope === 'flash' || scope === 'working' || scope === 'deep') {
-        // console.log(`[WalletProfile] 🔄 Triggering TokenPerformance refetch after ${scope} completion`);
         try {
           const mutateFn = tokenPerformanceMutateRef.current;
           if (mutateFn) {
             await mutateFn();
-            // console.log(`[WalletProfile] ✅ TokenPerformance refetch complete for ${scope}`);
           } else {
-            console.warn(`[WalletProfile] ⚠️ TokenPerformance mutate function not available yet`);
+            console.error(`[WalletProfile] TokenPerformance mutate function not available yet`);
           }
         } catch (error) {
           console.error('Error refreshing token performance after scope completion', error);
         }
       }
+
+      // Clean up subscription after all processing is complete
+      // This ensures we don't lose the scope reference during processing
+      await clearJobSubscription(data.jobId);
     },
     onJobFailed: (data: JobFailedData) => {
-      const scope = jobIdToScopeRef.current[data.jobId];
+      // Find scope from current state by matching jobId
+      const scope = Object.entries(scopeStates).find(
+        ([_, state]) => state.jobId === data.jobId
+      )?.[0] as DashboardAnalysisScope | undefined;
+
       if (!scope) {
-        return;
+        return; // Job not tracked in this component
       }
+
       clearJobSubscription(data.jobId);
       setScopeStates((prev) => ({
         ...prev,
@@ -464,16 +516,12 @@ export default function WalletProfileLayout({
       });
     },
     onEnrichmentComplete: async () => {
-      // console.log(`[WalletProfile] 🎨 Enrichment complete - triggering TokenPerformance refetch for images`);
       setEnrichmentJobId(null);
       // CHANGED: Direct mutate call for immediate image refresh
       try {
         const mutateFn = tokenPerformanceMutateRef.current;
         if (mutateFn) {
           await mutateFn();
-          // console.log(`[WalletProfile] ✅ TokenPerformance refetch complete after enrichment`);
-        } else {
-          console.warn(`[WalletProfile] ⚠️ TokenPerformance mutate function not available for enrichment`);
         }
         // Enrichment completes quietly without notification
       } catch (error) {
@@ -486,14 +534,14 @@ export default function WalletProfileLayout({
         description: error || "An unexpected error occurred during enrichment.",
       });
     },
-    onConnectionChange: (connected) => {
-      if (!connected) {
-        console.warn('WebSocket disconnected; awaiting reconnection for live job updates.');
-      }
-    },
     onJobQueueToStart: (data: JobQueueToStartData) => {
-      const scope = jobIdToScopeRef.current[data.jobId];
-      if (!scope) return;
+      // Find scope from current state by matching jobId
+      const scope = Object.entries(scopeStates).find(
+        ([_, state]) => state.jobId === data.jobId
+      )?.[0] as DashboardAnalysisScope | undefined;
+
+      if (!scope) return; // Job not tracked in this component
+
       setScopeStates((prev) => ({
         ...prev,
         [scope]: { ...prev[scope], status: 'running' },
@@ -541,7 +589,11 @@ export default function WalletProfileLayout({
     walletSummaryKey,
     fetcher,
     {
-      refreshInterval: isConnected ? 0 : 15000,
+      // No polling - we rely on WebSocket events and manual cache invalidation
+      refreshInterval: 0,
+      // Keep data fresh but don't auto-revalidate on every focus/reconnect
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
       // Use global SWR config for all other settings
     }
   );
@@ -608,12 +660,16 @@ export default function WalletProfileLayout({
   // Cleanup job subscription when component unmounts or job completes
   useEffect(() => {
     return () => {
-      Object.keys(jobIdToScopeRef.current).forEach((jobId) => {
-        const unsubscribeFn = unsubscribeFromJobRef.current;
-        if (unsubscribeFn) {
-          try { unsubscribeFn(jobId); } catch { /* ignore unsubscribe failures */ }
+      // Cleanup active scope jobs
+      Object.entries(scopeStates).forEach(([_, state]) => {
+        if (state.jobId) {
+          const unsubscribeFn = unsubscribeFromJobRef.current;
+          if (unsubscribeFn) {
+            try { unsubscribeFn(state.jobId); } catch { /* ignore unsubscribe failures */ }
+          }
         }
       });
+
       if (enrichmentJobId) {
         const unsubscribeFn = unsubscribeFromJobRef.current;
         if (unsubscribeFn) {
@@ -622,7 +678,7 @@ export default function WalletProfileLayout({
       }
       setSubscribedEnrichmentJobId(null);
     };
-  }, [enrichmentJobId]);
+  }, [enrichmentJobId, scopeStates]);
 
   // Subscribe to enrichment job when it's set (with duplicate prevention)
   const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);
@@ -697,32 +753,34 @@ export default function WalletProfileLayout({
         return;
       }
 
-      setScopeStates((prev) => ({
-        ...prev,
-        [scope]: { ...prev[scope], status: 'queued', errorMessage: undefined },
-      }));
-      setScopeProgress((prev) => ({ ...prev, [scope]: 0 }));
+      // Don't set status='queued' yet - wait for backend response
+      // This prevents phantom "queued" states when analysis is skipped
 
-      try {
-        const payload: DashboardAnalysisRequest = {
-          walletAddress,
-          analysisScope: scope,
-          triggerSource: options.triggerSource,
-          forceRefresh: options.forceRefresh ?? false,
-          historyWindowDays: options.historyWindowDays,
-          targetSignatureCount: options.targetSignatureCount,
-          queueWorkingAfter: options.queueWorkingAfter,
-          queueDeepAfter: options.queueDeepAfter,
-          enrichMetadata: options.enrichMetadata,
-        };
+        try {
+          const payload: DashboardAnalysisRequest = {
+            walletAddress,
+            analysisScope: scope,
+            triggerSource: options.triggerSource,
+            forceRefresh: options.forceRefresh ?? false,
+            historyWindowDays: options.historyWindowDays,
+            targetSignatureCount: options.targetSignatureCount,
+            queueWorkingAfter: options.queueWorkingAfter,
+            queueDeepAfter: options.queueDeepAfter,
+            enrichMetadata: options.enrichMetadata,
+          };
 
-        const response: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
+          if (typeof window !== 'undefined' && options.triggerSource === 'auto') {
+            // Prevent auto-trigger retry storms when a request fails.
+            sessionStorage.setItem(`autoTrigger:${walletAddress}`, new Date().toISOString());
+          }
+
+          const response: DashboardAnalysisResponse = await fetcher('/analyses/wallets/dashboard-analysis', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
 
         if (response.alreadyRunning && response.jobId) {
-          jobIdToScopeRef.current[response.jobId] = scope;
+          // Job already running - just subscribe to track it
           const subscribeFn = subscribeToJobRef.current;
           if (subscribeFn) {
             await subscribeFn(response.jobId);
@@ -753,11 +811,25 @@ export default function WalletProfileLayout({
             },
           }));
           if (options.triggerSource !== 'auto') {
-            toast.info(`${scopeLabels[scope]} already fresh`, {
-              description: response.skipReason ? response.skipReason.replace(/-/g, ' ') : 'No new data detected.',
-            });
+            const skipReason = response.skipReason ?? '';
+            if (skipReason.startsWith('known-') || skipReason === 'known-wallet') {
+              const knownLabel = skipReason.startsWith('known-') && skipReason !== 'known-wallet'
+                ? skipReason.slice('known-'.length)
+                : '';
+              toast.warning('Analysis Blocked', {
+                description: knownLabel
+                  ? `This wallet is classified as a known ${knownLabel} and cannot be analyzed.`
+                  : 'This is a known system or protocol wallet and cannot be analyzed.',
+                duration: 5000,
+              });
+            } else {
+              toast.info(`${scopeLabels[scope]} already fresh`, {
+                description: skipReason ? skipReason.replace(/-/g, ' ') : 'No new data detected.',
+              });
+            }
           }
         } else if (response.jobId) {
+          // NOW set status='queued' with the actual jobId
           await registerJobSubscription(scope, response.jobId);
           if (options.triggerSource !== 'auto') {
             toast.info(`${scopeLabels[scope]} queued`, {
@@ -771,6 +843,7 @@ export default function WalletProfileLayout({
                 [followUpScope]: {
                   ...prev[followUpScope],
                   status: 'queued',
+                  jobId: null,
                   errorMessage: undefined,
                 },
               }));
@@ -779,11 +852,8 @@ export default function WalletProfileLayout({
           }
         }
 
-        if (typeof window !== 'undefined' && options.triggerSource === 'auto') {
-          sessionStorage.setItem(`autoTrigger:${walletAddress}`, new Date().toISOString());
-        }
-      } catch (error: any) {
-        console.error(`Failed to trigger ${scope} analysis`, error);
+        } catch (error: any) {
+          console.error(`Failed to trigger ${scope} analysis`, error);
         setScopeStates((prev) => ({
           ...prev,
           [scope]: {
@@ -802,13 +872,16 @@ export default function WalletProfileLayout({
     [walletAddress, registerJobSubscription, scopeLabels, scopeStates, isRestrictedWallet],
   );
 
-  const shouldAutoTriggerFlash = useCallback(() => {
-    if (!walletSummary || !walletAddress) {
-      return false;
-    }
-    if (isDemoAccount) {
-      return false;
-    }
+    const shouldAutoTriggerFlash = useCallback(() => {
+      if (!walletSummary || !walletAddress) {
+        return false;
+      }
+      if (!isValidSolanaAddress(walletAddress)) {
+        return false;
+      }
+      if (isDemoAccount) {
+        return false;
+      }
     if (walletSummary.status === 'restricted') {
       return false;
     }
@@ -933,14 +1006,13 @@ export default function WalletProfileLayout({
   };
 
   // Quick add modal function
-  const handleQuickAddSave = async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
+  const handleQuickAddSave = async (formData: { nickname: string; collections: string[] }) => {
     try {
       await fetcher('/users/me/favorites', {
         method: 'POST',
         body: JSON.stringify({
           walletAddress,
           nickname: formData.nickname.trim() || undefined,
-          tags: formData.tags,
           collections: formData.collections,
         }),
       });
@@ -964,15 +1036,14 @@ export default function WalletProfileLayout({
     }
   }, [currentFavoriteData]);
 
-  const handleEditSave = useCallback(async (formData: { nickname: string; tags: string[]; collections: string[] }) => {
+  const handleEditSave = useCallback(async (formData: { nickname: string; collections: string[] }) => {
     if (!currentFavoriteData) return;
-    
+
     try {
       await fetcher(`/users/me/favorites/${walletAddress}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify({
           nickname: formData.nickname.trim() || undefined,
-          tags: formData.tags,
           collections: formData.collections,
         }),
       });
@@ -1054,74 +1125,30 @@ export default function WalletProfileLayout({
   // Only block rendering for critical errors, not for loading states
 
   return (
-    <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col w-full h-full bg-muted/40 overflow-hidden">
-      <header className="flex-shrink-0 z-30 bg-background border-b shadow-sm">
-        <div className="container mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-x-4 py-2 px-1 md:py-3">
-          
-          <div className='flex flex-col items-start gap-3 md:gap-2 md:pl-11'> 
-            {walletAddress && isHeaderExpanded && (
-              <>
-                <div className="flex flex-col gap-2">
+    <div className="flex flex-col w-full bg-muted/40">
+      {/* Header - wallet info, summary, filters */}
+      <div className="bg-background border-b shadow-sm">
+        <div className="container mx-auto py-3 px-1 md:py-4">
+
+          {/* Row 1: Wallet Badge + Collections + Actions */}
+          <div className='flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-3 md:pl-11'>
+            <div className="flex flex-col gap-2">
+              {walletAddress && (
+                <>
                   <div className="flex items-center gap-2">
-                    {/* Use WalletBadge component */}
-                    <WalletBadge address={walletAddress} className="text-sm" />
-                    
-                    {/* Display nickname if available */}
-                    {currentFavoriteData?.nickname && (
-                      <span className="text-sm font-medium text-muted-foreground">
-                        ({currentFavoriteData.nickname})
-                      </span>
-                    )}
-                    
-                    {(
-                      <>
-                        <TooltipProvider delayDuration={100}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                onClick={handleToggleFavorite} 
-                                disabled={isTogglingFavorite}
-                                className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
-                              >
-                                <Star 
-                                  className={`h-3.5 w-3.5 md:h-4 md:w-4 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} 
-                                />
-                                <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom">
-                              <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                        
-                        {/* Edit button for favorites */}
-                        {isCurrentWalletFavorite && (
-                          <TooltipProvider delayDuration={100}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  onClick={openEditModal} 
-                                  className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0"
-                                >
-                                  <Edit2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                                  <span className="sr-only">Edit wallet data</span>
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="bottom">
-                                <p>Edit wallet data</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                      </>
-                    )}
-                    
-                    {/* High-frequency wallet indicator */}
+                    <WalletBadge
+                      address={walletAddress}
+                      className="text-sm"
+                      favoriteData={currentFavoriteData}
+                      isFavorite={isCurrentWalletFavorite}
+                      onFavoriteToggle={handleToggleFavorite}
+                      onEdit={openEditModal}
+                      showActions={true}
+                      showMetrics={false}
+                      knownType={walletSummary?.knownType ?? undefined}
+                      knownLabel={walletSummary?.knownLabel ?? undefined}
+                    />
+
                     {isValidData && walletSummary?.classification === 'high_frequency' && (
                       <TooltipProvider delayDuration={100}>
                         <Tooltip>
@@ -1137,233 +1164,92 @@ export default function WalletProfileLayout({
                       </TooltipProvider>
                     )}
                   </div>
-                  
-                  {/* Tags and Collections Display */}
-                  {currentFavoriteData && ((currentFavoriteData.tags && currentFavoriteData.tags.length > 0) || (currentFavoriteData.collections && currentFavoriteData.collections.length > 0)) && (
+
+                  {currentFavoriteData && currentFavoriteData.collections && currentFavoriteData.collections.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 items-center">
-                      {currentFavoriteData.tags?.map((tag: string) => (
-                        <Badge 
-                          key={tag} 
-                          variant="secondary" 
-                          className={`text-xs px-2 py-0.5 border ${getTagColor(tag)}`}
+                      {currentFavoriteData.collections.map((collection: string) => (
+                        <Badge
+                          key={collection}
+                          className={`text-xs px-2 py-0.5 font-medium ${getCollectionColorFilled(collection)}`}
                         >
-                          <Tags className="h-3 w-3 mr-1" />
-                          {tag}
-                        </Badge>
-                      ))}
-                      {currentFavoriteData.collections?.map((collection: string) => (
-                        <Badge 
-                          key={collection} 
-                          className={`text-xs px-2 py-0.5 ${getCollectionColor(collection)}`}
-                        >
-                          <FolderOpen className="h-3 w-3 mr-1" />
                           {collection}
                         </Badge>
                       ))}
                     </div>
                   )}
-                </div>
-                <ExpandedAnalysisControl />
-              </>
-            )}
+                </>
+              )}
+            </div>
 
-            {walletAddress && !isHeaderExpanded && (
-              <div className="w-full flex items-center justify-between gap-2 py-1">
-                <div className="flex items-center gap-1 flex-shrink min-w-0">
-                  {/* Use WalletBadge component for collapsed state */}
-                  <WalletBadge address={walletAddress} className="text-xs" />
-                  
-                  {/* Display nickname if available */}
-                  {currentFavoriteData?.nickname && (
-                    <span className="text-xs font-medium text-muted-foreground truncate">
-                      ({currentFavoriteData.nickname})
-                    </span>
-                  )}
-                  
-                  {(
-                    <>
-                      <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={handleToggleFavorite}
-                              disabled={isTogglingFavorite}
-                              className="h-6 w-6 flex-shrink-0"
-                            >
-                              <Star className={`h-3 w-3 ${isCurrentWalletFavorite ? 'text-yellow-400 fill-yellow-400' : 'text-muted-foreground'}`} />
-                              <span className="sr-only">{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            <p>{isCurrentWalletFavorite ? 'Remove from favorites' : 'Add to favorites'}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-
-                      {/* Edit button for favorites */}
-                      {isCurrentWalletFavorite && (
-                        <TooltipProvider delayDuration={100}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={openEditModal}
-                                className="h-6 w-6 flex-shrink-0"
-                              >
-                                <Edit2 className="h-3 w-3" />
-                                <span className="sr-only">Edit wallet data</span>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom">
-                              <p>Edit wallet data</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </>
-                  )}
-                  
-                  {/* High-frequency wallet indicator (collapsed) */}
-                  {isValidData && walletSummary?.classification === 'high_frequency' && (
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="h-6 w-6 flex items-center justify-center">
-                            <Bot className="h-3 w-3 text-orange-500" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>High-frequency trading wallet</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {!isAnalyzing && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className={cn(
-                              "h-2.5 w-2.5 rounded-full",
-                              lastAnalysisStatus === 'success' && "bg-green-500",
-                              lastAnalysisStatus === 'error' && "bg-red-500",
-                              lastAnalysisStatus === 'idle' && "bg-yellow-500",
-                              "cursor-help hidden sm:block"
-                            )}
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>
-                            {lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
-                             lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
-                             lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : lastAnalysisStatus === 'idle' && !isAnalyzing ? (
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="h-2.5 w-2.5 rounded-full bg-gray-400 cursor-help hidden sm:block" />
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                          <p>Not yet analyzed</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : null}
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          onClick={handleTriggerAnalysis}
-                          variant="outline"
-                          size="sm"
-                          className="px-2 py-1 h-auto text-xs"
-                          disabled={isAnalyzing || !walletAddress}
-                        >
-                          <RefreshCw className={`mr-1 h-3.5 w-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                          {lastAnalysisTimestamp ? 'Refresh' : 'Analyze'}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom">
-                        <p>Trigger full wallet analysis to refresh all data</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              <ExpandedAnalysisControl />
+              <TimeRangeSelector />
+            </div>
           </div>
 
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-end gap-x-2 gap-y-2 mt-2 md:mt-0 flex-grow">
-            <div className={cn(
-              "flex flex-col md:flex-row items-start md:items-center gap-x-2 gap-y-2",
-              isHeaderExpanded ? "opacity-100 visible" : "opacity-0 invisible h-0 overflow-hidden"
-            )}>
+          {/* Row 2: Summary Card + Performance HUD (side by side, centered) */}
+          {walletAddress && (
+            <div className="flex flex-col md:flex-row items-stretch justify-center gap-3 max-w-6xl mx-auto">
               <AccountSummaryCard
                 walletAddress={walletAddress}
-                className=""
+                className="flex-1"
                 triggerAnalysis={handleTriggerAnalysis}
                 isAnalyzingGlobal={isAnalyzing}
                 walletSummary={walletSummary}
                 summaryError={summaryError}
                 summaryIsLoading={!walletSummary && !summaryError}
               />
-              <TimeRangeSelector />
+
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <h3 className="text-xs font-semibold text-muted-foreground">Performance HUD</h3>
+                </div>
+                <WalletHudOverlay walletAddress={walletAddress} display="expanded" className="bg-muted/30" />
+              </div>
             </div>
-            <div className={cn(
-              "flex items-center gap-1 self-stretch justify-end",
-              isHeaderExpanded ? "md:ml-2" : "w-full mt-2 md:mt-0"
-            )}>
-              <Button variant="ghost" size="icon" onClick={() => setIsHeaderExpanded(!isHeaderExpanded)} className="h-7 w-7 md:h-8 md:w-8 flex-shrink-0">
-                {isHeaderExpanded ? <ChevronUp className="h-4 w-4 md:h-5 md:w-5" /> : <ChevronDown className="h-4 w-4 md:h-5 md:w-5" />}
-                <span className="sr-only">{isHeaderExpanded ? 'Collapse Summary' : 'Expand Summary'}</span>
-              </Button>
-            </div>
-          </div>
+          )}
         </div>
-        <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 border-t w-full bg-muted/20">
-          <TabsTrigger 
-            value="token-performance" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <ListChecks className="h-3.5 w-3.5" />
-            Token Performance
-          </TabsTrigger>
-          <TabsTrigger 
-            value="account-stats" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <Calculator className="h-3.5 w-3.5" />
-            Account Stats & PNL
-          </TabsTrigger>
-          <TabsTrigger 
-            value="behavioral-patterns" 
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <Users className="h-3.5 w-3.5" />
-            Behavioral Patterns
-          </TabsTrigger>
-          <TabsTrigger
-            value="notes"
-            className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
-            <FileText className="h-3.5 w-3.5" />
-            Notes
-          </TabsTrigger>
-        </TabsList>
-      </header>
+      </div>
 
-      <main className="flex-1 overflow-hidden p-0 flex flex-col">
-        <div className="w-full h-full flex flex-col min-h-0">
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col">
+        <div className="bg-background border-b shadow-sm">
+          <TabsList className="flex items-center justify-start gap-0.5 p-0.5 px-1 w-full bg-muted/20">
+            <TabsTrigger
+              value="token-performance"
+              className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+              <ListChecks className="h-3.5 w-3.5" />
+              Token Performance
+            </TabsTrigger>
+            <TabsTrigger
+              value="account-stats"
+              className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+              <Calculator className="h-3.5 w-3.5" />
+              Account Stats & PNL
+            </TabsTrigger>
+            <TabsTrigger
+              value="behavioral-patterns"
+              className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+              <Users className="h-3.5 w-3.5" />
+              Behavioral Patterns
+            </TabsTrigger>
+            <TabsTrigger
+              value="notes"
+              className="px-3 py-2 text-xs md:text-sm font-medium rounded-t-md data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:font-semibold hover:text-primary data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-75 hover:opacity-100">
+              <FileText className="h-3.5 w-3.5" />
+              Notes
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
-          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+        {/* Tab Content - flows naturally with page scroll */}
+        <div className="w-full">
+
+          <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedTokenPerformanceTab walletAddress={walletAddress} isAnalyzingGlobal={isAnalyzing} triggerAnalysisGlobal={handleTriggerAnalysis} onInitialLoad={handleTokenDataPrimed} onMutateReady={handleTokenPerformanceMutateReady} />
           </LazyTabContent>
 
-          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+          <LazyTabContent value="account-stats" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedAccountStatsPnlTab 
               walletAddress={walletAddress} 
               triggerAnalysisGlobal={handleTriggerAnalysis} 
@@ -1372,16 +1258,16 @@ export default function WalletProfileLayout({
             />
           </LazyTabContent>
 
-          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+          <LazyTabContent value="behavioral-patterns" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedBehavioralPatternsTab walletAddress={walletAddress} />
           </LazyTabContent>
 
-          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0 flex flex-col flex-1 min-h-0" defer={true}>
+          <LazyTabContent value="notes" activeTab={activeTab} className="mt-0 p-0" defer={true}>
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>
-      </main>
-      
+    </Tabs>
+
       {/* Quick Add Modal */}
       <QuickAddForm
         isOpen={showQuickAddModal}
@@ -1398,7 +1284,6 @@ export default function WalletProfileLayout({
         onSave={handleEditSave}
         initialData={{
           nickname: currentFavoriteData?.nickname || '',
-          tags: currentFavoriteData?.tags || [],
           collections: currentFavoriteData?.collections || [],
         }}
         title="Edit Wallet Data"
@@ -1408,15 +1293,15 @@ export default function WalletProfileLayout({
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove from Favorites?</AlertDialogTitle>
+            <AlertDialogTitle>Remove from Tracked?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <div>
-                  Removing <span className="font-medium">{currentFavoriteData?.nickname || 'this wallet'}</span> from favorites will delete it&apos;s metadata.
+                  Removing <span className="font-medium">{currentFavoriteData?.nickname || 'this wallet'}</span> from tracked will delete it&apos;s metadata.
                 </div>
                 
                 {/* Show what will be lost */}
-                {(currentFavoriteData?.nickname || (currentFavoriteData?.tags && currentFavoriteData.tags.length > 0) || (currentFavoriteData?.collections && currentFavoriteData.collections.length > 0)) && (
+                {(currentFavoriteData?.nickname || (currentFavoriteData?.collections && currentFavoriteData.collections.length > 0)) && (
                   <div className="p-3 bg-muted/50 border rounded-md">
                     <div className="text-sm font-medium mb-2">This will also remove:</div>
                     <div className="space-y-2">
@@ -1428,31 +1313,13 @@ export default function WalletProfileLayout({
                           </div>
                         </div>
                       )}
-                      
-                      {currentFavoriteData?.tags && currentFavoriteData.tags.length > 0 && (
-                        <div>
-                          <span className="text-xs text-muted-foreground font-medium">Tags ({currentFavoriteData.tags.length}):</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {currentFavoriteData.tags.slice(0, 3).map((tag: string) => (
-                              <Badge key={tag} variant="secondary" className={`text-xs ${getTagColor(tag)}`}>
-                                {tag}
-                              </Badge>
-                            ))}
-                            {currentFavoriteData.tags.length > 3 && (
-                              <Badge variant="secondary" className="text-xs">
-                                +{currentFavoriteData.tags.length - 3} more
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      
+
                       {currentFavoriteData?.collections && currentFavoriteData.collections.length > 0 && (
                         <div>
                           <span className="text-xs text-muted-foreground font-medium">Collections ({currentFavoriteData.collections.length}):</span>
                           <div className="flex flex-wrap gap-1 mt-1">
                             {currentFavoriteData.collections.slice(0, 3).map((collection: string) => (
-                              <Badge key={collection} className={`text-xs ${getCollectionColor(collection)}`}>
+                              <Badge key={collection} className={`text-xs font-medium ${getCollectionColorFilled(collection)}`}>
                                 {collection}
                               </Badge>
                             ))}
@@ -1482,6 +1349,6 @@ export default function WalletProfileLayout({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Tabs>
+    </div>
   );
 }

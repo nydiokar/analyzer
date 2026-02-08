@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 export interface RefreshSession {
   sessionId: string;
@@ -46,7 +48,7 @@ export class RefreshTokenService {
     });
 
     this.redis.on('error', (error) => {
-      this.logger.error('Redis connection error:', error);
+      this.logger.error('Redis connection error:', getErrorMessage(error));
     });
 
     this.redis.on('connect', () => {
@@ -93,23 +95,27 @@ export class RefreshTokenService {
    * Validate and rotate refresh token
    */
   async rotateRefreshToken(refreshToken: string): Promise<{ newRefreshToken: string; session: RefreshSession } | null> {
+    const tokenHash = this.hashToken(refreshToken);
+    const rotationId = crypto.randomBytes(4).toString('hex');
+
     try {
       // Get session ID from hashed refresh token
-      const tokenHash = this.hashToken(refreshToken);
       const tokenKey = this.tokenKey(tokenHash);
       const sessionId = await this.redis.get(tokenKey);
-      
+
       if (!sessionId) {
-        this.logger.warn('Invalid or expired refresh token');
+        this.logger.warn(`[${rotationId}] Invalid or expired refresh token`);
         return null;
       }
+
+      this.logger.debug(`[${rotationId}] Attempting to rotate session ${sessionId}`);
 
       // Get session data
       const sessionKey = this.sessionKey(sessionId);
       const sessionData = await this.redis.get(sessionKey);
-      
+
       if (!sessionData) {
-        this.logger.warn(`Session not found for ID: ${sessionId}`);
+        this.logger.warn(`[${rotationId}] Session not found for ID: ${sessionId}`);
         return null;
       }
 
@@ -117,7 +123,8 @@ export class RefreshTokenService {
 
       // Detect reuse/replay quickly
       if (session.status !== 'active') {
-        this.logger.error(`Refresh token reuse detected for user ${session.userId} (session ${session.sessionId})`);
+        this.logger.error(`[${rotationId}] Refresh token reuse detected for user ${session.userId} (session ${session.sessionId}, status: ${session.status})`);
+        this.logger.error(`[${rotationId}] This suggests either: 1) Concurrent refresh requests, 2) Replay attack, or 3) Client not updating tokens`);
         await this.handleReplay(session);
         return null;
       }
@@ -164,11 +171,11 @@ export class RefreshTokenService {
       await this.redis.setex(sessionKey, this.REFRESH_TTL, JSON.stringify({ ...session, status: 'rotated' }));
       await this.redis.setex(tokenKey, this.REFRESH_TTL, sessionId); // keep mapping to detect replay
 
-      this.logger.log(`Rotated refresh token for user ${session.userId}: ${sessionId} -> ${newSessionId}`);
-      
+      this.logger.log(`[${rotationId}] Rotated refresh token for user ${session.userId}: ${sessionId} -> ${newSessionId}`);
+
       return { newRefreshToken, session: newSession };
     } catch (error) {
-      this.logger.error('Error rotating refresh token:', error);
+      this.logger.error(`[${rotationId}] Error rotating refresh token:`, getErrorMessage(error));
       return null;
     }
   }
@@ -208,7 +215,7 @@ export class RefreshTokenService {
 
       return session;
     } catch (error) {
-      this.logger.error('Error getting session by refresh token:', error);
+      this.logger.error('Error getting session by refresh token:', getErrorMessage(error));
       return null;
     }
   }
@@ -232,7 +239,7 @@ export class RefreshTokenService {
       }
       this.logger.log(`Revoked session: ${sessionId}`);
     } catch (error) {
-      this.logger.error(`Error revoking session ${sessionId}:`, error);
+      this.logger.error(`Error revoking session ${sessionId}:`, getErrorMessage(error));
     }
   }
 
@@ -251,7 +258,7 @@ export class RefreshTokenService {
       await this.redis.del(userSessionsKey);
       this.logger.log(`Revoked all sessions for user: ${userId}`);
     } catch (error) {
-      this.logger.error(`Error revoking all sessions for user ${userId}:`, error);
+      this.logger.error(`Error revoking all sessions for user ${userId}:`, getErrorMessage(error));
     }
   }
 
@@ -285,7 +292,7 @@ export class RefreshTokenService {
 
       return sessions;
     } catch (error) {
-      this.logger.error(`Error getting sessions for user ${userId}:`, error);
+      this.logger.error(`Error getting sessions for user ${userId}:`, getErrorMessage(error));
       return [];
     }
   }
@@ -314,7 +321,7 @@ export class RefreshTokenService {
 
       return false;
     } catch (error) {
-      this.logger.error('Error detecting replay:', error);
+      this.logger.error('Error detecting replay:', getErrorMessage(error));
       return false;
     }
   }
@@ -342,7 +349,7 @@ export class RefreshTokenService {
         this.logger.log(`Cleaned up ${cleaned} expired refresh sessions`);
       }
     } catch (error) {
-      this.logger.error('Error cleaning up expired sessions:', error);
+      this.logger.error('Error cleaning up expired sessions:', getErrorMessage(error));
     }
   }
 

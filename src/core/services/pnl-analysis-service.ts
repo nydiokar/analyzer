@@ -1,5 +1,6 @@
 import { createLogger } from 'core/utils/logger';
 import { DatabaseService, prisma } from 'core/services/database-service';
+import type { TokenLotCreateData } from 'core/services/database-service';
 import { SwapAnalyzer } from 'core/analysis/swap/analyzer';
 import { AdvancedStatsAnalyzer } from 'core/analysis/stats/analyzer';
 import { OnChainAnalysisResult, SwapAnalysisSummary, AdvancedTradeStats as PrismaAdvancedTradeStats } from '@/types/helius-api';
@@ -10,6 +11,8 @@ import { WalletBalance } from '@/types/wallet';
 import { Injectable } from '@nestjs/common';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
+import { getKnownWallet, SKIP_PNL_CALCULATION, type KnownWalletType } from '../../config/known-wallets';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -66,6 +69,31 @@ export class PnlAnalysisService {
     }
 
     /**
+     * Creates a stub PnL result for system wallets that should be skipped
+     */
+    private createStubResult(meta: { analysisSkipped: boolean; skipReason: string }): SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean } {
+        return {
+            totalVolume: 0,
+            totalFees: 0,
+            realizedPnl: 0,
+            unrealizedPnl: 0,
+            netPnl: 0,
+            stablecoinNetFlow: 0,
+            averageSwapSize: 0,
+            profitableTokensCount: 0,
+            unprofitableTokensCount: 0,
+            totalExecutedSwapsCount: 0,
+            averageRealizedPnlPerExecutedSwap: 0,
+            realizedPnlToTotalVolumeRatio: 0,
+            results: [],
+            totalSignaturesProcessed: 0,
+            overallFirstTimestamp: 0,
+            overallLastTimestamp: 0,
+            analysisSkipped: meta.analysisSkipped,
+        };
+    }
+
+    /**
      * Performs P/L and advanced stats analysis for a given wallet, optionally within a time range.
      *
      * @param walletAddress The wallet address to analyze.
@@ -83,6 +111,32 @@ export class PnlAnalysisService {
         timeRange?: { startTs?: number; endTs?: number },
         options?: { isViewOnly?: boolean, preFetchedBalances?: Map<string, WalletBalance>, skipBalanceFetch?: boolean, solPriceUsd?: number }
     ): Promise<(SwapAnalysisSummary & { runId?: number, analysisSkipped?: boolean, currentSolBalance?: number, balancesFetchedAt?: Date }) | null> {
+        // 🛡️ DEFENSE LAYER 3: Service-Level Safety Net
+        //
+        // This is a redundant check in case a wallet slips through entry point detection.
+        // Entry points (dashboard, analyze-pnl job) should have already filtered these out,
+        // but we check again here for defense in depth.
+        //
+        // Layer 1: Check static registry (O(1), no I/O, instant)
+        const knownEntry = getKnownWallet(walletAddress);
+        if (knownEntry && SKIP_PNL_CALCULATION.has(knownEntry.type)) {
+            logger.info(`[PnlAnalysis] Skipping PnL for registry wallet ${walletAddress} (${knownEntry.type})`);
+            return this.createStubResult({ analysisSkipped: true, skipReason: 'registry' });
+        }
+
+        // Layer 2: Check DB knownType (catches dynamically detected wallets)
+        // This handles wallets tagged as SYSTEM by other flows (e.g., holder profiles detected 70k+ tokens)
+        try {
+            const wallet = await this.databaseService.getWallet(walletAddress);
+            if (wallet?.knownType && SKIP_PNL_CALCULATION.has(wallet.knownType as KnownWalletType)) {
+                logger.info(`[PnlAnalysis] Skipping PnL for detected system wallet ${walletAddress} (${wallet.knownType})`);
+                return this.createStubResult({ analysisSkipped: true, skipReason: 'dynamic_detection' });
+            }
+        } catch (error) {
+            // Non-critical, proceed with analysis if check fails
+            logger.warn(`Failed to check wallet knownType for ${walletAddress}: ${getErrorMessage(error)}`);
+        }
+
         let estimatedSolPriceUsd = options?.solPriceUsd || 0;
         if ((!estimatedSolPriceUsd || estimatedSolPriceUsd <= 0) && this.tokenInfoService) {
             try {
@@ -146,7 +200,7 @@ export class PnlAnalysisService {
                     logger.debug(`[PnlAnalysis] No stored balance data found for ${walletAddress}`);
                 }
             } catch (error) {
-                logger.warn(`[PnlAnalysis] Failed to retrieve stored balance data for ${walletAddress}: ${error}`);
+                logger.warn(`[PnlAnalysis] Failed to retrieve stored balance data for ${walletAddress}: ${getErrorMessage(error)}`);
             }
         } else {
             // Use pre-fetched balances if provided, otherwise fetch them
@@ -163,7 +217,7 @@ export class PnlAnalysisService {
                     currentWalletBalance = walletBalancesMap.get(walletAddress);
                     if (currentWalletBalance) {
                         balancesFetchedAt = currentWalletBalance.fetchedAt;
-                        logger.info(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, FetchedAt: ${balancesFetchedAt}`);
+                        logger.info(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, Tokens: ${currentWalletBalance.tokenBalances.length}, FetchedAt: ${balancesFetchedAt}`);
                     }
                 } catch (balanceError: any) {
                     logger.warn(`[PnlAnalysis] Failed to fetch wallet state for ${walletAddress}. Proceeding without live balances. Error: ${balanceError.message || balanceError}`);
@@ -234,21 +288,63 @@ export class PnlAnalysisService {
             }
 
             // This is the primary analysis call
-            const { results: swapAnalysisResultsFromAnalyzer, processedSignaturesCount, stablecoinNetFlow } = this.swapAnalyzer.analyze(swapInputs, walletAddress);
+            const {
+                results: swapAnalysisResultsFromAnalyzer,
+                processedSignaturesCount,
+                stablecoinNetFlow,
+                fifoLotsByMint,
+            } = this.swapAnalyzer.analyze(swapInputs, walletAddress, estimatedSolPriceUsd);
             logger.debug(`[PnlAnalysis] SwapAnalyzer finished for ${walletAddress}. Got ${swapAnalysisResultsFromAnalyzer.length} token results.`);
             
             // Attach wallet balances to the results if available.
             const enrichedSwapAnalysisResults = swapAnalysisResultsFromAnalyzer.map(result => {
                 const tokenBalance = currentWalletBalance?.tokenBalances.find(b => b.mint === result.tokenAddress);
+                const hasBalanceData = !!currentWalletBalance;
+
+                // Balance logic:
+                // - If we have fresh balance data from Helius:
+                //   → Token in response: use it
+                //   → Token NOT in response: balance is 0 (sold/transferred away)
+                // - If we don't have balance data (edge case: test scripts without API):
+                //   → Leave undefined (don't update the field in database)
+                //
+                // We always fetch balances during analysis (even for time-ranged scopes)
+                // because we need current balances for unrealized PnL calculations.
+                // Therefore in production, hasBalanceData is always true.
+
                 return {
                     ...result,
-                    currentRawBalance: tokenBalance?.balance,
-                    currentUiBalance: tokenBalance?.uiBalance,
-                    currentUiBalanceString: tokenBalance?.uiBalanceString,
+                    currentRawBalance: hasBalanceData ? (tokenBalance?.balance ?? '0') : undefined,
+                    currentUiBalance: hasBalanceData ? (tokenBalance?.uiBalance ?? 0) : undefined,
+                    currentUiBalanceString: hasBalanceData ? (tokenBalance?.uiBalanceString ?? '0') : undefined,
                     balanceDecimals: tokenBalance?.decimals,
-                    balanceFetchedAt: tokenBalance ? balancesFetchedAt : undefined,
+                    balanceFetchedAt: hasBalanceData ? balancesFetchedAt : undefined,
                 };
             });
+
+            const fifoLotsToPersist: TokenLotCreateData[] = [];
+            for (const [mint, lots] of fifoLotsByMint.entries()) {
+                for (const lot of lots) {
+                    const amountRemaining = lot.amountRemaining;
+                    const status =
+                        amountRemaining <= 0
+                            ? 'CLOSED'
+                            : amountRemaining < lot.amountBought
+                                ? 'PARTIALLY_SOLD'
+                                : 'OPEN';
+
+                    fifoLotsToPersist.push({
+                        walletAddress: walletAddress,
+                        tokenAddress: mint,
+                        amountBought: lot.amountBought.toString(),
+                        costBasisSol: lot.costBasisSol.toString(),
+                        amountRemaining: lot.amountRemaining.toString(),
+                        purchaseTimestamp: lot.purchaseTimestamp,
+                        status,
+                        sourceSignature: lot.sourceSignature,
+                    });
+                }
+            }
 
             if (runId) {
                 await prisma.analysisRun.update({
@@ -262,22 +358,19 @@ export class PnlAnalysisService {
                 return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId, currentSolBalance: currentWalletBalance?.solBalance, balancesFetchedAt: balancesFetchedAt };
             }
 
+            const MIN_MEANINGFUL_SOL = 0.01;
             let totalVolume = 0, totalFees = 0, realizedPnl = 0, unrealizedPnl = 0, profitableTokensCount = 0, unprofitableTokensCount = 0;
             let totalExecutedSwapsCount = 0;
+            let totalIndividualTradesCount = 0;
+            let profitableTradesCount = 0;
 
             for (const result of swapAnalysisResultsFromAnalyzer) {
+                // CRITICAL: Skip excluded mints (wrapped BTC, stablecoins, etc.) from volume/fee calculations
+                if (DEFAULT_EXCLUDED_MINTS.includes(result.tokenAddress)) {
+                    continue;
+                }
                 totalVolume += (result.totalSolSpent || 0) + (result.totalSolReceived || 0);
                 totalFees += result.totalFeesPaidInSol || 0;
-                
-                if (!result.isValuePreservation) {
-                    realizedPnl += result.netSolProfitLoss ?? 0;
-                    totalExecutedSwapsCount += (result.transferCountIn || 0) + (result.transferCountOut || 0);
-                    const finalPnl = result.netSolProfitLoss ?? 0;
-                    if (finalPnl > 0) profitableTokensCount++;
-                    else if (finalPnl < 0) unprofitableTokensCount++;
-                } else if (result.isValuePreservation && result.estimatedPreservedValue) {
-                    unrealizedPnl += result.estimatedPreservedValue;
-                }
             }
             
             // Calculate unrealized PNL for current holdings using stored balance data
@@ -323,15 +416,8 @@ export class PnlAnalysisService {
 
                             if (estimatedSolPriceUsd > 0) {
                                 const candidateSolValue = currentHoldingsValueUsd / estimatedSolPriceUsd;
-                                // ✅ FILTER UNREALISTIC SOL VALUES
-                                const maxReasonableSolValue = 10000; // Max 10k SOL value for any single token holding
-                                const maxReasonablePriceRatio = 1000; // Token price shouldn't be more than 1000x SOL price
 
-                                if (candidateSolValue > maxReasonableSolValue) {
-                                    logger.warn(`[PnlAnalysis] Skipping unrealistic token ${tokenBalance.mint}: ${candidateSolValue.toFixed(2)} SOL value (${currentUiBalance.toLocaleString()} tokens @ $${priceUsd})`);
-                                } else if (priceUsd > estimatedSolPriceUsd * maxReasonablePriceRatio) {
-                                    logger.warn(`[PnlAnalysis] Skipping token with suspicious price ${tokenBalance.mint}: $${priceUsd} vs SOL $${estimatedSolPriceUsd}`);
-                                } else if (!DEFAULT_EXCLUDED_MINTS.includes(tokenBalance.mint)) {
+                                if (!DEFAULT_EXCLUDED_MINTS.includes(tokenBalance.mint)) {
                                     currentHoldingsValueSol = candidateSolValue;
                                 }
                             }
@@ -343,34 +429,122 @@ export class PnlAnalysisService {
                                 });
                             }
 
-                            // Unrealized PNL only when SOL price is valid and we have cost basis
-                            if (currentHoldingsValueSol !== null && estimatedSolPriceUsd > 0) {
-                                const analysisResult = enrichedSwapAnalysisResults.find(r => r.tokenAddress === tokenBalance.mint);
-                                if (analysisResult) {
-                                    const totalSolSpent = analysisResult.totalSolSpent || 0;
-                                    const totalAmountIn = analysisResult.totalAmountIn || 0;
-                                    const avgCostPerToken = totalAmountIn > 0 ? totalSolSpent / totalAmountIn : 0;
-                                    const costBasisForCurrentHoldings = currentUiBalance * avgCostPerToken;
-                                    const unrealizedPnlSol = currentHoldingsValueSol - costBasisForCurrentHoldings;
-
-                                    if (Math.abs(unrealizedPnlSol) < 10000) {
-                                        unrealizedPnl += unrealizedPnlSol;
-                                    } else {
-                                        logger.warn(`[PnlAnalysis] Skipping unrealistic unrealized PnL for ${tokenBalance.mint}: ${unrealizedPnlSol.toFixed(2)} SOL`);
-                                    }
-                                }
-                            }
                         }
                     }
                     if (estimatedSolPriceUsd <= 0) {
                         logger.warn(`[PnlAnalysis] Skipping SOL-denominated unrealized PNL calculation due to missing SOL price; USD values still captured for holdings.`);
                     }
                     
-                    logger.debug(`[PnlAnalysis] Calculated unrealized PNL for ${walletAddress}: ${unrealizedPnl} SOL`);
+                    logger.debug(`[PnlAnalysis] Prepared holdings valuation for ${walletAddress} (FIFO unrealized computed later).`);
                 } catch (error) {
-                    logger.warn(`[PnlAnalysis] Failed to calculate unrealized PNL for ${walletAddress}: ${error}`);
+                    logger.warn(`[PnlAnalysis] Failed to calculate unrealized PNL for ${walletAddress}: ${getErrorMessage(error)}`);
                 }
             }
+            for (const result of enrichedSwapAnalysisResults) {
+                // CRITICAL: Skip excluded mints (wrapped BTC, stablecoins, etc.) from ALL PnL calculations
+                if (DEFAULT_EXCLUDED_MINTS.includes(result.tokenAddress)) {
+                    continue;
+                }
+
+                if (result.isValuePreservation) {
+                    if (result.estimatedPreservedValue) {
+                        unrealizedPnl += result.estimatedPreservedValue;
+                    }
+                    continue;
+                }
+
+                const currentHoldingsValueSol = holdingValueByMint.get(result.tokenAddress)?.valueSol ?? null;
+                const feesPaid = result.totalFeesPaidInSol || 0;
+                const remainingCostBasisSol = result.currentHoldingsCostBasisSol ?? null;
+                const realizedPnlSol = result.realizedPnlSol ?? 0;
+                const remainingAmount = fifoLotsByMint.get(result.tokenAddress)?.reduce(
+                    (sum, lot) => sum + lot.amountRemaining,
+                    0,
+                );
+
+                const currentUiBalance = result.currentUiBalance ?? null;
+                const hasHoldingsMismatch =
+                    currentUiBalance !== null &&
+                    remainingAmount !== undefined &&
+                    Math.abs(currentUiBalance - remainingAmount) > 1e-6;
+
+                // Holdings mismatch is EXPECTED when tokens are in DCA/program escrow
+                // FIFO only tracks economic swaps, not program deposits
+                // So we accept mismatch and show PnL if FIFO itself succeeded
+                if (hasHoldingsMismatch) {
+                    // logger.debug(`[PnlAnalysis] Holdings mismatch for ${result.tokenAddress}: currentUiBalance=${currentUiBalance}, fifoRemainingAmount=${remainingAmount}, diff=${currentUiBalance !== null && remainingAmount !== undefined ? currentUiBalance - remainingAmount : 'N/A'} (expected for DCA/escrow)`);
+                }
+
+                // Calculate PnL metrics for both complete and incomplete history
+                // For incomplete history, we show partial data (what we know) but flag it
+                const unrealizedPnlSol = currentHoldingsValueSol !== null && remainingCostBasisSol !== null
+                    ? currentHoldingsValueSol - remainingCostBasisSol
+                    : null;
+                const totalPnlSol = realizedPnlSol + (unrealizedPnlSol ?? 0);
+                const isMeaningful =
+                    (result.totalSolSpent ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    (result.totalSolReceived ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    Math.abs(realizedPnlSol) >= MIN_MEANINGFUL_SOL ||
+                    Math.abs(unrealizedPnlSol ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    Math.abs(totalPnlSol) >= MIN_MEANINGFUL_SOL ||
+                    (currentHoldingsValueSol ?? 0) >= MIN_MEANINGFUL_SOL;
+
+                result.realizedPnlSol = realizedPnlSol; // Always show partial data
+                result.unrealizedPnlSol = unrealizedPnlSol;
+                result.totalPnlSol = totalPnlSol;
+                result.netSolProfitLoss = totalPnlSol - feesPaid;
+                result.hasIncompleteHistory = result.hasIncompleteHistory; // Keep the flag
+
+                // Include partial results in wallet-level PnL (flagged via hasIncompleteHistory)
+                realizedPnl += realizedPnlSol;
+                if (unrealizedPnlSol !== null) {
+                    unrealizedPnl += unrealizedPnlSol;
+                }
+
+                if (isMeaningful) {
+                    totalExecutedSwapsCount += (result.transferCountIn || 0) + (result.transferCountOut || 0);
+                }
+
+                // NOTE: We currently include incomplete-history tokens in trade counts
+                // to keep activity aligned with displayed partial PnL. Consider splitting
+                // complete vs all counts if metrics need stricter accuracy.
+                if (isMeaningful) {
+                    const tokenTrades = (result.transferCountIn || 0) + (result.transferCountOut || 0);
+                    if (tokenTrades > 0) {
+                        const tokenPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss ?? 0;
+                        totalIndividualTradesCount += tokenTrades;
+                        if (tokenPnl > 0) {
+                            profitableTradesCount += tokenTrades;
+                        }
+                    }
+                }
+            }
+
+            for (const result of enrichedSwapAnalysisResults) {
+                // CRITICAL: Skip excluded mints (wrapped BTC, stablecoins, etc.) from token counts
+                if (DEFAULT_EXCLUDED_MINTS.includes(result.tokenAddress)) {
+                    continue;
+                }
+
+                if (result.isValuePreservation) {
+                    continue;
+                }
+                const currentHoldingsValueSol = holdingValueByMint.get(result.tokenAddress)?.valueSol ?? null;
+                const finalPnl = result.realizedPnlSol ?? result.totalPnlSol ?? result.netSolProfitLoss ?? 0;
+                const isMeaningful =
+                    (result.totalSolSpent ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    (result.totalSolReceived ?? 0) >= MIN_MEANINGFUL_SOL ||
+                    Math.abs(finalPnl) >= MIN_MEANINGFUL_SOL ||
+                    (currentHoldingsValueSol ?? 0) >= MIN_MEANINGFUL_SOL;
+
+                if (!isMeaningful) {
+                    continue;
+                }
+
+                if (finalPnl > 0) profitableTokensCount++;
+                else if (finalPnl < 0) unprofitableTokensCount++;
+            }
+
             const finalNetPnl = realizedPnl + unrealizedPnl;
             const totalPnlTokens = profitableTokensCount + unprofitableTokensCount;
             const averageSwapSize = totalPnlTokens > 0 ? totalVolume / totalPnlTokens : 0;
@@ -379,7 +553,18 @@ export class PnlAnalysisService {
 
             let advancedStatsData: PrismaAdvancedTradeStats | null = null;
             try {
-                const resultsForAdvancedStats = swapAnalysisResultsFromAnalyzer.filter(r => !r.isValuePreservation);
+                const resultsForAdvancedStats = swapAnalysisResultsFromAnalyzer.filter(r => {
+                    // CRITICAL: Skip excluded mints (wrapped BTC, stablecoins, etc.) from advanced stats
+                    if (DEFAULT_EXCLUDED_MINTS.includes(r.tokenAddress)) return false;
+                    if (r.isValuePreservation) return false;
+                    const isMeaningful =
+                        (r.totalSolSpent ?? 0) >= MIN_MEANINGFUL_SOL ||
+                        (r.totalSolReceived ?? 0) >= MIN_MEANINGFUL_SOL ||
+                        Math.abs(r.realizedPnlSol ?? 0) >= MIN_MEANINGFUL_SOL ||
+                        Math.abs(r.unrealizedPnlSol ?? 0) >= MIN_MEANINGFUL_SOL ||
+                        Math.abs(r.totalPnlSol ?? 0) >= MIN_MEANINGFUL_SOL;
+                    return isMeaningful;
+                });
                 if (resultsForAdvancedStats.length > 0) advancedStatsData = this.advancedStatsAnalyzer.analyze(resultsForAdvancedStats);
                 else logger.warn(`[PnlAnalysis] No non-stablecoin results for advanced stats for ${walletAddress}.`);
             } catch (statsError) {
@@ -400,6 +585,8 @@ export class PnlAnalysisService {
                 profitableTokensCount,
                 unprofitableTokensCount,
                 totalExecutedSwapsCount: totalExecutedSwapsCount,
+                totalIndividualTradesCount: totalIndividualTradesCount,
+                profitableTradesCount: profitableTradesCount,
                 averageSwapSize: averageSwapSize,
                 averageRealizedPnlPerExecutedSwap: averageRealizedPnlPerExecutedSwap,
                 realizedPnlToTotalVolumeRatio: realizedPnlToTotalVolumeRatio,
@@ -413,118 +600,133 @@ export class PnlAnalysisService {
             // Dashboard scoped analyses (flash/working/deep) should all update the canonical state
             // because they represent progressive snapshots of current state, not historical queries
             if (!isViewOnlyMode) {
-                const pnlSummaryDataForDb: any = {
-                    walletAddress: walletAddress,
-                    totalVolume: summary.totalVolume,
-                    totalFees: summary.totalFees,
-                    realizedPnl: summary.realizedPnl,
-                    unrealizedPnl: summary.unrealizedPnl,
-                    netPnl: summary.netPnl,
-                    stablecoinNetFlow: summary.stablecoinNetFlow,
-                    averageSwapSize: summary.averageSwapSize,
-                    profitableTokensCount: summary.profitableTokensCount,
-                    unprofitableTokensCount: summary.unprofitableTokensCount,
-                    totalExecutedSwapsCount: summary.totalExecutedSwapsCount,
-                    averageRealizedPnlPerExecutedSwap: summary.averageRealizedPnlPerExecutedSwap,
-                    realizedPnlToTotalVolumeRatio: summary.realizedPnlToTotalVolumeRatio,
-                    totalSignaturesProcessed: summary.totalSignaturesProcessed,
-                    overallFirstTimestamp: summary.overallFirstTimestamp,
-                    overallLastTimestamp: summary.overallLastTimestamp,
-                    updatedAt: new Date(),
-                };
-
-                if (currentWalletBalance) {
-                    pnlSummaryDataForDb.currentSolBalance = currentWalletBalance.solBalance;
-                    pnlSummaryDataForDb.solBalanceFetchedAt = balancesFetchedAt;
-                }
-
-                if (advancedStatsData) {
-                    const sanitizedStats = {
-                        medianPnlPerToken: !isFinite(advancedStatsData.medianPnlPerToken) ? 0 : advancedStatsData.medianPnlPerToken,
-                        trimmedMeanPnlPerToken: !isFinite(advancedStatsData.trimmedMeanPnlPerToken) ? 0 : advancedStatsData.trimmedMeanPnlPerToken,
-                        tokenWinRatePercent: !isFinite(advancedStatsData.tokenWinRatePercent) ? 0 : advancedStatsData.tokenWinRatePercent,
-                        standardDeviationPnl: !isFinite(advancedStatsData.standardDeviationPnl) ? 0 : advancedStatsData.standardDeviationPnl,
-                        profitConsistencyIndex: !isFinite(advancedStatsData.medianPnlToVolatilityRatio) ? 0 : advancedStatsData.medianPnlToVolatilityRatio,
-                        weightedEfficiencyScore: !isFinite(advancedStatsData.weightedEfficiencyScore) ? 0 : advancedStatsData.weightedEfficiencyScore,
-                        averagePnlPerDayActiveApprox: !isFinite(advancedStatsData.averagePnlPerDayActiveApprox) ? 0 : advancedStatsData.averagePnlPerDayActiveApprox,
-                        firstTransactionTimestamp: advancedStatsData.firstTransactionTimestamp,
-                        lastTransactionTimestamp: advancedStatsData.lastTransactionTimestamp,
+                if (isHistoricalView) {
+                    logger.warn(
+                        `[PnlAnalysis] Historical/time-range analysis detected for ${walletAddress}; skipping persistence of FIFO lots, AnalysisResult, and WalletPnlSummary.`,
+                    );
+                } else {
+                    const pnlSummaryDataForDb: any = {
+                        walletAddress: walletAddress,
+                        totalVolume: summary.totalVolume,
+                        totalFees: summary.totalFees,
+                        realizedPnl: summary.realizedPnl,
+                        unrealizedPnl: summary.unrealizedPnl,
+                        netPnl: summary.netPnl,
+                        stablecoinNetFlow: summary.stablecoinNetFlow,
+                        averageSwapSize: summary.averageSwapSize,
+                        profitableTokensCount: summary.profitableTokensCount,
+                        unprofitableTokensCount: summary.unprofitableTokensCount,
+                        totalExecutedSwapsCount: summary.totalExecutedSwapsCount,
+                        totalIndividualTradesCount: summary.totalIndividualTradesCount ?? 0,
+                        profitableTradesCount: summary.profitableTradesCount ?? 0,
+                        averageRealizedPnlPerExecutedSwap: summary.averageRealizedPnlPerExecutedSwap,
+                        realizedPnlToTotalVolumeRatio: summary.realizedPnlToTotalVolumeRatio,
+                        totalSignaturesProcessed: summary.totalSignaturesProcessed,
+                        overallFirstTimestamp: summary.overallFirstTimestamp,
+                        overallLastTimestamp: summary.overallLastTimestamp,
+                        updatedAt: new Date(),
                     };
 
-                    await prisma.walletPnlSummary.upsert({
-                        where: { walletAddress: walletAddress }, 
-                        create: {
-                            ...pnlSummaryDataForDb,
-                            advancedStats: {
-                                create: sanitizedStats,
-                            },
-                        },
-                        update: {
-                            ...pnlSummaryDataForDb,
-                            advancedStats: {
-                                upsert: {
+                    if (currentWalletBalance) {
+                        pnlSummaryDataForDb.currentSolBalance = currentWalletBalance.solBalance;
+                        pnlSummaryDataForDb.solBalanceFetchedAt = balancesFetchedAt;
+                    }
+
+                    if (advancedStatsData) {
+                        const sanitizedStats = {
+                            medianPnlPerToken: !isFinite(advancedStatsData.medianPnlPerToken) ? 0 : advancedStatsData.medianPnlPerToken,
+                            trimmedMeanPnlPerToken: !isFinite(advancedStatsData.trimmedMeanPnlPerToken) ? 0 : advancedStatsData.trimmedMeanPnlPerToken,
+                            tokenWinRatePercent: !isFinite(advancedStatsData.tokenWinRatePercent) ? 0 : advancedStatsData.tokenWinRatePercent,
+                            standardDeviationPnl: !isFinite(advancedStatsData.standardDeviationPnl) ? 0 : advancedStatsData.standardDeviationPnl,
+                            profitConsistencyIndex: !isFinite(advancedStatsData.medianPnlToVolatilityRatio) ? 0 : advancedStatsData.medianPnlToVolatilityRatio,
+                            weightedEfficiencyScore: !isFinite(advancedStatsData.weightedEfficiencyScore) ? 0 : advancedStatsData.weightedEfficiencyScore,
+                            averagePnlPerDayActiveApprox: !isFinite(advancedStatsData.averagePnlPerDayActiveApprox) ? 0 : advancedStatsData.averagePnlPerDayActiveApprox,
+                            firstTransactionTimestamp: advancedStatsData.firstTransactionTimestamp,
+                            lastTransactionTimestamp: advancedStatsData.lastTransactionTimestamp,
+                        };
+
+                        await prisma.walletPnlSummary.upsert({
+                            where: { walletAddress: walletAddress }, 
+                            create: {
+                                ...pnlSummaryDataForDb,
+                                advancedStats: {
                                     create: sanitizedStats,
-                                    update: sanitizedStats,
                                 },
                             },
-                        },
-                    });
-                } else {
-                    await prisma.walletPnlSummary.upsert({
-                        where: { walletAddress: walletAddress },
-                        create: pnlSummaryDataForDb,
-                        update: pnlSummaryDataForDb,
-                    });
-                    logger.info(`[PnlAnalysis] Upserted WalletPnlSummary (no advanced stats) for ${walletAddress}.`);
-                }
-                
-                // Update the analyzed timestamp range for the wallet
-                const nowInSeconds = Math.floor(Date.now() / 1000);
-                const startTs = summary.overallFirstTimestamp !== undefined && summary.overallFirstTimestamp !== 0 ? summary.overallFirstTimestamp : nowInSeconds;
-                const endTs = nowInSeconds; // Always use current time for when analysis was completed
-
+                            update: {
+                                ...pnlSummaryDataForDb,
+                                advancedStats: {
+                                    upsert: {
+                                        create: sanitizedStats,
+                                        update: sanitizedStats,
+                                    },
+                                },
+                            },
+                        });
+                    } else {
+                        await prisma.walletPnlSummary.upsert({
+                            where: { walletAddress: walletAddress },
+                            create: pnlSummaryDataForDb,
+                            update: pnlSummaryDataForDb,
+                        });
+                        logger.info(`[PnlAnalysis] Upserted WalletPnlSummary (no advanced stats) for ${walletAddress}.`);
+                    }
                     
-                    await prisma.wallet.update({
-                        where: { address: walletAddress },
-                        data: {
-                            analyzedTimestampStart: startTs,
-                            analyzedTimestampEnd: endTs,
-                            lastSuccessfulFetchTimestamp: new Date(),
-                        },
-                        select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
-                    });
-                                    
+                    // Update the analyzed timestamp range for the wallet
+                    const nowInSeconds = Math.floor(Date.now() / 1000);
+                    const startTs = summary.overallFirstTimestamp !== undefined && summary.overallFirstTimestamp !== 0 ? summary.overallFirstTimestamp : nowInSeconds;
+                    const endTs = nowInSeconds; // Always use current time for when analysis was completed
 
-                // Upsert AnalysisResult records with token balances
-                const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
-                    walletAddress: walletAddress,
-                    tokenAddress: r.tokenAddress,
-                    totalAmountIn: r.totalAmountIn,
-                    totalAmountOut: r.totalAmountOut,
-                    netAmountChange: r.netAmountChange,
-                    totalSolSpent: r.totalSolSpent,
-                    totalSolReceived: r.totalSolReceived,
-                    totalFeesPaidInSol: r.totalFeesPaidInSol,
-                    netSolProfitLoss: r.netSolProfitLoss,
-                    firstTransferTimestamp: r.firstTransferTimestamp,
-                    lastTransferTimestamp: r.lastTransferTimestamp,
-                    transferCountIn: r.transferCountIn,
-                    transferCountOut: r.transferCountOut,
-                    isValuePreservation: r.isValuePreservation,
-                    estimatedPreservedValue: r.estimatedPreservedValue,
-                    preservationType: r.preservationType,
-                    currentRawBalance: r.currentRawBalance,
-                    currentUiBalance: r.currentUiBalance,
-                    currentUiBalanceString: r.currentUiBalanceString,
-                    balanceDecimals: r.balanceDecimals,
-                    currentHoldingsValueSol: holdingValueByMint.get(r.tokenAddress)?.valueSol ?? null,
-                    currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
-                    balanceFetchedAt: r.balanceFetchedAt,
-                }));
+                        
+                        await prisma.wallet.update({
+                            where: { address: walletAddress },
+                            data: {
+                                analyzedTimestampStart: startTs,
+                                analyzedTimestampEnd: endTs,
+                                lastSuccessfulFetchTimestamp: new Date(),
+                            },
+                            select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true }
+                        });
+                                        
 
-                // Use the optimized batch upsert method for better performance
-                await this.databaseService.batchUpsertAnalysisResults(resultsToUpsert);
-                logger.debug(`[PnlAnalysis] Batch upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
+                    // Upsert AnalysisResult records with token balances
+                    const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
+                        walletAddress: walletAddress,
+                        tokenAddress: r.tokenAddress,
+                        totalAmountIn: r.totalAmountIn,
+                        totalAmountOut: r.totalAmountOut,
+                        netAmountChange: r.netAmountChange,
+                        totalSolSpent: r.totalSolSpent,
+                        totalSolReceived: r.totalSolReceived,
+                        totalFeesPaidInSol: r.totalFeesPaidInSol,
+                        netSolProfitLoss: r.netSolProfitLoss,
+                        realizedPnlSol: r.realizedPnlSol ?? null,
+                        unrealizedPnlSol: r.unrealizedPnlSol ?? null,
+                        totalPnlSol: r.totalPnlSol ?? null,
+                        hasIncompleteHistory: r.hasIncompleteHistory ?? false,
+                        firstTransferTimestamp: r.firstTransferTimestamp,
+                        lastTransferTimestamp: r.lastTransferTimestamp,
+                        transferCountIn: r.transferCountIn,
+                        transferCountOut: r.transferCountOut,
+                        isValuePreservation: r.isValuePreservation,
+                        estimatedPreservedValue: r.estimatedPreservedValue,
+                        preservationType: r.preservationType,
+                        currentRawBalance: r.currentRawBalance,
+                        currentUiBalance: r.currentUiBalance,
+                        currentUiBalanceString: r.currentUiBalanceString,
+                        balanceDecimals: r.balanceDecimals,
+                        currentHoldingsValueSol: holdingValueByMint.get(r.tokenAddress)?.valueSol ?? null,
+                        currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
+                        currentHoldingsCostBasisSol: r.currentHoldingsCostBasisSol ?? null,
+                        balanceFetchedAt: r.balanceFetchedAt,
+                    }));
+
+                    await this.databaseService.replaceTokenLotsForWallet(walletAddress, fifoLotsToPersist);
+
+                    // Use the optimized batch upsert method for better performance
+                    await this.databaseService.batchUpsertAnalysisResults(resultsToUpsert);
+                    logger.debug(`[PnlAnalysis] Batch upserted ${resultsToUpsert.length} AnalysisResult records for ${walletAddress}.`);
+                }
 
                 // DEACTIVATED: The enrichment process is now triggered from the frontend to decouple it from the main analysis pipeline.
                 // if (this.tokenInfoService) {
@@ -562,7 +764,7 @@ export class PnlAnalysisService {
                 await prisma.analysisRun.update({
                     where: { id: runId },
                     data: { status: analysisRunStatus, errorMessage: analysisRunErrorMessage, durationMs: Date.now() - startTimeMs },
-                }).catch(err => logger.error(`[PnlAnalysis] FAILED to update AnalysisRun ${runId} to FAILED status:`, err));
+                }).catch(err => logger.error(`[PnlAnalysis] FAILED to update AnalysisRun ${runId} to FAILED status: ${getErrorMessage(err)}`));
             }
             // Propagate a typed error instead of returning null, to avoid silent failures.
             throw new PnlAnalysisError(analysisRunErrorMessage ?? 'PNL analysis failed', error);
@@ -575,7 +777,7 @@ export class PnlAnalysisService {
                         errorMessage: analysisRunErrorMessage ?? (analysisRunStatus === 'IN_PROGRESS' ? 'Unknown error, service exited prematurely' : null),
                         durationMs: Date.now() - startTimeMs,
                     },
-                }).catch(err => logger.error(`[PnlAnalysis] Error in finally block updating AnalysisRun ${runId}:`, err));
+                }).catch(err => logger.error(`[PnlAnalysis] Error in finally block updating AnalysisRun ${runId}: ${getErrorMessage(err)}`));
             }
         }
     }

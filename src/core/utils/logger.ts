@@ -31,12 +31,78 @@ const levelColors: { [key: string]: (text: string) => string } = {
   trace: chalk.white
 };
 
+/**
+ * Safely stringify an object, handling circular references and errors
+ */
+const safeStringify = (obj: any, maxDepth = 3): string => {
+  const seen = new WeakSet();
+
+  const replacer = (key: string, value: any, depth = 0): any => {
+    // Skip if we've exceeded max depth
+    if (depth > maxDepth) {
+      return '[Max Depth Reached]';
+    }
+
+    // Handle null/undefined
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    // Handle primitives
+    if (typeof value !== 'object') {
+      return value;
+    }
+
+    // Handle circular references
+    if (seen.has(value)) {
+      return '[Circular Reference]';
+    }
+
+    // Handle Error objects specially - extract useful info
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: value.message,
+        ...(value.cause && { cause: value.cause }),
+        ...(value.stack && { stack: value.stack.split('\n').slice(0, 3).join('\n') }) // First 3 lines only
+      };
+    }
+
+    // Mark this object as seen
+    seen.add(value);
+
+    // Handle arrays
+    if (Array.isArray(value)) {
+      return value.map((item, idx) => replacer(String(idx), item, depth + 1));
+    }
+
+    // Handle plain objects
+    const result: any = {};
+    for (const [k, v] of Object.entries(value)) {
+      // Skip common circular reference sources
+      if (['socket', 'request', 'response', 'parser', 'client', 'connection'].includes(k)) {
+        result[k] = '[Object]';
+        continue;
+      }
+      result[k] = replacer(k, v, depth + 1);
+    }
+
+    return result;
+  };
+
+  try {
+    return JSON.stringify(replacer('', obj, 0), null, 0);
+  } catch (error) {
+    return `[Serialization Error: ${error instanceof Error ? error.message : 'Unknown'}]`;
+  }
+};
+
 const logFormat = printf(({ level, message, timestamp, module, stack, ...metadata }) => {
   const ts = chalk.grey(new Date(timestamp as string).toISOString());
   const levelString = level.toUpperCase();
   const coloredLevel = levelColors[level] ? levelColors[level](levelString) : levelString;
   const moduleString = module ? chalk.yellow(`[${module}]`) : '';
-  
+
   let formattedMessage = String(message);
 
   // Highlight Solana-like addresses (32-44 alphanumeric chars)
@@ -45,7 +111,7 @@ const logFormat = printf(({ level, message, timestamp, module, stack, ...metadat
   // Highlight numbers (integers and decimals)
   formattedMessage = formattedMessage.replace(/\b(\d+\.\d+|\d+)\b/g, (match, p1) => {
     // Avoid re-coloring parts of already colored addresses if they happen to be all numbers (unlikely for Solana)
-    if (formattedMessage.includes(chalk.blueBright(p1))) return p1; 
+    if (formattedMessage.includes(chalk.blueBright(p1))) return p1;
     return chalk.whiteBright(match);
   });
 
@@ -55,8 +121,30 @@ const logFormat = printf(({ level, message, timestamp, module, stack, ...metadat
 
   let msg = `${ts} ${coloredLevel} ${moduleString} ${formattedMessage}`;
 
+  // Auto-sanitize error objects in metadata before stringifying
   if (Object.keys(metadata).length > 0) {
-    msg += ` ${chalk.grey(JSON.stringify(metadata))}`;
+    const sanitizedMetadata = Object.entries(metadata).reduce((acc, [key, value]) => {
+      // If it's an error object, extract only the useful info
+      if (value instanceof Error) {
+        acc[key] = {
+          name: value.name,
+          message: value.message,
+          ...(value.cause && { cause: String(value.cause) })
+        };
+      } else if (typeof value === 'object' && value !== null && 'stack' in value) {
+        // Looks like an error-like object - use type assertion
+        const errorLike = value as any;
+        acc[key] = {
+          message: errorLike.message || String(value),
+          ...(errorLike.name && { name: errorLike.name })
+        };
+      } else {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as any);
+
+    msg += ` ${chalk.grey(safeStringify(sanitizedMetadata))}`;
   }
 
   if (stack) {

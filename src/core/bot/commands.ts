@@ -21,6 +21,8 @@ import { TokenInfoService } from '../../api/services/token-info.service';
 import { OnchainMetadataService } from '../services/onchain-metadata.service';
 import { HttpService } from '@nestjs/axios';
 import Redis from 'ioredis';
+import { getErrorMessage, getErrorDetails } from '../utils/error-utils';
+
 
 const logger = createLogger('WalletAnalysisCommands');
 const BOT_SYSTEM_USER_DESCRIPTION = "SystemUser_TelegramBot"; // Define it here as it was originally
@@ -79,7 +81,7 @@ export class WalletAnalysisCommands {
         this.heliusSyncService = new HeliusSyncService(this.databaseService, this.heliusApiClient);
         logger.info('WalletAnalysisCommands initialized with HeliusSyncService.');
       } catch (error) {
-        logger.error('Failed to initialize HeliusSyncService even with API client:', error);
+        logger.error('Failed to initialize HeliusSyncService even with API client:', getErrorMessage(error));
         this.heliusSyncService = undefined;
       }
     } else {
@@ -122,7 +124,7 @@ export class WalletAnalysisCommands {
     
     // Initialize bot system user asynchronously
     this.initializeBotSystemUser().catch(err => {
-        logger.error('Failed to initialize bot system user for activity logging:', err);
+        logger.error('Failed to initialize bot system user for activity logging:', getErrorMessage(err));
     });
   }
 
@@ -148,7 +150,7 @@ export class WalletAnalysisCommands {
         this.botSystemUserId = botUser.id;
         this.isBotUserInitialized = true;
     } catch (error) {
-        logger.error('Error initializing bot system user:', error);
+        logger.error('Error initializing bot system user:', getErrorMessage(error));
         this.isBotUserInitialized = false; // Ensure flag is set correctly on error
     }
   }
@@ -254,7 +256,7 @@ export class WalletAnalysisCommands {
             // logger.info(`Sync completed successfully for wallet: ${walletAddress}.`); // Also potentially too verbose for many wallets
             return { status: 'fulfilled', walletInfo };
           } catch (error: any) {
-            logger.error(`Failed to sync wallet ${walletAddress}: ${error.message}`, { stack: error.stack });
+            logger.error(`Failed to sync wallet ${walletAddress}: ${error.message}`, getErrorDetails(error));
             return { status: 'rejected', walletAddress, reason: error.message };
           } finally {
             syncOperationsCompleted++;
@@ -614,14 +616,14 @@ export class WalletAnalysisCommands {
 
             } catch (error) { // Inner catch for main logic
                 const err = error as Error;
-                logger.error(`Error in analyzeWalletBehavior for ${walletAddress}:`, err);
+                logger.error(`Error in analyzeWalletBehavior for ${walletAddress}:`, getErrorMessage(err));
                 analysisStatus = 'FAILURE';
                 errorMessage = err.message;
                 // No separate reply here, let outer catch handle it for consistency
                 // throw err; // Re-throw to be caught by the outer per-wallet catch
             }
         } catch (e: any) { // Outer catch for this specific wallet_address processing
-            logger.error(`CRITICAL: Top-level command handler error in analyzeWalletBehavior for ${walletAddress}:`, e);
+            logger.error(`CRITICAL: Top-level command handler error in analyzeWalletBehavior for ${walletAddress}:`, getErrorMessage(e));
             analysisStatus = 'FAILURE';
             errorMessage = (e instanceof Error) ? e.message : 'Unknown critical error';
 
@@ -707,13 +709,13 @@ export class WalletAnalysisCommands {
                 }
             } catch (error) { // Inner catch
                 const err = error as Error;
-                logger.error(`Error in analyzeAdvancedStats for ${walletAddress}:`, err);
+                logger.error(`Error in analyzeAdvancedStats for ${walletAddress}:`, getErrorMessage(err));
                 analysisStatus = 'FAILURE';
                 errorMessage = err.message;
                 // throw err; // Re-throw to be caught by outer
             }
         } catch (e: any) { // Outer catch for this wallet_address
-            logger.error(`CRITICAL: Top-level command handler error in analyzeAdvancedStats for ${walletAddress}:`, e);
+            logger.error(`CRITICAL: Top-level command handler error in analyzeAdvancedStats for ${walletAddress}:`, getErrorMessage(e));
             analysisStatus = 'FAILURE';
             errorMessage = (e instanceof Error) ? e.message : 'Unknown critical error';
 
@@ -783,14 +785,14 @@ export class WalletAnalysisCommands {
             await ctx.replyWithHTML(report);
           }
         } catch (error: any) { // Inner catch for PNL logic error
-          logger.error(`Error in PNL logic for ${walletAddress}:`, error);
+          logger.error(`Error in PNL logic for ${walletAddress}:`, getErrorMessage(error));
           analysisStatus = 'FAILURE';
           errorMessage = error.message || 'An unexpected error occurred in PNL logic.';
           // Let outer catch handle user reply for consistency if it's a more general failure
           // No specific reply here to avoid double-messaging if it's a timeout.
         }
       } catch (e: any) { // Outer catch for this wallet_address (includes validation, timeout, etc.)
-        logger.error(`CRITICAL: Top-level command handler error in getPnlOverview for ${walletAddress}:`, e);
+        logger.error(`CRITICAL: Top-level command handler error in getPnlOverview for ${walletAddress}:`, getErrorMessage(e));
         analysisStatus = 'FAILURE'; // Ensure status is failure
         errorMessage = (e instanceof Error) ? e.message : 'Unknown critical error'; // Ensure errorMessage is set
 
@@ -870,13 +872,13 @@ export class WalletAnalysisCommands {
             await ctx.replyWithHTML(report);
           }
         } catch (error: any) { // Inner catch for behavior logic error
-          logger.error(`Error in behavior summary logic for ${walletAddress}:`, error);
+          logger.error(`Error in behavior summary logic for ${walletAddress}:`, getErrorMessage(error));
           analysisStatus = 'FAILURE';
           errorMessage = error.message || 'An unexpected error occurred in behavior summary logic.';
           // No specific reply here; let outer catch handle for consistency.
         }
       } catch (e: any) { // Outer catch for this wallet_address
-        logger.error(`CRITICAL: Top-level command handler error in getBehaviorSummary for ${walletAddress}:`, e);
+        logger.error(`CRITICAL: Top-level command handler error in getBehaviorSummary for ${walletAddress}:`, getErrorMessage(e));
         analysisStatus = 'FAILURE';
         errorMessage = (e instanceof Error) ? e.message : 'Unknown critical error';
 

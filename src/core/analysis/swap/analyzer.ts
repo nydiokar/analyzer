@@ -1,6 +1,7 @@
 import { createLogger } from 'core/utils/logger';
 import { OnChainAnalysisResult } from '@/types/helius-api';
 import { SwapAnalysisInput } from '@prisma/client';
+import { buildFifoLotsForToken, FifoLot } from './fifo-lot-tracker';
 
 // Logger instance for this module
 const logger = createLogger('SwapAnalyzer');
@@ -9,6 +10,7 @@ const logger = createLogger('SwapAnalyzer');
 const stablecoins = new Map<string, { name: string, decimals: number }>([
     ['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', { name: 'USDC', decimals: 6 }],
     ['Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', { name: 'USDT', decimals: 6 }],
+    ['USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', { name: 'USD1', decimals: 6 }],
 ]);
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
@@ -31,26 +33,26 @@ export class SwapAnalyzer {
    * @returns An object containing the analysis results per token, signature count, and timestamps.
    *          Note: This returns the core data; the calling service will assemble the final SwapAnalysisSummary.
    */
-  analyze(swapInputs: SwapAnalysisInput[], walletAddress: string): { 
-    results: OnChainAnalysisResult[], 
-    processedSignaturesCount: number, 
-    firstTimestamp: number, 
+  analyze(swapInputs: SwapAnalysisInput[], walletAddress: string, solPriceUsd?: number): {
+    results: OnChainAnalysisResult[],
+    processedSignaturesCount: number,
+    firstTimestamp: number,
     lastTimestamp: number,
-    stablecoinNetFlow: number
+    stablecoinNetFlow: number,
+    fifoLotsByMint: Map<string, FifoLot[]>,
+    fifoInputsByMint: Map<string, SwapAnalysisInput[]>
   } {
-        logger.debug(`[SwapAnalyzer] Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletAddress} (after BURN filter)...`);
-        
-        // Filter out BURN interactions
-        const filteredSwapInputs = swapInputs.filter(input => input.interactionType !== 'BURN');
-        if (filteredSwapInputs.length !== swapInputs.length) {
-            logger.debug(`Filtered out ${swapInputs.length - filteredSwapInputs.length} records with 'BURN' interaction type for ${walletAddress}.`);
-        }
+        logger.debug(`[SwapAnalyzer] Analyzing ${swapInputs.length} pre-processed swap input records for wallet ${walletAddress}.`);
 
     // 1. Aggregate by SPL Mint
     const analysisBySplMint = new Map<string, Partial<OnChainAnalysisResult> & { timestamps: number[], totalFeesPaidInSol?: number }>();
     const processedSignatures = new Set<string>();
     let overallFirstTimestamp = Infinity;
     let overallLastTimestamp = 0;
+    const fifoInputsByMint = new Map<string, SwapAnalysisInput[]>();
+    const fifoLotsByMint = new Map<string, FifoLot[]>();
+    const zeroValueSwapsByMint = new Map<string, number>();
+    const valuedTransfersByMint = new Map<string, number>();
 
     // Track stablecoin metrics separately
     const stablecoinFlows = new Map<string, {
@@ -61,7 +63,7 @@ export class SwapAnalyzer {
         netSolFlow: number        // Net SOL flow to stablecoins (negative = SOL exited to stablecoins)
     }>();
 
-    for (const input of filteredSwapInputs) {
+    for (const input of swapInputs) {
         // Verification (optional): Check if record belongs to the correct wallet
         if (input.walletAddress.toLowerCase() !== walletAddress.toLowerCase()) {
             logger.warn(`[SwapAnalyzer] Skipping input record for signature ${input.signature} belonging to unexpected wallet ${input.walletAddress}`);
@@ -102,11 +104,39 @@ export class SwapAnalyzer {
 
         currentAnalysis.timestamps!.push(timestamp);
 
-        const solValueToConsider = input.associatedSolValue; 
+        const interactionType = input.interactionType?.toUpperCase() ?? '';
+
+        // Convert USDC to SOL if no SOL value - each record has EITHER SOL or USDC, not both
+        let solValueToConsider = Math.abs(input.associatedSolValue || 0);
+        if (solValueToConsider === 0 && input.associatedUsdcValue && solPriceUsd) {
+            solValueToConsider = Math.abs(input.associatedUsdcValue) / solPriceUsd;
+        }
         const currentFeeAmount = input.feeAmount || 0;
+        const tokenAmount = Math.abs(input.amount || 0);
+
+        const hasEconomicValue = Math.abs(input.associatedSolValue || 0) > 0 ||
+            Math.abs(input.associatedUsdcValue ?? 0) > 0;
+
+        if (interactionType === 'SWAP' && !hasEconomicValue) {
+            zeroValueSwapsByMint.set(splMint, (zeroValueSwapsByMint.get(splMint) || 0) + 1);
+        }
+
+        if ((interactionType === 'TRANSFER' || interactionType === 'UNKNOWN') && hasEconomicValue) {
+            valuedTransfersByMint.set(splMint, (valuedTransfersByMint.get(splMint) || 0) + 1);
+        }
+
+        // Pass ALL SPL token transfers to FIFO (economic or not) so inventory stays complete.
+        if (splMint !== SOL_MINT) {
+            const existingInputs = fifoInputsByMint.get(splMint);
+            if (existingInputs) {
+                existingInputs.push(input);
+            } else {
+                fifoInputsByMint.set(splMint, [input]);
+            }
+        }
 
         if (input.direction === 'in') {
-            currentAnalysis.totalAmountIn! += input.amount; 
+            currentAnalysis.totalAmountIn! += tokenAmount; 
             currentAnalysis.transferCountIn!++;
             currentAnalysis.totalSolSpent! += solValueToConsider; // Gross SOL spent
             currentAnalysis.totalFeesPaidInSol! += currentFeeAmount; 
@@ -114,11 +144,11 @@ export class SwapAnalyzer {
             if (isStablecoin) {
                 const flow = stablecoinFlows.get(splMint)!;
                 flow.totalSolSpent += solValueToConsider;
-                flow.totalAmountIn += input.amount;
+                flow.totalAmountIn += tokenAmount;
                 flow.netSolFlow -= solValueToConsider; 
             }
         } else { // direction === 'out'
-            currentAnalysis.totalAmountOut! += input.amount; 
+            currentAnalysis.totalAmountOut! += tokenAmount; 
             currentAnalysis.transferCountOut!++;
             currentAnalysis.totalSolReceived! += solValueToConsider; // Gross SOL received
             currentAnalysis.totalFeesPaidInSol! += currentFeeAmount; 
@@ -126,13 +156,29 @@ export class SwapAnalyzer {
             if (isStablecoin) {
                 const flow = stablecoinFlows.get(splMint)!;
                 flow.totalSolReceived += solValueToConsider;
-                flow.totalAmountOut += input.amount;
+                flow.totalAmountOut += tokenAmount;
                 flow.netSolFlow += solValueToConsider; 
             }
         }
     } // End loop through swap inputs
 
     logger.debug(`[SwapAnalyzer] Aggregated data for ${analysisBySplMint.size} unique SPL tokens across ${processedSignatures.size} signatures.`);
+    if (process.env.PNL_DEBUG_LOGS === 'true') {
+        if (zeroValueSwapsByMint.size > 0) {
+            const examples = Array.from(zeroValueSwapsByMint.entries())
+                .slice(0, 5)
+                .map(([mint, count]) => `${mint}:${count}`)
+                .join(', ');
+            logger.debug(`[SwapAnalyzer] Detected SWAPs with zero associated value for ${zeroValueSwapsByMint.size} mints (examples: ${examples}).`);
+        }
+        if (valuedTransfersByMint.size > 0) {
+            const examples = Array.from(valuedTransfersByMint.entries())
+                .slice(0, 5)
+                .map(([mint, count]) => `${mint}:${count}`)
+                .join(', ');
+            logger.debug(`[SwapAnalyzer] Detected valued TRANSFER/UNKNOWN legs for ${valuedTransfersByMint.size} mints (examples: ${examples}).`);
+        }
+    }
 
     // 2. Calculate Final Metrics
     const finalResultsPreFilter: OnChainAnalysisResult[] = [];
@@ -147,6 +193,10 @@ export class SwapAnalyzer {
         
         const isStablecoin = stablecoins.has(splMint);
         let stablecoinSolValue = 0;
+        let fifoRealizedPnlSol: number | null = null;
+        let remainingCostBasisSol: number | null = null;
+        let hasIncompleteHistory = false;
+        let fifoLots: FifoLot[] = [];
         
         if (isStablecoin && netAmountChange > 0) {
             const averageCostBasis = aggregatedData.totalSolSpent && aggregatedData.totalAmountIn
@@ -161,6 +211,26 @@ export class SwapAnalyzer {
             logger.debug(`[SwapAnalyzer] Stablecoin ${splMint}: Net amount = ${netAmountChange.toFixed(2)}, Value = ${stablecoinSolValue.toFixed(2)} SOL, NetFlow = ${flow?.netSolFlow.toFixed(2) || 0} SOL`);
         }
 
+        if (!isStablecoin && splMint !== SOL_MINT) {
+            const fifoInputs = fifoInputsByMint.get(splMint) || [];
+            const fifoResult = buildFifoLotsForToken(
+                fifoInputs.map(input => ({
+                    timestamp: input.timestamp,
+                    signature: input.signature,
+                    direction: input.direction as 'in' | 'out',
+                    amount: input.amount,
+                    associatedSolValue: input.associatedSolValue,
+                    associatedUsdcValue: input.associatedUsdcValue,
+                    interactionType: input.interactionType,
+                })),
+                solPriceUsd
+            );
+            fifoRealizedPnlSol = fifoResult.realizedPnlSol;
+            remainingCostBasisSol = fifoResult.remainingCostBasisSol;
+            hasIncompleteHistory = fifoResult.hasIncompleteHistory;
+            fifoLots = fifoResult.lots;
+        }
+
         finalResultsPreFilter.push({
             tokenAddress: splMint,
             totalAmountIn: aggregatedData.totalAmountIn ?? 0,
@@ -169,7 +239,14 @@ export class SwapAnalyzer {
             totalSolSpent: aggregatedData.totalSolSpent ?? 0,
             totalSolReceived: aggregatedData.totalSolReceived ?? 0,
             totalFeesPaidInSol: aggregatedData.totalFeesPaidInSol ?? 0,
-            netSolProfitLoss: netSolProfitLoss,
+            netSolProfitLoss: fifoRealizedPnlSol !== null
+                ? fifoRealizedPnlSol - (aggregatedData.totalFeesPaidInSol ?? 0)
+                : netSolProfitLoss,
+            realizedPnlSol: fifoRealizedPnlSol,
+            unrealizedPnlSol: null,
+            totalPnlSol: null,
+            hasIncompleteHistory: hasIncompleteHistory,
+            currentHoldingsCostBasisSol: remainingCostBasisSol,
             estimatedPreservedValue: isStablecoin ? stablecoinSolValue : 0,
             isValuePreservation: isStablecoin,
             preservationType: isStablecoin ? 'stablecoin' : undefined,
@@ -178,10 +255,19 @@ export class SwapAnalyzer {
             firstTransferTimestamp: aggregatedData.timestamps!.length > 0 ? aggregatedData.timestamps![0] : 0,
             lastTransferTimestamp: aggregatedData.timestamps!.length > 0 ? aggregatedData.timestamps![aggregatedData.timestamps!.length - 1] : 0,
         });
+
+        if (fifoLots.length > 0) {
+            fifoLotsByMint.set(splMint, fifoLots);
+        }
     }
 
     // Filter out WSOL records from the final results
     const finalResults = finalResultsPreFilter.filter(r => r.tokenAddress !== SOL_MINT);
+    for (const [mint] of fifoLotsByMint.entries()) {
+        if (stablecoins.has(mint)) {
+            fifoLotsByMint.delete(mint);
+        }
+    }
 
     logger.debug(`[SwapAnalyzer] Final analysis complete. Generated ${finalResults.length} results (after filtering WSOL).`);
     
@@ -197,7 +283,9 @@ export class SwapAnalyzer {
         processedSignaturesCount: processedSignatures.size,
         firstTimestamp: overallFirstTimestamp,
         lastTimestamp: overallLastTimestamp,
-        stablecoinNetFlow: totalStablecoinNetFlow // Return the calculated net flow
+        stablecoinNetFlow: totalStablecoinNetFlow, // Return the calculated net flow
+        fifoLotsByMint,
+        fifoInputsByMint
     };
   }
 }

@@ -5,12 +5,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Info, Users, TrendingUp } from 'lucide-react';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { Badge } from '@/components/ui/badge';
+import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
 
 interface OverlapHeatmapProps {
   results: CombinedSimilarityResult;
 }
 
 export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
+  const getWalletLabel = (address: string) => results.walletLabels?.[address];
   const meaningfulConnections = useMemo(() => {
     if (!results.sharedTokenCountsMatrix) {
       return null;
@@ -63,6 +65,15 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
 
     return connections.sort((a, b) => b.overlapPercentage - a.overlapPercentage);
   }, [results.sharedTokenCountsMatrix, results.uniqueTokensPerWallet]);
+  const connectionAddresses = useMemo(() => {
+    const set = new Set<string>();
+    (meaningfulConnections || []).forEach(connection => {
+      set.add(connection.walletA);
+      set.add(connection.walletB);
+    });
+    return Array.from(set);
+  }, [meaningfulConnections]);
+  const { data: hudData } = useBatchWalletHud(connectionAddresses, { enabled: connectionAddresses.length > 0 });
 
   if (!results.sharedTokenCountsMatrix || !meaningfulConnections || meaningfulConnections.length === 0) {
     return (
@@ -143,9 +154,27 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
               <div className="flex items-center gap-3">
                 <span className="text-xs text-muted-foreground font-mono w-6">#{index + 1}</span>
                 <div className="flex items-center gap-2">
-                  <WalletBadge address={connection.walletA} />
+                  <WalletBadge
+                    address={connection.walletA}
+                    size="s"
+                    knownType={getWalletLabel(connection.walletA)?.knownType}
+                    knownLabel={getWalletLabel(connection.walletA)?.knownLabel}
+                    showHud={true}
+                    hudDisplay="tooltip"
+                    hudDelayMs={800}
+                    hudData={hudData?.[connection.walletA]}
+                  />
                   <span className="text-muted-foreground text-sm">shares with</span>
-                  <WalletBadge address={connection.walletB} />
+                  <WalletBadge
+                    address={connection.walletB}
+                    size="s"
+                    knownType={getWalletLabel(connection.walletB)?.knownType}
+                    knownLabel={getWalletLabel(connection.walletB)?.knownLabel}
+                    showHud={true}
+                    hudDisplay="tooltip"
+                    hudDelayMs={800}
+                    hudData={hudData?.[connection.walletB]}
+                  />
                 </div>
               </div>
               <Badge 

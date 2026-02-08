@@ -15,29 +15,61 @@ if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# Step 1: Build Backend
-Write-Host "Building backend..." -ForegroundColor Yellow
-pnpm run build
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Backend build failed!" -ForegroundColor Red
+# Build Backend and Frontend in parallel
+Write-Host "Building backend and frontend in parallel..." -ForegroundColor Yellow
+
+$backendJob = Start-Job -ScriptBlock {
+    Set-Location $using:scriptDir
+    pnpm run build 2>&1
+    $LASTEXITCODE
+}
+
+$frontendJob = Start-Job -ScriptBlock {
+    Set-Location $using:scriptDir
+    pnpm run build:dashboard 2>&1
+    $LASTEXITCODE
+}
+
+# Wait for both jobs and collect results
+Wait-Job $backendJob, $frontendJob | Out-Null
+
+$backendOutput = Receive-Job $backendJob
+$frontendOutput = Receive-Job $frontendJob
+
+# Exit code is the last line of output
+$backendExitCode = $backendOutput[-1]
+$frontendExitCode = $frontendOutput[-1]
+$backendLog = $backendOutput[0..($backendOutput.Length - 2)] -join "`n"
+$frontendLog = $frontendOutput[0..($frontendOutput.Length - 2)] -join "`n"
+
+Remove-Job $backendJob, $frontendJob
+
+# Report results
+$failed = $false
+
+Write-Host "`n--- Backend Build ---" -ForegroundColor Cyan
+Write-Host $backendLog
+if ($backendExitCode -ne 0) {
+    Write-Host "Backend build FAILED (exit code: $backendExitCode)" -ForegroundColor Red
+    $failed = $true
+} else {
+    Write-Host "Backend built successfully" -ForegroundColor Green
+}
+
+Write-Host "`n--- Frontend Build ---" -ForegroundColor Cyan
+Write-Host $frontendLog
+if ($frontendExitCode -ne 0) {
+    Write-Host "Frontend build FAILED (exit code: $frontendExitCode)" -ForegroundColor Red
+    $failed = $true
+} else {
+    Write-Host "Frontend built successfully" -ForegroundColor Green
+}
+
+if ($failed) {
+    Write-Host "`nBuild failed!" -ForegroundColor Red
     exit 1
 }
-Write-Host "Backend built successfully" -ForegroundColor Green
 Write-Host ""
-
-# Step 2: Build Frontend
-Write-Host "Building frontend..." -ForegroundColor Yellow
-Set-Location dashboard
-pnpm run build
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Frontend build failed!" -ForegroundColor Red
-    exit 1
-}
-Write-Host "Frontend built successfully" -ForegroundColor Green
-Write-Host ""
-
-# Return to root
-Set-Location $scriptDir
 
 # Step 3: Start Backend in new terminal
 Write-Host "Starting backend with PM2..." -ForegroundColor Yellow

@@ -22,9 +22,12 @@ model Wallet {
   isVerifiedBot                Boolean                 @default(false)
   botType                      String?
   botPatternTags               Json?
+  knownLabel                   String?
+  knownType                    String?
   activityLogs                 ActivityLog[]           @relation("WalletActivityLogs")
   AnalysisResult               AnalysisResult[]
   HolderProfileSnapshot        HolderProfileSnapshot[]
+  TokenLot                     TokenLot[]
   favoritedBy                  UserFavoriteWallet[]
   behaviorProfile              WalletBehaviorProfile?
   walletNotes                  WalletNote[]
@@ -33,6 +36,7 @@ model Wallet {
   @@index([classification])
   @@index([classificationConfidence])
   @@index([isVerifiedBot])
+  @@index([knownType])
 }
 
 model HeliusTransactionCache {
@@ -41,6 +45,21 @@ model HeliusTransactionCache {
   fetchedAt DateTime @default(now())
 
   @@index([timestamp])
+}
+
+model SignificantBuyersCache {
+  id                String   @id @default(cuid())
+  mint              String
+  startBlockTime    Int
+  endBlockTime      Int
+  walletAddresses   String
+  totalTransactions Int
+  processedAt       DateTime @default(now())
+  transactions      String
+
+  @@unique([mint, startBlockTime, endBlockTime], name: "mint_startBlockTime_endBlockTime")
+  @@index([mint])
+  @@index([processedAt])
 }
 
 model SwapAnalysisInput {
@@ -63,38 +82,60 @@ model SwapAnalysisInput {
 }
 
 model AnalysisResult {
-  id                      Int       @id @default(autoincrement())
-  walletAddress           String
-  tokenAddress            String
-  totalAmountIn           Float
-  totalAmountOut          Float
-  netAmountChange         Float
-  totalSolSpent           Float
-  totalSolReceived        Float
-  totalFeesPaidInSol      Float?
-  netSolProfitLoss        Float
-  transferCountIn         Int
-  transferCountOut        Int
-  firstTransferTimestamp  Int?
-  lastTransferTimestamp   Int?
-  isValuePreservation     Boolean?
-  estimatedPreservedValue Float?
-  preservationType        String?
-  currentRawBalance       String?
-  currentUiBalance        Float?
-  currentUiBalanceString  String?
-  balanceDecimals         Int?
-  balanceFetchedAt        DateTime?
-  updatedAt               DateTime  @default(now()) @updatedAt
-  currentHoldingsValueSol Float?
-  currentHoldingsValueUsd Float?
-  wallet                  Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+  id                          Int       @id @default(autoincrement())
+  walletAddress               String
+  tokenAddress                String
+  totalAmountIn               Float
+  totalAmountOut              Float
+  netAmountChange             Float
+  totalSolSpent               Float
+  totalSolReceived            Float
+  totalFeesPaidInSol          Float?
+  netSolProfitLoss            Float?
+  transferCountIn             Int
+  transferCountOut            Int
+  firstTransferTimestamp      Int?
+  lastTransferTimestamp       Int?
+  isValuePreservation         Boolean?
+  estimatedPreservedValue     Float?
+  preservationType            String?
+  currentRawBalance           String?
+  currentUiBalance            Float?
+  currentUiBalanceString      String?
+  balanceDecimals             Int?
+  balanceFetchedAt            DateTime?
+  updatedAt                   DateTime  @default(now()) @updatedAt
+  currentHoldingsValueSol     Float?
+  currentHoldingsValueUsd     Float?
+  currentHoldingsCostBasisSol Float?
+  hasIncompleteHistory        Boolean?  @default(false)
+  realizedPnlSol              Float?
+  totalPnlSol                 Float?
+  unrealizedPnlSol            Float?
+  wallet                      Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@unique([walletAddress, tokenAddress])
   @@index([walletAddress])
   @@index([tokenAddress])
   @@index([lastTransferTimestamp])
   @@index([netSolProfitLoss])
+}
+
+model TokenLot {
+  id                Int      @id @default(autoincrement())
+  walletAddress     String
+  tokenAddress      String
+  amountBought      Decimal  @db.Decimal(38, 18)
+  costBasisSol      Decimal  @db.Decimal(38, 18)
+  amountRemaining   Decimal  @db.Decimal(38, 18)
+  purchaseTimestamp Int
+  status            String
+  sourceSignature   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  wallet            Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@index([walletAddress, tokenAddress, purchaseTimestamp])
 }
 
 model WalletPnlSummary {
@@ -118,6 +159,8 @@ model WalletPnlSummary {
   updatedAt                         DateTime            @updatedAt
   currentSolBalance                 Float?
   solBalanceFetchedAt               DateTime?
+  profitableTradesCount             Int                 @default(0)
+  totalIndividualTradesCount        Int                 @default(0)
   advancedStats                     AdvancedTradeStats?
   wallet                            Wallet              @relation(fields: [walletAddress], references: [address])
 
@@ -141,44 +184,57 @@ model AdvancedTradeStats {
 }
 
 model WalletBehaviorProfile {
-  id                            Int      @id @default(autoincrement())
-  walletAddress                 String   @unique
-  buySellRatio                  Float
-  buySellSymmetry               Float
-  averageFlipDurationHours      Float
-  medianHoldTime                Float
-  sequenceConsistency           Float
-  flipperScore                  Float
-  uniqueTokensTraded            Int
-  tokensWithBothBuyAndSell      Int
-  totalTradeCount               Int
-  totalBuyCount                 Int
-  totalSellCount                Int
-  completePairsCount            Int
-  averageTradesPerToken         Float
-  tradingTimeDistribution       Json
-  percentTradesUnder1Hour       Float
-  percentTradesUnder4Hours      Float
-  tradingStyle                  String
-  confidenceScore               Float
-  tradingFrequency              Json
-  tokenPreferences              Json
-  riskMetrics                   Json
-  reentryRate                   Float
-  percentageOfUnpairedTokens    Float
-  sessionCount                  Int
-  avgTradesPerSession           Float
-  activeTradingPeriods          Json
-  averageSessionStartHour       Float
-  averageSessionDurationMinutes Float
-  firstTransactionTimestamp     Int?
-  lastTransactionTimestamp      Int?
-  updatedAt                     DateTime @updatedAt
-  holdTimeTokenMap              Json?
-  enrichedHoldTimeDistribution  Json?
-  wallet                        Wallet   @relation(fields: [walletAddress], references: [address])
+  id                                 Int      @id @default(autoincrement())
+  walletAddress                      String   @unique
+  buySellRatio                       Float
+  buySellSymmetry                    Float
+  averageFlipDurationHours           Float
+  medianHoldTime                     Float
+  sequenceConsistency                Float
+  flipperScore                       Float
+  uniqueTokensTraded                 Int
+  tokensWithBothBuyAndSell           Int
+  totalTradeCount                    Int
+  totalBuyCount                      Int
+  totalSellCount                     Int
+  completePairsCount                 Int
+  averageTradesPerToken              Float
+  tradingTimeDistribution            Json
+  percentTradesUnder1Hour            Float
+  percentTradesUnder4Hours           Float
+  tradingStyle                       String
+  confidenceScore                    Float
+  tradingFrequency                   Json
+  tokenPreferences                   Json
+  riskMetrics                        Json
+  reentryRate                        Float
+  percentageOfUnpairedTokens         Float
+  sessionCount                       Int
+  avgTradesPerSession                Float
+  activeTradingPeriods               Json
+  averageSessionStartHour            Float
+  averageSessionDurationMinutes      Float
+  firstTransactionTimestamp          Int?
+  lastTransactionTimestamp           Int?
+  updatedAt                          DateTime @updatedAt
+  holdTimeTokenMap                   Json?
+  enrichedHoldTimeDistribution       Json?
+  flowPattern                        String?
+  medianActiveHoldingHours           Float?
+  speedCategory                      String?
+  strategyType                       String?
+  tokensWithOnlyBuys                 Int      @default(0)
+  velocityScore                      Int?
+  averageCurrentHoldingDurationHours Float?
+  exitPattern                        String?
+  medianCurrentHoldingDurationHours  Float?
+  percentOfValueInCurrentHoldings    Float?
+  medianCompletedHoldTimeHours       Float?
+  wallet                             Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
+  @@index([strategyType])
+  @@index([speedCategory])
 }
 
 model HolderProfileSnapshot {
@@ -231,6 +287,7 @@ model User {
   emailVerified       Boolean                  @default(false)
   lastLoginAt         DateTime?
   passwordHash        String?
+  lastBulkImportAt    DateTime?
   activityLogs        ActivityLog[]
   apiKeys             ApiKey[]
   verificationTokens  EmailVerificationToken[]
@@ -238,6 +295,8 @@ model User {
   passwordResetTokens PasswordResetToken[]
   favoriteWallets     UserFavoriteWallet[]
   walletNotes         WalletNote[]
+
+  @@index([lastBulkImportAt])
 }
 
 model EmailVerificationToken {

@@ -1,6 +1,8 @@
 import { Injectable, NestMiddleware, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { DatabaseService } from '../../services/database.service';
+import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+
 
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
@@ -24,7 +26,7 @@ export class AuthMiddleware implements NestMiddleware {
       }
     } catch (error) {
       // Log the error server-side if needed
-      // console.error('Auth Middleware Error:', error);
+      // logger.error('Auth Middleware Error:', getErrorMessage(error));
       if (error instanceof ForbiddenException || error instanceof UnauthorizedException) {
         throw error;
       }

@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class TopHolderItemDto {
   @ApiProperty()
@@ -21,6 +21,17 @@ export class TopHolderItemDto {
 
   @ApiProperty()
   rank: number;
+
+  @ApiPropertyOptional({
+    description: 'Known wallet type from registry (e.g., BURN, LP, JUPITER)',
+    enum: ['BURN', 'LP', 'RAYDIUM', 'ORCA', 'JUPITER', 'PROTOCOL', 'EXCHANGE', 'SYSTEM'],
+  })
+  knownType?: string;
+
+  @ApiPropertyOptional({
+    description: 'Display label for known wallets (e.g., "🔥 Burn Address")',
+  })
+  knownLabel?: string;
 }
 
 export class TopHoldersResponseDto {
@@ -32,6 +43,17 @@ export class TopHoldersResponseDto {
 
   @ApiProperty({ type: () => [TopHolderItemDto] })
   holders: TopHolderItemDto[];
+
+  @ApiPropertyOptional({
+    type: () => Object,
+    description: 'Token supply information for percentage calculations'
+  })
+  supply?: {
+    amount: string;
+    decimals: number;
+    uiAmount: number | null;
+    uiAmountString: string;
+  };
 }
 
 

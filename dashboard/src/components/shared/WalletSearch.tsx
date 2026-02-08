@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardAnalysisResponse } from '@/types/api';
+import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { debounce } from 'lodash';
 
 const DEBOUNCE_DELAY = 300;
@@ -72,10 +73,6 @@ export function WalletSearch() {
     return () => document.removeEventListener('keydown', down);
   }, []);
 
-  const isValidSolanaAddress = (address: string): boolean => {
-    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
-  };
-
   const handleSelectWallet = (walletAddress: string) => {
     setOpen(false);
     setQuery('');
@@ -97,14 +94,18 @@ export function WalletSearch() {
       });
 
       toast.success(`Analysis queued for ${walletAddress.substring(0, 6)}...`);
-      setOpen(false);
-      setQuery('');
 
-      // Navigate to wallet page with job ID
+      // Navigate FIRST, then clean up modal state
       router.push(`/wallets/${walletAddress}?jobId=${result.jobId}`);
+
+      // Small delay to ensure navigation starts before closing modal
+      setTimeout(() => {
+        setOpen(false);
+        setQuery('');
+        setIsAnalyzing(false);
+      }, 100);
     } catch (err: any) {
       toast.error(`Analysis error: ${err.message || 'Failed to queue analysis'}`);
-    } finally {
       setIsAnalyzing(false);
     }
   };

@@ -2,6 +2,10 @@
 
 import * as https from 'https';
 import * as dotenv from 'dotenv';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+import logger from '../../core/utils/logger';
+
+
 
 // Load environment variables from .env file
 dotenv.config();
@@ -46,7 +50,7 @@ async function fetchTransactionDetails() {
                     console.log(JSON.stringify(JSON.parse(data), null, 2));
                     console.log('\n--- End Details ---');
                 } catch (e) {
-                    console.error('Error parsing Helius JSON response:', e);
+                    logger.error('Error parsing Helius JSON response:', getErrorMessage(e));
                     console.log('Raw Response:', data);
                 }
             } else {

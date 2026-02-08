@@ -6,6 +6,7 @@ import { TransactionData } from '@/types/correlation';
 import { createLogger } from 'core/utils/logger';
 import { WalletBalance } from '@/types/wallet';
 import { DEFAULT_EXCLUDED_MINTS } from '../../../config/constants';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('SimilarityService');
 
@@ -41,7 +42,8 @@ export class SimilarityService {
   async calculateWalletSimilarity(
     walletAddresses: string[],
     vectorType: 'capital' | 'binary' = 'capital',
-    walletBalances?: Map<string, WalletBalance> 
+    walletBalances?: Map<string, WalletBalance>,
+    options?: { includeVectors?: boolean }
   ): Promise<SingleSimilarityResult | null> {
     // logger.info(`Calculating comprehensive similarity for ${walletAddresses.length} wallets using primary vectorType: ${vectorType}.`);
     if (walletBalances && walletBalances.size > 0) {
@@ -62,7 +64,18 @@ export class SimilarityService {
         logger.error(`Error fetching transaction data for similarity analysis:`, { error });
         return null;
     }
-    
+
+    return this.calculateWalletSimilarityFromTransactions(transactionData, vectorType, walletBalances, options);
+  }
+
+  async calculateWalletSimilarityFromTransactions(
+    transactionData: Record<string, TransactionData[]>,
+    vectorType: 'capital' | 'binary' = 'capital',
+    walletBalances?: Map<string, WalletBalance>,
+    options?: { includeVectors?: boolean }
+  ): Promise<SingleSimilarityResult | null> {
+    const includeVectors = options?.includeVectors ?? false;
+
     // Get wallets that actually have data after fetching
     const walletsWithFetchedData = Object.keys(transactionData).filter(addr => transactionData[addr]?.length > 0);
     if (walletsWithFetchedData.length < 2) {
@@ -227,14 +240,22 @@ export class SimilarityService {
     }
 
     // 6. Combine all results
+    const uniqueTokensPerWallet = this.similarityAnalyzer['calculateUniqueTokensPerWallet'](primaryVectors);
     const finalResult: SingleSimilarityResult = {
-        ...coreMetrics, 
+        ...coreMetrics,
         sharedTokenCountsMatrix: sharedTokenCountsMatrix,
-        jaccardSimilarityMatrix: jaccardSimilarityMatrix, 
-        walletVectorsUsed: primaryVectors,
+        jaccardSimilarityMatrix: jaccardSimilarityMatrix,
         vectorTypeUsed: vectorType,
-        uniqueTokensPerWallet: this.similarityAnalyzer['calculateUniqueTokensPerWallet'](primaryVectors),
+        uniqueTokensPerWallet,
+        summary: {
+            walletCount: walletsWithFetchedData.length,
+            uniqueTokensTotal: filteredPrimaryMints.length,
+        },
     };
+
+    if (includeVectors) {
+        finalResult.walletVectorsUsed = primaryVectors;
+    }
 
     // ---- NEW: Calculate Similarity based on Current Holdings ----
     if (walletBalances && walletBalances.size >= 2) {
@@ -403,7 +424,7 @@ export class SimilarityService {
                         finalResult['holdingsPresenceFilteredJaccardMatrix'] = filteredSimilarityMatrix;
                         
                     } catch (error) {
-                        logger.error('[Holdings Filtered] Error calculating filtered holdings similarity:', error);
+                        logger.error(`[Holdings Filtered] Error calculating filtered holdings similarity: ${getErrorMessage(error)}`);
                     }
                     
                 } else {

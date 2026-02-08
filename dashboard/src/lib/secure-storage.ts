@@ -1,5 +1,4 @@
 import { getCookie, setCookie, deleteCookie } from 'cookies-next';
-
 export interface SecureStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;

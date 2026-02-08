@@ -21,6 +21,13 @@ export interface JobCompletionData {
   processingTime: number;
   totalTime?: number; // Total time from queue to completion
   enrichmentJobId?: string;
+  // Metadata extracted from result for convenience
+  // These fields are ALSO available in result.analysisScope, result.walletAddress, etc.
+  metadata?: {
+    scope?: DashboardAnalysisScope;
+    walletAddress?: string;
+    triggerSource?: string;
+  };
 }
 
 export interface JobQueueToStartData {
@@ -59,6 +66,11 @@ export interface JobResult {
   signaturesConsidered?: number | null;
   timeRange?: { startTs?: number; endTs?: number };
   followUpJobsQueued?: Array<{ scope: DashboardAnalysisScope; jobId: string }>;
+  // Dashboard analysis skip fields (when wallet is known/system wallet)
+  analysisSkipped?: boolean;  // True if analysis was skipped (e.g., known wallet)
+  skipReason?: string;  // Reason for skipping analysis
+  knownType?: string;  // Wallet type if detected (e.g., 'SYSTEM', 'BURN', 'LP')
+  knownLabel?: string;  // Display label for known wallet type
   metadata?: {
     requestedWallets?: number;
     processedWallets?: number;

@@ -5,6 +5,8 @@ import { HeliusApiClient } from '../core/services/helius-api-client';
 import { DatabaseService } from '../api/services/database.service';
 import { createLogger } from '../core/utils/logger';
 import * as path from 'path';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 // Set log level to info to reduce verbosity for this script BEFORE importing logger
 process.env.LOG_LEVEL = 'info';
@@ -221,7 +223,7 @@ async function main() {
 // Run the script
 if (require.main === module) {
   main().catch(error => {
-    console.error('Unhandled error:', error);
+    logger.error('Unhandled error:', getErrorMessage(error));
     process.exit(1);
   });
 }

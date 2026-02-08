@@ -45,10 +45,9 @@ export function BehaviorCompositionBar({ profiles }: Props) {
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
                   <p className="font-semibold mb-1">
-                    {info?.title || label} — {segment.count} holders ({segment.percentage}%)
+                    {info?.title || label}: {segment.count} holders ({segment.percentage}%)
                   </p>
-                  <p className="text-muted-foreground mb-1">{info?.description || 'Trading behavior classification based on typical hold times.'}</p>
-                  <p className="text-primary font-medium">{info?.timeframe || 'Hold time varies'}</p>
+                  <p className="text-muted-foreground">{info?.timeframe || 'Hold time varies'}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -62,7 +61,7 @@ export function BehaviorCompositionBar({ profiles }: Props) {
           return (
             <div key={segment.type} className="flex items-center gap-2">
               <span className={`h-2.5 w-2.5 rounded-full ${getBehaviorBarColor(segment.type)}`}></span>
-              <span className="text-muted-foreground">{label} — {segment.count}</span>
+              <span className="text-muted-foreground">{label}: {segment.count}</span>
             </div>
           );
         })}

@@ -2,6 +2,10 @@ import 'reflect-metadata';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { DatabaseService, prisma } from '../src/core/services/database-service'; // Adjusted path
+import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
+import logger from '../src/core/utils/logger';
+
+
 
 async function main() {
   const dbService = new DatabaseService();
@@ -38,7 +42,7 @@ async function main() {
             if (result) console.error('Result received:', JSON.stringify(result, null, 2));
           }
         } catch (error) {
-          console.error('❌ Error during user creation:', error);
+          logger.error('❌ Error during user creation:', getErrorMessage(error));
         }
       }
     )
@@ -70,7 +74,7 @@ async function main() {
             console.log('ℹ️ No users found in the database.');
           }
         } catch (error) {
-          console.error('❌ Error fetching users:', error);
+          logger.error('❌ Error fetching users:', getErrorMessage(error));
         }
       }
     )
@@ -252,7 +256,7 @@ async function main() {
             console.warn(`⚠️ User with ID ${argv.id} not found or already active.`);
           }
         } catch (error) {
-          console.error('❌ Error activating user:', error);
+          logger.error('❌ Error activating user:', getErrorMessage(error));
         }
       }
     )
@@ -276,7 +280,7 @@ async function main() {
             console.warn(`⚠️ User with ID ${argv.id} not found or already inactive.`);
           }
         } catch (error) {
-          console.error('❌ Error deactivating user:', error);
+          logger.error('❌ Error deactivating user:', getErrorMessage(error));
         }
       }
     )
@@ -323,7 +327,7 @@ async function main() {
             console.warn(`⚠️ User with ID ${argv.id} not found.`);
           }
         } catch (error) {
-          console.error('❌ Error deleting user:', error);
+          logger.error('❌ Error deleting user:', getErrorMessage(error));
         }
       }
     )
@@ -353,7 +357,7 @@ async function main() {
             console.warn(`⚠️ User with ID ${argv.id} not found.`);
           }
         } catch (error) {
-          console.error('❌ Error setting demo status:', error);
+          logger.error('❌ Error setting demo status:', getErrorMessage(error));
         }
       }
     )
@@ -370,7 +374,7 @@ async function main() {
 main()
   .catch(async (error) => {
     console.error('\n❌ Unhandled error in script execution:');
-    console.error(error);
+    logger.error('Error occurred:', getErrorMessage(error));
     process.exitCode = 1;
   })
   .finally(async () => {

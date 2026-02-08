@@ -14,6 +14,10 @@ import * as dotenv from 'dotenv';
 import * as https from 'https';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import logger from '../core/utils/logger';
+
+
 
 dotenv.config();
 
@@ -209,7 +213,7 @@ class TokenMetadataFetcher {
       console.log('ℹ️  Consider using @metaplex-foundation/js for full metadata support');
       return null;
     } catch (error) {
-      console.error('Failed to fetch metadata directly:', error);
+      logger.error('Failed to fetch metadata directly:', getErrorMessage(error));
       return null;
     }
   }

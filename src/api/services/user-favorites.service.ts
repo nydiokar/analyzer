@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { DatabaseService } from '../services/database.service';
 import { FavoriteWalletDetailDto, UpdateFavoriteWalletDto, AddFavoriteWalletDto } from '../shared/dto/favorite-wallet-detail.dto';
+import { BulkImportFavoriteWalletsDto, BulkImportWalletItemDto } from '../shared/dto/favorite-wallet-import.dto';
+import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 // Prisma types like UserFavoriteWallet are now handled by DatabaseService return types
 
 @Injectable()
@@ -10,12 +12,11 @@ export class UserFavoritesService {
   async addFavorite(userId: string, addFavoriteDto: AddFavoriteWalletDto): Promise<void> {
     // All validation (user exists, wallet exists, conflict) is now handled by databaseService.addFavoriteWallet
     await this.databaseService.addFavoriteWallet(userId, addFavoriteDto.walletAddress);
-    
+
     // If additional data is provided, update it immediately
-    if (addFavoriteDto.nickname || addFavoriteDto.tags || addFavoriteDto.collections) {
+    if (addFavoriteDto.nickname || addFavoriteDto.collections) {
       await this.updateFavorite(userId, addFavoriteDto.walletAddress, {
         nickname: addFavoriteDto.nickname,
-        tags: addFavoriteDto.tags,
         collections: addFavoriteDto.collections,
       });
     }
@@ -26,11 +27,14 @@ export class UserFavoritesService {
     await this.databaseService.removeFavoriteWallet(userId, walletAddress);
   }
 
+  async clearFavorites(userId: string): Promise<number> {
+    return this.databaseService.clearFavoriteWallets(userId);
+  }
+
   async updateFavorite(userId: string, walletAddress: string, updateFavoriteWalletDto: UpdateFavoriteWalletDto): Promise<void> {
     // We'll add this method to DatabaseService
     await this.databaseService.updateFavoriteWallet(userId, walletAddress, {
       nickname: updateFavoriteWalletDto.nickname,
-      tags: updateFavoriteWalletDto.tags ? JSON.stringify(updateFavoriteWalletDto.tags) : null,
       collections: updateFavoriteWalletDto.collections ? JSON.stringify(updateFavoriteWalletDto.collections) : null,
       metadata: updateFavoriteWalletDto.metadata,
     });
@@ -48,29 +52,35 @@ export class UserFavoritesService {
     return favoritesWithWalletData.map(fav => {
       let pnl: number | undefined = undefined;
       let winRate: number | undefined = undefined;
+      let currentSolBalance: number | undefined = undefined;
+      let lastActiveTimestamp: number | undefined = undefined;
 
       if (fav.wallet) {
         if (fav.wallet.pnlSummary) {
-          pnl = fav.wallet.pnlSummary.realizedPnl ?? undefined;
+          // Calculate total PnL = realized + unrealized (same as Discover page)
+          const realizedPnl = fav.wallet.pnlSummary.realizedPnl ?? 0;
+          const unrealizedPnl = fav.wallet.pnlSummary.unrealizedPnl ?? 0;
+          pnl = realizedPnl + unrealizedPnl;
+
+          currentSolBalance = fav.wallet.pnlSummary.currentSolBalance ?? undefined;
+          lastActiveTimestamp = fav.wallet.pnlSummary.overallLastTimestamp ?? undefined;
+
+          // Get winrate from advancedStats (same as Discover page)
+          if (fav.wallet.pnlSummary.advancedStats) {
+            winRate = fav.wallet.pnlSummary.advancedStats.tokenWinRatePercent ?? undefined;
+          }
         }
         if (fav.wallet.behaviorProfile) {
-          winRate = fav.wallet.behaviorProfile.flipperScore ?? undefined;
+          // Fallback to behaviorProfile's lastTransactionTimestamp if pnlSummary doesn't have it
+          if (!lastActiveTimestamp && fav.wallet.behaviorProfile.lastTransactionTimestamp) {
+            lastActiveTimestamp = fav.wallet.behaviorProfile.lastTransactionTimestamp;
+          }
         }
       }
 
       // Parse JSON fields safely
-      let tags: string[] = [];
       let collections: string[] = [];
-      
-      try {
-        if (fav.tags) {
-          tags = JSON.parse(fav.tags);
-        }
-      } catch (e) {
-        // If parsing fails, treat as empty array
-        tags = [];
-      }
-      
+
       try {
         if (fav.collections) {
           collections = JSON.parse(fav.collections);
@@ -82,22 +92,19 @@ export class UserFavoritesService {
 
       return {
         walletAddress: fav.walletAddress,
+        knownType: fav.wallet?.knownType ?? undefined,
+        knownLabel: fav.wallet?.knownLabel ?? undefined,
         nickname: fav.nickname,
-        tags: tags,
         collections: collections,
         metadata: fav.metadata,
         favoritedAt: fav.createdAt,
         lastViewedAt: fav.lastViewedAt,
-        pnl: pnl, 
+        pnl: pnl,
         winRate: winRate,
+        currentSolBalance: currentSolBalance,
+        lastActiveTimestamp: lastActiveTimestamp,
       };
     });
-  }
-
-  // Helper method to get all unique tags used by a user
-  async getUserTags(userId: string): Promise<string[]> {
-    const favorites = await this.databaseService.getUserFavoriteTags(userId);
-    return favorites;
   }
 
   // Helper method to get all unique collections used by a user
@@ -105,4 +112,160 @@ export class UserFavoritesService {
     const collections = await this.databaseService.getUserFavoriteCollections(userId);
     return collections;
   }
-} 
+
+  async importFavorites(userId: string, dto: BulkImportFavoriteWalletsDto): Promise<{
+    requested: number;
+    valid: number;
+    invalidWallets: string[];
+    added: number;
+    updated: number;
+    skipped: number;
+    overLimit: number;
+    normalizedWallets: string[];
+    createdWallets: string[];
+  }> {
+    // No import cooldown - users can organize favorites freely
+    // Rate limiting is enforced at analysis job queueing level instead
+
+    const wallets = Array.isArray(dto.wallets) ? dto.wallets : [];
+    if (wallets.length === 0) {
+      return {
+        requested: 0,
+        valid: 0,
+        invalidWallets: [],
+        added: 0,
+        updated: 0,
+        skipped: 0,
+        overLimit: 0,
+        normalizedWallets: [],
+        createdWallets: [],
+      };
+    }
+
+    const defaultCollections = this.normalizeCollections(dto.defaultCollections);
+    const invalidWallets: string[] = [];
+    const normalizedMap = new Map<string, { walletAddress: string; nickname?: string; collections?: string[]; metadata?: any }>();
+
+    for (const item of wallets) {
+      const walletAddress = this.extractWalletAddress(item);
+      if (!walletAddress || !isValidSolanaAddress(walletAddress)) {
+        if (walletAddress) {
+          invalidWallets.push(walletAddress);
+        }
+        continue;
+      }
+
+      const nickname = item.nickname || item.name || undefined;
+      const itemCollections = this.normalizeCollections(item.collections || item.collection);
+      const collections = Array.from(new Set([...defaultCollections, ...itemCollections]));
+
+      const metadata = this.buildImportMetadata(item);
+
+      const existing = normalizedMap.get(walletAddress);
+      if (!existing) {
+        normalizedMap.set(walletAddress, {
+          walletAddress,
+          nickname,
+          collections: collections.length > 0 ? collections : undefined,
+          metadata,
+        });
+      } else {
+        if (!existing.nickname && nickname) {
+          existing.nickname = nickname;
+        }
+        if (collections.length > 0) {
+          existing.collections = Array.from(new Set([...(existing.collections || []), ...collections]));
+        }
+        if (metadata && typeof metadata === 'object') {
+          const base = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
+          existing.metadata = { ...base, ...metadata };
+        }
+      }
+    }
+
+    const normalizedFavorites = Array.from(normalizedMap.values());
+    const normalizedWallets = normalizedFavorites.map(entry => entry.walletAddress);
+
+    if (normalizedFavorites.length === 0) {
+      return {
+        requested: wallets.length,
+        valid: 0,
+        invalidWallets,
+        added: 0,
+        updated: 0,
+        skipped: 0,
+        overLimit: 0,
+        normalizedWallets,
+        createdWallets: [],
+      };
+    }
+
+    const result = await this.databaseService.bulkUpsertFavoriteWallets({
+      userId,
+      favorites: normalizedFavorites,
+      mergeCollections: dto.mergeCollections ?? true,
+      overwriteNickname: dto.overwriteNickname ?? false,
+      mergeMetadata: true,
+    });
+
+    // No longer tracking lastBulkImportAt - cooldown removed
+    // Users can import favorites freely, analysis jobs are rate-limited separately
+
+    return {
+      requested: wallets.length,
+      valid: normalizedFavorites.length,
+      invalidWallets,
+      added: result.added,
+      updated: result.updated,
+      skipped: result.skipped,
+      overLimit: result.overLimit,
+      normalizedWallets,
+      createdWallets: result.createdWallets,
+    };
+  }
+
+  private extractWalletAddress(item: BulkImportWalletItemDto): string | undefined {
+    return item.walletAddress || item.trackedWalletAddress || undefined;
+  }
+
+  private normalizeCollections(input?: string[] | string): string[] {
+    if (!input) return [];
+    if (Array.isArray(input)) {
+      return input.map(entry => entry.trim()).filter(Boolean);
+    }
+    if (typeof input === 'string') {
+      return [input.trim()].filter(Boolean);
+    }
+    return [];
+  }
+
+  private buildImportMetadata(item: BulkImportWalletItemDto): any | undefined {
+    const metadata = {
+      ...((item.metadata && typeof item.metadata === 'object') ? item.metadata : {}),
+      ...(item.emoji ? { emoji: item.emoji } : {}),
+      ...(typeof item.alertsOn === 'boolean' ? { alertsOn: item.alertsOn } : {}),
+    };
+
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
+  }
+
+  /**
+   * Get wallets in a specific collection
+   */
+  async getWalletsInCollection(userId: string, collectionName: string): Promise<string[]> {
+    const favorites = await this.databaseService.getFavoriteWalletsByUserId(userId);
+
+    return favorites
+      .filter(fav => {
+        if (!fav.collections) return false;
+        try {
+          const collections = JSON.parse(fav.collections);
+          return Array.isArray(collections) && collections.includes(collectionName);
+        } catch {
+          return false;
+        }
+      })
+      .map(fav => fav.walletAddress);
+  }
+
+}

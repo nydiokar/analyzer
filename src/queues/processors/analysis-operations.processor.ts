@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Job, Worker } from 'bullmq';
+import { Job, Worker, UnrecoverableError } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts, JobPriority } from '../config/queue.config';
 import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult, HolderProfile } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
@@ -17,14 +17,20 @@ import { WalletBalanceService } from '../../core/services/wallet-balance-service
 import { SyncOptions } from '../../core/services/helius-sync-service';
 import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
 import { TokenInfoService } from '../../api/services/token-info.service';
-import { TokenHoldersService } from '../../api/services/token-holders.service';
+import { TokenHoldersService, HolderWithLabel } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
+import { WalletHudService } from '../../api/services/wallet-hud.service';
+import { SystemWalletDetectionService } from '../../api/services/system-wallet-detection.service';
+import { SKIP_BEHAVIOR_ANALYSIS, SKIP_PNL_CALCULATION, getKnownWallet } from '../../config/known-wallets';
+import type { KnownWalletType } from '../../config/known-wallets';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
 import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
+import { MetricsService } from '../../api/services/metrics.service';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -43,8 +49,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly tokenInfoService: TokenInfoService,
     private readonly tokenHoldersService: TokenHoldersService,
     private readonly holderProfilesCacheService: HolderProfilesCacheService,
+    private readonly walletHudService: WalletHudService,
     private readonly telegramAlerts: TelegramAlertsService,
     private readonly balanceCacheService: BalanceCacheService,
+    private readonly systemWalletDetection: SystemWalletDetectionService,
+    private readonly metricsService: MetricsService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -59,11 +68,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     });
 
     this.worker.on('failed', (job, err) => {
-      this.logger.error(`Job ${job?.id} from queue ${job?.queueName} failed:`, err);
+      if (err instanceof UnrecoverableError) {
+        this.logger.warn(`Job ${job?.id} from queue ${job?.queueName} failed: ${err.message}`);
+      } else {
+        this.logger.error(`Job ${job?.id} from queue ${job?.queueName} failed: ${getErrorMessage(err)}`);
+      }
     });
 
     this.worker.on('error', (err) => {
-      this.logger.error('Worker error in AnalysisOperationsProcessor:', err);
+      this.logger.error(`Worker error in AnalysisOperationsProcessor: ${getErrorMessage(err)}`);
     });
 
     this.logger.log('AnalysisOperationsProcessor has been initialized');
@@ -81,7 +94,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       case 'dashboard-wallet-analysis':
         return this.processDashboardWalletAnalysis(job as Job<DashboardWalletAnalysisJobData>);
       case 'analyze-holder-profiles':
-        return this.processAnalyzeHolderProfiles(job as Job<AnalyzeHolderProfilesJobData>);
+        return this.processAnalyzeHolderProfilesWithMetrics(job as Job<AnalyzeHolderProfilesJobData>);
       case 'mint-participants-run':
         return this.processMintParticipants(job as Job<{ mint: string; cutoffTs: number; signature?: string }>);
       default:
@@ -98,6 +111,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { walletAddress, forceRefresh, requestId } = job.data;
     const timeoutMs = JobTimeouts['analyze-pnl'].timeout;
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
     
     // Deduplication check
     const expectedJobId = generateJobId.analyzePnl(walletAddress, requestId);
@@ -109,23 +123,62 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Acquire lock
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'pnl');
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
-    
+
     if (!lockAcquired) {
-      this.logger.warn(`Could not acquire lock for PnL analysis on ${walletAddress}, job ${job.id} will be retried.`);
-      throw new Error(`PnL analysis already in progress for wallet ${walletAddress}`);
+      // 🚨 FAIL FAST: Prevent retry storms
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+
+      // 📊 Track lock contention metrics
+      this.metricsService.lockContentionTotal.inc({ lock_type: 'pnl', resource: 'wallet' });
+
+      this.logger.warn(
+        `❌ Cannot acquire lock for PnL analysis on ${walletAddress}. ` +
+        `Locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. Job ${job.id} FAILED (no retry).`
+      );
+      throw new UnrecoverableError(
+        `PnL analysis already in progress for wallet ${walletAddress} (locked by: ${lockOwner})`
+      );
     }
 
     try {
       await job.updateProgress(5);
       this.logger.log(`Starting PnL analysis for ${walletAddress}`);
 
+      // 🚨 EARLY DETECTION: Skip expensive operations for system wallets
+      this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
+      const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
+
+      if (detection.knownType && SKIP_PNL_CALCULATION.has(detection.knownType)) {
+        this.logger.log(
+          `⏭️ Skipping PnL analysis for known wallet ${walletAddress} ` +
+          `(${detection.knownType}: ${detection.knownLabel || 'N/A'})`
+        );
+
+        await job.updateProgress(100);
+
+        return {
+          success: true,
+          walletAddress,
+          analysisType: 'pnl',
+          timestamp: Date.now(),
+          processingTimeMs: Date.now() - startTime,
+          analysisSkipped: true,
+          skipReason: `Known wallet type: ${detection.knownType}`,
+          knownType: detection.knownType,
+          knownLabel: detection.knownLabel,
+        };
+      }
+
+      this.logger.debug(`${walletAddress} is not a system wallet, proceeding with PnL analysis`);
+
       // Idempotency check
       if (!forceRefresh) {
         const wallet = await this.databaseService.getWallet(walletAddress);
-        const lastAnalysisAge = wallet?.analyzedTimestampEnd 
+        const lastAnalysisAge = wallet?.analyzedTimestampEnd
           ? Date.now() - wallet.analyzedTimestampEnd * 1000
           : Infinity;
-        
+
         if (lastAnalysisAge < 10 * 60 * 1000) { // 10 minutes idempotency threshold
           await job.updateProgress(100);
           this.logger.log(`Skipping PnL analysis for ${walletAddress} as recent data exists.`);
@@ -157,11 +210,26 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         processingTimeMs: Date.now() - startTime
       };
 
+      // 🔄 Invalidate HUD cache for this wallet (PNL metrics updated)
+      // PRAGMATIC: Invalidation at processor level until we have event-driven architecture
+      // TODO: Refactor to event-driven pattern (emit 'wallet.pnl.updated' event, WalletHudService subscribes)
+      await this.walletHudService.invalidateCache(walletAddress);
+
       this.logger.log(`PnL analysis completed for ${walletAddress}. RunId: ${pnlResult.runId}`);
+
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('pnl', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('pnl').observe((Date.now() - metricsStartTime) / 1000);
+
       return result;
 
     } catch (error) {
-      this.logger.error(`PnL analysis failed for ${walletAddress}:`, error);
+      this.logger.error(`PnL analysis failed for ${walletAddress}: ${getErrorMessage(error)}`);
+
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('pnl', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('pnl').observe((Date.now() - metricsStartTime) / 1000);
+
       throw error;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
@@ -176,6 +244,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { walletAddress, config, requestId } = job.data;
     const timeoutMs = JobTimeouts['analyze-behavior'].timeout;
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
     
     // Deduplication check
     const expectedJobId = generateJobId.analyzeBehavior(walletAddress, requestId);
@@ -187,15 +256,54 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Acquire lock
     const lockKey = RedisLockService.createWalletLockKey(walletAddress, 'behavior');
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
-    
+
     if (!lockAcquired) {
-      this.logger.warn(`Could not acquire lock for behavior analysis on ${walletAddress}, job ${job.id} will be retried.`);
-      throw new Error(`Behavior analysis already in progress for wallet ${walletAddress}`);
+      // 🚨 FAIL FAST: Prevent retry storms
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+
+      // 📊 Track lock contention metrics
+      this.metricsService.lockContentionTotal.inc({ lock_type: 'behavior', resource: 'wallet' });
+
+      this.logger.warn(
+        `❌ Cannot acquire lock for behavior analysis on ${walletAddress}. ` +
+        `Locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. Job ${job.id} FAILED (no retry).`
+      );
+      throw new UnrecoverableError(
+        `Behavior analysis already in progress for wallet ${walletAddress} (locked by: ${lockOwner})`
+      );
     }
 
     try {
       await job.updateProgress(5);
       this.logger.log(`Starting behavior analysis for ${walletAddress}`);
+
+      // 🚨 EARLY DETECTION: Skip expensive operations for system wallets
+      this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
+      const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
+
+      if (detection.knownType && SKIP_BEHAVIOR_ANALYSIS.has(detection.knownType)) {
+        this.logger.log(
+          `⏭️ Skipping behavior analysis for known wallet ${walletAddress} ` +
+          `(${detection.knownType}: ${detection.knownLabel || 'N/A'})`
+        );
+
+        await job.updateProgress(100);
+
+        return {
+          success: true,
+          walletAddress,
+          analysisType: 'behavior',
+          timestamp: Date.now(),
+          processingTimeMs: Date.now() - startTime,
+          analysisSkipped: true,
+          skipReason: `Known wallet type: ${detection.knownType}`,
+          knownType: detection.knownType,
+          knownLabel: detection.knownLabel,
+        };
+      }
+
+      this.logger.debug(`${walletAddress} is not a system wallet, proceeding with behavior analysis`);
 
       // Execute analysis
       await job.updateProgress(20);
@@ -208,7 +316,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         } : undefined,
         excludedMints: config.excludeMints || []
       } : this.behaviorService.getDefaultBehaviorAnalysisConfig();
-      
+
       const timeRange = behaviorConfig.timeRange;
 
       await job.updateProgress(40);
@@ -232,14 +340,29 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         processingTimeMs: Date.now() - startTime
       };
 
-      // 🔄 Invalidate holder profiles cache for this wallet (behavioral metrics updated)
-      await this.holderProfilesCacheService.invalidateForWallet(walletAddress);
+      // 🔄 Invalidate caches for this wallet (behavioral metrics + HUD updated)
+      // PRAGMATIC: Invalidation at processor level until we have event-driven architecture
+      // TODO: Refactor to event-driven pattern (emit 'wallet.behavior.updated' event, services subscribe)
+      await Promise.all([
+        this.holderProfilesCacheService.invalidateForWallet(walletAddress),
+        this.walletHudService.invalidateCache(walletAddress),
+      ]);
 
       this.logger.log(`Behavior analysis completed for ${walletAddress}`);
+
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('behavior', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('behavior').observe((Date.now() - metricsStartTime) / 1000);
+
       return result;
 
     } catch (error) {
-      this.logger.error(`Behavior analysis failed for ${walletAddress}:`, error);
+      this.logger.error(`Behavior analysis failed for ${walletAddress}: ${getErrorMessage(error)}`);
+
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('behavior', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('behavior').observe((Date.now() - metricsStartTime) / 1000);
+
       throw error;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
@@ -273,6 +396,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       job.data.timeoutMinutes ?? scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES;
     const timeoutMs = effectiveTimeoutMinutes * 60 * 1000;
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
 
     const expectedJobId = generateJobId.dashboardWalletAnalysis(walletAddress, job.data.requestId);
     if (job.id !== expectedJobId) {
@@ -284,29 +408,100 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const lockAcquired = await this.redisLockService.acquireLock(lockKey, job.id!, timeoutMs);
 
     if (!lockAcquired) {
+      // 🚨 FAIL FAST: Lock acquisition failures are unrecoverable - don't retry
+      // Retrying creates priority inversion and starves other jobs
+      const lockOwner = await this.redisLockService.getLockValue(lockKey);
+      const ttl = await this.redisLockService.getLockTTL(lockKey);
+
+      // 📊 Track lock contention metrics
+      this.metricsService.lockContentionTotal.inc({ lock_type: 'dashboard', resource: 'wallet' });
+
       this.logger.warn(
-        `Could not acquire lock for dashboard analysis on ${walletAddress} [scope=${scope}], job ${job.id} will be retried.`,
+        `❌ Cannot acquire lock for dashboard analysis on ${walletAddress} [scope=${scope}]. ` +
+        `Lock held by job: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms. ` +
+        `Job ${job.id} FAILED (no retry - preventing retry storm).`,
       );
-      throw new Error(`Dashboard analysis already in progress for wallet ${walletAddress}`);
+
+      // UnrecoverableError prevents BullMQ from retrying this job
+      throw new UnrecoverableError(
+        `Dashboard analysis already in progress for wallet ${walletAddress} ` +
+        `(locked by: ${lockOwner}, TTL: ${Math.max(0, ttl)}ms). ` +
+        `Please wait for the current analysis to complete.`
+      );
     }
 
     let enrichmentJob: Job | undefined;
     const followUpJobsQueued: Array<{ scope: DashboardAnalysisScope; jobId: string }> = [];
 
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const timeRange =
-      scope === 'deep'
-        ? undefined
-        : {
-            startTs: Math.max(0, nowSeconds - Math.round((effectiveHistoryWindowDays ?? 7) * 86400)),
-            endTs: nowSeconds,
-          };
+    // Dashboard scopes (flash/working/deep) are progressive all-time snapshots, NOT time windows.
+    // They differ only in depth (targetSignatureCount: 250/2000/3000), not time filtering.
+    //
+    // CRITICAL: Do NOT set timeRange for dashboard scopes to avoid incorrectly triggering
+    // "historical view" mode in PnL service, which would skip persistence and corrupt FIFO lots.
+    //
+    // The historyWindowDays config is just a heuristic hint for pagination, but analysis should
+    // always process ALL fetched transactions to maintain cumulative FIFO lot state.
+    const timeRange = undefined;
 
     try {
       await job.updateProgress(5);
       this.logger.log(
         `Starting dashboard analysis for wallet ${walletAddress} [scope=${scope}, trigger=${triggerSource}]`,
       );
+
+      // 🚨 EARLY DETECTION: Defense Layer 1 - Entry Point Filtering
+      //
+      // Why: Prevents queueing expensive jobs (sync, PnL, behavior) for system wallets
+      // How: Uses 3-tier detection (memory → Redis → DB → RPC)
+      //      - Registry wallets: O(1) instant lookup
+      //      - Previously tagged: Cached in Redis/memory
+      //      - Unknown wallets: RPC call to count tokens (slow, but ONE TIME)
+      //
+      // If knownType exists (registry OR 70k+ tokens detected), skip ALL analysis
+      // because dashboard does both PnL + behavior. Detection result is cached
+      // for future requests, so RPC call only happens ONCE per wallet.
+      this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
+      const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
+
+      if (detection.knownType) {
+        this.logger.log(
+          `⏭️ Skipping dashboard analysis for known wallet ${walletAddress} ` +
+          `(${detection.knownType}: ${detection.knownLabel || 'N/A'})`
+        );
+
+        // Return stub result with wallet info for UI display (includes badge labels)
+        return {
+          walletAddress,
+          scope,
+          requestId: job.data.requestId,
+          knownType: detection.knownType,
+          knownLabel: detection.knownLabel,
+          analysisSkipped: true,
+          skipReason: `Known wallet type: ${detection.knownType}`,
+          pnl: {
+            totalVolume: 0,
+            totalFees: 0,
+            realizedPnl: 0,
+            unrealizedPnl: 0,
+            netPnl: 0,
+            stablecoinNetFlow: 0,
+            averageSwapSize: 0,
+            profitableTokensCount: 0,
+            unprofitableTokensCount: 0,
+            totalExecutedSwapsCount: 0,
+            averageRealizedPnlPerExecutedSwap: 0,
+            realizedPnlToTotalVolumeRatio: 0,
+            results: [],
+            totalSignaturesProcessed: 0,
+            overallFirstTimestamp: 0,
+            overallLastTimestamp: 0,
+          },
+          behavior: null,
+          completedAt: new Date().toISOString(),
+        };
+      }
+
+      this.logger.debug(`${walletAddress} is not a system wallet, proceeding with analysis`);
 
       await job.updateProgress(10);
       const walletStatuses = await this.databaseService.getWalletsStatus([walletAddress]);
@@ -369,7 +564,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         solPriceUsd = await this.tokenInfoService.getSolPrice();
         // this.logger.log(`Fetched SOL price for PNL analysis: $${solPriceUsd}`);
       } catch (error) {
-        // this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${error}`);
+        // this.logger.warn(`Failed to fetch SOL price, unrealized PNL will not be calculated: ${getErrorMessage(error)}`);
       }
       if (!solPriceUsd || solPriceUsd <= 0) {
         try {
@@ -521,6 +716,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
       }
 
+      // Clear balance cache after deep scope completes
+      // This ensures the next refresh always fetches fresh balances from Helius
+      // Without this, consecutive refreshes within 10 minutes would use stale cached balances
+      if (scope === 'deep') {
+        try {
+          await this.balanceCacheService.clearCache(walletAddress);
+          this.logger.debug(`Cleared balance cache for ${walletAddress} after deep scope completion`);
+        } catch (error) {
+          this.logger.warn(`Failed to clear balance cache for ${walletAddress}: ${getErrorMessage(error)}`);
+          // Non-critical, don't fail the job
+        }
+      }
+
       const result = {
         success: true,
         walletAddress,
@@ -544,13 +752,26 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }`,
       );
 
+      // 🔄 Invalidate HUD cache for this wallet (PNL + behavior metrics updated)
+      // PRAGMATIC: Invalidation at processor level until we have event-driven architecture
+      // TODO: Refactor to event-driven pattern (emit 'wallet.dashboard.completed' event, WalletHudService subscribes)
+      await this.walletHudService.invalidateCache(walletAddress);
+
       // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
       // No need to manually publish here to avoid duplicate events
       // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
 
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('dashboard', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('dashboard').observe((Date.now() - metricsStartTime) / 1000);
+
       return result;
     } catch (error) {
-      this.logger.error(`Dashboard analysis for ${walletAddress} [scope=${scope}] failed:`, error);
+      this.logger.error(`Dashboard analysis for ${walletAddress} [scope=${scope}] failed: ${getErrorMessage(error)}`);
+
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('dashboard', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('dashboard').observe((Date.now() - metricsStartTime) / 1000);
 
       await this.databaseService.recordDashboardAnalysisRun({
         walletAddress,
@@ -644,6 +865,28 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   /**
+   * Wrapper for holder profiles with metrics tracking
+   */
+  private async processAnalyzeHolderProfilesWithMetrics(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
+    const metricsStartTime = Date.now();
+    try {
+      const result = await this.processAnalyzeHolderProfiles(job);
+
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('holder-profiles', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('holder-profiles').observe((Date.now() - metricsStartTime) / 1000);
+
+      return result;
+    } catch (error) {
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('holder-profiles', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('holder-profiles').observe((Date.now() - metricsStartTime) / 1000);
+
+      throw error;
+    }
+  }
+
+  /**
    * Process holder profiles analysis job with progressive streaming architecture.
    *
    * ARCHITECTURE OVERVIEW:
@@ -698,6 +941,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { mode = 'token', tokenMint, topN = 10, walletAddress, requestId } = job.data;
     const startTime = Date.now();
     const timeoutMs = 5 * 60 * 1000;
+    const debugFailAfterProfiles = process.env.NODE_ENV !== 'production'
+      ? job.data.debugFailAfterProfiles
+      : undefined;
+    const shouldDebugFailAfterProfiles = Number.isFinite(debugFailAfterProfiles) && (debugFailAfterProfiles as number) >= 0;
+    let debugFailTriggered = false;
 
     /**
      * TOKEN MODE OVERVIEW (new orchestrator pattern)
@@ -734,18 +982,23 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     this.logger.log(`Starting token holder orchestration for ${tokenMint} [topN=${topN}]`);
 
     try {
-      const cachedResult = await this.holderProfilesCacheService.getTokenResult(tokenMint, topN);
-      if (cachedResult) {
-        this.logger.log(`Returning cached holder profiles for ${tokenMint} (topN=${topN})`);
-        await job.updateProgress(100);
-        return cachedResult;
-      }
-
       this.checkTimeout(startTime, timeoutMs, 'Starting holder profiles analysis');
       await job.updateProgress(5);
 
       this.logger.debug(`Fetching top ${topN} holders for ${tokenMint}...`);
-      const topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
+      let topHoldersResponse = await this.holderProfilesCacheService.getCachedTopHolders(tokenMint);
+      if (!topHoldersResponse) {
+        try {
+          topHoldersResponse = await this.tokenHoldersService.getTopHolders(tokenMint);
+          await this.holderProfilesCacheService.cacheTopHolders(tokenMint, topHoldersResponse);
+        } catch (error: any) {
+          const message = String(error?.message || '').toLowerCase();
+          if (message.includes('invalid token mint') || message.includes('not a token mint') || message.includes('invalid param')) {
+            throw new UnrecoverableError(`Invalid token mint: ${tokenMint}`);
+          }
+          throw error;
+        }
+      }
       const topHolders = topHoldersResponse.holders.slice(0, topN);
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching top holders');
@@ -790,23 +1043,202 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       this.checkTimeout(startTime, timeoutMs, 'Fetching token supply');
 
-      const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number }>();
-      const walletAddresses: string[] = [];
-      holderEntries.forEach((holder, index) => {
-        if (!holder.ownerAccount) {
-          return;
-        }
-        walletAddresses.push(holder.ownerAccount);
-        const rank = typeof holder.rank === 'number' ? holder.rank : index + 1;
+      let tokenPriceUsd: number | null = null;
+      let solPriceUsd: number | null = null;
+      try {
+        const prices = await this.tokenInfoService.getTokenPrices([tokenMint]);
+        tokenPriceUsd = prices.get(tokenMint) ?? null;
+      } catch (priceError) {
+        this.logger.warn(`Failed to load token price for ${tokenMint}:`, priceError);
+      }
+      try {
+        solPriceUsd = await this.tokenInfoService.getSolPrice();
+      } catch (solError) {
+        this.logger.warn(`Failed to load SOL price for ${tokenMint} valuation:`, solError);
+      }
+
+        const holderMetadataByWallet = new Map<string, { rank: number; supplyPercent: number; tokenHoldingValueSol: number | null }>();
+        const walletAddresses: string[] = [];
+        const knownWalletProfiles: HolderProfile[] = []; // Pre-built profiles for known wallets (skip analysis)
+        const holderByWallet = new Map<string, HolderWithLabel>();
+        const externalTaggedWallets = new Map<string, HolderWithLabel>();
+
+        holderEntries.forEach((holder, index) => {
+          if (!holder.ownerAccount) {
+            return;
+          }
+          holderByWallet.set(holder.ownerAccount, holder);
+          const rank = typeof holder.rank === 'number' ? holder.rank : index + 1;
         const supplyPercent =
           actualTotalSupply > 0 && typeof holder.uiAmount === 'number'
             ? (holder.uiAmount / actualTotalSupply) * 100
             : 0;
-        holderMetadataByWallet.set(holder.ownerAccount, {
-          rank,
-          supplyPercent,
-        });
+        const tokenHoldingValueSol =
+          tokenPriceUsd && solPriceUsd && solPriceUsd > 0 && typeof holder.uiAmount === 'number'
+            ? (holder.uiAmount * tokenPriceUsd) / solPriceUsd
+            : null;
+
+        // Check if this is a known wallet that should skip expensive analysis
+        const holderWithLabel = holder as HolderWithLabel;
+        const shouldSkipAnalysis = holderWithLabel.knownType &&
+          SKIP_BEHAVIOR_ANALYSIS.has(holderWithLabel.knownType as KnownWalletType);
+
+          if (shouldSkipAnalysis) {
+            externalTaggedWallets.set(holder.ownerAccount, holderWithLabel);
+            const uiAmount = typeof holder.uiAmount === 'number' ? holder.uiAmount : null;
+            const valueUsd =
+              tokenPriceUsd && tokenPriceUsd > 0 && typeof holder.uiAmount === 'number'
+                ? holder.uiAmount * tokenPriceUsd
+                : null;
+          const currentHoldings = uiAmount !== null
+            ? [{
+                tokenAddress: tokenMint,
+                uiBalance: uiAmount,
+                decimals: holder.decimals ?? null,
+                valueSol: tokenHoldingValueSol ?? null,
+                valueUsd,
+              }]
+            : [];
+          // Create stub profile for known wallets - no expensive analysis needed
+          knownWalletProfiles.push({
+            walletAddress: holder.ownerAccount,
+            rank,
+            supplyPercent,
+            tokenHoldingValueSol,
+            knownType: holderWithLabel.knownType,
+            knownLabel: holderWithLabel.knownLabel,
+            analysisSkipped: true,
+            // Null out behavioral metrics - not applicable to system wallets
+            medianHoldTimeHours: null,
+            avgHoldTimeHours: null,
+            dailyFlipRatio: null,
+            behaviorType: null,
+            exitPattern: null,
+            dataQualityTier: 'INSUFFICIENT',
+            completedCycleCount: 0,
+            confidence: 0,
+            insufficientDataReason: `Known ${holderWithLabel.knownType} wallet - analysis skipped`,
+            processingTimeMs: 0,
+            currentHoldingsCount: currentHoldings.length,
+            currentHoldings,
+          });
+          this.logger.debug(`Skipping analysis for known wallet ${holder.ownerAccount} (${holderWithLabel.knownType})`);
+        } else {
+          // Normal wallet - queue for analysis
+          walletAddresses.push(holder.ownerAccount);
+          holderMetadataByWallet.set(holder.ownerAccount, {
+            rank,
+            supplyPercent,
+            tokenHoldingValueSol,
+          });
+        }
       });
+
+        if (knownWalletProfiles.length > 0) {
+          this.logger.log(`Skipped analysis for ${knownWalletProfiles.length} known wallets (${tokenMint})`);
+        }
+
+        for (const [address, holder] of externalTaggedWallets) {
+          if (!holder.knownType) {
+            continue;
+          }
+          await this.systemWalletDetection.registerExternalKnownWallet(
+            address,
+            holder.knownType as KnownWalletType,
+            holder.knownLabel,
+            `Top holder program-owned classification (${holder.knownType})`
+          );
+        }
+
+        const { valid: validWallets, filtered: systemWallets, filteredDetails, largeWallets } =
+          await this.systemWalletDetection.filterSystemWallets(walletAddresses);
+
+        if (systemWallets.size > 0) {
+          this.logger.warn(`🚫 Filtered ${systemWallets.size} system wallet(s) from holder profiles analysis`);
+          for (const [address, reason] of systemWallets) {
+            this.logger.debug(`  - ${address}: ${reason}`);
+          }
+        }
+
+        if (largeWallets.length > 0) {
+          this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-70k tokens)`);
+        }
+
+        for (const [address, detection] of filteredDetails) {
+          if (!detection.knownType || !holderMetadataByWallet.has(address)) {
+            continue;
+          }
+          const metadata = holderMetadataByWallet.get(address);
+          if (!metadata) {
+            continue;
+          }
+          const holder = holderByWallet.get(address);
+          const uiAmount = typeof holder?.uiAmount === 'number' ? holder.uiAmount : null;
+          const valueUsd =
+            tokenPriceUsd && tokenPriceUsd > 0 && typeof uiAmount === 'number'
+              ? uiAmount * tokenPriceUsd
+              : null;
+          const currentHoldings = uiAmount !== null
+            ? [{
+                tokenAddress: tokenMint,
+                uiBalance: uiAmount,
+                decimals: holder?.decimals ?? null,
+                valueSol: metadata.tokenHoldingValueSol ?? null,
+                valueUsd,
+              }]
+            : [];
+          knownWalletProfiles.push({
+            walletAddress: address,
+            rank: metadata.rank,
+            supplyPercent: metadata.supplyPercent,
+            tokenHoldingValueSol: metadata.tokenHoldingValueSol,
+            knownType: detection.knownType,
+            knownLabel: detection.knownLabel,
+            analysisSkipped: true,
+            medianHoldTimeHours: null,
+            avgHoldTimeHours: null,
+            dailyFlipRatio: null,
+            behaviorType: null,
+            exitPattern: null,
+            dataQualityTier: 'INSUFFICIENT',
+            completedCycleCount: 0,
+            confidence: 0,
+            insufficientDataReason: detection.reason,
+            processingTimeMs: 0,
+            currentHoldingsCount: currentHoldings.length,
+            currentHoldings,
+          });
+        }
+
+        walletAddresses.length = 0;
+        walletAddresses.push(...validWallets);
+
+      const cachedResult = await this.holderProfilesCacheService.getTokenResult(tokenMint, topN);
+      if (cachedResult) {
+        const cachedWallets = cachedResult.profiles.map((profile) => profile.walletAddress);
+        const sameWallets = cachedWallets.length === walletAddresses.length &&
+          cachedWallets.every((wallet, idx) => wallet === walletAddresses[idx]);
+        const hasMissingHoldings = cachedResult.profiles.some((profile) => {
+          const count = profile.currentHoldingsCount ?? 0;
+          if (count <= 0) {
+            return false;
+          }
+          const holdings = profile.currentHoldings ?? [];
+          if (holdings.length === 0) {
+            return true;
+          }
+          const hasValue = holdings.some((holding) => typeof holding.valueSol === 'number');
+          return !hasValue && (profile.tokenHoldingValueSol === null || profile.tokenHoldingValueSol === undefined);
+        });
+        if (sameWallets) {
+          if (!hasMissingHoldings) {
+            this.logger.log(`Returning cached holder profiles for ${tokenMint} (topN=${topN})`);
+            await job.updateProgress(100);
+            return cachedResult;
+          }
+          this.logger.log(`Cached holder profiles incomplete for ${tokenMint} (topN=${topN}); recomputing`);
+        }
+      }
 
       if (walletAddresses.length === 0) {
         const processingTimeMs = Date.now() - startTime;
@@ -855,17 +1287,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
         aggregatedProfiles.set(wallet, profile);
         await publishProgressUpdate();
+        if (shouldDebugFailAfterProfiles && !debugFailTriggered && aggregatedProfiles.size >= (debugFailAfterProfiles as number)) {
+          debugFailTriggered = true;
+          throw new UnrecoverableError(`Debug failure after ${debugFailAfterProfiles} profile(s)`);
+        }
       };
 
       await job.updateProgress(20);
 
-      const { snapshots, readyWallets, staleWallets } = await this.holderProfilesCacheService.getTokenSnapshots(
-        tokenMint,
-        walletAddresses,
-      );
+        const { snapshots, readyWallets, staleWallets } = await this.holderProfilesCacheService.getTokenSnapshots(
+          tokenMint,
+          walletAddresses,
+        );
 
       if (readyWallets.length > 0) {
         this.logger.log(`Streaming ${readyWallets.length} cached holder profiles immediately`);
+        const solPriceUsd = await this.getSolPriceUsd();
         for (const wallet of readyWallets) {
           const snapshot = snapshots.get(wallet);
           const metadata = holderMetadataByWallet.get(wallet);
@@ -874,14 +1311,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           }
           try {
             const hydrated = this.holderProfilesCacheService.hydrateSnapshot(snapshot, metadata);
-            await streamProfile(wallet, hydrated);
+            const withFinancials = await this.hydrateWalletFinancials(hydrated, solPriceUsd);
+            await streamProfile(wallet, withFinancials);
           } catch (error) {
-            this.logger.warn(`Failed to hydrate cached holder profile for ${wallet}:`, error);
+            this.logger.warn(`Failed to hydrate cached holder profile for ${wallet}: ${getErrorMessage(error)}`);
           }
         }
       }
 
-      const walletsNeedingJobs = staleWallets.filter(addr => holderMetadataByWallet.has(addr));
+        const walletsNeedingJobs = staleWallets.filter(addr => holderMetadataByWallet.has(addr));
 
       const childJobIds: string[] = [];
       const jobIdToWallet = new Map<string, string>();
@@ -949,8 +1387,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             if (metadata) {
               profile.rank = metadata.rank;
               profile.supplyPercent = metadata.supplyPercent;
+              profile.tokenHoldingValueSol = metadata.tokenHoldingValueSol;
             }
-            await streamProfile(wallet, profile);
+            const solPriceUsd = await this.getSolPriceUsd();
+            const withFinancials = await this.hydrateWalletFinancials(profile, solPriceUsd);
+            await streamProfile(wallet, withFinancials);
           } else {
             failedWallets.add(wallet);
           }
@@ -981,23 +1422,26 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         this.logger.log('All holder profiles served from cache; no wallet jobs queued');
       }
 
-      await job.updateProgress(Math.min(95, 20 + Math.floor((aggregatedProfiles.size / walletAddresses.length) * 70)));
+      const totalWalletsToProcess = walletAddresses.length + knownWalletProfiles.length;
+      await job.updateProgress(Math.min(95, 20 + Math.floor((aggregatedProfiles.size / Math.max(1, walletAddresses.length)) * 70)));
 
       const processingTimeMs = Date.now() - startTime;
-      const finalProfiles = [...aggregatedProfiles.values()].sort(
-        (a, b) => (orderLookup.get(a.walletAddress) ?? 0) - (orderLookup.get(b.walletAddress) ?? 0),
+      // Merge analyzed profiles with pre-built known wallet profiles, sorted by holder rank
+      const allProfiles = [...aggregatedProfiles.values(), ...knownWalletProfiles].sort(
+        (a, b) => a.rank - b.rank,
       );
-      const analyzedCount = finalProfiles.length;
-      const totalRequested = walletAddresses.length;
-      const failedCount = Math.max(failedWallets.size, totalRequested - analyzedCount);
+      const hydratedFinalProfiles = await this.hydrateHoldingsValues(allProfiles);
+      const analyzedCount = aggregatedProfiles.size;
+      const skippedCount = knownWalletProfiles.length;
+      const failedCount = Math.max(failedWallets.size, walletAddresses.length - analyzedCount);
 
       const result: HolderProfilesResult = {
         success: true,
         mode: 'token',
         tokenMint,
-        profiles: finalProfiles,
+        profiles: hydratedFinalProfiles,
         metadata: {
-          totalHoldersRequested: totalRequested,
+          totalHoldersRequested: totalWalletsToProcess,
           totalHoldersAnalyzed: analyzedCount,
           totalProcessingTimeMs: processingTimeMs,
           avgProcessingTimePerWalletMs: analyzedCount > 0 ? Math.round(processingTimeMs / analyzedCount) : 0,
@@ -1014,14 +1458,74 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // No need to manually publish here to avoid duplicate events
       // await this.jobProgressGateway.publishCompletedEvent(job.id!, job.queueName, result, processingTimeMs);
       this.logger.log(
-        `Token holder orchestration for ${tokenMint} completed: ${analyzedCount}/${walletAddresses.length} profiles in ${processingTimeMs}ms`,
+        `Token holder orchestration for ${tokenMint} completed: ${analyzedCount} analyzed, ${skippedCount} skipped (known wallets), ${failedCount} failed in ${processingTimeMs}ms`,
       );
 
       return result;
     } catch (error) {
-      this.logger.error(`Holder profiles analysis failed for ${tokenMint}:`, error);
+      if (error instanceof UnrecoverableError) {
+        this.logger.warn(`Holder profiles analysis failed for ${tokenMint}: ${error.message}`);
+      } else {
+        this.logger.error(`Holder profiles analysis failed for ${tokenMint}: ${getErrorMessage(error)}`);
+      }
       throw error;
     }
+  }
+
+  /**
+   * Create stub holder profile for system wallets
+   */
+  private async createStubHolderProfile(
+    walletAddress: string,
+    knownType: string,
+    knownLabel: string | undefined,
+    rank: number,
+    supplyPercent: number,
+    reason: string,
+    startTime: number,
+    job: Job<AnalyzeHolderProfilesJobData>
+  ): Promise<HolderProfilesResult> {
+    const profile: HolderProfile = {
+      walletAddress,
+      rank,
+      supplyPercent,
+      knownType,
+      knownLabel,
+      analysisSkipped: true,
+      medianHoldTimeHours: null,
+      avgHoldTimeHours: null,
+      dailyFlipRatio: null,
+      behaviorType: null,
+      exitPattern: null,
+      dataQualityTier: 'INSUFFICIENT',
+      completedCycleCount: 0,
+      confidence: 0,
+      insufficientDataReason: reason,
+      processingTimeMs: 0,
+      currentHoldingsCount: 0,
+      currentHoldings: [],
+    };
+
+    const processingTimeMs = Date.now() - startTime;
+    const result: HolderProfilesResult = {
+      success: true,
+      mode: 'wallet',
+      targetWallet: walletAddress,
+      profiles: [profile],
+      metadata: {
+        totalHoldersRequested: 1,
+        totalHoldersAnalyzed: 0,
+        totalProcessingTimeMs: processingTimeMs,
+        avgProcessingTimePerWalletMs: processingTimeMs,
+      },
+      timestamp: Date.now(),
+      processingTimeMs,
+    };
+
+    await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
+    await job.updateProgress(100);
+    this.logger.log(`⏭️ Skipped holder profile for ${walletAddress} (${knownType})`);
+    return result;
   }
 
   /**
@@ -1035,27 +1539,50 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   ): Promise<HolderProfilesResult> {
     this.logger.log(`Starting holder profile analysis for wallet ${walletAddress}`);
 
-    const holderContext = job.data._holderContext;
-    const inferredRank = holderContext?.rank ?? 1;
-    const inferredSupplyPercent = holderContext?.supplyPercent ?? 0;
+      const holderContext = job.data._holderContext;
+      const inferredRank = holderContext?.rank ?? 1;
+      const inferredSupplyPercent = holderContext?.supplyPercent ?? 0;
+
+      const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
+      if (detection.knownType && SKIP_BEHAVIOR_ANALYSIS.has(detection.knownType)) {
+        return this.createStubHolderProfile(
+          walletAddress,
+          detection.knownType,
+          detection.knownLabel,
+          inferredRank,
+          inferredSupplyPercent,
+          detection.reason,
+          startTime,
+          job
+        );
+      }
 
     // Try Tier 1 cache (Redis) first
     const cached = await this.holderProfilesCacheService.getWalletResult(walletAddress);
-    if (cached) {
-      this.logger.log(`Returning cached holder profile for wallet ${walletAddress}`);
-      await job.updateProgress(100);
-      return cached;
-    }
+      if (cached) {
+        this.logger.log(`Returning cached holder profile for wallet ${walletAddress}`);
+        const solPriceUsd = await this.getSolPriceUsd();
+        const hydratedProfiles = await Promise.all(
+          cached.profiles.map((profile) => this.hydrateWalletFinancials(profile, solPriceUsd)),
+        );
+        await job.updateProgress(100);
+        return {
+          ...cached,
+          profiles: hydratedProfiles,
+        };
+      }
 
     // Try Tier 2 cache (DB snapshots)
     const cachedProfile = await this.holderProfilesCacheService.getWalletSnapshot(walletAddress);
     if (cachedProfile) {
+      const solPriceUsd = await this.getSolPriceUsd();
+      const hydratedProfile = await this.hydrateWalletFinancials(cachedProfile, solPriceUsd);
       const processingTimeMs = Date.now() - startTime;
       const result: HolderProfilesResult = {
         success: true,
         mode: 'wallet',
         targetWallet: walletAddress,
-        profiles: [cachedProfile],
+        profiles: [hydratedProfile],
         metadata: {
           totalHoldersRequested: 1,
           totalHoldersAnalyzed: 1,
@@ -1072,18 +1599,32 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     this.checkTimeout(startTime, timeoutMs, 'Starting wallet holder profile analysis');
     await job.updateProgress(5);
 
+    // 📊 Track concurrent analysis attempts (no lock, just monitoring)
+    const existingLock = await this.redisLockService.getLockValue(
+      RedisLockService.createWalletLockKey(walletAddress, 'dashboard-analysis')
+    );
+    if (existingLock) {
+      this.metricsService.concurrentAnalysisAttempts.inc({
+        analysis_type: 'holder_profiles',
+        resource_type: 'wallet'
+      });
+      this.logger.debug(
+        `📊 Concurrent analysis detected: holder profile analysis for ${walletAddress} ` +
+        `while dashboard analysis is in progress (job: ${existingLock})`
+      );
+    }
+
     // Check if wallet needs sync
     this.logger.debug(`Checking wallet status for ${walletAddress}`);
     const walletStatuses = await this.databaseService.getWalletsStatus([walletAddress]);
-    const needsSync =
-      walletStatuses.statuses[0].status === 'STALE' ||
-      walletStatuses.statuses[0].status === 'MISSING';
+    const walletStatus = walletStatuses.statuses[0]?.status;
+    const needsSync = walletStatus === 'STALE' || walletStatus === 'MISSING';
 
     await job.updateProgress(10);
 
     // Sync wallet if needed
     if (needsSync) {
-      this.logger.log(`Syncing wallet ${walletAddress} for holder profile analysis`);
+      this.logger.log(`Syncing wallet ${walletAddress} for holder profile analysis (status: ${walletStatus})`);
       const syncOptions: SyncOptions = {
         limit: 100,
         fetchAll: true,
@@ -1107,9 +1648,21 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(40);
 
     // Aggregate SwapAnalysisInput → AnalysisResult (PnL calculation)
-    // PnL analysis now fetches SOL price internally when not provided
+    // Reuse cached balances when available to avoid extra RPC calls later (e.g., similarity).
     this.logger.debug(`Running PnL aggregation for ${walletAddress} [holder-profile mode]`);
-    await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined);
+    const cachedBalance = await this.balanceCacheService.getBalances(walletAddress);
+    const preFetchedBalances = cachedBalance ? new Map([[walletAddress, cachedBalance]]) : undefined;
+    const pnlSummary = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, {
+      preFetchedBalances,
+    });
+    if (!cachedBalance && pnlSummary?.tokenBalances && pnlSummary.balancesFetchedAt) {
+      const balanceToCache: WalletBalance = {
+        solBalance: pnlSummary.currentSolBalance ?? 0,
+        tokenBalances: pnlSummary.tokenBalances,
+        fetchedAt: pnlSummary.balancesFetchedAt,
+      };
+      await this.balanceCacheService.cacheBalances(walletAddress, balanceToCache, 600);
+    }
     await job.updateProgress(50);
 
     const profile = await this.analyzeWalletProfile(walletAddress, inferredRank, inferredSupplyPercent, swapRecords);
@@ -1147,6 +1700,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(100);
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
 
+    // Note: HUD cache invalidation handled by pnlAnalysisService (called above) - no need to duplicate here
     // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
     // No need to manually publish here to avoid duplicate events
     // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
@@ -1155,9 +1709,116 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     return result;
   }
+
+  private async getSolPriceUsd(): Promise<number | null> {
+    try {
+      const solPriceUsd = await this.tokenInfoService.getSolPrice();
+      return solPriceUsd > 0 ? solPriceUsd : null;
+    } catch (error) {
+      this.logger.debug('SOL price unavailable for wallet financial hydration.');
+      return null;
+    }
+  }
+
+  private async hydrateWalletFinancials(profile: HolderProfile, solPriceUsd: number | null): Promise<HolderProfile> {
+    const needsPnl = profile.walletPnlSol === null || profile.walletPnlSol === undefined;
+    const needsSolBalance = profile.solBalance === null || profile.solBalance === undefined;
+    if (!needsPnl && !needsSolBalance) {
+      return profile;
+    }
+
+    try {
+      const summary = await this.databaseService.getWalletPnlSummaryWithRelations(profile.walletAddress);
+      if (!summary) {
+        return profile;
+      }
+      const walletPnlSol = summary.netPnl ?? null;
+      const walletRealizedPnlSol = summary.realizedPnl ?? null;
+      const solBalance = summary.currentSolBalance ?? null;
+      const walletPnlUsd =
+        walletPnlSol !== null && solPriceUsd !== null ? walletPnlSol * solPriceUsd : profile.walletPnlUsd ?? null;
+      const walletRealizedPnlUsd =
+        walletRealizedPnlSol !== null && solPriceUsd !== null ? walletRealizedPnlSol * solPriceUsd : null;
+
+      return {
+        ...profile,
+        walletPnlSol: needsPnl ? walletPnlSol : profile.walletPnlSol,
+        walletPnlUsd: needsPnl ? walletPnlUsd : profile.walletPnlUsd ?? walletPnlUsd,
+        walletRealizedPnlSol: needsPnl ? walletRealizedPnlSol : profile.walletRealizedPnlSol,
+        walletRealizedPnlUsd: needsPnl ? walletRealizedPnlUsd : profile.walletRealizedPnlUsd,
+        solBalance: needsSolBalance ? solBalance : profile.solBalance,
+      };
+    } catch (error) {
+      this.logger.debug(`Failed to hydrate wallet financials for ${profile.walletAddress}`);
+      return profile;
+    }
+  }
+
+  private async hydrateHoldingsValues(profiles: HolderProfile[]): Promise<HolderProfile[]> {
+    const missingMints = new Set<string>();
+    for (const profile of profiles) {
+      for (const holding of profile.currentHoldings ?? []) {
+        if ((holding.uiBalance ?? 0) > 0 && holding.tokenAddress) {
+          if (holding.tokenAddress) {
+            missingMints.add(holding.tokenAddress);
+          }
+        }
+      }
+    }
+
+    if (missingMints.size === 0) {
+      return profiles;
+    }
+
+    let solPriceUsd = 0;
+    try {
+      solPriceUsd = await this.tokenInfoService.getSolPrice();
+    } catch (error) {
+      this.logger.debug('SOL price unavailable for holdings hydration.');
+      return profiles;
+    }
+
+    if (!solPriceUsd || solPriceUsd <= 0) {
+      return profiles;
+    }
+
+    try {
+      const pricesByMint = await this.tokenInfoService.getTokenPrices([...missingMints]);
+      return profiles.map((profile) => {
+        const holdings = profile.currentHoldings ?? [];
+        if (holdings.length === 0) {
+          return profile;
+        }
+        const updatedHoldings = holdings.map((holding) => {
+          if ((holding.uiBalance ?? 0) <= 0) {
+            return holding;
+          }
+          const priceUsd = pricesByMint.get(holding.tokenAddress) ?? null;
+          if (!priceUsd || priceUsd <= 0) {
+            return holding;
+          }
+          const valueUsd = (holding.uiBalance ?? 0) * priceUsd;
+          const valueSol = valueUsd / solPriceUsd;
+          return {
+            ...holding,
+            valueUsd,
+            valueSol,
+          };
+        });
+        return {
+          ...profile,
+          currentHoldings: updatedHoldings,
+        };
+      });
+    } catch (error: any) {
+      this.logger.debug(`Failed to hydrate holdings values: ${error?.message || 'unknown error'}`);
+      return profiles;
+    }
+  }
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
     const { mint, cutoffTs } = job.data;
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
 
     // Note: SOL/WSOL filtering is now handled upstream in the webhook controller
     // No jobs for SOL/WSOL should reach this processor
@@ -1235,9 +1896,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
 
       await job.updateProgress(100);
+
+      // Track successful job completion
+      this.metricsService.analysisJobsTotal.labels('mint-participants', 'success').inc();
+      this.metricsService.analysisJobDuration.labels('mint-participants').observe((Date.now() - metricsStartTime) / 1000);
+
       return { success: true, written: result.writtenCount, zeroDayAlerts: alertCount, processingTimeMs: Date.now() - startTime };
     } catch (err) {
-      this.logger.error(`mint-participants-run failed for ${mint}@${cutoffTs}`, err as Error);
+      this.logger.error(`mint-participants-run failed for ${mint}@${cutoffTs}: ${getErrorMessage(err)}`);
+
+      // Track failed job
+      this.metricsService.analysisJobsTotal.labels('mint-participants', 'failed').inc();
+      this.metricsService.analysisJobDuration.labels('mint-participants').observe((Date.now() - metricsStartTime) / 1000);
+
       throw err;
     } finally {
       await this.redisLockService.releaseLock(lockKey, job.id!);
@@ -1291,6 +1962,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         dailyFlipRatioConfidence: 'NONE',
         currentHoldingsCount: null,
         currentHoldings: [],
+        walletPnlSol: null,
+        walletPnlUsd: null,
+        solBalance: null,
         oldestTransactionTimestamp,
         newestTransactionTimestamp,
       };
@@ -1299,17 +1973,23 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Query pre-computed PnL from AnalysisResult table (source of truth)
     let pnlMap: Map<string, { pnl: number; capital: number }> | undefined;
     let currentHoldings: Array<{ tokenAddress: string; uiBalance: number | null; decimals: number | null; valueSol?: number | null; valueUsd?: number | null }> = [];
+    let walletPnlSol: number | null = null;
+    let walletPnlUsd: number | null = null;
+    let solBalance: number | null = null;
     try {
       const pnlResults = await this.databaseService.getAnalysisResults({
         where: { walletAddress },
       });
 
       if (pnlResults.length > 0) {
+        // Include ALL tokens from AnalysisResult, even those with incomplete history
+        // This ensures alignment with lifecyclesByToken used in behavior analysis
+        // Tokens with hasIncompleteHistory=true still have derived PnL (best effort FIFO calculation)
         pnlMap = new Map(
           pnlResults.map(r => [
             r.tokenAddress,
             {
-              pnl: r.netSolProfitLoss,
+              pnl: r.realizedPnlSol ?? r.totalPnlSol ?? r.netSolProfitLoss,
               capital: r.totalSolSpent,
             },
           ])
@@ -1323,6 +2003,40 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             valueSol: r.currentHoldingsValueSol,
             valueUsd: r.currentHoldingsValueUsd,
           }));
+        const missingValueMints = currentHoldings
+          .filter((holding) => (holding.valueSol === null || holding.valueSol === undefined) && (holding.uiBalance ?? 0) > 0)
+          .map((holding) => holding.tokenAddress);
+        if (missingValueMints.length > 0 && this.tokenInfoService) {
+          try {
+            const pricesByMint = await this.tokenInfoService.getTokenPrices(missingValueMints);
+            let solPriceUsd = 0;
+            try {
+              solPriceUsd = await this.tokenInfoService.getSolPrice();
+            } catch (error) {
+              this.logger.debug(`SOL price unavailable for current holdings valuation: ${walletAddress}`);
+            }
+            if (solPriceUsd > 0) {
+              currentHoldings = currentHoldings.map((holding) => {
+                if (holding.valueSol !== null && holding.valueSol !== undefined) {
+                  return holding;
+                }
+                const priceUsd = pricesByMint.get(holding.tokenAddress) ?? null;
+                if (!priceUsd || priceUsd <= 0) {
+                  return holding;
+                }
+                const valueUsd = (holding.uiBalance ?? 0) * priceUsd;
+                const valueSol = valueUsd / solPriceUsd;
+                return {
+                  ...holding,
+                  valueUsd,
+                  valueSol,
+                };
+              });
+            }
+          } catch (error: any) {
+            this.logger.debug(`Failed to backfill current holdings values: ${error?.message || 'Unknown error'}`);
+          }
+        }
         this.logger.debug(
           `Loaded PnL for ${pnlResults.length} tokens for wallet ${walletAddress}`
         );
@@ -1334,6 +2048,28 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         `Failed to query PnL for wallet ${walletAddress}: ${error?.message || 'Unknown error'}. Will proceed without PnL metrics.`
       );
       pnlMap = undefined;
+    }
+
+    try {
+      const pnlSummary = await this.databaseService.getWalletPnlSummaryWithRelations(walletAddress);
+      if (pnlSummary) {
+        walletPnlSol = pnlSummary.netPnl ?? null;
+        solBalance = pnlSummary.currentSolBalance ?? null;
+        if (walletPnlSol !== null) {
+          try {
+            const solPriceUsd = await this.tokenInfoService.getSolPrice();
+            if (solPriceUsd && solPriceUsd > 0) {
+              walletPnlUsd = walletPnlSol * solPriceUsd;
+            }
+          } catch (error) {
+            this.logger.debug(`SOL price unavailable for wallet PnL USD conversion: ${walletAddress}`);
+          }
+        }
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to query wallet PnL summary for ${walletAddress}: ${error?.message || 'Unknown error'}.`
+      );
     }
 
     // Use BehaviorService to get historical pattern (with PnL map)
@@ -1414,6 +2150,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           dailyFlipRatioConfidence: 'NONE',
           currentHoldingsCount,
           currentHoldings,
+          walletPnlSol,
+          walletPnlUsd,
+          solBalance,
           oldestTransactionTimestamp,
           newestTransactionTimestamp,
         };
@@ -1465,7 +2204,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // Fallback classification for holders with no exits
       const behaviorType =
         historicalPattern?.behaviorType ??
-        ((currentHoldingsCount ?? 0) > 0 ? 'HOLDER' : null);
+        ((currentHoldingsCount ?? 0) > 0 ? 'HODLER' : null);
 
       return {
         walletAddress,
@@ -1498,11 +2237,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         unresolvedTokensCount,
         activeHoldingsFilteredOut: Math.max(rawHoldingsCount - (currentHoldingsCount ?? 0), 0),
         heldValueThresholdSol: HOLD_VALUE_THRESHOLD_SOL,
+        walletPnlSol,
+        walletPnlUsd,
+        solBalance,
         oldestTransactionTimestamp,
         newestTransactionTimestamp,
       };
     } catch (error) {
-      this.logger.warn(`Error analyzing wallet ${walletAddress}:`, error);
+      this.logger.warn(`Error analyzing wallet ${walletAddress}: ${getErrorMessage(error)}`);
       return {
         walletAddress,
         rank,
@@ -1532,6 +2274,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         percentValueInCurrentHoldings: null,
         currentHoldingsCount: null,
         currentHoldings: currentHoldings,
+        walletPnlSol,
+        walletPnlUsd,
+        solBalance,
         oldestTransactionTimestamp,
         newestTransactionTimestamp,
       };
@@ -1699,7 +2444,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     try {
       await this.shutdown();
     } catch (err) {
-      this.logger.warn('Error shutting down AnalysisOperationsProcessor worker', err as Error);
+      this.logger.warn(`Error shutting down AnalysisOperationsProcessor worker: ${getErrorMessage(err)}`);
     }
   }
 } 

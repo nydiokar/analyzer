@@ -1,8 +1,46 @@
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const BASE58_MAP = new Map<string, number>(
+  BASE58_ALPHABET.split('').map((char, index) => [char, index]),
+);
+
+const decodeBase58 = (input: string): Uint8Array | null => {
+  if (!input) return null;
+
+  const bytes = [0];
+  for (const char of input) {
+    const value = BASE58_MAP.get(char);
+    if (value === undefined) return null;
+
+    let carry = value;
+    for (let i = 0; i < bytes.length; i += 1) {
+      carry += bytes[i] * 58;
+      bytes[i] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+
+  // Handle leading zeros (base58 "1" maps to 0x00)
+  let leadingZeros = 0;
+  for (const char of input) {
+    if (char !== '1') break;
+    leadingZeros += 1;
+  }
+  while (leadingZeros > 0) {
+    bytes.push(0);
+    leadingZeros -= 1;
+  }
+
+  return new Uint8Array(bytes.reverse());
+};
+
 /**
  * Validates if a given string is a valid Solana public key.
  *
- * A base58-encoded public key should be exactly 44 characters long.
- * This is a strict check that matches Solana RPC requirements.
+ * A base58-encoded public key must decode to exactly 32 bytes.
  *
  * @param address The string to validate.
  * @returns `true` if the string is a valid Solana public key, `false` otherwise.
@@ -11,18 +49,23 @@ export function isValidSolanaAddress(address: string): boolean {
   if (!address || typeof address !== 'string') {
     return false;
   }
-  
+
   const trimmed = address.trim();
-  
+
   // Solana addresses are base58 encoded and typically 32-44 characters
-  // They can be shorter than 44 due to leading zeros being omitted in base58 encoding
   if (trimmed.length < 32 || trimmed.length > 44) {
     return false;
   }
-  
-  // Check if it contains only valid base58 characters
-  const base58Regex = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
-  return base58Regex.test(trimmed);
+
+  // Fast reject for invalid characters
+  for (const char of trimmed) {
+    if (!BASE58_MAP.has(char)) {
+      return false;
+    }
+  }
+
+  const decoded = decodeBase58(trimmed);
+  return !!decoded && decoded.length === 32;
 }
 
 /**

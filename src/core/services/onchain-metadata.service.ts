@@ -3,6 +3,7 @@ import { HeliusApiClient } from './helius-api-client';
 import * as https from 'https';
 import * as http from 'http';
 import { createLogger } from 'core/utils/logger';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 const logger = createLogger('OnchainMetadataService');
 
@@ -233,7 +234,7 @@ export class OnchainMetadataService {
       logger.info(`Successfully fetched basic metadata for ${results.length}/${mints.length} tokens`);
       return results;
     } catch (error) {
-      logger.error('Failed to fetch basic metadata from DAS:', error);
+      logger.error(`Failed to fetch basic metadata from DAS: ${getErrorMessage(error)}`);
       return [];
     }
   }
@@ -268,7 +269,7 @@ export class OnchainMetadataService {
         } catch (error: any) {
           // Log security violations more prominently than network errors
           if (error.name === 'SecurityError') {
-            logger.warn(`Security violation for ${mint}: ${error.message}`);
+            // logger.warn(`Security violation for ${mint}: ${error.message}`);
           } else {
             logger.debug(`Failed to fetch metadata for ${mint}: ${error.message}`);
           }
@@ -306,7 +307,7 @@ export class OnchainMetadataService {
       validateUri(uri);
     } catch (error: any) {
       if (error instanceof SecurityError) {
-        logger.warn(`Security validation failed for URI: ${error.message}`);
+        // logger.warn(`Security validation failed for URI: ${error.message}`);
         throw error; // Don't retry security errors
       }
       throw error;
@@ -387,9 +388,9 @@ export class OnchainMetadataService {
           // Content-Type verification (warning only, not blocking)
           const contentType = res.headers['content-type'] || '';
           if (!contentType.includes('application/json') && !contentType.includes('text/plain')) {
-            logger.warn(
-              `Unexpected Content-Type "${contentType}" from ${sanitizeUriForLogging(uri)}`
-            );
+            //logger.warn(
+              //`Unexpected Content-Type "${contentType}" from ${sanitizeUriForLogging(uri)}`
+            //);
           }
 
           let data = '';

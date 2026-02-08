@@ -10,6 +10,10 @@ import { mapHeliusTransactionsToIntermediateRecords } from 'core/services/helius
 import * as fs from 'fs';
 import * as path from 'path';
 import { runMintParticipantsFlow } from '../core/flows/mint-participants';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import logger from '../core/utils/logger';
+
+
 
 dotenv.config();
 
@@ -195,7 +199,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('Fatal error:', err);
+  logger.error('Fatal error:', getErrorMessage(err));
   process.exit(1);
 });
 

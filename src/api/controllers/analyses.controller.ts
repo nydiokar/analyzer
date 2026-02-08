@@ -11,11 +11,15 @@ import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operat
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { ComprehensiveSimilarityFlowData, EnrichTokenBalancesJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData } from '../../queues/jobs/types';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
+import { generateJobId } from '../../queues/utils/job-id-generator';
 import { EnrichmentStrategyService } from '../services/enrichment-strategy.service';
+import { JobPayloadCacheService } from '../services/job-payload-cache.service';
 import { JobPriority } from '../../queues/config/queue.config';
-import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
+import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
+import { getKnownWallet } from '../../config/known-wallets';
 import { Request } from 'express';
 import { User } from '@prisma/client';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -29,6 +33,7 @@ export class AnalysesController {
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
     private readonly redisLockService: RedisLockService,
+    private readonly jobPayloadCache: JobPayloadCacheService,
   ) {}
 
   @Post('/similarity/enrich-balances')
@@ -91,12 +96,21 @@ export class AnalysesController {
 
       // Determine optimization hint based on token count using strategy service
       const optimizationHint = this.enrichmentStrategyService.determineOptimizationHint(totalTokens);
-      
+
       this.logger.log(`Determined optimization hint '${optimizationHint}' for ${totalTokens} tokens. Strategy: ${this.enrichmentStrategyService.getStrategyDescription(optimizationHint)}`);
+
+      // Store wallet balances in Redis to avoid bloating BullMQ job data
+      const balancesKey = await this.jobPayloadCache.storePayload(requestId, 'enrich', body.walletBalances);
+
+      const tokenMints = Object.values(body.walletBalances)
+        .flatMap((wallet: any) => (wallet?.tokenBalances || []).map((t: any) => t.mint));
+      const sortedTokens = [...new Set(tokenMints)].sort().join('-');
+      const jobId = generateJobId.enrichMetadata(sortedTokens, requestId);
 
       // Prepare job data
       const jobData: EnrichTokenBalancesJobData = {
-        walletBalances: body.walletBalances,
+        balancesKey,
+        walletAddresses: Object.keys(body.walletBalances),
         userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         priority: 5, // Normal priority
@@ -106,7 +120,8 @@ export class AnalysesController {
       // Add job to enrichment operations queue
       const job = await this.enrichmentOperationsQueue.addEnrichTokenBalances(jobData, {
         priority: 5,
-        delay: 0
+        delay: 0,
+        jobId,
       });
 
       this.logger.log(`Queued balance enrichment job ${job.id} for request ${requestId} with ${Object.keys(body.walletBalances).length} wallets and ${totalTokens} tokens`);
@@ -122,16 +137,16 @@ export class AnalysesController {
       };
 
     } catch (error) {
-      this.logger.error(`Failed to queue balance enrichment:`, error);
+      this.logger.error(`Failed to queue balance enrichment: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to queue balance enrichment job');
     }
   }
 
   @Post('/similarity/queue')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Queue a similarity analysis job',
-    description: 'Adds a similarity analysis job to the BullMQ queue for background processing. Returns job ID and status for monitoring via the Jobs API.'
+    description: 'Adds a similarity analysis job to the BullMQ queue for background processing. Max 30 wallets per request. Returns job ID and status for monitoring via the Jobs API.'
   })
   @ApiBody({ 
     type: SimilarityAnalysisRequestDto,
@@ -168,6 +183,8 @@ export class AnalysesController {
     estimatedProcessingTime: string;
     monitoringUrl: string;
   }> {
+    // NOTE: Similarity jobs currently do their own system-wallet detection + balance fetch.
+    // TODO: Add a cache-only flag (holder-profiles → similarity) to skip redundant balance RPCs.
     this.logger.log(`Received request to queue similarity analysis for ${dto.walletAddresses.length} wallets.`);
 
     // Validate input
@@ -199,7 +216,9 @@ export class AnalysesController {
         userId: req.user?.id, // For user-scoped WebSocket rooms
         requestId,
         walletsNeedingSync, // Pass specific wallets to sync (empty array = no sync needed)
-        enrichMetadata: true, // Enable metadata enrichment for proper token display
+        enrichMetadata: dto.enrichMetadata ?? false,
+        includeBalances: dto.includeBalances ?? false,
+        includeVectors: dto.includeVectors ?? false,
         failureThreshold: 0.8, // 80% success rate required
         timeoutMinutes: walletsNeedingSync.length > 0 ? 45 : 15, // Longer timeout if sync is needed
         similarityConfig: {
@@ -234,7 +253,7 @@ export class AnalysesController {
       };
 
     } catch (error) {
-      this.logger.error(`Failed to queue similarity analysis:`, error);
+      this.logger.error(`Failed to queue similarity analysis: ${getErrorMessage(error)}`);
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -310,6 +329,38 @@ export class AnalysesController {
       let skipReason: string | undefined;
       let skipped = false;
 
+      const requestId = `dashboard-${scope}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const registryEntry = getKnownWallet(dto.walletAddress);
+      const walletRecord = await this.databaseService.getWallet(dto.walletAddress);
+      const isKnownWallet =
+        !!registryEntry ||
+        !!walletRecord?.knownType ||
+        walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
+        walletRecord?.classification === 'INVALID';
+
+      if (isKnownWallet) {
+        const knownType = registryEntry?.type ?? walletRecord?.knownType;
+        const knownLabel = registryEntry?.label ?? walletRecord?.knownLabel;
+        skipReason = knownType ? `known-${knownType}` : 'known-wallet';
+        this.logger.debug(
+          `Skipping dashboard analysis for ${dto.walletAddress} [scope=${scope}] due to ${skipReason}${
+            knownLabel ? ` (${knownLabel})` : ''
+          }`,
+        );
+        return {
+          jobId: null,
+          requestId,
+          status: 'queued',
+          queueName: 'analysis-operations',
+          analysisScope: scope,
+          estimatedProcessingTime: '0 minutes',
+          monitoringUrl: '',
+          skipped: true,
+          skipReason,
+          queuedFollowUpScopes: [],
+        };
+      }
+
       if (!dto.forceRefresh && freshnessMinutes > 0) {
         const latestRun = await this.databaseService.getLatestDashboardAnalysisRun(dto.walletAddress, scope);
         if (latestRun) {
@@ -321,8 +372,6 @@ export class AnalysesController {
           }
         }
       }
-
-      const requestId = `dashboard-${scope}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       if (skipped) {
         this.logger.log(
@@ -461,7 +510,7 @@ export class AnalysesController {
         queuedFollowUpScopes,
       };
     } catch (error) {
-      this.logger.error(`Failed to queue dashboard analysis:`, error);
+      this.logger.error(`Failed to queue dashboard analysis: ${getErrorMessage(error)}`);
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -496,7 +545,7 @@ export class AnalysesController {
   @HttpCode(202)
   async queueHolderProfilesAnalysis(
     @Req() req: Request & { user?: User },
-    @Body() body: { tokenMint: string; topN?: number },
+    @Body() body: { tokenMint: string; topN?: number; debugFailAfterProfiles?: number },
   ): Promise<{
     jobId: string;
     requestId: string;
@@ -518,6 +567,11 @@ export class AnalysesController {
       throw new BadRequestException('topN must be between 1 and 50');
     }
 
+    const debugFailAfterProfiles = process.env.NODE_ENV !== 'production'
+      ? Number(body.debugFailAfterProfiles)
+      : undefined;
+    const shouldDebugFailAfterProfiles = Number.isFinite(debugFailAfterProfiles) && debugFailAfterProfiles >= 0;
+
     try {
       // Generate request ID
       const requestId = `holder-profiles-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -529,6 +583,7 @@ export class AnalysesController {
         tokenMint: body.tokenMint,
         topN,
         requestId,
+        ...(shouldDebugFailAfterProfiles ? { debugFailAfterProfiles } : {}),
       };
 
       // Add job to analysis operations queue
@@ -556,7 +611,7 @@ export class AnalysesController {
         monitoringUrl: `/jobs/${job.id}`,
       };
     } catch (error) {
-      this.logger.error(`Failed to queue holder profiles analysis:`, error);
+      this.logger.error(`Failed to queue holder profiles analysis: ${getErrorMessage(error)}`);
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -565,7 +620,7 @@ export class AnalysesController {
   }
 
   @Post('/holder-profiles/wallet')
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Throttle({ default: { limit: 50, ttl: 60000 } })
   @ApiOperation({
     summary: 'Analyze holder profile for a single wallet',
     description: 'Queues a job that computes the holding-risk profile for a specific wallet address.',
@@ -611,7 +666,7 @@ export class AnalysesController {
         monitoringUrl: `/jobs/${job.id}`,
       };
     } catch (error) {
-      this.logger.error(`Failed to queue wallet holder profile analysis:`, error);
+      this.logger.error(`Failed to queue wallet holder profile analysis: ${getErrorMessage(error)}`);
       if (error instanceof BadRequestException) {
         throw error;
       }

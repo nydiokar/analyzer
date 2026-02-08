@@ -1,0 +1,275 @@
+{
+  "dashboard": {
+    "title": "Redis - Cache Performance",
+    "tags": ["prometheus", "redis", "cache"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 0,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "redis_memory_used_bytes",
+            "legendFormat": "Used Memory",
+            "refId": "A"
+          },
+          {
+            "expr": "redis_memory_max_bytes",
+            "legendFormat": "Max Memory",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": null, "show": true},
+          {"format": "short", "label": null, "show": true}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Hit Rate %",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "description": "Cache hit rate. Higher is better (>90% is good).",
+        "targets": [
+          {
+            "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 70, "color": "yellow"},
+                {"value": 90, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Connected Clients",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "redis_connected_clients",
+            "legendFormat": "Clients",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Clients", "show": true},
+          {"format": "short", "label": null, "show": true}
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Operations per Second",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(redis_commands_processed_total[5m])",
+            "legendFormat": "Total ops/sec",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": null, "show": true},
+          {"format": "short", "label": null, "show": true}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Evicted Keys",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "description": "Keys evicted due to memory pressure. Non-zero means cache is full.",
+        "targets": [
+          {
+            "expr": "rate(redis_evicted_keys_total[5m])",
+            "legendFormat": "Evictions/sec",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": null, "show": true},
+          {"format": "short", "label": null, "show": true}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [0], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "5m", "now"]},
+              "reducer": {"params": [], "type": "avg"},
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "Redis Evictions Detected",
+          "noDataState": "no_data",
+          "notifications": []
+        }
+      },
+      {
+        "id": 6,
+        "title": "Expired Keys",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "description": "Keys removed due to TTL expiration. Normal behavior.",
+        "targets": [
+          {
+            "expr": "rate(redis_expired_keys_total[5m])",
+            "legendFormat": "Expirations/sec",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": null, "show": true},
+          {"format": "short", "label": null, "show": true}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Blocked Clients",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 24},
+        "description": "Clients blocked on BLPOP/BRPOP/etc. High values may indicate queue issues.",
+        "targets": [
+          {
+            "expr": "redis_blocked_clients",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 5, "color": "yellow"},
+                {"value": 20, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Memory Fragmentation Ratio",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 24},
+        "description": "mem_fragmentation_ratio. >1.5 indicates fragmentation, <1.0 indicates swapping.",
+        "targets": [
+          {
+            "expr": "redis_memory_fragmentation_ratio",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "decimals": 2,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1.0, "color": "green"},
+                {"value": 1.5, "color": "yellow"},
+                {"value": 2.0, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Total Keys",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 24},
+        "targets": [
+          {
+            "expr": "redis_db_keys",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Command Latency (if available)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "redis_command_duration_seconds_total",
+            "legendFormat": "{{cmd}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": null, "show": true},
+          {"format": "short", "label": null, "show": true}
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Rejected Connections",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+        "description": "Connections rejected due to maxclients limit.",
+        "targets": [
+          {
+            "expr": "rate(redis_rejected_connections_total[5m])",
+            "legendFormat": "Rejected/sec",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": null, "show": true},
+          {"format": "short", "label": null, "show": true}
+        ]
+      }
+    ]
+  }
+}

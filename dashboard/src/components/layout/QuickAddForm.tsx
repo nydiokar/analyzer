@@ -1,56 +1,76 @@
 import React, { useState, useCallback } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, Tags, FolderOpen } from 'lucide-react';
-import { getTagColor, getCollectionColor } from '@/lib/color-utils';
+import { Plus, X, ArrowRight, AlertCircle } from 'lucide-react';
+import { getCollectionColorFilled } from '@/lib/color-utils';
+import { isValidSolanaAddress } from '@/lib/solana-utils';
+import { WALLET_NICKNAME_MAX } from '@/lib/constants';
 
 interface QuickAddFormProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (formData: { nickname: string; tags: string[]; collections: string[] }) => Promise<void>;
-  walletAddress: string;
+  onSave: (formData: { walletAddress: string; nickname: string; collections: string[] }) => Promise<void>;
+  walletAddress?: string; // Optional - if not provided, user inputs it
   title: string;
 }
 
-// Memoized form component to prevent parent re-renders
-const QuickAddForm = React.memo(({ 
-  isOpen, 
-  onClose, 
-  onSave, 
+// Sleek, compact form for quickly adding wallets to favorites
+const QuickAddForm = React.memo(({
+  isOpen,
+  onClose,
+  onSave,
   walletAddress,
-  title 
+  title
 }: QuickAddFormProps) => {
   const [formData, setFormData] = useState({
+    walletAddress: walletAddress || '',
     nickname: '',
-    tags: [] as string[],
     collections: [] as string[],
-    newTag: '',
     newCollection: ''
   });
 
   const [isSaving, setIsSaving] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
+
+  // Whether wallet address should be editable (when not provided as prop)
+  const isAddressEditable = !walletAddress;
 
   // Reset form when dialog opens
   React.useEffect(() => {
     if (isOpen) {
       setFormData({
+        walletAddress: walletAddress || '',
         nickname: '',
-        tags: [],
         collections: [],
-        newTag: '',
         newCollection: ''
       });
+      setDuplicateWarning(false);
+      setAddressError(null);
     }
-  }, [isOpen]);
+  }, [isOpen, walletAddress]);
 
   const handleSave = useCallback(async () => {
+    // Validate wallet address if editable
+    if (isAddressEditable) {
+      const trimmedAddress = formData.walletAddress.trim();
+      if (!trimmedAddress) {
+        setAddressError('Wallet address is required');
+        return;
+      }
+      if (!isValidSolanaAddress(trimmedAddress)) {
+        setAddressError('Invalid Solana address format');
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       await onSave({
+        walletAddress: formData.walletAddress.trim(),
         nickname: formData.nickname,
-        tags: formData.tags,
         collections: formData.collections
       });
       onClose();
@@ -59,33 +79,24 @@ const QuickAddForm = React.memo(({
     } finally {
       setIsSaving(false);
     }
-  }, [formData, onSave, onClose]);
-
-  const addTag = useCallback(() => {
-    if (formData.newTag.trim() && !formData.tags.includes(formData.newTag.trim())) {
-      setFormData(prev => ({
-        ...prev,
-        tags: [...prev.tags, prev.newTag.trim()],
-        newTag: ''
-      }));
-    }
-  }, [formData.newTag, formData.tags]);
-
-  const removeTag = useCallback((tagToRemove: string) => {
-    setFormData(prev => ({
-      ...prev,
-      tags: prev.tags.filter(tag => tag !== tagToRemove)
-    }));
-  }, []);
+  }, [formData, onSave, onClose, isAddressEditable]);
 
   const addCollection = useCallback(() => {
-    if (formData.newCollection.trim() && !formData.collections.includes(formData.newCollection.trim())) {
-      setFormData(prev => ({
-        ...prev,
-        collections: [...prev.collections, prev.newCollection.trim()],
-        newCollection: ''
-      }));
+    const trimmed = formData.newCollection.trim();
+    if (!trimmed) return;
+
+    if (formData.collections.includes(trimmed)) {
+      setDuplicateWarning(true);
+      setTimeout(() => setDuplicateWarning(false), 2500);
+      return;
     }
+
+    setFormData(prev => ({
+      ...prev,
+      collections: [...prev.collections, trimmed],
+      newCollection: ''
+    }));
+    setDuplicateWarning(false);
   }, [formData.newCollection, formData.collections]);
 
   const removeCollection = useCallback((collectionToRemove: string) => {
@@ -95,123 +106,139 @@ const QuickAddForm = React.memo(({
     }));
   }, []);
 
+  const handleWalletAddressChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData(prev => ({ ...prev, walletAddress: e.target.value }));
+    // Clear error when user types
+    if (addressError) setAddressError(null);
+  }, [addressError]);
+
   const handleNicknameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({ ...prev, nickname: e.target.value }));
-  }, []);
-
-  const handleNewTagChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, newTag: e.target.value }));
   }, []);
 
   const handleNewCollectionChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({ ...prev, newCollection: e.target.value }));
   }, []);
 
-  const handleTagKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent, action: 'collection' | 'save') => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      addTag();
+      if (action === 'collection') {
+        addCollection();
+      } else {
+        handleSave();
+      }
     }
-  }, [addTag]);
-
-  const handleCollectionKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addCollection();
-    }
-  }, [addCollection]);
-
-  const truncateWalletAddress = (address: string, startLength: number = 8, endLength: number = 6) => {
-    if (address.length <= startLength + endLength) return address;
-    return `${address.substring(0, startLength)}...${address.substring(address.length - endLength)}`;
-  };
+  }, [addCollection, handleSave]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            Add wallet {truncateWalletAddress(walletAddress)} to your favorites with optional nickname, tags, and collections.
-          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="nickname" className="text-sm font-medium">Nickname (optional)</label>
-            <Input
-              id="nickname"
-              placeholder="Enter a nickname for this wallet..."
-              value={formData.nickname}
-              onChange={handleNicknameChange}
-              disabled={isSaving}
-            />
+
+        <div className="space-y-3 py-2">
+          {/* Wallet Address - Input or Read-only */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Wallet Address</label>
+            {isAddressEditable ? (
+              <div className="space-y-1">
+                <Input
+                  placeholder="Enter Solana wallet address..."
+                  value={formData.walletAddress}
+                  onChange={handleWalletAddressChange}
+                  className={`h-9 font-mono text-xs ${addressError ? 'border-red-500' : ''}`}
+                />
+                {addressError && (
+                  <div className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-500">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    <span>{addressError}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <code className="block text-xs bg-muted px-3 py-2 rounded-md truncate">
+                {walletAddress}
+              </code>
+            )}
           </div>
-          
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Tags</label>
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {formData.tags.map((tag) => (
-                <Badge 
-                  key={tag} 
-                  className={`text-xs px-2 py-1 cursor-pointer ${getTagColor(tag)}`}
-                  onClick={() => removeTag(tag)}
-                >
-                  <Tags className="h-3 w-3 mr-1" />
-                  {tag}
-                  <X className="h-3 w-3 ml-1" />
-                </Badge>
-              ))}
-            </div>
-            <div className="flex gap-1">
+
+          {/* Nickname */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Nickname</label>
+            <div className="relative">
               <Input
-                placeholder="Add tag..."
-                value={formData.newTag}
-                onChange={handleNewTagChange}
-                onKeyDown={handleTagKeyDown}
-                disabled={isSaving}
+                placeholder="e.g., Main Whale, Research Wallet..."
+                value={formData.nickname}
+                onChange={handleNicknameChange}
+                onKeyDown={(e) => handleKeyDown(e, 'save')}
+                maxLength={WALLET_NICKNAME_MAX}
+                className="h-9"
               />
-              <Button onClick={addTag} size="sm" variant="outline" disabled={isSaving}>
-                <Plus className="h-3 w-3" />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50">
+                {formData.nickname.length}/{WALLET_NICKNAME_MAX}
+              </span>
+            </div>
+          </div>
+
+          {/* Collections */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Collections</label>
+            {formData.collections.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {formData.collections.map((collection) => (
+                  <Badge
+                    key={collection}
+                    className={`text-xs px-2 py-0.5 cursor-pointer font-medium ${getCollectionColorFilled(collection)}`}
+                    onClick={() => removeCollection(collection)}
+                  >
+                    {collection}
+                    <X className="h-3 w-3 ml-1.5" />
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <div className="flex-1 relative">
+                <Input
+                  placeholder="Type collection name..."
+                  value={formData.newCollection}
+                  onChange={handleNewCollectionChange}
+                  onKeyDown={(e) => handleKeyDown(e, 'collection')}
+                  maxLength={20}
+                  className="h-9 pr-12"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50">
+                  {formData.newCollection.length}/20
+                </span>
+              </div>
+              <div className="flex flex-col items-center -mt-1">
+                <span className="text-[10px] text-muted-foreground/60 font-medium mb-0.5">add</span>
+                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <Button
+                onClick={addCollection}
+                size="sm"
+                className="h-9 px-3 bg-purple-600 hover:bg-purple-700"
+              >
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
-          </div>
-          
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Collections</label>
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {formData.collections.map((collection) => (
-                <Badge 
-                  key={collection} 
-                  className={`text-xs px-2 py-1 cursor-pointer ${getCollectionColor(collection)}`}
-                  onClick={() => removeCollection(collection)}
-                >
-                  <FolderOpen className="h-3 w-3 mr-1" />
-                  {collection}
-                  <X className="h-3 w-3 ml-1" />
-                </Badge>
-              ))}
-            </div>
-            <div className="flex gap-1">
-              <Input
-                placeholder="Add collection..."
-                value={formData.newCollection}
-                onChange={handleNewCollectionChange}
-                onKeyDown={handleCollectionKeyDown}
-                disabled={isSaving}
-              />
-              <Button onClick={addCollection} size="sm" variant="outline" disabled={isSaving}>
-                <Plus className="h-3 w-3" />
-              </Button>
-            </div>
+            {duplicateWarning && (
+              <p className="text-xs text-amber-600 dark:text-amber-500 animate-in fade-in duration-200">
+                Collection &quot;{formData.newCollection.trim()}&quot; already exists
+              </p>
+            )}
           </div>
         </div>
-        
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} disabled={isSaving}>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={onClose} disabled={isSaving} size="sm">
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? 'Adding...' : 'Add to Favorites'}
+          <Button onClick={handleSave} disabled={isSaving} size="sm">
+            {isSaving ? 'Adding...' : 'Add to Tracked'}
           </Button>
         </div>
       </DialogContent>
@@ -221,4 +248,4 @@ const QuickAddForm = React.memo(({
 
 QuickAddForm.displayName = 'QuickAddForm';
 
-export default QuickAddForm; 
+export default QuickAddForm;

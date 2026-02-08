@@ -12,23 +12,25 @@ const COLOR_MAP: Record<OutcomeVerdict['color'], string> = {
 
 interface OutcomeStripProps extends OutcomeVerdict {
   holdersCount?: number;
+  compact?: boolean;
 }
 
 function getOutcomeTooltip(verdict: string): string {
   const tooltips: Record<string, string> = {
-    'High churn, likely short-lived': 'Holders exit very quickly, typically within minutes. High risk of rapid price volatility.',
-    'Mixed behavior, unstable': 'Holders show varying exit patterns - some quick, some patient. Unpredictable price action expected.',
-    'Still breathing': 'Some holders maintain positions for days, but overall conviction appears moderate. Watch for momentum shifts.',
-    'Relatively stable': 'Holders tend to maintain positions for extended periods with low turnover, suggesting conviction and patience.',
+    'High churn, likely short-lived': 'Exits in minutes; high churn.',
+    'Mixed behavior, unstable': 'Exit timing mixed; low predictability.',
+    'Still breathing': 'Exits in days; moderate conviction.',
+    'Relatively stable': 'Long holds; low churn.',
   };
-  return tooltips[verdict] || 'Assessment based on holder exit speeds and conviction patterns.';
+  return tooltips[verdict] || 'Exit timing and conviction.';
 }
 
-export function OutcomeStrip({ verdict, description, color, holdersCount }: OutcomeStripProps) {
+export function OutcomeStrip({ verdict, description, color, holdersCount, compact = false }: OutcomeStripProps) {
   return (
     <div
       className={cn(
-        'rounded-lg border p-4 bg-gradient-to-br flex flex-col gap-2 h-full',
+        'rounded-lg border bg-gradient-to-br flex flex-col gap-2 h-full',
+        compact ? 'p-3' : 'p-4',
         COLOR_MAP[color]
       )}
     >
@@ -41,7 +43,6 @@ export function OutcomeStrip({ verdict, description, color, holdersCount }: Outc
                 <InfoIcon className="h-3 w-3 text-muted-foreground/60 hover:text-muted-foreground cursor-help" />
               </TooltipTrigger>
               <TooltipContent className="max-w-md text-xs">
-                <p className="font-semibold mb-1">How is this determined?</p>
                 <p className="text-muted-foreground">{getOutcomeTooltip(verdict)}</p>
               </TooltipContent>
             </Tooltip>
@@ -53,8 +54,10 @@ export function OutcomeStrip({ verdict, description, color, holdersCount }: Outc
           </div>
         )}
       </div>
-      <div className="text-lg font-semibold leading-tight">{verdict}</div>
-      <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+      <div className={cn('font-semibold leading-tight', compact ? 'text-base' : 'text-lg')}>{verdict}</div>
+      {!compact && (
+        <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+      )}
     </div>
   );
 }

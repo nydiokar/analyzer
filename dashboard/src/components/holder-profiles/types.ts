@@ -1,3 +1,5 @@
+import type { KnownWalletType } from '@/types/api';
+
 export type DataQualityTier = 'GOLD' | 'SILVER' | 'BRONZE' | 'INSUFFICIENT';
 export type HoldTimeSource = 'CURRENT' | 'EXITED' | 'MIXED';
 
@@ -36,6 +38,11 @@ export interface HolderProfile {
   walletAddress: string;
   rank: number;
   supplyPercent: number;
+  tokenHoldingValueSol?: number | null;
+  // Known wallet registry info (when analysisSkipped=true)
+  knownType?: KnownWalletType;          // BURN, LP, JUPITER, RAYDIUM, etc.
+  knownLabel?: string;                  // Display label (e.g., "🔥 Burn Address")
+  analysisSkipped?: boolean;            // true when wallet is known non-trader
   // Smart fallback metrics (typical → realized → current)
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;
@@ -65,7 +72,17 @@ export interface HolderProfile {
     tokenAddress: string;
     uiBalance: number | null;
     decimals: number | null;
+    valueSol?: number | null;
+    valueUsd?: number | null;
   }>;
+  unresolvedTokensCount?: number | null;
+  activeHoldingsFilteredOut?: number | null;
+  heldValueThresholdSol?: number | null;
+  walletPnlSol?: number | null;
+  walletPnlUsd?: number | null;
+  walletRealizedPnlSol?: number | null;
+  walletRealizedPnlUsd?: number | null;
+  solBalance?: number | null;
   oldestTransactionTimestamp?: number;
   newestTransactionTimestamp?: number;
 }
@@ -75,6 +92,14 @@ export interface HolderProfilesResult {
   tokenMint?: string;
   targetWallet?: string;
   profiles: HolderProfile[];
+  similaritySummaries?: Array<{
+    overallSimilarityPercent: number;
+    capitalSimilarityPercent: number;
+    behavioralSimilarityPercent: number;
+    sharedTokensCount: number;
+    sharedTokensValueUsd?: number | null;
+    sharedTokensValuePercent?: number | null;
+  }>;
   metadata: {
     totalHoldersRequested: number;
     totalHoldersAnalyzed: number;

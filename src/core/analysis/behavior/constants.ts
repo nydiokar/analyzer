@@ -40,7 +40,7 @@ export const HOLDER_BEHAVIOR_THRESHOLDS_MINUTES = {
   DAY_TRADER: 1440, // 4-24h: Day trading (24h * 60)
   SWING: 10080,     // 1-7 days: Swing trading (7d * 24 * 60)
   POSITION: 43200,  // 7-30 days: Position trading (30d * 24 * 60)
-  // 30+ days = HOLDER
+  // 30+ days = HODLER
 } as const;
 
 export const HOLDER_BEHAVIOR_THRESHOLDS_HOURS = {
@@ -51,7 +51,7 @@ export const HOLDER_BEHAVIOR_THRESHOLDS_HOURS = {
   DAY_TRADER: 24,   // 24 hours
   SWING: 168,       // 7 days
   POSITION: 720,    // 30 days
-  // 30+ days = HOLDER
+  // 30+ days = HODLER
 } as const;
 
 /**
@@ -77,7 +77,7 @@ export type HolderBehaviorType =
   | 'DAY_TRADER'
   | 'SWING'
   | 'POSITION'
-  | 'HOLDER';
+  | 'HODLER';
 
 /**
  * Behavioral patterns based on buy/sell characteristics
@@ -167,7 +167,7 @@ export function classifyHolderBehavior(medianCompletedHoldTimeHours: number): Ho
   } else if (medianCompletedHoldTimeHours < HOLDER_BEHAVIOR_THRESHOLDS_HOURS.POSITION) {
     return 'POSITION';
   } else {
-    return 'HOLDER';
+    return 'HODLER';  // 30+ days - crypto spelling for long-term exits
   }
 }
 
@@ -281,4 +281,156 @@ export function calculateClassificationConfidence(
 
   return Math.min(1, confidence);
 }
+
+// ============================================================================
+// NEW: Centralized Classification Thresholds (Refactor 2025-12-25)
+// ============================================================================
+
+/**
+ * Speed Category Thresholds (from completed cycles only)
+ * These are the canonical thresholds for speedCategory classification
+ */
+export const SPEED_THRESHOLDS = {
+  SNIPER: 1 / 60,      // < 1 min (0.0167 hours)
+  SCALPER: 5 / 60,     // 1-5 min (0.0833 hours)
+  MOMENTUM: 0.5,       // 5-30 min
+  INTRADAY: 4,         // 30min-4h
+  DAY_TRADER: 24,      // 4-24h
+  SWING: 168,          // 1-7 days (168 hours)
+  POSITION: 720,       // 7-30 days (720 hours)
+  // 30+ days = HODLER
+} as const;
+
+/**
+ * Flow Pattern Thresholds (buy/sell ratio analysis)
+ */
+export const FLOW_THRESHOLDS = {
+  STRONG_BUY_RATIO: 2.0,     // ratio >= 2.0 → ACCUMULATOR
+  STRONG_SELL_RATIO: 0.5,    // ratio <= 0.5 → DISTRIBUTOR
+  // Between 0.5 and 2.0 = BALANCED (if symmetric)
+} as const;
+
+/**
+ * Minimum Data Requirements (activity gate)
+ */
+export const MINIMUM_DATA = {
+  trades: 5,                          // Minimum total trades
+  tokensWithCompletedCycles: 2,       // Minimum tokens with both buy+sell
+} as const;
+
+/**
+ * Holder Bypass Criteria (for wallets without completed cycles)
+ * Allows pure holders to bypass the minimum data gate
+ */
+export const HOLDER_BYPASS = {
+  multiToken: {
+    minTokens: 2,           // Minimum active holdings (2+ tokens = meaningful portfolio start)
+    minHoldHours: 24,       // Minimum median hold duration (1 day shows intent, not dust)
+  },
+  singleToken: {
+    minPositionSol: 5,     // Significant position threshold in SOL (~$500-1000 USD, adjustable)
+  },
+} as const;
+
+/**
+ * Velocity Score Formula Parameters
+ * Maps median hold time to 0-100 score (logarithmic scale)
+ */
+export const VELOCITY_SCORE = {
+  MAX_HOLD_HOURS: 720,  // 30 days = 0 velocity
+  LOG_BASE: 10,
+} as const;
+
+// =============================================================================
+// BEHAVIORAL ANALYSIS CONFIGURATION (Migrated from config/constants.ts)
+// Single source of truth for ALL behavior analysis thresholds
+// =============================================================================
+
+export const BEHAVIOR_ANALYSIS_CONFIG = {
+  // Token lifecycle completion criteria
+  HISTORICAL_PATTERN: {
+    MINIMUM_COMPLETED_CYCLES: 1,        // Accept tokens with at least 1 complete buy-sell cycle
+    MAXIMUM_DATA_AGE_DAYS: 10000,       // Include all historical data, no time limit
+    MIN_VALID_HOLD_HOURS: 0.0001,       // ~0.36 seconds minimum (prevents true zero/corruption)
+    MAX_VALID_HOLD_HOURS: 18760,        // 1 year maximum
+  },
+
+  // Position exit detection thresholds
+  HOLDING_THRESHOLDS: {
+    EXIT_THRESHOLD: 0.80,               // Position considered "exited" when <=80% of peak remains
+    MINIMUM_SOL_VALUE: 0.001,           // Minimum SOL value for dust filtering
+    MINIMUM_PERCENTAGE_REMAINING: 0.05, // Minimum % of original for dust filtering
+    MINIMUM_HOLDING_TIME_SECONDS: 60,   // Minimum time held for dust filtering
+  },
+
+  // Scam token filtering
+  SCAM_FILTERING: {
+    ENABLED: true,                      // Enable scam token filtering
+    LOG_FILTERED_TOKENS: false,         // Log details about filtered tokens
+    STRICT_MODE: false,                 // Use stricter thresholds
+    THRESHOLDS: {
+      MIN_TRADE_COUNT: 100,             // Minimum trade count for scam detection
+      MIN_TOTAL_VALUE: 0.001,           // Minimum total SOL value
+      MIN_TOTAL_USDC_VALUE: 5,          // Minimum total USDC value
+    },
+  },
+
+  // Session analysis parameters
+  SESSION_ANALYSIS: {
+    SESSION_GAP_THRESHOLD_HOURS: 2,     // Gap > 2 hours creates new session
+  },
+
+  // Trading analysis thresholds (UPDATED to match MINIMUM_DATA above)
+  TRADING_ANALYSIS: {
+    MIN_TRADES_FOR_ANALYSIS: 5,         // Minimum trades for reliable analysis
+    MIN_TOKENS_WITH_TRADES: 2,          // Minimum tokens with both buys/sells
+  },
+
+  // Time-based bucket boundaries (in hours) - shared between different analyses
+  TIME_BUCKETS: {
+    INSTANT: 0.0001,     // < 0.36 seconds (same transaction)
+    ULTRA_FAST: 1/60,    // < 1 minute
+    VERY_FAST: 1/60,     // < 1 minute (alias for consistency)
+    FAST: 5/60,          // 1-5 minutes
+    MOMENTUM: 0.5,       // 5-30 minutes
+    MODERATE: 1,         // 30-60 min / 1 hour
+    INTRADAY: 4,         // 1-4 hours
+    DAY_TRADER: 8,       // 4-8 hours (legacy - not used by new classification)
+    DAY: 24,             // 8-24 hours
+    SWING: 168,          // 1-7 days (24*7)
+    // POSITION: > 168 hours (7+ days)
+  },
+
+  // Behavior classification thresholds (UPDATED to match new FLOW_THRESHOLDS)
+  BEHAVIOR_CLASSIFICATION: {
+    FULL_HOLDER_THRESHOLD: 0.75,  // Position >75% remaining = FULL_HOLDER
+    BALANCED_SYMMETRY_MIN: 0.7,   // Min symmetry for BALANCED classification
+    BALANCED_CONSISTENCY_MIN: 0.7, // Min consistency for BALANCED classification
+    ACCUMULATOR_RATIO_MIN: 2.0,    // ✅ UPDATED: Buy/sell ratio >= 2.0 = ACCUMULATOR (was 2.5)
+    DISTRIBUTOR_RATIO_MAX: 0.5,    // ✅ UPDATED: Buy/sell ratio <= 0.5 = DISTRIBUTOR (was 0.4)
+    HOLDER_RATIO_MIN: 1.5,         // Buy/sell ratio >1.5 = HOLDER (legacy)
+  },
+
+  // Flipper score calculation weights
+  FLIPPER_SCORE: {
+    ULTRA_FAST_WEIGHT: 0.85,    // Weight for ultra-fast trading
+    VERY_FAST_WEIGHT: 0.10,     // Weight for very fast trading
+    FAST_WEIGHT: 0.05,          // Weight for fast trading
+    SPEED_WEIGHT: 0.7,          // Overall speed weight in final score
+    BALANCE_WEIGHT: 0.3,        // Balance weight in final score
+    ULTRA_FAST_DOMINANCE_MIN: 0.5, // Min ultra-fast % to trigger bonus
+    DOMINANCE_BONUS: 0.2,       // Bonus added when ultra-fast dominates
+  },
+
+  // Confidence score calculation weights
+  CONFIDENCE_SCORE: {
+    DATA_QUALITY_WEIGHT: 0.4,   // Weight for data quality in confidence
+    DEFAULT_DATA_QUALITY: 0.5,  // Default data quality when not available
+    SAMPLE_SIZE_BONUS_10: 0.3,  // Bonus for 10+ completed cycles
+    SAMPLE_SIZE_BONUS_5: 0.2,   // Bonus for 5+ completed cycles
+    SAMPLE_SIZE_BONUS_3: 0.1,   // Bonus for 3+ completed cycles
+    BALANCE_WEIGHT: 0.3,        // Weight for balance consistency
+    MAX_CONFIDENCE: 1.0,        // Maximum confidence score
+  },
+} as const;
 

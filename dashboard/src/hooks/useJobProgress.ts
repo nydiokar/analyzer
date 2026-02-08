@@ -191,8 +191,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       path: "/socket.io/",
       transports,
       upgrade,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity, // Never give up reconnecting
+      reconnectionDelay: 1000, // Start with 1 second
+      reconnectionDelayMax: 10000, // Max 10 seconds between attempts
       timeout: 20000, // 20 second timeout
       forceNew: forceNewSocket, // Allow forcing a fresh Manager via env flag when debugging sticky sessions
       query,
@@ -202,7 +203,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     });
 
     const handleConnect = () => {
-      console.log('✅ WebSocket connected');
+      console.log('✅ WebSocket connected successfully');
       debugLog('socket-connected', { socketId: newSocket.id });
       setIsConnected(true);
       setError(null);
@@ -214,6 +215,25 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       debugLog('socket-disconnected', { reason });
       setIsConnected(false);
       callbacksRef.current.onConnectionChange?.(false);
+
+      // Log reconnection strategy
+      if (reason === 'io server disconnect') {
+        console.log('⚠️  Server disconnected the socket. Will attempt to reconnect...');
+      } else if (reason === 'transport close' || reason === 'transport error') {
+        console.log('🔄 Connection lost. Attempting to reconnect...');
+      }
+    };
+
+    const handleReconnectAttempt = (attemptNumber: number) => {
+      console.log(`🔄 Reconnection attempt #${attemptNumber}...`);
+    };
+
+    const handleReconnect = (attemptNumber: number) => {
+      console.log(`✅ Successfully reconnected after ${attemptNumber} attempt(s)`);
+    };
+
+    const handleReconnectFailed = () => {
+      console.error('❌ All reconnection attempts failed');
     };
 
     const handleError = (error: Error) => {
@@ -335,6 +355,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     newSocket.on('connect', handleConnect);
     newSocket.on('disconnect', handleDisconnect);
     newSocket.on('connect_error', handleConnectError);
+    newSocket.on('reconnect_attempt', handleReconnectAttempt);
+    newSocket.on('reconnect', handleReconnect);
+    newSocket.on('reconnect_failed', handleReconnectFailed);
     newSocket.on('job-progress', handleJobProgress);
     newSocket.on('job-completed', handleJobCompleted);
     newSocket.on('job-failed', handleJobFailed);
@@ -352,6 +375,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       newSocket.off('connect', handleConnect);
       newSocket.off('disconnect', handleDisconnect);
       newSocket.off('connect_error', handleConnectError);
+      newSocket.off('reconnect_attempt', handleReconnectAttempt);
+      newSocket.off('reconnect', handleReconnect);
+      newSocket.off('reconnect_failed', handleReconnectFailed);
       newSocket.off('job-progress', handleJobProgress);
       newSocket.off('job-completed', handleJobCompleted);
       newSocket.off('job-failed', handleJobFailed);
@@ -368,23 +394,27 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {
-    // Don't clear completed jobs when subscribing to new jobs
-    // This prevents duplicate processing of job completion events
-    // setCompletedJobs(new Set()); // ❌ REMOVED: This was causing duplicate events
+    // Track active job for debugging/monitoring purposes
+    //
+    // IMPORTANT: No per-job WebSocket subscription is needed because the backend uses
+    // user-scoped room broadcasting. When the WebSocket connects, the client automatically
+    // joins a room (user-{userId}) and receives ALL job events for that user.
+    //
+    // Previously, this code emitted 'subscribe-to-job' events, but the backend has NO handler
+    // for these events - they were legacy code from an old per-job subscription system.
+    // The room-based system is simpler and prevents race conditions where jobs complete
+    // before the frontend can register individual subscriptions.
+    activeJobIdsRef.current.add(jobId);
+    incrementDebugCounter(jobId, 'subscribe', { socketConnected: !!socket?.connected });
 
-    // Subscribe to WebSocket to catch live events.
-    if (socket?.connected) {
-      console.log(`🔔 Subscribing to WebSocket for job: ${jobId}`);
-      debugLog('job-subscribe', { jobId });
-      socket.emit('subscribe-to-job', { jobId });
-      activeJobIdsRef.current.add(jobId);
-      incrementDebugCounter(jobId, 'subscribe', { socketConnected: true });
-      // That's it! WebSocket will handle all updates (progress, completion, failure)
-      // No HTTP polling needed - avoids browser connection limits
-    } else {
+    console.log(`📋 Tracking job: ${jobId} (auto-broadcast via user room)`);
+    debugLog('job-track', { jobId, roomBased: true });
+
+    // If WebSocket is not connected, poll via HTTP as fallback
+    if (!socket?.connected) {
       console.warn(`⚠️ WebSocket not connected for job ${jobId}. Falling back to HTTP polling.`);
       incrementDebugCounter(jobId, 'httpFallbacks', { socketConnected: false });
-      // Fallback: If WebSocket is not connected, poll via HTTP
+
       try {
         const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
         if (job) {
@@ -399,7 +429,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         }
       } catch (error: unknown) {
         const apiError = error as ApiError;
-        if (apiError.status !== 404) {
+        if (apiError.status === 404) {
+          console.warn(`Job ${jobId} not found - may have already completed or never existed`);
+        } else if (apiError.status !== 404) {
           console.error(`Error polling job status for ${jobId}:`, error);
           toast({
             title: 'Could not get job status',
@@ -412,14 +444,18 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp, incrementDebugCounter, debugLog]);
 
   const unsubscribeFromJob = useCallback((jobId: string) => {
-    if (socket?.connected) {
-      console.log(`🔕 Unsubscribing from job: ${jobId}`);
-      debugLog('job-unsubscribe', { jobId });
-      socket.emit('unsubscribe-from-job', { jobId });
-      activeJobIdsRef.current.delete(jobId);
-      incrementDebugCounter(jobId, 'unsubscribe');
-    }
-  }, [socket, incrementDebugCounter, debugLog]);
+    // Remove from active tracking
+    //
+    // NOTE: Like subscribe, this does NOT emit any WebSocket events. Previously emitted
+    // 'unsubscribe-from-job' which had no backend handler. The room-based system means
+    // we simply stop tracking this jobId locally - the server continues broadcasting
+    // all events to the user room, but we ignore events for jobs not in activeJobIdsRef.
+    activeJobIdsRef.current.delete(jobId);
+    incrementDebugCounter(jobId, 'unsubscribe');
+
+    console.log(`📋 Stopped tracking job: ${jobId}`);
+    debugLog('job-untrack', { jobId, roomBased: true });
+  }, [incrementDebugCounter, debugLog]);
 
   const cleanup = useCallback(() => {
     if (socket) {

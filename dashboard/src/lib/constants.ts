@@ -1,0 +1,3 @@
+export const USER_FAVORITES_MAX = 300;
+export const USER_FAVORITES_IMPORT_FLASH_BATCH = 50;
+export const WALLET_NICKNAME_MAX = 120;

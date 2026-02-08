@@ -1,6 +1,10 @@
 import 'reflect-metadata';
 import { DatabaseService } from '../src/core/services/database-service';
 import { prisma } from '../src/core/services/database-service';
+import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
+import logger from '../src/core/utils/logger';
+
+
 
 async function main() {
   console.log('Attempting to create a test user...');
@@ -28,7 +32,7 @@ async function main() {
       if (result) console.error('Result received:', JSON.stringify(result, null, 2));
     }
   } catch (error) {
-    console.error('Error during user creation script:', error);
+    logger.error('Error during user creation script:', getErrorMessage(error));
   } finally {
     await prisma.$disconnect();
     console.log('Database connection closed.');
@@ -36,7 +40,7 @@ async function main() {
 }
 
 main().catch(e => {
-  console.error('Unhandled error in main function:', e);
+  logger.error('Unhandled error in main function:', getErrorMessage(e));
   prisma.$disconnect();
   process.exit(1);
 }); 

@@ -1,3 +1,76 @@
+/**
+ * ============================================================================
+ * ARCHITECTURAL DEBT & FUTURE REFACTOR PLAN
+ * ============================================================================
+ *
+ * CURRENT STATE (2025-01-18):
+ * This mapper applies value attribution heuristics to ALL transactions without
+ * first classifying transaction patterns. This leads to:
+ * - Edge cases where burns are mapped as swaps (rent reclaim treated as value)
+ * - Conflicting heuristics (e.g., both WSOL and stable significant → neither assigned)
+ * - Difficult debugging (cascading if-else chains obscure logic flow)
+ * - Fragile patching (each new edge case requires another band-aid)
+ *
+ * ROOT CAUSE:
+ * Helius `type` field is unreliable (many transactions marked "UNKNOWN" including
+ * burns, complex DeFi ops, and legitimate swaps through unrecognized aggregators).
+ * We can't trust their classification, so we must derive our own from raw data.
+ *
+ * INTENDED REFACTOR (Future Work):
+ *
+ * Phase 1: Pattern Detection (classify BEFORE value attribution)
+ * ---------------------------------------------------------------
+ * Detect transaction patterns from raw tokenTransfers/nativeTransfers:
+ *
+ *   BURN: token OUT to empty/null address
+ *     → value = 0 (no economic exchange, SOL movement is rent reclaim)
+ *
+ *   AIRDROP: token IN only, no significant value OUT (except tiny fees)
+ *     → value = 0 (free tokens, fee is transaction cost not purchase price)
+ *
+ *   SIMPLE_SWAP: token OUT + stable/SOL IN (or inverse), direct exchange
+ *     → value = stable/SOL movement (90% of cases, straightforward)
+ *
+ *   ROUTED_SWAP: token OUT + intermediary hops (WSOL, multiple stables)
+ *     → apply complex heuristics (SPL-to-SPL, event matching, etc.)
+ *
+ *   TRANSFER: token OUT to known address, no value IN
+ *     → cost basis from inventory (FIFO), not from this transaction
+ *
+ * Phase 2: Targeted Value Attribution (apply logic based on pattern)
+ * -------------------------------------------------------------------
+ * switch (pattern) {
+ *   case BURN:
+ *   case AIRDROP:
+ *     associatedValue = 0; // Skip all heuristics
+ *     break;
+ *
+ *   case SIMPLE_SWAP:
+ *     associatedValue = stableMovement || solMovement; // Direct mapping
+ *     break;
+ *
+ *   case ROUTED_SWAP:
+ *     associatedValue = applyRoutingHeuristics(...); // Complex logic here
+ *     break;
+ * }
+ *
+ * BENEFITS:
+ * - Explicit logic paths (no cascading conditionals)
+ * - Easier debugging (pattern detection separate from value attribution)
+ * - Fewer edge cases (patterns caught early before heuristics apply)
+ * - Better maintainability (new patterns don't break existing logic)
+ *
+ * CURRENT WORKAROUNDS (until refactor):
+ * - Burn detection added (2025-01-18) to skip value attribution for burns
+ * - Stable preference over SOL when both significant (2025-01-18)
+ * - WSOL lamport bug mitigation (2025-10-27, improved 2025-01-18)
+ * - Small outgoing transfer detection for fees
+ * - Proportional redistribution for chunked transfers
+ *
+ * TODO: Schedule this refactor when bandwidth allows (~500 lines rewrite)
+ * ============================================================================
+ */
+
 import { createLogger } from '@/core/utils/logger';
 import { Prisma } from '@prisma/client';
 import { HeliusTransaction, TokenTransfer } from '@/types/helius-api';
@@ -6,15 +79,63 @@ import { TRANSACTION_MAPPING_CONFIG } from '../../config/constants';
 const logger = createLogger('HeliusTransactionMapper');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+const USD1_MINT = 'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB';
+const STABLE_MINTS = new Set<string>([USDC_MINT, USDT_MINT, USD1_MINT]);
+const STABLE_MINT_PREFERENCE = [USDC_MINT, USDT_MINT, USD1_MINT];
+const STABLE_VALUE_TOLERANCE = 0.03; // 3% tolerance for stable-to-stable routing differences
+const STABLE_DUST_RATIO = 0.01; // Ignore stable values <1% of the max when multiple stables appear
+const STABLE_NET_DOMINANCE = 0.1; // Require net movement >=10% of max side to treat as value (not routing)
+const INTERMEDIATE_NET_EPSILON = 1e-6; // Drop zero-net intermediate tokens within a single signature
 const LAMPORTS_PER_SOL = 1e9;
+const SOL_SIGNIFICANCE_THRESHOLD = 0.0001; // 0.0001 SOL (~$0.02 at $200/SOL)
+const STABLE_SIGNIFICANCE_THRESHOLD = 1.0; // 1.0 USDC/USDT/USD1 ($1 minimum for significance)
 const NATIVE_SOL_LAMPORT_THRESHOLD = TRANSACTION_MAPPING_CONFIG.NATIVE_SOL_LAMPORT_THRESHOLD;
 const FEE_PRECISION_THRESHOLD = 0.000000001; // Avoid assigning near-zero fees
-const FEE_TRANSFER_THRESHOLD_SOL = 0.1; // Heuristic: Native transfers OUT below this are considered fees/tips
+const FEE_TRANSFER_THRESHOLD_SOL = TRANSACTION_MAPPING_CONFIG.FEE_TRANSFER_THRESHOLD_SOL;
+const FEE_TRANSFER_VALUE_RATIO = TRANSACTION_MAPPING_CONFIG.FEE_TRANSFER_VALUE_RATIO;
+const GROSS_NATIVE_SOL_IN_RATIO_LIMIT = TRANSACTION_MAPPING_CONFIG.GROSS_NATIVE_SOL_IN_RATIO_LIMIT;
+const FEE_SELF_HEALING_PERCENT_THRESHOLD = TRANSACTION_MAPPING_CONFIG.FEE_SELF_HEALING_PERCENT_THRESHOLD;
 // const TOKEN_FEE_AMOUNT_MATCH_TOLERANCE = 0.001; // 0.1% tolerance for matching token fee amounts (commented out as we are trying a new heuristic)
 const TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD = 0.05; // 5% - Heuristic for mapper-level fee identification
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL = 0.1; // Min SOL value for fee-payer heuristic
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC = 1.0; // Min USDC value for fee-payer heuristic
 const SOL_DUST_TRANSFER_THRESHOLD = TRANSACTION_MAPPING_CONFIG.SOL_DUST_TRANSFER_THRESHOLD;
+
+function isStableMint(mint?: string | null): boolean {
+  return !!mint && STABLE_MINTS.has(mint);
+}
+
+function pickStableValueByPreference(
+  stableValues: Map<string, number>,
+  tolerance: number,
+): { mint: string; value: number } | null {
+  const entries = Array.from(stableValues.entries()).filter(([, value]) => value > 0);
+  if (entries.length === 0) return null;
+  if (entries.length === 1) return { mint: entries[0][0], value: entries[0][1] };
+
+  const values = entries.map(([, value]) => value);
+  const maxValue = Math.max(...values);
+  const dustCutoff = maxValue * STABLE_DUST_RATIO;
+  const filteredEntries = entries.filter(([, value]) => value >= dustCutoff);
+  const effectiveEntries = filteredEntries.length > 0 ? filteredEntries : entries;
+  if (effectiveEntries.length === 1) return { mint: effectiveEntries[0][0], value: effectiveEntries[0][1] };
+
+  const effectiveValues = effectiveEntries.map(([, value]) => value);
+  const effectiveMax = Math.max(...effectiveValues);
+  const effectiveMin = Math.min(...effectiveValues);
+  if (effectiveMax <= 0) return null;
+
+  const withinTolerance = (effectiveMax - effectiveMin) / effectiveMax <= tolerance;
+  if (!withinTolerance) return null;
+
+  for (const mint of STABLE_MINT_PREFERENCE) {
+    const match = effectiveEntries.find(([entryMint]) => entryMint === mint);
+    if (match) return { mint: match[0], value: match[1] };
+  }
+
+  return { mint: effectiveEntries[0][0], value: effectiveEntries[0][1] };
+}
 
 // --- Add MappingStats Interface ---
 /**
@@ -36,14 +157,16 @@ interface MappingStats {
   tokenTransfersProcessed: number;
   /** Number of WSOL (Wrapped SOL) token transfer events processed. */
   wsolTransfersProcessed: number;
-  /** Number of USDC token transfer events processed. */
+  /** Number of stablecoin transfer events processed (USDC/USDT/USD1). */
   usdcTransfersProcessed: number;
-  /** Number of other (non-WSOL, non-USDC) SPL token transfer events processed. */
+  /** Number of other (non-WSOL, non-stable) SPL token transfer events processed. */
   otherTokenTransfersProcessed: number;
   /** Number of times the fee payer heuristic was applied to attribute swaps. */
   feePayerHeuristicApplied: number;
   /** Number of records for which a fee amount was calculated and assigned. */
   feesCalculated: number;
+  /** Number of times the fee self-healing guard zeroed out suspect values. */
+  feeSelfHealingTriggered: number;
   // --- New Counters ---
   /** Number of attempts made by the event matcher to find intermediary values. */
   eventMatcherAttempts: number;
@@ -51,21 +174,21 @@ interface MappingStats {
   eventMatcherPrimaryMintsIdentified: number;
   /** Number of times the event matcher found a consistent SOL value as an intermediary. */
   eventMatcherConsistentSolFound: number;
-  /** Number of times the event matcher found a consistent USDC value as an intermediary. */
+  /** Number of times the event matcher found a consistent stable value as an intermediary. */
   eventMatcherConsistentUsdcFound: number;
-  /** Number of times the event matcher found both SOL and USDC or other ambiguities. */
+  /** Number of times the event matcher found both SOL and stable values or other ambiguities. */
   eventMatcherAmbiguous: number;
   /** Number of times the event matcher could not find a consistent intermediary value. */
   eventMatcherNoConsistentValue: number;
   /** Number of SPL-to-SPL swaps detected (typically using WSOL as intermediary). */
   splToSplSwapDetections: number;
-  /** Number of records where associated SOL/USDC value was derived from SPL-to-SPL detection. */
+  /** Number of records where associated SOL/stable value was derived from SPL-to-SPL detection. */
   associatedValueFromSplToSpl: number;
-  /** Number of records where associated SOL/USDC value was derived from the event matcher. */
+  /** Number of records where associated SOL/stable value was derived from the event matcher. */
   associatedValueFromEventMatcher: number;
-  /** Number of records where associated SOL/USDC value was derived from total WSOL/USDC movement. */
+  /** Number of records where associated SOL/stable value was derived from total WSOL/stable movement. */
   associatedValueFromTotalMovement: number;
-  /** Number of records where associated SOL/USDC value was derived from net user SOL/USDC change. */
+  /** Number of records where associated SOL/stable value was derived from net user SOL/stable change. */
   associatedValueFromNetChange: number;
   /** Number of times the small outgoing transfer heuristic was applied to identify potential fees. */
   smallOutgoingHeuristicApplied: number;
@@ -158,7 +281,7 @@ function safeParseAmount(transfer: TokenTransfer | any): number {
 
 /**
  * Analyzes transaction event data to find a consistent
- * intermediary WSOL or USDC value linking the user's primary input token to their
+ * intermediary WSOL or stable value linking the user's primary input token to their
  * primary output token for the overall swap.
  *
  * @param tx The full HeliusTransaction object.
@@ -184,7 +307,7 @@ function findIntermediaryValueFromEvent(
     let primaryInMint: string | null = null;
     for (const transfer of tx.tokenTransfers || []) {
         const mint = transfer.mint;
-        if (!mint || mint === SOL_MINT || mint === USDC_MINT) continue;
+        if (!mint || mint === SOL_MINT || isStableMint(mint)) continue;
 
         const fromUserTA = transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount);
         const toUserTA = transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount);
@@ -196,7 +319,7 @@ function findIntermediaryValueFromEvent(
     const currentResult = { ...defaultValue, primaryOutMint, primaryInMint };
 
     if (!primaryOutMint || !primaryInMint) {
-        // logger.debug(`Event Matcher: Could not identify primary user IN/OUT non-WSOL/USDC mints. Sig: ${tx.signature}`); // Removed debug
+        // logger.debug(`Event Matcher: Could not identify primary user IN/OUT non-WSOL/stable mints. Sig: ${tx.signature}`); // Removed debug
         stats.eventMatcherNoConsistentValue++;
         return currentResult;
     }
@@ -205,9 +328,9 @@ function findIntermediaryValueFromEvent(
 
     // 2. Scan innerSwaps for values associated with these primaries
     let total_wsol_from_sell = 0;
-    let total_usdc_from_sell = 0;
+    const totalStableFromSell = new Map<string, number>();
     let total_wsol_to_buy = 0;
-    let total_usdc_to_buy = 0;
+    const totalStableToBuy = new Map<string, number>();
     const significanceThreshold = 0.00001; // Threshold for considering inner swap amounts
 
     try {
@@ -217,7 +340,9 @@ function findIntermediaryValueFromEvent(
                 for (const output of innerSwap.tokenOutputs || []) {
                     const amount = Math.abs(safeParseAmount(output));
                     if (output.mint === SOL_MINT && amount >= significanceThreshold) total_wsol_from_sell += amount;
-                    if (output.mint === USDC_MINT && amount >= significanceThreshold) total_usdc_from_sell += amount;
+                    if (isStableMint(output.mint) && amount >= significanceThreshold) {
+                        totalStableFromSell.set(output.mint, (totalStableFromSell.get(output.mint) || 0) + amount);
+                    }
                 }
             }
 
@@ -226,37 +351,52 @@ function findIntermediaryValueFromEvent(
                 for (const input of innerSwap.tokenInputs || []) {
                      const amount = Math.abs(safeParseAmount(input));
                     if (input.mint === SOL_MINT && amount >= significanceThreshold) total_wsol_to_buy += amount;
-                    if (input.mint === USDC_MINT && amount >= significanceThreshold) total_usdc_to_buy += amount;
+                    if (isStableMint(input.mint) && amount >= significanceThreshold) {
+                        totalStableToBuy.set(input.mint, (totalStableToBuy.get(input.mint) || 0) + amount);
+                    }
                 }
             }
         }
-        // logger.debug(`Event Matcher: Calculated Values - SOL Sell: ${total_wsol_from_sell.toFixed(9)}, SOL Buy: ${total_wsol_to_buy.toFixed(9)}, USDC Sell: ${total_usdc_from_sell.toFixed(9)}, USDC Buy: ${total_usdc_to_buy.toFixed(9)}. Sig: ${tx.signature}`); // Removed debug
+        // logger.debug(`Event Matcher: Calculated Values - SOL Sell: ${total_wsol_from_sell.toFixed(9)}, SOL Buy: ${total_wsol_to_buy.toFixed(9)}, Stable Sell/Buy calculated via per-mint totals. Sig: ${tx.signature}`); // Removed debug
 
         // 3. Consistency Check & Decision
         const tolerance = 0.01; // Allow 1% difference
         let solConsistent = false;
-        let usdcConsistent = false;
+        let stableConsistent = false;
+        let selectedStableValue = 0;
 
         if (total_wsol_from_sell >= significanceThreshold && total_wsol_to_buy >= significanceThreshold) {
             solConsistent = Math.abs(total_wsol_from_sell - total_wsol_to_buy) <= tolerance * Math.max(total_wsol_from_sell, total_wsol_to_buy);
         }
-        if (total_usdc_from_sell >= significanceThreshold && total_usdc_to_buy >= significanceThreshold) {
-            usdcConsistent = Math.abs(total_usdc_from_sell - total_usdc_to_buy) <= tolerance * Math.max(total_usdc_from_sell, total_usdc_to_buy);
+        const consistentStableValues = new Map<string, number>();
+        for (const [mint, fromSell] of totalStableFromSell.entries()) {
+            const toBuy = totalStableToBuy.get(mint) || 0;
+            if (fromSell >= significanceThreshold && toBuy >= significanceThreshold) {
+                const consistent = Math.abs(fromSell - toBuy) <= tolerance * Math.max(fromSell, toBuy);
+                if (consistent) {
+                    consistentStableValues.set(mint, fromSell);
+                }
+            }
+        }
+        const selectedStable = pickStableValueByPreference(consistentStableValues, tolerance);
+        if (selectedStable) {
+            stableConsistent = true;
+            selectedStableValue = selectedStable.value;
         }
 
-        if (solConsistent && (!usdcConsistent || total_usdc_from_sell < significanceThreshold)) {
+        if (solConsistent && !stableConsistent) {
             // logger.debug(`Event Matcher: Found consistent SOL value: ${total_wsol_from_sell.toFixed(9)}. Sig: ${tx.signature}`); // Removed debug
             currentResult.solValue = total_wsol_from_sell;
             stats.eventMatcherConsistentSolFound++;
             return currentResult;
-        } else if (usdcConsistent && (!solConsistent || total_wsol_from_sell < significanceThreshold)) {
-            // logger.debug(`Event Matcher: Found consistent USDC value: ${total_usdc_from_sell.toFixed(9)}. Sig: ${tx.signature}`); // Removed debug
-            currentResult.usdcValue = total_usdc_from_sell;
+        } else if (stableConsistent && !solConsistent) {
+            // logger.debug(`Event Matcher: Found consistent stable value: ${selectedStableValue.toFixed(9)}. Sig: ${tx.signature}`); // Removed debug
+            currentResult.usdcValue = selectedStableValue;
             stats.eventMatcherConsistentUsdcFound++;
             return currentResult;
         } else {
-             if (solConsistent || usdcConsistent) {
-                 logger.warn(`Event Matcher: Ambiguous - Cannot choose between consistent SOL (${solConsistent}) and USDC (${usdcConsistent}). Sig: ${tx.signature}`);
+             if (solConsistent || stableConsistent) {
+                 logger.warn(`Event Matcher: Ambiguous - Cannot choose between consistent SOL (${solConsistent}) and stable (${stableConsistent}). Sig: ${tx.signature}`);
                  stats.eventMatcherAmbiguous++;
              } else {
                  // logger.debug(`Event Matcher: No single consistent intermediary value found. Sig: ${tx.signature}`); // Removed debug
@@ -279,16 +419,19 @@ function findIntermediaryValueFromEvent(
  * 1. Skip errored transactions, initialise per-tx stats.
  * 2. Build a quick lookup Set (`userAccounts`) that contains the wallet address and
  *    every token account that belongs to the wallet inside this transaction.
- * 3. Compute net user changes (native SOL, WSOL, USDC) & heuristics values that
- *    will later be used to price SPL legs that are not SOL/USDC themselves.
+ * 3. Compute net user changes (native SOL, WSOL, stablecoins) & heuristics values that
+ *    will later be used to price SPL legs that are not SOL/stable themselves.
  * 4. Process Native SOL transfers – always push rows, value = amount.
  * 5. Apply the "fee-payer" heuristics that attribute swap legs to the wallet
  *    when it acted as fee payer for a routing contract.
  * 6. Process every SPL `tokenTransfer` and use a *tiered* strategy to derive
  *    `associatedSolValue` / `associatedUsdcValue` (event matcher, WSOL
  *    intermediary, total movement, net change etc.).
+ *    NOTE: `associatedUsdcValue` is the *stable USD value* and can come from
+ *    USDC/USDT/USD1. We only assign one stable value per leg (within tolerance)
+ *    to avoid double counting when a route hops through multiple stables.
  * 7. NEW (2025-06-24): After all rows for this transaction are created we run a
- *    proportional redistribution that guarantees the **aggregate** SOL/USDC
+ *    proportional redistribution that guarantees the **aggregate** SOL/stable
  *    value is correct while avoiding double counting when the same
  *    `mint+direction` appears in multiple chunks.
  * 8. Update mapping statistics and return `{ analysisInputs, stats }` for bulk
@@ -320,6 +463,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
     otherTokenTransfersProcessed: 0,
     feePayerHeuristicApplied: 0,
     feesCalculated: 0,
+    feeSelfHealingTriggered: 0,
     // --- Initialize New Counters ---
     eventMatcherAttempts: 0,
     eventMatcherPrimaryMintsIdentified: 0,
@@ -338,6 +482,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
     unknownTxSkippedNoJito: 0,
     // --- End Initialize New Counters ---
   };
+  const feeSelfHealingExamples: string[] = [];
 
   for (const tx of transactions) {
     if (tx.transactionError) {
@@ -420,6 +565,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
     try {
       const processedRecordKeys = new Set<string>();
+      let feeAssignedForSignature = false;
       const lowerWalletAddress = walletAddress.toLowerCase(); // Ensure this is defined early
 
       // Commenting out userPaidTokenFeesMap as we are trying a new broader heuristic first
@@ -459,10 +605,10 @@ export function mapHeliusTransactionsToIntermediateRecords(
           }
       }
 
-      // Calculate the net change in Native SOL, WSOL, and USDC for the user
+      // Calculate the net change in Native SOL, WSOL, and stablecoins for the user
       let netNativeSolChange = 0;
       let wsolChange = 0;
-      let usdcChange = 0;
+      const stableNetChanges = new Map<string, number>();
 
       for (const ad of tx.accountData || []) {
            if (ad.account.toLowerCase() === lowerWalletAddress) {
@@ -473,44 +619,127 @@ export function mapHeliusTransactionsToIntermediateRecords(
                    if (tbc.userAccount?.toLowerCase() === lowerWalletAddress) {
                        const changeAmount = parseRawTokenAmount(tbc.rawTokenAmount);
                        if (tbc.mint === SOL_MINT) wsolChange += changeAmount;
-                       if (tbc.mint === USDC_MINT) usdcChange += changeAmount;
+                       if (isStableMint(tbc.mint)) {
+                           stableNetChanges.set(tbc.mint, (stableNetChanges.get(tbc.mint) || 0) + changeAmount);
+                       }
                    }
                }
            }
       }
       const finalNetUserSolChange = netNativeSolChange + wsolChange;
-      const finalNetUserUsdcChange = usdcChange;
-      // logger.debug(`Tx ${tx.signature}: Net Native SOL Change=${netNativeSolChange.toFixed(9)}, WSOL Change=${wsolChange.toFixed(9)}, USDC Change=${usdcChange.toFixed(9)} -> Final Net SOL=${finalNetUserSolChange.toFixed(9)}, Final Net USDC=${finalNetUserUsdcChange.toFixed(9)}`); // Removed debug
+      const stableNetChangeAbs = new Map<string, number>();
+      for (const [mint, change] of stableNetChanges.entries()) {
+          stableNetChangeAbs.set(mint, Math.abs(change));
+      }
+      const selectedStableNetChange = pickStableValueByPreference(stableNetChangeAbs, STABLE_VALUE_TOLERANCE);
+      const finalNetUserStableChange = selectedStableNetChange?.value ?? 0;
+      // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}: Net Native SOL Change=${netNativeSolChange.toFixed(9)}, WSOL Change=${wsolChange.toFixed(9)}, Stable Change=${finalNetUserStableChange.toFixed(9)} -> Final Net SOL=${finalNetUserSolChange.toFixed(9)}`);
 
-      // Calculate the total absolute movement and largest transfer of WSOL/USDC
+      // Calculate gross native SOL flows (for cases where net change is near zero but user spent SOL)
+      // This handles pump.fun and similar patterns where SOL is received and immediately spent
+      let grossNativeSolOut = 0;
+      let grossNativeSolIn = 0;
+      for (const transfer of tx.nativeTransfers || []) {
+          const isFromUser = transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress;
+          const isToUser = transfer.toUserAccount?.toLowerCase() === lowerWalletAddress;
+          if (isFromUser || isToUser) {
+              const rawLamports = transfer.amount;
+              if (rawLamports !== undefined && rawLamports !== null) {
+                  const lamportsNum = typeof rawLamports === 'string' ? parseInt(rawLamports, 10) : Number(rawLamports);
+                  if (!isNaN(lamportsNum) && lamportsNum > 0) {
+                      const solAmount = lamportsToSol(lamportsNum);
+                      if (isFromUser) grossNativeSolOut += solAmount;
+                      if (isToUser) grossNativeSolIn += solAmount;
+                  }
+              }
+          }
+      }
+
+      // Calculate the total absolute movement and largest transfer of WSOL/stablecoins
+      // Only count transfers involving the user (exclude router/router hops) to avoid double-counting.
       let totalWsolMovement = 0;
       let largestWsolTransfer = 0;
-      let totalUsdcMovement = 0;
+      let largestWsolTransferForSplDetection = 0; // Count ALL WSOL transfers for SPL-to-SPL detection
+      let totalWsolForSplValue = 0; // Sum of ALL WSOL transfers for SPL-to-SPL value calculation
+      const stableFlows = new Map<string, { in: number; out: number }>();
       for (const transfer of tx.tokenTransfers || []) {
           if (transfer.mint === SOL_MINT) {
               let wsolAmount = Math.abs(safeParseAmount(transfer));
 
-              // Apply same Helius bug mitigation as main WSOL processing
-              if (wsolAmount > 100000) {
-                  const expectedSolChange = Math.abs(finalNetUserSolChange);
+              // HELIUS BUG MITIGATION: Apply same self-healing logic as main WSOL processing (lines 791-870)
+              // This ensures totalWsolMovement and largestWsolTransfer are correctly calculated
+              if (wsolAmount > 1000) {
                   const scaledAmount = wsolAmount / LAMPORTS_PER_SOL;
-                  const tolerance = 0.20;
-                  const lowerBound = expectedSolChange * (1 - tolerance);
-                  const upperBound = expectedSolChange * (1 + tolerance);
+                  const expectedSolChange = Math.abs(finalNetUserSolChange);
 
-                  if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
-                      wsolAmount = scaledAmount; // Auto-correct raw lamports
+                  const rawDiff = Math.abs(wsolAmount - expectedSolChange);
+                  const scaledDiff = Math.abs(scaledAmount - expectedSolChange);
+
+                  // Convert if scaled is 10x+ closer to expected
+                  if (scaledDiff < rawDiff * 0.1) {
+                      wsolAmount = scaledAmount;
+                  } else if (wsolAmount > 1000000 && scaledAmount < 0.001) {
+                      // Edge case: millions+ that scale to dust
+                      wsolAmount = scaledAmount;
                   }
               }
+
+              // Track WSOL transfers for SPL-to-SPL detection and value calculation (count ALL transfers)
+              if (wsolAmount > largestWsolTransferForSplDetection) largestWsolTransferForSplDetection = wsolAmount;
+              totalWsolForSplValue += wsolAmount;
+
+              const fromUser =
+                transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress ||
+                (transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount));
+              const toUser =
+                transfer.toUserAccount?.toLowerCase() === lowerWalletAddress ||
+                (transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount));
+
+              // Ignore transfers not involving the user and internal user self-moves.
+              // This check only applies to totalWsolMovement/largestWsolTransfer for the movement heuristic
+              if (!fromUser && !toUser) continue;
+              if (fromUser && toUser) continue;
 
               totalWsolMovement += wsolAmount;
               if (wsolAmount > largestWsolTransfer) largestWsolTransfer = wsolAmount;
           }
-          if (transfer.mint === USDC_MINT) {
-              totalUsdcMovement += Math.abs(safeParseAmount(transfer));
+          if (isStableMint(transfer.mint)) {
+              const stableAmount = Math.abs(safeParseAmount(transfer));
+              const fromUser =
+                transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress ||
+                (transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount));
+              const toUser =
+                transfer.toUserAccount?.toLowerCase() === lowerWalletAddress ||
+                (transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount));
+
+              if (!fromUser && !toUser) continue;
+              if (fromUser && toUser) continue;
+
+              const flow = stableFlows.get(transfer.mint) || { in: 0, out: 0 };
+              if (toUser) flow.in += stableAmount;
+              else flow.out += stableAmount;
+              stableFlows.set(transfer.mint, flow);
           }
       }
-      // logger.debug(`Tx ${tx.signature}: Total WSOL Movement = ${totalWsolMovement.toFixed(9)}, Largest WSOL Transfer = ${largestWsolTransfer.toFixed(9)}, Total USDC Movement = ${totalUsdcMovement.toFixed(9)}`); // Removed debug
+      const stableMovementByMint = new Map<string, number>();
+      const stableMovementByMintDominant = new Map<string, number>();
+      for (const [mint, flow] of stableFlows.entries()) {
+          const maxSide = Math.max(flow.in, flow.out);
+          const netSide = Math.abs(flow.in - flow.out);
+          if (maxSide === 0) continue;
+          stableMovementByMint.set(mint, maxSide);
+          if (netSide / maxSide >= STABLE_NET_DOMINANCE) {
+              stableMovementByMintDominant.set(mint, maxSide);
+          }
+      }
+      const selectedStableMovementAll = pickStableValueByPreference(stableMovementByMint, STABLE_VALUE_TOLERANCE);
+      const selectedStableMovementDominant = pickStableValueByPreference(stableMovementByMintDominant, STABLE_VALUE_TOLERANCE);
+      const totalStableMovement =
+        totalWsolMovement >= SOL_SIGNIFICANCE_THRESHOLD
+          ? (selectedStableMovementDominant?.value ?? 0)
+          : (selectedStableMovementAll?.value ?? 0);
+      // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}: Total WSOL Movement = ${totalWsolMovement.toFixed(9)}, Largest WSOL Transfer = ${largestWsolTransfer.toFixed(9)}, Total Stable Movement = ${totalStableMovement.toFixed(9)}`);
+      // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}: stableFlows = ${JSON.stringify(Array.from(stableFlows.entries()).map(([mint, flow]) => ({ mint, in: flow.in, out: flow.out })))}`);
 
       // --- Heuristic Pre-calculation: Find largest transfer amount for each mint in this transaction ---
       const largestAmountsPerMintInTx = new Map<string, number>(); // Key: mint, Value: largest absolute amount
@@ -539,7 +768,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
       const userNonWsolTokensOut = new Set<string>();
       const userNonWsolTokensIn = new Set<string>();
       for (const transfer of tx.tokenTransfers || []) {
-          if (!transfer.mint || transfer.mint === SOL_MINT) continue;
+          if (!transfer.mint) continue;
+          if (transfer.mint === SOL_MINT || isStableMint(transfer.mint)) continue;
           const isFromUser = transfer.fromUserAccount?.toLowerCase() === lowerWalletAddress;
           const isToUser = transfer.toUserAccount?.toLowerCase() === lowerWalletAddress;
           if (isFromUser && !isToUser) userNonWsolTokensOut.add(transfer.mint);
@@ -549,10 +779,11 @@ export function mapHeliusTransactionsToIntermediateRecords(
       const maxTokenTypesForSimpleSwap = 3; // Heuristic threshold
       const hasReasonableTokenCount = userNonWsolTokensOut.size <= maxTokenTypesForSimpleSwap && userNonWsolTokensIn.size <= maxTokenTypesForSimpleSwap;
       const absSolChange = Math.abs(finalNetUserSolChange);
-      const isApproximatelyDouble = largestWsolTransfer > 0 && (Math.abs(absSolChange - (2 * largestWsolTransfer)) / absSolChange < 0.20); // Ratio check heuristic
-      if (hasTokensInBothDirections && largestWsolTransfer > 0 && (isApproximatelyDouble || hasReasonableTokenCount)) {
+      const isApproximatelyDouble = largestWsolTransferForSplDetection > 0 && (Math.abs(absSolChange - (2 * largestWsolTransferForSplDetection)) / absSolChange < 0.20); // Ratio check heuristic
+      if (hasTokensInBothDirections && largestWsolTransferForSplDetection > 0 && (isApproximatelyDouble || hasReasonableTokenCount)) {
           isSplToSplSwap = true;
-          correctSolValueForSplToSpl = largestWsolTransfer; // Use largest WSOL transfer as value
+          // For simple swaps (ratio check passes), use WSOL amount; for complex swaps, use average WSOL transferred (fair value of each side)
+          correctSolValueForSplToSpl = isApproximatelyDouble ? largestWsolTransferForSplDetection : (totalWsolForSplValue / 2);
           mappingStats.splToSplSwapDetections++;
           // logger.debug(`Detected SPL-to-SPL swap with WSOL intermediary: ${tx.signature}`); // Removed debug
           // logger.debug(`Using largest WSOL transfer (${correctSolValueForSplToSpl.toFixed(9)}) as SOL value.`); // Removed debug
@@ -619,15 +850,16 @@ export function mapHeliusTransactionsToIntermediateRecords(
           const swapEvent = tx.events.swap;
           let heuristicAssociatedSolValue = 0;
           let heuristicAssociatedUsdcValue = 0;
+          const stableHeuristicValues = new Map<string, number>();
 
-          // Determine SOL/USDC value of this specific swap event more globally
+          // Determine SOL/stable value of this specific swap event more globally
           // Prioritize WSOL from outputs first, then inputs for heuristic SOL value.
           for (const out of swapEvent.tokenOutputs || []) {
               if (out.mint === SOL_MINT) {
                   heuristicAssociatedSolValue = Math.max(heuristicAssociatedSolValue, Math.abs(safeParseAmount(out)));
               }
-              if (out.mint === USDC_MINT) {
-                  heuristicAssociatedUsdcValue = Math.max(heuristicAssociatedUsdcValue, Math.abs(safeParseAmount(out)));
+              if (isStableMint(out.mint)) {
+                  stableHeuristicValues.set(out.mint, Math.max(stableHeuristicValues.get(out.mint) || 0, Math.abs(safeParseAmount(out))));
               }
           }
           // If no significant SOL value found in outputs, check inputs.
@@ -638,29 +870,36 @@ export function mapHeliusTransactionsToIntermediateRecords(
                   }
               }
           }
-          // If no significant USDC value found in outputs, check inputs.
-          if (heuristicAssociatedUsdcValue < FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC) {
-              for (const inp of swapEvent.tokenInputs || []) {
-                  if (inp.mint === USDC_MINT) {
-                      heuristicAssociatedUsdcValue = Math.max(heuristicAssociatedUsdcValue, Math.abs(safeParseAmount(inp)));
-                  }
+          // If no significant stable value found in outputs, check inputs.
+          for (const inp of swapEvent.tokenInputs || []) {
+              if (isStableMint(inp.mint)) {
+                  stableHeuristicValues.set(inp.mint, Math.max(stableHeuristicValues.get(inp.mint) || 0, Math.abs(safeParseAmount(inp))));
               }
           }
 
           // Fallback to innerSwaps if still not significant enough from top-level event data
-          if ((heuristicAssociatedSolValue < FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL && heuristicAssociatedUsdcValue < FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC) && swapEvent.innerSwaps) {
+          if ((heuristicAssociatedSolValue < FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL && stableHeuristicValues.size === 0) && swapEvent.innerSwaps) {
               for (const inner of swapEvent.innerSwaps) {
                   for (const out of inner.tokenOutputs || []) {
                       const amount = Math.abs(safeParseAmount(out));
                       if (out.mint === SOL_MINT) heuristicAssociatedSolValue = Math.max(heuristicAssociatedSolValue, amount);
-                      if (out.mint === USDC_MINT) heuristicAssociatedUsdcValue = Math.max(heuristicAssociatedUsdcValue, amount);
+                      if (isStableMint(out.mint)) {
+                          stableHeuristicValues.set(out.mint, Math.max(stableHeuristicValues.get(out.mint) || 0, amount));
+                      }
                   }
                   for (const inp of inner.tokenInputs || []) {
                       const amount = Math.abs(safeParseAmount(inp));
                       if (inp.mint === SOL_MINT) heuristicAssociatedSolValue = Math.max(heuristicAssociatedSolValue, amount);
-                      if (inp.mint === USDC_MINT) heuristicAssociatedUsdcValue = Math.max(heuristicAssociatedUsdcValue, amount);
+                      if (isStableMint(inp.mint)) {
+                          stableHeuristicValues.set(inp.mint, Math.max(stableHeuristicValues.get(inp.mint) || 0, amount));
+                      }
                   }
               }
+          }
+
+          const selectedStableHeuristic = pickStableValueByPreference(stableHeuristicValues, STABLE_VALUE_TOLERANCE);
+          if (selectedStableHeuristic) {
+              heuristicAssociatedUsdcValue = selectedStableHeuristic.value;
           }
           
           const meetsSolSignificance = heuristicAssociatedSolValue >= FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL;
@@ -674,8 +913,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
               // Process token inputs of the swap event as 'out' for walletAddress
               for (const tokenIn of swapEvent.tokenInputs || []) {
                   const inputMint = tokenIn.mint;
-                  // Only attribute SPL tokens this way, not the SOL/USDC itself if it's the value metric
-                  if (!inputMint || inputMint === SOL_MINT || inputMint === USDC_MINT) continue;
+                  // Only attribute SPL tokens this way, not the SOL/stable itself if it's the value metric
+                  if (!inputMint || inputMint === SOL_MINT || isStableMint(inputMint)) continue;
 
                   const inputAmount = safeParseAmount(tokenIn);
                   const isFeePayerTheOwner = tokenIn.userAccount?.toLowerCase() === lowerWalletAddress ||
@@ -686,7 +925,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
                       if (!processedRecordKeys.has(recordKey)) {
                           analysisInputs.push({
                               walletAddress: walletAddress, signature: tx.signature, timestamp: tx.timestamp,
-                              mint: inputMint, amount: -Math.abs(inputAmount), direction: 'out',
+                              mint: inputMint, amount: Math.abs(inputAmount), direction: 'out',
                               associatedSolValue: heuristicAssociatedSolValue,
                               associatedUsdcValue: heuristicAssociatedUsdcValue,
                               interactionType: 'SWAP_FEE_PAYER',
@@ -701,7 +940,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
               // Process token outputs of the swap event as 'in' for walletAddress
               for (const tokenOut of swapEvent.tokenOutputs || []) {
                   const outputMint = tokenOut.mint;
-                  if (!outputMint || outputMint === SOL_MINT || outputMint === USDC_MINT) continue;
+                  if (!outputMint || outputMint === SOL_MINT || isStableMint(outputMint)) continue;
 
                   const outputAmount = safeParseAmount(tokenOut);
                   const isFeePayerTheOwner = tokenOut.userAccount?.toLowerCase() === lowerWalletAddress ||
@@ -734,9 +973,11 @@ export function mapHeliusTransactionsToIntermediateRecords(
       // Process SPL Token Transfers
       const txStartIndex = analysisInputs.length; // Capture start index for this transaction
       for (const transfer of tx.tokenTransfers || []) {
-            let currentTransferAmount = 0, mint: string | undefined, isWsol = false, isUsdc = false;
+            let currentTransferAmount = 0, mint: string | undefined, isWsol = false, isStable = false;
             let direction: 'in' | 'out' | null = null;
             let associatedSolValue = 0, associatedUsdcValue = 0;
+            let associatedSolValueSource: 'none' | 'wsol' | 'stable' | 'event' | 'spl-to-spl' | 'total-movement' | 'gross-out' | 'net-change' = 'none';
+            let associatedUsdcValueSource: 'none' | 'stable' | 'event' | 'total-movement' | 'net-change' = 'none';
 
              currentTransferAmount = safeParseAmount(transfer); 
              const currentAbsTransferAmount = Math.abs(currentTransferAmount);
@@ -744,14 +985,26 @@ export function mapHeliusTransactionsToIntermediateRecords(
              if (currentAbsTransferAmount === 0) continue;
              mint = transfer.mint;
              if (!mint) continue;
-             isWsol = mint === SOL_MINT; isUsdc = mint === USDC_MINT;
+             isWsol = mint === SOL_MINT; isStable = isStableMint(mint);
 
              const fromUserTA = transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount);
              const toUserTA = transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount);
-             if (toUserTA && !fromUserTA) direction = 'in';
-             else if (fromUserTA && !toUserTA) direction = 'out';
-             else if (fromUserTA && toUserTA) direction = 'out'; // Treat self-transfers as 'out'
-             if (!direction) continue;
+
+            // Detect burns: transfer to empty/null token account (true burns have no destination)
+            // NOTE: toUserAccount can be empty in legitimate swaps (token goes to DEX/program)
+            // We only consider it a burn if BOTH toUserAccount AND toTokenAccount are empty
+            const isBurn = fromUserTA && (
+                (!transfer.toTokenAccount || transfer.toTokenAccount === "") &&
+                (!transfer.toUserAccount || transfer.toUserAccount === "")
+            );
+
+            if (toUserTA && !fromUserTA) direction = 'in';
+            else if (fromUserTA && !toUserTA) direction = 'out';
+            else if (fromUserTA && toUserTA) {
+                // Ignore self-transfers to avoid distorting FIFO inventory.
+                continue;
+            }
+            if (!direction) continue;
 
              // --- Duplicate value-assignment guard ---
              const mintDirectionKey = `${mint}:${direction}`;
@@ -761,69 +1014,129 @@ export function mapHeliusTransactionsToIntermediateRecords(
              // The actual assignment logic is done *after* we determine the candidate values.
              // --- End duplicate guard placeholder ---
 
-             // --- Apply Heuristic for Small Outgoing Transfers --- 
-             let applyFeeHeuristic = false;
-             if (direction === 'out' && mint && largestAmountsPerMintInTx.has(mint)) {
-                const largestAmtForThisMint = largestAmountsPerMintInTx.get(mint)!;
-                const countForThisMint = mintTransferCountsInTx.get(mint) || 0;
-
-                if (countForThisMint > 1 && 
-                    currentAbsTransferAmount < largestAmtForThisMint && // Ensure it's not the largest amount itself
-                    currentAbsTransferAmount < (TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD * largestAmtForThisMint)) {
-                    applyFeeHeuristic = true;
-                    mappingStats.smallOutgoingHeuristicApplied++;
-                }
-             }
-
-             if (applyFeeHeuristic) {
+             // --- Burn Detection: Skip Value Attribution ---
+             // Burns (transfers to empty address) have no economic value
+             // Any SOL movement is rent reclaim, not asset value
+             if (isBurn) {
                 associatedSolValue = 0;
                 associatedUsdcValue = 0;
-             } else {
+             }
+             // --- Apply Heuristic for Small Outgoing Transfers ---
+             else {
+                let applyFeeHeuristic = false;
+                if (direction === 'out' && mint && largestAmountsPerMintInTx.has(mint)) {
+                   const largestAmtForThisMint = largestAmountsPerMintInTx.get(mint)!;
+                   const countForThisMint = mintTransferCountsInTx.get(mint) || 0;
+
+                   if (countForThisMint > 1 &&
+                       currentAbsTransferAmount < largestAmtForThisMint && // Ensure it's not the largest amount itself
+                       currentAbsTransferAmount < (TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD * largestAmtForThisMint)) {
+                       applyFeeHeuristic = true;
+                       mappingStats.smallOutgoingHeuristicApplied++;
+                   }
+                }
+
+                if (applyFeeHeuristic) {
+                   associatedSolValue = 0;
+                   associatedUsdcValue = 0;
+                } else {
                  // --- Original Value Association Logic (if not a heuristic-identified fee) ---
                  if (isWsol) {
-                      // HELIUS API BUG MITIGATION:
-                      // Helius claims tokenAmount is human-readable (already scaled by decimals),
-                      // but sometimes provides RAW lamport values for WSOL instead.
-                      // Self-healing approach: Cross-validate with native balance changes.
+                      // ============================================================================
+                      // HELIUS API BUG MITIGATION: WSOL tokenAmount Inconsistent Scaling
+                      // ============================================================================
+                      //
+                      // PROBLEM:
+                      // Helius API documentation claims that `tokenAmount` in `tokenTransfers` is
+                      // always "human-readable" (already scaled by token decimals). However, in
+                      // practice, WSOL (Wrapped SOL) tokenAmount is sometimes provided as:
+                      //   - Correct: 0.00008073 SOL (human-readable, 9 decimal places)
+                      //   - Incorrect: 80730 (raw lamports, needs division by 10^9)
+                      //
+                      // IMPACT:
+                      // Without mitigation, incorrect lamport values cause catastrophic P&L errors:
+                      //   - Example: 80730 lamports (0.00008073 SOL) reported as 80730 SOL
+                      //   - Result: Wallet P&L shows -6,005,592 SOL (-$749.5M) instead of -0.006 SOL
+                      //
+                      // DETECTION STRATEGY:
+                      // 1. Only check values > 1000 (normal swaps are 0.001-100 SOL, unaffected)
+                      // 2. Cross-reference with `nativeBalanceChange` (always reliable, in lamports)
+                      // 3. Compare raw vs scaled distance to expected SOL change
+                      // 4. Only convert if scaled value is 10x+ closer (high confidence)
+                      //
+                      // EXAMPLES:
+                      //
+                      // Case 1: Broken transaction (lamports sent instead of SOL)
+                      //   wsolAmount = 80730
+                      //   expectedSolChange = 0.000166718 SOL (from nativeBalanceChange)
+                      //   scaledAmount = 80730 / 10^9 = 0.00008073 SOL
+                      //   rawDiff = |80730 - 0.000166718| = 80729.9... (huge!)
+                      //   scaledDiff = |0.00008073 - 0.000166718| = 0.000086 (tiny)
+                      //   → scaledDiff < rawDiff * 0.1? YES → Convert to 0.00008073 SOL ✅
+                      //
+                      // Case 2: Normal transaction (correctly scaled)
+                      //   wsolAmount = 0.008173512 SOL
+                      //   → Value < 1000, validation never triggers → Use as-is ✅
+                      //
+                      // Case 3: Whale transfer (legitimate large amount)
+                      //   wsolAmount = 5000 SOL
+                      //   expectedSolChange ≈ 5000 SOL
+                      //   scaledAmount = 5000 / 10^9 = 0.000005 SOL
+                      //   rawDiff ≈ 0 (already correct)
+                      //   scaledDiff ≈ 5000 (would be wrong)
+                      //   → scaledDiff < rawDiff * 0.1? NO → Keep 5000 SOL ✅
+                      //
+                      // NOTE: This issue was discovered on 2025-01-23 affecting wallet
+                      // qdnviuUs22gNUEzSK6pLxQVsYqzGBYvqe8jznbFhJiW with multiple transactions
+                      // showing lamport values instead of SOL.
+                      // ============================================================================
 
                       let wsolAmount = currentAbsTransferAmount;
 
-                      // Threshold: If WSOL amount > 100,000, it's likely raw lamports (not scaled)
-                      // Reasoning: Lamports are always in millions+ range, real SOL amounts rarely exceed 100k in single transfers
-                      if (wsolAmount > 100000) {
-                          // Potential raw lamports detected - validate against actual native SOL changes
-                          const expectedSolChange = Math.abs(finalNetUserSolChange); // This is already in SOL
+                      // Trigger validation only for suspiciously large values (> 1000 SOL)
+                      // Most legitimate swaps are well below this threshold
+                      if (wsolAmount > 1000) {
                           const scaledAmount = wsolAmount / LAMPORTS_PER_SOL;
+                          const expectedSolChange = Math.abs(finalNetUserSolChange); // Reliable reference from nativeBalanceChange
 
-                          // Cross-validate: If scaled amount matches native change (within 20% tolerance), it was raw lamports
-                          // Tolerance accounts for: fees, multiple WSOL transfers, wrapped/unwrapped amounts
-                          const tolerance = 0.20; // 20% tolerance
-                          const lowerBound = expectedSolChange * (1 - tolerance);
-                          const upperBound = expectedSolChange * (1 + tolerance);
+                          // Calculate distance from expected value for both raw and scaled versions
+                          const rawDiff = Math.abs(wsolAmount - expectedSolChange);
+                          const scaledDiff = Math.abs(scaledAmount - expectedSolChange);
 
-                          if (scaledAmount >= lowerBound && scaledAmount <= upperBound) {
-                              // CONFIRMED: This was raw lamports, not human-readable SOL
+                          // PRIMARY CHECK: Is scaled version significantly closer to expected? (10x+ closer)
+                          // This high threshold ensures we don't mistakenly convert legitimate whale transfers
+                          if (scaledDiff < rawDiff * 0.1) {
+                              logger.warn(
+                                  `Tx ${tx.signature}: Helius WSOL bug confirmed - tokenAmount ${wsolAmount.toFixed(0)} is lamports. ` +
+                                  `Auto-corrected to ${scaledAmount.toFixed(9)} SOL (validated against native change: ${expectedSolChange.toFixed(9)} SOL)`
+                              );
                               wsolAmount = scaledAmount;
-                              // logger.warn(
-                              //     `Tx ${tx.signature}: Helius API bug detected - WSOL tokenAmount provided as raw lamports (${currentAbsTransferAmount}). ` +
-                              //     `Auto-corrected to ${wsolAmount.toFixed(9)} SOL (validated against native change: ${expectedSolChange.toFixed(9)} SOL)`
-                              // );
+                          } else if (wsolAmount > 1000000 && scaledAmount < 0.001) {
+                              // EDGE CASE: Value is millions+ but scaled is dust
+                              // This pattern (e.g., 6,005,592 → 0.006 SOL) is definitely lamports
+                              // even if nativeBalanceChange doesn't match (due to multiple WSOL movements)
+                              logger.warn(
+                                  `Tx ${tx.signature}: Helius WSOL bug confirmed (edge case) - tokenAmount ${wsolAmount.toFixed(0)} is lamports. ` +
+                                  `Auto-corrected to ${scaledAmount.toFixed(9)} SOL`
+                              );
+                              wsolAmount = scaledAmount;
                           } else {
-                              // Value is genuinely large (whale transfer) - keep as-is but log for visibility
+                              // VALIDATION FAILED: Keep raw value as it appears legitimate
+                              // This protects genuine whale transfers (e.g., 5000 SOL transfers)
                               logger.info(
-                                  `Tx ${tx.signature}: Large WSOL transfer detected: ${wsolAmount.toFixed(9)} SOL. ` +
-                                  `Native change: ${expectedSolChange.toFixed(9)} SOL. No auto-correction applied.`
+                                  `Tx ${tx.signature}: Large WSOL value ${wsolAmount.toFixed(2)} validated as correct SOL amount ` +
+                                  `(not lamports - native change: ${expectedSolChange.toFixed(9)} SOL)`
                               );
                           }
                       }
 
                       associatedSolValue = wsolAmount;
-                 } else if (isUsdc) {
-                      associatedUsdcValue = currentAbsTransferAmount; // USDC value is its amount
+                      associatedSolValueSource = 'wsol';
+                 } else if (isStable) {
+                      associatedUsdcValue = currentAbsTransferAmount; // Stable USD value equals token amount
+                      associatedUsdcValueSource = 'stable';
                  } else {
-                      // Non-WSOL/USDC: Use tiered logic
-                       const netChangeSignificanceThreshold = 0.0001;
-                       const movementSignificanceThreshold = 0.0001;
+                      // Non-WSOL/stable: Use tiered logic (thresholds defined at module level)
 
                        if (interactionType === 'CREATE_POOL') {
                            // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL type. Applying specific logic.`);
@@ -835,32 +1148,46 @@ export function mapHeliusTransactionsToIntermediateRecords(
                            const isPrimaryInTokenFromEvent = direction === 'in' && mint === eventResult.primaryInMint;
  
                            if ((isPrimaryInTokenFromEvent || isPrimaryOutTokenFromEvent)) {
-                               if (eventSolFound) { associatedSolValue = eventResult.solValue; eventValueApplied = true; }
-                               else if (eventUsdcFound) { associatedUsdcValue = eventResult.usdcValue; eventValueApplied = true; }
+                               if (eventSolFound) { associatedSolValue = eventResult.solValue; associatedSolValueSource = 'event'; eventValueApplied = true; }
+                               else if (eventUsdcFound) { associatedUsdcValue = eventResult.usdcValue; associatedUsdcValueSource = 'event'; eventValueApplied = true; }
                            }
  
                            if (!eventValueApplied) {
                                const absSolChange = Math.abs(finalNetUserSolChange);
-                               const absUsdcChange = Math.abs(finalNetUserUsdcChange);
- 
-                               if (absSolChange >= netChangeSignificanceThreshold && absUsdcChange < netChangeSignificanceThreshold) {
+                               const absStableChange = Math.abs(finalNetUserStableChange);
+                               const solIsSignificant = absSolChange >= SOL_SIGNIFICANCE_THRESHOLD;
+                               const stableIsSignificant = absStableChange >= STABLE_SIGNIFICANCE_THRESHOLD;
+
+                               // Priority: Prefer SOL as single source of truth
+                               // Only use stable when SOL is suspiciously tiny but stable is huge (routing/fee case)
+                               if (solIsSignificant && !stableIsSignificant) {
                                    associatedSolValue = absSolChange;
+                                   associatedSolValueSource = 'net-change';
                                    // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - Assigned via Net SOL Change: ${associatedSolValue.toFixed(9)}`);
-                               } else if (absUsdcChange >= netChangeSignificanceThreshold && absSolChange < netChangeSignificanceThreshold) {
-                                   associatedUsdcValue = absUsdcChange;
-                                   // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - Assigned via Net USDC Change: ${associatedUsdcValue.toFixed(9)}`);
-                               } else if (absSolChange >= netChangeSignificanceThreshold && absUsdcChange >= netChangeSignificanceThreshold) {
-                                   // If both changed significantly, prefer SOL value as primary.
-                                   associatedSolValue = absSolChange;
-                                   logger.warn(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - Both Net SOL and USDC changed. Defaulting to Net SOL value: ${associatedSolValue.toFixed(9)}`);
+                               } else if (stableIsSignificant && !solIsSignificant) {
+                                   associatedUsdcValue = absStableChange;
+                                   associatedUsdcValueSource = 'net-change';
+                                   // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - Assigned via Net Stable Change: ${associatedUsdcValue.toFixed(9)}`);
+                               } else if (solIsSignificant && stableIsSignificant) {
+                                   // Both significant - use stable only if SOL is tiny (< 0.01) and stable is large (> 100)
+                                   // This catches: 0.003 SOL (fees) vs 69,617 USDC (actual cost)
+                                   if (absSolChange < 0.01 && absStableChange > 100) {
+                                       associatedUsdcValue = absStableChange;
+                                       associatedUsdcValueSource = 'net-change';
+                                   } else {
+                                       // Normal case - prefer SOL as single source of truth
+                                       associatedSolValue = absSolChange;
+                                       associatedSolValueSource = 'net-change';
+                                   }
                                } else {
-                                   // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - No clear event value or significant net change. AssocSOL/USDC remain 0 for this token leg.`);
+                                   // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): CREATE_POOL - No clear event value or significant net change. AssocSOL/stable remain 0 for this token leg.`);
                                }
                            }
                        } else {
                            // Original tiered logic for other transaction types (SWAP, etc.)
                            if (isSplToSplSwap && correctSolValueForSplToSpl > 0) {
                                associatedSolValue = correctSolValueForSplToSpl;
+                               associatedSolValueSource = 'spl-to-spl';
                                mappingStats.associatedValueFromSplToSpl++;
                            } else {
                                // 2. Event Matching Check
@@ -869,58 +1196,140 @@ export function mapHeliusTransactionsToIntermediateRecords(
                                const isPrimaryOutTokenFromEvent = direction === 'out' && mint === eventResult.primaryOutMint;
                                const isPrimaryInTokenFromEvent = direction === 'in' && mint === eventResult.primaryInMint;
                                if ((isPrimaryInTokenFromEvent || isPrimaryOutTokenFromEvent)) {
-                                   if (eventSolFound) { associatedSolValue = eventResult.solValue; eventValueApplied = true; mappingStats.associatedValueFromEventMatcher++; }
-                                   else if (eventUsdcFound) { associatedUsdcValue = eventResult.usdcValue; eventValueApplied = true; mappingStats.associatedValueFromEventMatcher++; }
+                                   if (eventSolFound) { associatedSolValue = eventResult.solValue; associatedSolValueSource = 'event'; eventValueApplied = true; mappingStats.associatedValueFromEventMatcher++; }
+                                   else if (eventUsdcFound) { associatedUsdcValue = eventResult.usdcValue; associatedUsdcValueSource = 'event'; eventValueApplied = true; mappingStats.associatedValueFromEventMatcher++; }
                                }
 
                                // 3. Fallback: Total Movement Heuristic
+                               // CORRECT PRIORITY ORDER (fixed 2026-01-26):
+                               // 1. Actual WSOL movement (from WSOL token transfers involving user)
+                               // 2. Stable movement (USDC/USDT/USD1)
+                               // 3. Net SOL change (last resort - might just be fees+rent)
                                if (!eventValueApplied && associatedSolValue === 0 && associatedUsdcValue === 0) {
-                                const wsolMoveIsSignificant = totalWsolMovement >= movementSignificanceThreshold;
-                                const usdcMoveIsSignificant = totalUsdcMovement >= movementSignificanceThreshold;
-                                if (wsolMoveIsSignificant && !usdcMoveIsSignificant) {
-                                    associatedSolValue = totalWsolMovement;
+                                const absSolChange = Math.abs(finalNetUserSolChange);
+
+                                // Check significance of each value source
+                                const actualWsolMovement = totalWsolMovement;
+                                const wsolIsSignificant = actualWsolMovement >= SOL_SIGNIFICANCE_THRESHOLD;
+                                const stableIsSignificant = totalStableMovement >= STABLE_SIGNIFICANCE_THRESHOLD;
+                                const netSolIsSignificant = absSolChange >= SOL_SIGNIFICANCE_THRESHOLD;
+
+                                // Priority 1: Actual WSOL movement (clear economic value from WSOL token transfers)
+                                if (wsolIsSignificant) {
+                                    associatedSolValue = actualWsolMovement;
+                                    associatedSolValueSource = 'total-movement';
                                     mappingStats.associatedValueFromTotalMovement++;
-                                } else if (usdcMoveIsSignificant && !wsolMoveIsSignificant) {
-                                    associatedUsdcValue = totalUsdcMovement;
+                                }
+                                // Priority 2: Stable movement (USDC/USDT/USD1 - clear economic value)
+                                else if (stableIsSignificant) {
+                                    associatedUsdcValue = totalStableMovement;
+                                    associatedUsdcValueSource = 'total-movement';
+                                    mappingStats.associatedValueFromTotalMovement++;
+                                }
+                                // Priority 3: Net SOL change (last resort - might just be fees/rent, but best guess)
+                                else if (netSolIsSignificant) {
+                                    associatedSolValue = absSolChange;
+                                    associatedSolValueSource = 'total-movement';
                                     mappingStats.associatedValueFromTotalMovement++;
                                 }
                             }
 
-                            // 4. Fallback: Net User SOL/USDC Change
+                            // 3.5. NEW TIER: Gross Native SOL Outflow (pump.fun pattern)
+                            // When net SOL change is near zero but user spent significant SOL,
+                            // use the gross outflow as the purchase price
+                            // Common in pump.fun: user receives SOL then immediately spends it in same tx
                             if (associatedSolValue === 0 && associatedUsdcValue === 0) {
                                 const absSolChange = Math.abs(finalNetUserSolChange);
-                                const absUsdcChange = Math.abs(finalNetUserUsdcChange);
-                                const solChangeIsSignificant = absSolChange >= netChangeSignificanceThreshold;
-                                const usdcChangeIsSignificant = absUsdcChange >= netChangeSignificanceThreshold;
+                                const netIsNearZero = absSolChange < 0.001; // Net change < 0.001 SOL
+                                const grossOutIsSignificant = grossNativeSolOut >= 0.001; // Gross out >= 0.001 SOL
+                                const grossInIsLow = grossNativeSolIn <= grossNativeSolOut * GROSS_NATIVE_SOL_IN_RATIO_LIMIT; // Avoid rent-return patterns
 
-                                if (solChangeIsSignificant && !usdcChangeIsSignificant) {
+                                if (netIsNearZero && grossOutIsSignificant && grossInIsLow) {
+                                    associatedSolValue = grossNativeSolOut;
+                                    associatedSolValueSource = 'gross-out';
+                                    mappingStats.associatedValueFromTotalMovement++; // Reuse this counter
+                                    // logger.debug(`Tx ${tx.signature}, Mint ${mint}: Used gross native SOL outflow ${grossNativeSolOut.toFixed(9)} (net was ${absSolChange.toFixed(9)})`);
+                                }
+                            }
+
+                            // 4. Fallback: Net User SOL/Stable Change
+                            // BUT: Check if net change is just the transaction fee (not actual economic value)
+                            // This happens with airdrops/transfers where user pays fee but receives tokens with no SOL value
+                            if (associatedSolValue === 0 && associatedUsdcValue === 0) {
+                                const absSolChange = Math.abs(finalNetUserSolChange);
+                                const absStableChange = Math.abs(finalNetUserStableChange);
+                                const solChangeIsSignificant = absSolChange >= SOL_SIGNIFICANCE_THRESHOLD;
+                                const stableChangeIsSignificant = absStableChange >= STABLE_SIGNIFICANCE_THRESHOLD;
+
+                                // Calculate transaction fee for comparison
+                                const networkFee = tx.fee ?? 0;
+                                const feeInSol = networkFee / LAMPORTS_PER_SOL;
+
+                                // Check if net SOL change is approximately just the fee (within 10% tolerance)
+                                // If so, it's likely an airdrop/transfer where fee is paid but tokens have no SOL value
+                                const netChangeIsJustFee = feeInSol > 0 &&
+                                    Math.abs(absSolChange - feeInSol) < (feeInSol * 0.1) &&
+                                    absSolChange < 0.02; // And the amount is small (< 0.02 SOL)
+
+                                if (netChangeIsJustFee) {
+                                    // Net change is just the fee - don't use it as economic value
+                                    // This is an airdrop/transfer with zero cost basis
+                                    // Leave associatedSolValue = 0
+                                } else if (solChangeIsSignificant && !stableChangeIsSignificant) {
+                                    // SOL is significant and no stable - use it
                                     associatedSolValue = absSolChange;
+                                    associatedSolValueSource = 'net-change';
                                     mappingStats.associatedValueFromNetChange++;
-                                } else if (usdcChangeIsSignificant && !solChangeIsSignificant) {
-                                    associatedUsdcValue = absUsdcChange; // If USDC logic is needed
+                                } else if (stableChangeIsSignificant && !solChangeIsSignificant) {
+                                    // Stable is significant and no SOL - use it
+                                    associatedUsdcValue = absStableChange;
+                                    associatedUsdcValueSource = 'net-change';
+                                    mappingStats.associatedValueFromNetChange++;
+                                } else if (solChangeIsSignificant && stableChangeIsSignificant) {
+                                    // BOTH are significant - use stable only if SOL is tiny and stable is huge
+                                    // This catches: 0.003 SOL (fees) vs 69,617 USDC (actual cost)
+                                    if (absSolChange < 0.01 && absStableChange > 100) {
+                                        associatedUsdcValue = absStableChange;
+                                        associatedUsdcValueSource = 'net-change';
+                                        mappingStats.associatedValueFromNetChange++;
+                                    } else {
+                                        // Normal case - prefer SOL as single source of truth
+                                        associatedSolValue = absSolChange;
+                                        associatedSolValueSource = 'net-change';
+                                        mappingStats.associatedValueFromNetChange++;
+                                    }
                                 }
                             }
                        }
                    }
               }
-          }
+             }
+          } // End of burn/fee heuristic check
+
+            // Non-economic order placement/cancel should not carry economic value.
+            if (interactionType === 'CREATE_ORDER' || interactionType === 'CANCEL_ORDER') {
+                associatedSolValue = 0;
+                associatedUsdcValue = 0;
+            }
 
             // Duplicate value-assignment guard (actual enforcement)
-            if (!isWsol && !isUsdc && (Math.abs(associatedSolValue) > FEE_PRECISION_THRESHOLD || Math.abs(associatedUsdcValue) > FEE_PRECISION_THRESHOLD)) {
+            if (!isWsol && !isStable && (Math.abs(associatedSolValue) > FEE_PRECISION_THRESHOLD || Math.abs(associatedUsdcValue) > FEE_PRECISION_THRESHOLD)) {
                if (valueAssignedForMintDirection.has(mintDirectionKey)) {
                    // A value has already been assigned for this mint+direction; zero out to avoid double counting
                    associatedSolValue = 0;
                    associatedUsdcValue = 0;
+                   associatedSolValueSource = 'none';
+                   associatedUsdcValueSource = 'none';
                } else {
                    valueAssignedForMintDirection.add(mintDirectionKey);
                }
             }
 
-            // --- Fee Calculation & Assignment (Only for non-WSOL/USDC transfers with associated SOL value) ---
+            // --- Fee Calculation & Assignment (Only for non-WSOL/stable transfers with associated SOL value) ---
             let feeAmount: number | null = null;
             let feePercentage: number | null = null;
 
-            if (!isWsol && !isUsdc && associatedSolValue > FEE_PRECISION_THRESHOLD) {
+            if (!isWsol && !isStable && associatedSolValue > FEE_PRECISION_THRESHOLD && !feeAssignedForSignature) {
                  // Calculate refined fee (network fee + small native transfers out)
                 let refinedFeeAmountSol = 0;
                 const networkFee = tx.fee ?? 0;
@@ -931,21 +1340,54 @@ export function mapHeliusTransactionsToIntermediateRecords(
                     // Only transfers OUT from user to others, below the threshold
                     if (nativeTransfer.fromUserAccount?.toLowerCase() !== lowerWalletAddress || nativeTransfer.toUserAccount?.toLowerCase() === lowerWalletAddress) continue;
                     const transferAmountSol = lamportsToSol(nativeTransfer.amount);
-                    if (transferAmountSol > 0 && transferAmountSol < FEE_TRANSFER_THRESHOLD_SOL) {
+                    const maxFeeLikeTransfer = Math.min(
+                      FEE_TRANSFER_THRESHOLD_SOL,
+                      associatedSolValue * FEE_TRANSFER_VALUE_RATIO,
+                    );
+                    if (transferAmountSol > 0 && transferAmountSol <= maxFeeLikeTransfer) {
                         refinedFeeAmountSol += transferAmountSol;
                          // logger.debug(`Tx ${tx.signature}: Added small native transfer to fee amount: ${transferAmountSol.toFixed(9)} SOL to ${nativeTransfer.toUserAccount}`); // Removed debug
                     }
                 }
 
-                // Assign fee if it's significant
+                // CRITICAL FIX: Self-healing validation - if fee would be >50% of value, something is wrong
+                // This catches cases where we mistakenly assigned fees/rent as the associatedSolValue
                 if (refinedFeeAmountSol > FEE_PRECISION_THRESHOLD) {
-                    feeAmount = refinedFeeAmountSol;
-                    feePercentage = (feeAmount / associatedSolValue) * 100;
-                    // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Fee Assigned: Refined Fee=${feeAmount.toFixed(9)}, Percentage=${feePercentage.toFixed(4)}`); // Removed debug
+                    const wouldBeFeePercentage = (refinedFeeAmountSol / associatedSolValue) * 100;
+                    const isWeakValueSource =
+                        associatedSolValueSource === 'net-change' ||
+                        associatedSolValueSource === 'total-movement' ||
+                        associatedSolValueSource === 'gross-out';
+
+                    if (wouldBeFeePercentage > FEE_SELF_HEALING_PERCENT_THRESHOLD) {
+                        if (isWeakValueSource) {
+                            // Fee is >50% of value - this is wrong! The associatedSolValue is likely just fees/rent itself
+                            mappingStats.feeSelfHealingTriggered++;
+                            if (feeSelfHealingExamples.length < 2) {
+                              feeSelfHealingExamples.push(
+                                `${tx.signature} ${mint} (${direction}) fee%=${wouldBeFeePercentage.toFixed(1)} fee=${refinedFeeAmountSol.toFixed(6)} value=${associatedSolValue.toFixed(6)}`,
+                              );
+                            }
+                            // Don't assign the fee, and zero out the suspect value
+                            associatedSolValue = 0;
+                            associatedUsdcValue = 0;
+                            associatedSolValueSource = 'none';
+                            associatedUsdcValueSource = 'none';
+                        } else {
+                            // Fee too large vs value, but value came from strong source - keep value, skip fee
+                            // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Fee skipped due to high fee% with strong value source.`);
+                        }
+                    } else {
+                        // Fee looks reasonable - assign it
+                        feeAmount = refinedFeeAmountSol;
+                        feePercentage = wouldBeFeePercentage;
+                        feeAssignedForSignature = true;
+                        // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Fee Assigned: Refined Fee=${feeAmount.toFixed(9)}, Percentage=${feePercentage.toFixed(4)}`); // Removed debug
+                    }
                 } else {
                     // logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Fee Skipped: No significant refined fee paid by user.`); // Removed debug
                 }
-            } // else { if (!isWsol && !isUsdc) logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Fee Skipped: AssocSOL=0.`); } // Removed debug
+            } // else { if (!isWsol && !isStable) logger.debug(`Tx ${tx.signature}, Mint ${mint} (${direction}): Fee Skipped: AssocSOL=0.`); } // Removed debug
 
 
             // --- Push Record ---
@@ -955,6 +1397,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
                 mappingStats.skippedDuplicateRecordKey++;
                 continue;
             }
+
+            // logger.debug(`[DEBUG_VALUECALC] Tx ${tx.signature}, Mint ${mint} (${direction}): FINAL VALUES BEFORE PUSH - associatedSolValue=${associatedSolValue.toFixed(9)}, associatedUsdcValue=${associatedUsdcValue.toFixed(9)}, feeAmount=${feeAmount?.toFixed(9) ?? 'null'}, feePercentage=${feePercentage?.toFixed(4) ?? 'null'}`);
 
             analysisInputs.push({
                  walletAddress: walletAddress,
@@ -976,7 +1420,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
             // Increment token type counters (already present from previous edit)
             mappingStats.tokenTransfersProcessed++;
             if (isWsol) mappingStats.wsolTransfersProcessed++;
-            else if (isUsdc) mappingStats.usdcTransfersProcessed++;
+            else if (isStable) mappingStats.usdcTransfersProcessed++;
             else mappingStats.otherTokenTransfersProcessed++;
 
             if (feeAmount !== null && Math.abs(feeAmount) > FEE_PRECISION_THRESHOLD) {
@@ -990,8 +1434,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
         for (let idx = txStartIndex; idx < analysisInputs.length; idx++) {
           const row = analysisInputs[idx];
-          // Skip WSOL / USDC rows (their value equals their amount) and also skip native SOL rows
-          if (!row || row.mint === SOL_MINT || row.mint === USDC_MINT) continue;
+          // Skip WSOL / stable rows (their value equals their amount) and also skip native SOL rows
+          if (!row || row.mint === SOL_MINT || isStableMint(row.mint)) continue;
 
           const key = `${row.mint}:${row.direction}`;
           if (!redistributionBuckets.has(key)) {
@@ -1059,6 +1503,49 @@ export function mapHeliusTransactionsToIntermediateRecords(
       }
       // --- End redistribution block ---
 
+      // --- Drop intermediate tokens with zero net change within the same signature ---
+      try {
+        const txRows = analysisInputs.slice(txStartIndex);
+        const mintNetMap = new Map<string, { in: number; out: number }>();
+        for (const row of txRows) {
+          if (!row || row.mint === SOL_MINT || isStableMint(row.mint)) continue;
+          const current = mintNetMap.get(row.mint) || { in: 0, out: 0 };
+          if (row.direction === 'in') current.in += Math.abs(row.amount);
+          else if (row.direction === 'out') current.out += Math.abs(row.amount);
+          mintNetMap.set(row.mint, current);
+        }
+
+        let hasNetPositiveToken = false;
+        for (const flows of mintNetMap.values()) {
+          if (Math.abs(flows.in - flows.out) > INTERMEDIATE_NET_EPSILON) {
+            hasNetPositiveToken = true;
+            break;
+          }
+        }
+
+        if (hasNetPositiveToken) {
+          const intermediateMints = new Set<string>();
+          for (const [mint, flows] of mintNetMap.entries()) {
+            if (flows.in > 0 && flows.out > 0 && Math.abs(flows.in - flows.out) <= INTERMEDIATE_NET_EPSILON) {
+              intermediateMints.add(mint);
+            }
+          }
+
+          if (intermediateMints.size > 0) {
+            for (let idx = analysisInputs.length - 1; idx >= txStartIndex; idx -= 1) {
+              const row = analysisInputs[idx];
+              if (row && intermediateMints.has(row.mint)) {
+                analysisInputs.splice(idx, 1);
+              }
+            }
+          }
+        }
+        inputsGeneratedThisTransaction = analysisInputs.length - txStartIndex;
+      } catch (filterErr) {
+        logger.error(`Error filtering intermediate tokens for tx ${tx.signature}`, { error: filterErr });
+      }
+      // --- End intermediate token filter ---
+
       if (inputsGeneratedThisTransaction > 0) {
         mappingStats.transactionsSuccessfullyProcessed++;
       }
@@ -1089,43 +1576,65 @@ export function mapHeliusTransactionsToIntermediateRecords(
   } else {
     // logger.debug(`Finished mapping ${transactions.length} transactions for ${walletAddress}.`);
   }
+  if (mappingStats.feeSelfHealingTriggered > 0) {
+    const examples = feeSelfHealingExamples.length > 0 ? ` Examples: ${feeSelfHealingExamples.join(' | ')}` : '';
+    logger.debug(`Self-healing fee guard triggered ${mappingStats.feeSelfHealingTriggered}x for ${walletAddress}.${examples}`);
+  }
   // --- End Log Final Stats ---
 
-  // NEW: Definitive filtering. If a transaction involves any non-SOL/USDC token,
-  // we assume the SOL/USDC movements are part of the "price" and should not be stored as separate rows.
+  // NEW: Definitive filtering. If a transaction involves any non-SOL/stable token,
+  // we assume the SOL/stable movements are part of the "price" and should not be stored as separate rows.
   // This cleans up swaps, liquidity actions, and other DeFi interactions.
 
   // First, find all transaction signatures that involve a "real" asset token.
   const signaturesWithSplMovement = new Set<string>();
   for (const input of analysisInputs) {
-    if (input.mint !== SOL_MINT && input.mint !== USDC_MINT) {
+    if (input.mint !== SOL_MINT && !isStableMint(input.mint)) {
       signaturesWithSplMovement.add(input.signature);
     }
   }
 
+  // logger.debug(`[DEBUG_FILTER] Before filtering: ${analysisInputs.length} inputs. Signatures with SPL movement: ${signaturesWithSplMovement.size}`);
+
   // Then, filter the results based on the definitive rule.
   const filteredAnalysisInputs = analysisInputs.filter(input => {
-    const isValueToken = input.mint === SOL_MINT || input.mint === USDC_MINT;
-    
-    // If it's a value token (SOL/USDC), apply filtering rules.
+    const isValueToken = input.mint === SOL_MINT || isStableMint(input.mint);
+
+    // If it's a value token (SOL/stable), apply filtering rules.
     if (isValueToken) {
-      // Rule 1: Remove if part of a larger DeFi transaction (swap, liquidity, etc.).
-      if (signaturesWithSplMovement.has(input.signature)) {
-        return false; 
-      }
-      
-      // Rule 2: Remove if it's a tiny "dust" transfer that's not part of a DeFi action.
+      // Rule 0: Check dust FIRST before anything else (dust should always be filtered)
+      // Even if a dust transfer somehow has associated value, it's still dust
       if (input.interactionType === 'TRANSFER' && Math.abs(input.amount) < SOL_DUST_TRANSFER_THRESHOLD) {
+        // logger.debug(`[DEBUG_FILTER] FILTERED OUT ${input.mint} ${input.direction} (amount: ${input.amount}) - dust transfer`);
         return false;
       }
 
-      // If neither rule applies, keep the significant SOL/USDC transfer.
+      // CRITICAL FIX: If this SOL/USDC transfer has significant associated value assigned to it,
+      // NEVER filter it out. This represents the cost basis for routed swaps (e.g., USDC -> WSOL -> Token).
+      const hasSignificantAssociatedValue =
+        (input.associatedSolValue && Math.abs(input.associatedSolValue) >= SOL_SIGNIFICANCE_THRESHOLD) ||
+        (input.associatedUsdcValue && Math.abs(input.associatedUsdcValue) >= STABLE_SIGNIFICANCE_THRESHOLD);
+
+      if (hasSignificantAssociatedValue) {
+        // logger.debug(`[DEBUG_FILTER] KEEPING ${input.mint} ${input.direction} (amount: ${input.amount}) - has significant associated value (SOL: ${input.associatedSolValue}, USDC: ${input.associatedUsdcValue})`);
+        return true; // Always keep significant value transfers
+      }
+
+      // Rule 1: Remove if part of a larger DeFi transaction (swap, liquidity, etc.).
+      if (signaturesWithSplMovement.has(input.signature)) {
+        // logger.debug(`[DEBUG_FILTER] FILTERED OUT ${input.mint} ${input.direction} (amount: ${input.amount}) - part of DeFi transaction with SPL movement`);
+        return false;
+      }
+
+      // If neither rule applies, keep the significant SOL/stable transfer.
       return true;
     }
 
     // Otherwise, it's a "real" asset token, so always keep it.
     return true;
   });
+
+  // logger.debug(`[DEBUG_FILTER] After filtering: ${filteredAnalysisInputs.length} inputs remaining`);
 
   // Update stats to reflect the filtered count.
   const finalStats = { ...mappingStats };

@@ -4,7 +4,7 @@ import { GetTokenInfoRequestDto } from '../shared/dto/get-token-info.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { Request } from 'express';
 import { TokenHoldersService } from '../services/token-holders.service';
-import { SolanaAddressPipe } from '../shared/solana-address.pipe';
+import { isValidSolanaAddress, SolanaAddressPipe } from '../shared/solana-address.pipe';
 import { TopHoldersResponseDto } from '../shared/dto/top-holders.dto';
 
 @ApiTags('token-info')
@@ -27,7 +27,12 @@ export class TokenInfoController {
     @Body(new ValidationPipe()) body: GetTokenInfoRequestDto,
     @Req() req: Request & { user?: any },
   ) {
-    this.logger.log(`Received request to fetch info for ${body.tokenAddresses.length} tokens.`);
+    const validTokenAddresses = body.tokenAddresses.filter(isValidSolanaAddress);
+    if (validTokenAddresses.length === 0) {
+      return [];
+    }
+
+    this.logger.log(`Received request to fetch info for ${validTokenAddresses.length} tokens.`);
     const userId = req.user?.id;
     if (!userId) {
       throw new ForbiddenException('User could not be identified.');
@@ -35,10 +40,10 @@ export class TokenInfoController {
 
     // This is a fire-and-forget operation.
     // It triggers enrichment for any new or stale tokens in the background.
-    this.tokenInfoService.triggerTokenInfoEnrichment(body.tokenAddresses, userId);
+    this.tokenInfoService.triggerTokenInfoEnrichment(validTokenAddresses, userId);
     
     // Immediately return whatever data we have in the database right now.
-    const records = await this.tokenInfoService.findMany(body.tokenAddresses);
+    const records = await this.tokenInfoService.findMany(validTokenAddresses);
     // Convert BigInt fields to JSON-safe values
     return records.map((t: any) => ({
       ...t,

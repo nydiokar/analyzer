@@ -38,6 +38,10 @@ import { prisma } from '../../core/services/database-service';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import readline from 'readline';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+import logger from '../../core/utils/logger';
+
+
 
 
 // Create readline interface for user input
@@ -66,7 +70,7 @@ async function getWalletDataCounts(walletAddress: string) {
     
     return { analysisResults, swapInputs };
   } catch (error) {
-    console.error('Error getting wallet data counts:', error);
+    logger.error('Error getting wallet data counts:', getErrorMessage(error));
     return { analysisResults: 0, swapInputs: 0 };
   }
 }
@@ -176,7 +180,7 @@ async function clearWalletState() {
     console.log('  2. Verify results in dashboard');
     
   } catch (error) {
-    console.error('\n❌ Error during wallet state clear operation:', error);
+    logger.error('\n❌ Error during wallet state clear operation:', getErrorMessage(error));
     process.exitCode = 1;
   } finally {
     rl.close();

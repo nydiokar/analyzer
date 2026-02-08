@@ -1,24 +1,31 @@
 'use client';
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, Suspense } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import type { JobProgressData, JobFailedData, JobCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search, Users } from 'lucide-react';
 import type { HolderProfilesResult } from '@/components/holder-profiles/types';
+import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
+import type { SimilarityStatus } from '@/components/holder-profiles/v2/SimilaritySidebar';
+import type { JobResult } from '@/types/websockets';
 import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
+import { PageTitle } from '@/components/shared/PageTitle';
 import {
   WalletClassifier,
   WalletClassifierEntry,
 } from '@/components/holder-profiles/v2/WalletClassifier';
 import { AppShell } from '@/components/layout/AppShell';
+import { useAuthStore } from '@/store/auth-store';
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 type AnalysisMode = 'token' | 'wallet';
@@ -26,6 +33,10 @@ type AnalysisMode = 'token' | 'wallet';
 type WalletParseResult = {
   list: string[];
   truncated: number;
+};
+
+type SimilarityJobResponse = {
+  jobId: string;
 };
 
 function parseWalletList(raw: string): WalletParseResult {
@@ -45,7 +56,20 @@ function parseWalletList(raw: string): WalletParseResult {
   return { list: ordered, truncated: 0 };
 }
 
-export default function HolderProfilesPage() {
+function normalizeHolderProfilesError(message?: string | null): string | null {
+  if (!message) return null;
+  const normalized = message.toLowerCase();
+  if (normalized.includes('invalid token mint') || normalized.includes('not a token mint')) {
+    return 'Invalid token mint. Check the address and try again.';
+  }
+  return message;
+}
+
+function HolderProfilesContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const userId = useAuthStore((state) => state.user?.id) ?? 'anon';
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('token');
   const [tokenMint, setTokenMint] = useState('');
   const [topN, setTopN] = useState(10);
@@ -53,15 +77,35 @@ export default function HolderProfilesPage() {
   const [walletEntries, setWalletEntries] = useState<WalletClassifierEntry[]>([]);
   const [tokenResult, setTokenResult] = useState<HolderProfilesResult | null>(null);
   const [tokenPartialResult, setTokenPartialResult] = useState<HolderProfilesResult | null>(null);
+  const [lastSuccessfulTokenResult, setLastSuccessfulTokenResult] = useState<HolderProfilesResult | null>(null);
+  const [lastSuccessfulTokenTimestamp, setLastSuccessfulTokenTimestamp] = useState<number | null>(null);
+  const [tokenFailureError, setTokenFailureError] = useState<string | null>(null);
   const tokenJobIdRef = useRef<string | null>(null);
   const [tokenStatus, setTokenStatus] = useState<JobStatus>('idle');
   const [tokenProgress, setTokenProgress] = useState(0);
-  const [tokenMessage, setTokenMessage] = useState('');
+  const [similarityResult, setSimilarityResult] = useState<CombinedSimilarityResult | null>(null);
+  const [similarityStatus, setSimilarityStatus] = useState<SimilarityStatus>('idle');
+  const similarityJobIdRef = useRef<string | null>(null);
+  const similarityTriggeredRef = useRef(false);
+  const initializedFromUrlRef = useRef(false);
+  const resumeAttemptedRef = useRef<string | null>(null);
+
+  const debugFailAfterProfiles = useMemo(() => {
+    const raw = searchParams.get('debugFailAfterProfiles');
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }, [searchParams]);
 
   const parsedWallets = useMemo(() => parseWalletList(walletInput), [walletInput]);
+  const tokenStorageKey = useMemo(() => {
+    if (analysisMode !== 'token' || !tokenMint) return null;
+    return `holder-profiles:${userId}:${tokenMint}:${topN}`;
+  }, [analysisMode, tokenMint, topN, userId]);
 
   // Use a ref to store unsubscribeFromJob so we can call it from callbacks
   const unsubscribeFromJobRef = useRef<((jobId: string) => void) | null>(null);
+  const subscribeToJobRef = useRef<((jobId: string) => void) | null>(null);
 
   const updateWalletEntryByJob = useCallback((jobId: string, updater: (entry: WalletClassifierEntry) => WalletClassifierEntry) => {
     setWalletEntries((prev) => prev.map((entry) => (entry.jobId === jobId ? updater(entry) : entry)));
@@ -74,12 +118,59 @@ export default function HolderProfilesPage() {
     []
   );
 
+  // NOTE: We only trigger similarity after holder profiles completes to avoid mid-stream churn.
+  // TODO: Use a cache-only flag once similarity can rely on BalanceCacheService for cached balances.
+  const queueSimilarityAnalysis = useCallback(async (walletAddresses: string[]) => {
+    if (walletAddresses.length < 2) {
+      return;
+    }
+    // Guard against duplicate queuing - check both the job ref and the triggered flag
+    if (similarityJobIdRef.current || similarityTriggeredRef.current) {
+      return;
+    }
+    // Set flag immediately to prevent race conditions
+    similarityTriggeredRef.current = true;
+    setSimilarityStatus('pending');
+    try {
+      const response = await fetcher('/analyses/similarity/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletAddresses,
+          vectorType: 'capital',
+        }),
+      }) as SimilarityJobResponse;
+      similarityJobIdRef.current = response.jobId;
+      setSimilarityStatus('running');
+      subscribeToJobRef.current?.(response.jobId);
+    } catch (error: any) {
+      similarityTriggeredRef.current = false;
+      setSimilarityStatus('failed');
+      toast.error('Failed to start similarity analysis', {
+        description: error.message || 'Unknown error',
+      });
+    }
+  }, []);
+
+  // NOTE: Similarity returns a standard JobResult wrapper; unwrap and normalize here.
+  // TODO: Align this with the shared queue job result types once refactoring is prioritized.
+  const extractSimilarityResult = useCallback((payload: JobResult | unknown): CombinedSimilarityResult | null => {
+    if (!payload) {
+      return null;
+    }
+    const maybeJobResult = payload as JobResult;
+    const data = (maybeJobResult && typeof maybeJobResult === 'object' && 'data' in maybeJobResult)
+      ? maybeJobResult.data
+      : payload;
+    const directResult = data as CombinedSimilarityResult;
+    return directResult?.pairwiseSimilarities ? directResult : null;
+  }, []);
+
   const { subscribeToJob, unsubscribeFromJob } = useJobProgress({
     onJobProgress: useCallback(
       (data: JobProgressData) => {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
           setTokenStatus('running');
-          setTokenMessage(data.status || 'Analyzing holders...');
 
           // Handle incremental holder profiles via progress payload
           if (typeof data.progress === 'object' && data.progress !== null && (data.progress as any).mode === 'token') {
@@ -104,6 +195,10 @@ export default function HolderProfilesPage() {
           }
           return;
         }
+        if (similarityJobIdRef.current && data.jobId === similarityJobIdRef.current) {
+          setSimilarityStatus('running');
+          return;
+        }
         updateWalletEntryByJob(data.jobId, (entry) => ({
           ...entry,
           status: 'running',
@@ -111,7 +206,7 @@ export default function HolderProfilesPage() {
           message: data.status,
         }));
       },
-      [updateWalletEntryByJob]
+      [updateWalletEntryByJob, tokenMint]
     ),
 
     onJobCompleted: useCallback(
@@ -123,7 +218,16 @@ export default function HolderProfilesPage() {
             setTokenPartialResult(null);
             setTokenStatus('completed');
             setTokenProgress(100);
-            setTokenMessage('Analysis complete');
+            setLastSuccessfulTokenResult(resultData);
+            setLastSuccessfulTokenTimestamp(Date.now());
+            setTokenFailureError(null);
+            setSimilarityResult(null);
+            setSimilarityStatus('idle');
+            similarityTriggeredRef.current = false;
+            if (similarityJobIdRef.current && unsubscribeFromJobRef.current) {
+              unsubscribeFromJobRef.current(similarityJobIdRef.current);
+              similarityJobIdRef.current = null;
+            }
             // Unsubscribe from the completed job
             if (unsubscribeFromJobRef.current) {
               unsubscribeFromJobRef.current(tokenJobIdRef.current);
@@ -132,7 +236,28 @@ export default function HolderProfilesPage() {
             toast.success('Holder profiles ready', {
               description: `Analyzed ${resultData.metadata.totalHoldersAnalyzed} holders`,
             });
+            if (resultData.profiles.length >= 2) {
+              queueSimilarityAnalysis(resultData.profiles.map((profile) => profile.walletAddress));
+            }
+            if (typeof window !== 'undefined' && tokenStorageKey) {
+              window.localStorage.removeItem(tokenStorageKey);
+            }
           }
+          return;
+        }
+        if (similarityJobIdRef.current && data.jobId === similarityJobIdRef.current) {
+          const similarityData = extractSimilarityResult(data.result);
+          if (similarityData) {
+            setSimilarityResult(similarityData);
+            setSimilarityStatus('completed');
+          } else {
+            console.warn('Similarity job completed without usable payload', data.result);
+            setSimilarityStatus('failed');
+          }
+          if (unsubscribeFromJobRef.current) {
+            unsubscribeFromJobRef.current(similarityJobIdRef.current);
+          }
+          similarityJobIdRef.current = null;
           return;
         }
         updateWalletEntryByJob(data.jobId, (entry) => ({
@@ -143,7 +268,7 @@ export default function HolderProfilesPage() {
           result: data.result as unknown as HolderProfilesResult,
         }));
       },
-      [updateWalletEntryByJob]
+      [updateWalletEntryByJob, extractSimilarityResult, queueSimilarityAnalysis, tokenStorageKey]
     ),
 
     onJobFailed: useCallback(
@@ -151,13 +276,26 @@ export default function HolderProfilesPage() {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
           setTokenStatus('failed');
           setTokenProgress(0);
-          setTokenMessage('Analysis failed');
+          setTokenResult(null);
+          setTokenPartialResult(null);
+          setTokenFailureError(normalizeHolderProfilesError(data.error) || 'Unknown error');
+          if (typeof window !== 'undefined' && tokenStorageKey) {
+            window.localStorage.removeItem(tokenStorageKey);
+          }
           // Unsubscribe from the failed job
           if (unsubscribeFromJobRef.current) {
             unsubscribeFromJobRef.current(tokenJobIdRef.current);
           }
           tokenJobIdRef.current = null;
-          toast.error('Token analysis failed', { description: data.error });
+          toast.error('Token analysis failed', { description: normalizeHolderProfilesError(data.error) || data.error });
+          return;
+        }
+        if (similarityJobIdRef.current && data.jobId === similarityJobIdRef.current) {
+          setSimilarityStatus('failed');
+          if (unsubscribeFromJobRef.current) {
+            unsubscribeFromJobRef.current(similarityJobIdRef.current);
+          }
+          similarityJobIdRef.current = null;
           return;
         }
         updateWalletEntryByJob(data.jobId, (entry) => ({
@@ -167,7 +305,7 @@ export default function HolderProfilesPage() {
           error: data.error,
         }));
       },
-      [updateWalletEntryByJob]
+      [updateWalletEntryByJob, tokenStorageKey]
     ),
 
     onEnrichmentComplete: () => {},
@@ -176,6 +314,134 @@ export default function HolderProfilesPage() {
 
   // Store the unsubscribe function in the ref so callbacks can use it
   unsubscribeFromJobRef.current = unsubscribeFromJob;
+  subscribeToJobRef.current = subscribeToJob;
+
+  const resumeTokenJobFromStorage = useCallback(async () => {
+    if (!tokenStorageKey || resumeAttemptedRef.current === tokenStorageKey) {
+      return;
+    }
+    if (typeof window === 'undefined') {
+      return;
+    }
+    resumeAttemptedRef.current = tokenStorageKey;
+    const jobId = window.localStorage.getItem(tokenStorageKey);
+    if (!jobId) {
+      return;
+    }
+    try {
+      const jobStatus = await fetcher(`/jobs/${jobId}`);
+      if (jobStatus?.status === 'completed') {
+        const resultResponse = await fetcher(`/jobs/${jobId}/result`);
+        const resultData = resultResponse?.result as HolderProfilesResult | undefined;
+        if (resultData?.profiles) {
+          setTokenResult(resultData);
+          setTokenPartialResult(null);
+          setTokenStatus('completed');
+          setTokenProgress(100);
+          setLastSuccessfulTokenResult(resultData);
+          setLastSuccessfulTokenTimestamp(Date.now());
+          setTokenFailureError(null);
+          setSimilarityResult(null);
+          setSimilarityStatus('idle');
+          similarityTriggeredRef.current = false;
+          if (resultData.profiles.length >= 2) {
+            queueSimilarityAnalysis(resultData.profiles.map((profile) => profile.walletAddress));
+          }
+        }
+        if (unsubscribeFromJobRef.current) {
+          unsubscribeFromJobRef.current(jobId);
+        }
+        tokenJobIdRef.current = null;
+        window.localStorage.removeItem(tokenStorageKey);
+        return;
+      }
+      if (jobStatus?.status === 'failed') {
+        setTokenStatus('failed');
+        setTokenProgress(0);
+        setTokenFailureError(normalizeHolderProfilesError(jobStatus?.error) || 'Unknown error');
+        if (unsubscribeFromJobRef.current) {
+          unsubscribeFromJobRef.current(jobId);
+        }
+        tokenJobIdRef.current = null;
+        window.localStorage.removeItem(tokenStorageKey);
+        return;
+      }
+      tokenJobIdRef.current = jobId;
+      setTokenStatus('running');
+      if (typeof jobStatus?.progress === 'number') {
+        setTokenProgress(jobStatus.progress);
+      } else {
+        setTokenProgress(0);
+      }
+      subscribeToJobRef.current?.(jobId);
+    } catch (error: any) {
+      if (error?.status === 404) {
+        window.localStorage.removeItem(tokenStorageKey);
+        tokenJobIdRef.current = null;
+        setTokenStatus('idle');
+        setTokenProgress(0);
+        setTokenFailureError(null);
+        return;
+      }
+      console.warn('Failed to resume holder profiles job', error);
+    }
+  }, [tokenStorageKey, queueSimilarityAnalysis]);
+
+  useEffect(() => {
+    if (initializedFromUrlRef.current) {
+      return;
+    }
+    const urlMode = searchParams.get('mode');
+    if (urlMode === 'wallet' || urlMode === 'token') {
+      setAnalysisMode(urlMode);
+    }
+    const urlToken = searchParams.get('token');
+    if (urlToken) {
+      setTokenMint(urlToken);
+    }
+    const urlTopN = Number(searchParams.get('topN'));
+    if (Number.isFinite(urlTopN) && urlTopN >= 1 && urlTopN <= 50) {
+      setTopN(urlTopN);
+    }
+    initializedFromUrlRef.current = true;
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!initializedFromUrlRef.current) {
+      return;
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('mode', analysisMode);
+    if (analysisMode === 'token') {
+      if (tokenMint) {
+        params.set('token', tokenMint);
+      } else {
+        params.delete('token');
+      }
+      params.set('topN', String(topN));
+    } else {
+      params.delete('token');
+      params.delete('topN');
+    }
+    const nextQuery = params.toString();
+    const currentQuery = searchParams.toString();
+    if (nextQuery !== currentQuery) {
+      router.replace(`${pathname}?${nextQuery}`, { scroll: false });
+    }
+  }, [analysisMode, tokenMint, topN, pathname, router, searchParams]);
+
+  useEffect(() => {
+    if (!initializedFromUrlRef.current) {
+      return;
+    }
+    if (analysisMode !== 'token') {
+      return;
+    }
+    if (tokenStatus !== 'idle' || tokenResult || tokenPartialResult) {
+      return;
+    }
+    resumeTokenJobFromStorage();
+  }, [analysisMode, tokenResult, tokenPartialResult, tokenStatus, resumeTokenJobFromStorage]);
 
   const handleTokenAnalyze = async () => {
     if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
@@ -190,21 +456,37 @@ export default function HolderProfilesPage() {
 
     try {
       setTokenStatus('running');
-          setTokenProgress(0);
-          setTokenMessage('Queued');
-          setTokenResult(null);
-          setTokenPartialResult(null);
-          const response = await fetcher('/analyses/holder-profiles', {
+      setTokenProgress(0);
+      setTokenResult(null);
+      setTokenPartialResult(null);
+      setTokenFailureError(null);
+      setSimilarityResult(null);
+      setSimilarityStatus('idle');
+      similarityTriggeredRef.current = false;
+      if (similarityJobIdRef.current && unsubscribeFromJobRef.current) {
+        unsubscribeFromJobRef.current(similarityJobIdRef.current);
+        similarityJobIdRef.current = null;
+      }
+      const payload: Record<string, unknown> = { tokenMint, topN };
+      if (process.env.NODE_ENV !== 'production' && debugFailAfterProfiles !== null) {
+        payload.debugFailAfterProfiles = debugFailAfterProfiles;
+      }
+      const response = await fetcher('/analyses/holder-profiles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokenMint, topN }),
+        body: JSON.stringify(payload),
       });
       tokenJobIdRef.current = response.jobId;
-      toast.success('Token analysis queued', { description: `Job ${response.jobId}` });
+      if (typeof window !== 'undefined' && tokenStorageKey) {
+        window.localStorage.setItem(tokenStorageKey, response.jobId);
+      }
+      toast.success('Token analysis queued');
       subscribeToJob(response.jobId);
     } catch (error: any) {
       setTokenStatus('failed');
-      toast.error('Failed to start analysis', { description: error.message || 'Unknown error' });
+      const friendlyError = normalizeHolderProfilesError(error.message);
+      setTokenFailureError(friendlyError || error.message || 'Unknown error');
+      toast.error('Failed to start analysis', { description: friendlyError || error.message || 'Unknown error' });
     }
   };
 
@@ -264,98 +546,152 @@ export default function HolderProfilesPage() {
   const isTokenRunning = tokenStatus === 'running';
   const isWalletRunning = walletEntries.some((entry) => entry.status === 'running');
   const disableAnalyze = analysisMode === 'token' ? isTokenRunning : isWalletRunning || parsedWallets.list.length === 0;
+  const shouldShowLastSuccess = tokenStatus === 'failed'
+    && lastSuccessfulTokenResult
+    && lastSuccessfulTokenResult.tokenMint === tokenMint;
+  const displayedTokenResult = tokenResult
+    ?? tokenPartialResult
+    ?? (shouldShowLastSuccess ? lastSuccessfulTokenResult : null);
+  const lastSuccessLabel = lastSuccessfulTokenTimestamp
+    ? new Date(lastSuccessfulTokenTimestamp).toLocaleString()
+    : 'the previous run';
+  const tokenNotice = shouldShowLastSuccess
+    ? {
+        title: 'Latest run failed',
+        description: `${tokenFailureError ? `Error: ${tokenFailureError}. ` : ''}Showing last successful snapshot from ${lastSuccessLabel}.`,
+        variant: 'default' as const,
+      }
+    : null;
+
+  const retrySimilarity = useCallback(() => {
+    if (!displayedTokenResult?.profiles?.length) {
+      return;
+    }
+    // Reset state to allow retry
+    similarityJobIdRef.current = null;
+    similarityTriggeredRef.current = false;
+    setSimilarityResult(null);
+    setSimilarityStatus('idle');
+    queueSimilarityAnalysis(displayedTokenResult.profiles.map((profile) => profile.walletAddress));
+  }, [displayedTokenResult, queueSimilarityAnalysis]);
 
   return (
     <AppShell>
-      <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8">
-      <Card className="max-w-5xl mx-auto p-5 space-y-4">
-        <p className="text-[13px] text-foreground/90 leading-relaxed text-center">
-          Analyze holder behavior patterns to understand trading styles and conviction levels across token cohorts or wallet lists.
-        </p>
-
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pb-3 border-b">
-          <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
-            <TabsList className="h-9 grid w-[260px] grid-cols-2">
-              <TabsTrigger value="token" className="text-sm">Token Cohort</TabsTrigger>
-              <TabsTrigger value="wallet" className="text-sm">Wallet List</TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          <Button onClick={handleAnalyze} disabled={disableAnalyze} size="sm" className="min-w-[160px] h-9">
-            {analysisMode === 'token' && isTokenRunning ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tokenProgress}%
-              </>
-            ) : analysisMode === 'wallet' && isWalletRunning ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing
-              </>
-            ) : (
-              <>
-                <Search className="mr-2 h-4 w-4" /> Analyze
-              </>
-            )}
-          </Button>
+      <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8 pb-8">
+        <div className="max-w-6xl mx-auto space-y-1">
+          <PageTitle
+            title="Holder Profiles"
+            subtitle="Scan holder behavior patterns and conviction signals across top wallets."
+            icon={Users}
+          />
         </div>
+        <Card className="max-w-6xl mx-auto p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex-1 min-w-[220px]">
+              {analysisMode === 'token' ? (
+                <Input
+                  id="tokenMint"
+                  placeholder="Token mint address"
+                  value={tokenMint}
+                  onChange={(e) => setTokenMint(e.target.value)}
+                  disabled={tokenStatus === 'running'}
+                  className="h-9"
+                />
+              ) : (
+                <Input
+                  id="walletAddresses"
+                  placeholder="Wallet addresses (comma or space separated)"
+                  value={walletInput}
+                  onChange={(e) => setWalletInput(e.target.value)}
+                  className="h-9"
+                />
+              )}
+            </div>
 
-        {analysisMode === 'token' ? (
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
-              <Label htmlFor="tokenMint" className="text-xs text-muted-foreground mb-1.5 block">Token mint address</Label>
-              <Input
-                id="tokenMint"
-                placeholder="e.g., EhzVcKmGjLk6pD5gL..."
-                value={tokenMint}
-                onChange={(e) => setTokenMint(e.target.value)}
-                disabled={tokenStatus === 'running'}
-                className="h-9"
-              />
-            </div>
-            <div className="w-full sm:w-24">
-              <Label htmlFor="topN" className="text-xs text-muted-foreground mb-1.5 block">Top N</Label>
-              <Input
-                id="topN"
-                type="number"
-                min={1}
-                max={50}
-                value={topN}
-                onChange={(e) => setTopN(parseInt(e.target.value, 10) || 10)}
-                disabled={tokenStatus === 'running'}
-                className="h-9"
-                placeholder="10"
-              />
-            </div>
-          </div>
-        ) : (
-          <div>
-            <Label htmlFor="walletAddresses" className="text-xs text-muted-foreground mb-1.5 block">Wallet addresses (comma or space separated)</Label>
-            <Input
-              id="walletAddresses"
-              placeholder="Paste wallet addresses here..."
-              value={walletInput}
-              onChange={(e) => setWalletInput(e.target.value)}
-              className="h-9"
-            />
-            {parsedWallets.list.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-1.5">
-                {parsedWallets.list.length} wallet{parsedWallets.list.length !== 1 ? 's' : ''} detected
-              </p>
+            {analysisMode === 'token' && (
+              <Select value={String(topN)} onValueChange={(value) => setTopN(parseInt(value, 10))}>
+                <SelectTrigger className="h-9 w-[96px]">
+                  <SelectValue placeholder="Top N" />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 25, 50].map((value) => (
+                    <SelectItem key={value} value={String(value)}>
+                      Top {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
+
+            <Button onClick={handleAnalyze} disabled={disableAnalyze} size="sm" className="h-9 px-5">
+              {analysisMode === 'token' && isTokenRunning ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tokenProgress}%
+                </>
+              ) : analysisMode === 'wallet' && isWalletRunning ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Running
+                </>
+              ) : (
+                <>
+                  <Search className="mr-2 h-4 w-4" /> Check
+                </>
+              )}
+            </Button>
+
+            <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
+              <TabsList className="h-9 grid w-[140px] grid-cols-2">
+                <TabsTrigger value="token" className="text-xs">Token</TabsTrigger>
+                <TabsTrigger value="wallet" className="text-xs">Wallet</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
+
+          {analysisMode === 'wallet' && parsedWallets.list.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              {parsedWallets.list.length} wallet{parsedWallets.list.length !== 1 ? 's' : ''} detected
+            </p>
+          )}
+        </Card>
+
+        {analysisMode === 'token' && displayedTokenResult && (
+          <TokenPulse
+            result={displayedTokenResult}
+            similarityResult={similarityResult}
+            similarityStatus={similarityStatus}
+            isFinalAnalysis={similarityStatus !== 'idle'}
+            notice={tokenNotice}
+            onRetrySimilarity={retrySimilarity}
+          />
         )}
-      </Card>
 
-      {analysisMode === 'token' && isTokenRunning && tokenMessage && (
-        <p className="text-xs text-muted-foreground px-3">{tokenMessage}</p>
-      )}
+        {analysisMode === 'token' && tokenStatus === 'failed' && !displayedTokenResult && (
+          <Alert variant="destructive" className="max-w-6xl mx-auto">
+            <AlertTitle>Holder profile analysis failed</AlertTitle>
+            <AlertDescription>
+              {tokenFailureError || 'No results available. Please check the token mint and try again.'}
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {analysisMode === 'token' && (tokenResult || tokenPartialResult) && (
-        <TokenPulse result={(tokenResult ?? tokenPartialResult)!} />
-      )}
-
-      {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
+        {analysisMode === 'wallet' && walletEntries.length > 0 && <WalletClassifier entries={walletEntries} />}
       </div>
     </AppShell>
   );
 }
 
+export default function HolderProfilesPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="w-full mx-auto px-4 md:px-6 lg:px-10 py-8">
+            <p className="text-sm text-muted-foreground">Loading holder profiles…</p>
+          </div>
+        </AppShell>
+      }
+    >
+      <HolderProfilesContent />
+    </Suspense>
+  );
+}

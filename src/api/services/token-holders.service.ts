@@ -1,20 +1,34 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import type { GetTokenLargestAccountsResult, TokenLargestAccount, GetMultipleAccountsResult, RpcAccountInfo } from '../../types/helius-api';
-import { KNOWN_SYSTEM_WALLETS } from '../../config/constants';
+import { getKnownWallet, type KnownWalletType } from '../../config/known-wallets';
+import { getErrorMessage } from 'core/utils/error-utils';
+
+// Known program IDs for special detection
+const STREAMFLOW_PROGRAM_ID = 'strmRqUCoQUgGUan5YhzUZa6KqdzwX5L6FpUxfmKg5m';
+
+export interface HolderWithLabel {
+  tokenAccount: string;
+  ownerAccount?: string;
+  amount: string;
+  decimals: number;
+  uiAmount: number | null;
+  uiAmountString: string;
+  rank: number;
+  knownType?: KnownWalletType;
+  knownLabel?: string;
+}
 
 export interface TopHoldersResponse {
   mint: string;
   context: { slot: number; apiVersion?: string };
-  holders: Array<{
-    tokenAccount: string;
-    ownerAccount?: string;
+  holders: HolderWithLabel[];
+  supply?: {
     amount: string;
     decimals: number;
     uiAmount: number | null;
     uiAmountString: string;
-    rank: number;
-  }>;
+  };
 }
 
 @Injectable()
@@ -24,7 +38,28 @@ export class TokenHoldersService {
   constructor(private readonly heliusClient: HeliusApiClient) {}
 
   async getTopHolders(mint: string, commitment?: string): Promise<TopHoldersResponse> {
-    const rpcResult: GetTokenLargestAccountsResult = await this.heliusClient.getTokenLargestAccounts(mint, commitment);
+    let rpcResult: GetTokenLargestAccountsResult;
+    try {
+      rpcResult = await this.heliusClient.getTokenLargestAccounts(mint, commitment);
+    } catch (error) {
+      if ((error as Error)?.name === 'InvalidRpcInputError') {
+        throw new NotFoundException(`Token mint not found: ${mint}`);
+      }
+      throw error;
+    }
+
+    // Fetch token supply for percentage calculations
+    let supply: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string } | undefined;
+    try {
+      const supplyResult = await this.heliusClient.getTokenSupply(mint, commitment);
+      supply = supplyResult.value;
+    } catch (error) {
+      if ((error as Error)?.name === 'InvalidRpcInputError') {
+        supply = undefined;
+      } else {
+      this.logger.warn(`Failed to fetch token supply for ${mint}, percentages will not be available: ${getErrorMessage(error)}`);
+      }
+    }
 
     const tokenAccountPubkeys = rpcResult.value.map((v) => v.address);
 
@@ -63,44 +98,66 @@ export class TokenHoldersService {
       this.logger.warn('Failed to fetch owner account infos for system filtering. Proceeding without filter.');
     }
 
-    const holdersWithRankRaw = rpcResult.value.map((acc: TokenLargestAccount, idx: number) => ({
-      tokenAccount: acc.address,
-      ownerAccount: owners[idx],
-      amount: acc.amount,
-      decimals: acc.decimals,
-      uiAmount: acc.uiAmount,
-      uiAmountString: acc.uiAmountString,
-      rank: idx + 1,
-    }));
-
-    // Filter out owner accounts that are clearly program-owned (AMM PDAs) or known system wallets
+    // Build holders with labels instead of filtering
+    // Labels allow the UI to show/hide or style known wallets appropriately
     const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
-    const knownSystemSet: Set<string> = new Set<string>(KNOWN_SYSTEM_WALLETS as readonly string[]);
-    const holdersWithRank = holdersWithRankRaw.filter((h) => {
-      const owner = h.ownerAccount;
-      if (!owner) return true; // If no owner resolved, keep; frontend can toggle ownersOnly
-      if (knownSystemSet.has(owner)) return false;
-      const info = ownerAccountInfo[owner];
-      if (!info) return true; // If we couldn't fetch, be conservative but still drop obvious system wallets above
+    const holdersWithLabels: HolderWithLabel[] = [];
+    let rank = 1;
 
-      const isProgramOwned = info.owner && info.owner !== SYSTEM_PROGRAM_ID;
-      const hasNonEmptyData = Array.isArray((info as any).data) && typeof (info as any).data[0] === 'string'
-        ? (info as any).data[0].length > 0
-        : false;
-      const isExecutable = Boolean((info as any).executable);
+    for (let idx = 0; idx < rpcResult.value.length; idx++) {
+      const acc = rpcResult.value[idx];
+      const owner = owners[idx];
 
-      // Wallets should be system-owned, non-executable, and have empty data
-      if (isProgramOwned || hasNonEmptyData || isExecutable) {
-        return false;
+      // Build the holder entry with basic info
+      const holder: HolderWithLabel = {
+        tokenAccount: acc.address,
+        ownerAccount: owner,
+        amount: acc.amount,
+        decimals: acc.decimals,
+        uiAmount: acc.uiAmount,
+        uiAmountString: acc.uiAmountString,
+        rank: rank++,
+      };
+
+      // Attach known wallet label if this owner is in the registry
+      if (owner) {
+        const knownEntry = getKnownWallet(owner);
+        if (knownEntry) {
+          holder.knownType = knownEntry.type;
+          holder.knownLabel = knownEntry.label;
+        } else {
+          // Check if this is a program-owned account (AMM PDA, lock vault, etc.)
+          const info = ownerAccountInfo[owner];
+          if (info) {
+            const programOwner = info.owner;
+            const isProgramOwned = programOwner && programOwner !== SYSTEM_PROGRAM_ID;
+            const hasNonEmptyData = Array.isArray((info as any).data) && typeof (info as any).data[0] === 'string'
+              ? (info as any).data[0].length > 0
+              : false;
+            const isExecutable = Boolean((info as any).executable);
+
+            // Check for specific programs first (Streamflow lock vaults, etc.)
+            if (programOwner === STREAMFLOW_PROGRAM_ID) {
+              holder.knownType = 'PROTOCOL';
+              holder.knownLabel = '🔒 Lock Vault';
+            }
+            // Generic program-owned accounts → treat as LP/Protocol
+            else if (isProgramOwned || hasNonEmptyData || isExecutable) {
+              holder.knownType = 'LP';
+              holder.knownLabel = 'LIQ POOL 💧';
+            }
+          }
+        }
       }
 
-      return true;
-    });
+      holdersWithLabels.push(holder);
+    }
 
     return {
       mint,
       context: rpcResult.context,
-      holders: holdersWithRank,
+      holders: holdersWithLabels,
+      supply,
     };
   }
 }

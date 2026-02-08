@@ -19,13 +19,15 @@ import { HeliusTransaction } from '@/types/helius-api'; // Assuming HeliusTransa
 import { TransactionData } from '@/types/correlation'; // Needed for getTransactionsForAnalysis
 import { BaseAnalysisConfig } from '@/types/analysis'; // Needed for getTransactionsForAnalysis
 import { createLogger } from 'core/utils/logger'; // Assuming createLogger function is defined in utils
+import { sanitizePrismaInput } from 'core/utils/string-sanitizer'; // UTF-8 sanitization for PostgreSQL
 
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
-import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger } from '@nestjs/common';
+import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger, ForbiddenException } from '@nestjs/common';
 import { WalletAnalysisStatus } from '@/types/wallet';
-import { DB_CONFIG } from '../../config/constants';
+import { DB_CONFIG, USER_FAVORITES_CONFIG } from '../../config/constants';
 import type { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
+import { getErrorMessage } from 'core/utils/error-utils';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -41,7 +43,7 @@ export const prisma = new PrismaClient({
   datasources: {
     db: {
       url: process.env.DATABASE_URL
-        ? `${process.env.DATABASE_URL}&statement_timeout=120000`
+        ? `${process.env.DATABASE_URL}${process.env.DATABASE_URL.includes('?') ? '&' : '?'}statement_timeout=120000`
         : undefined,
     },
   },
@@ -88,6 +90,8 @@ export type AnalysisResultCreateData = Omit<Prisma.AnalysisResultCreateInput, 'i
     totalFeesPaidInSol?: number | null; 
 };
 
+export type TokenLotCreateData = Prisma.TokenLotCreateManyInput;
+
 // Type for creating an AdvancedStatsResult record (omit auto-generated id, add runId and walletAddress explicitly)
 // Define this type within or import it for the class method
 /** Data structure for the INPUT to saveAdvancedStats, containing the raw data points. */
@@ -117,6 +121,7 @@ interface HolderProfileSnapshotCreateParams {
 interface WalletStatus {
   walletAddress: string;
   status: WalletAnalysisStatus;
+  lastSuccessfulFetchTimestamp?: Date | null;
 }
 
 interface WalletStatusResponse {
@@ -349,7 +354,7 @@ export class DatabaseService {
                 take: limit,
             });
         } catch (error) {
-            this.logger.error(`Error fetching mapping activity logs for ${walletAddress}:`, error);
+            this.logger.error(`Error fetching mapping activity logs for ${walletAddress}: ${getErrorMessage(error)}`);
             return [];
         }
     }
@@ -369,6 +374,8 @@ export class DatabaseService {
             botType?: string;
             botPatternTags?: string[];
             isVerifiedBot?: boolean;
+            knownType?: string;
+            knownLabel?: string;
         }
     ): Promise<Wallet> {
         const updateData: any = {
@@ -394,6 +401,14 @@ export class DatabaseService {
 
         if (classificationData.isVerifiedBot !== undefined) {
             updateData.isVerifiedBot = classificationData.isVerifiedBot;
+        }
+
+        if (classificationData.knownType) {
+            updateData.knownType = classificationData.knownType;
+        }
+
+        if (classificationData.knownLabel) {
+            updateData.knownLabel = classificationData.knownLabel;
         }
 
         return await this.prismaClient.wallet.upsert({
@@ -447,7 +462,7 @@ export class DatabaseService {
                 data: { classification },
             });
         } catch (error) {
-            this.logger.error(`Error updating simple classification for ${walletAddress}:`, error);
+            this.logger.error(`Error updating simple classification for ${walletAddress}: ${getErrorMessage(error)}`);
             throw error;
         }
     }
@@ -477,23 +492,25 @@ export class DatabaseService {
 
             const foundWallets = await this.prismaClient.wallet.findMany({
                 where: { address: { in: walletAddresses } },
-                select: { address: true, analyzedTimestampEnd: true },
+                select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true },
             });
 
             const latestRunMap = new Map(latestRuns.map(run => [run.walletAddress, run]));
             const walletMap = new Map(foundWallets.map(w => [w.address, w]));
-            const stalenessThreshold = Date.now() / 1000 - (24 * 60 * 60); // 24 hours ago in seconds
+            const { WALLET_STALENESS_CONFIG } = await import('../../config/constants');
+            const stalenessThreshold = Date.now() / 1000 - WALLET_STALENESS_CONFIG.ANALYSIS_STALENESS_SECONDS;
 
             const statuses: WalletStatus[] = walletAddresses.map(addr => {
                 const latestRun = latestRunMap.get(addr);
                 const wallet = walletMap.get(addr);
+                const lastFetch = wallet?.lastSuccessfulFetchTimestamp ?? null;
 
                 if (!latestRun) {
-                    return { walletAddress: addr, status: WalletAnalysisStatus.MISSING };
+                    return { walletAddress: addr, status: WalletAnalysisStatus.MISSING, lastSuccessfulFetchTimestamp: lastFetch };
                 }
-                
+
                 if (latestRun.status === 'IN_PROGRESS' || latestRun.status === 'INITIATED') {
-                    return { walletAddress: addr, status: WalletAnalysisStatus.IN_PROGRESS };
+                    return { walletAddress: addr, status: WalletAnalysisStatus.IN_PROGRESS, lastSuccessfulFetchTimestamp: lastFetch };
                 }
 
                 if (latestRun.status === 'FAILED') {
@@ -503,10 +520,10 @@ export class DatabaseService {
 
                 // If the run is COMPLETED or FAILED, check for staleness.
                 if (!wallet?.analyzedTimestampEnd || wallet.analyzedTimestampEnd < stalenessThreshold) {
-                    return { walletAddress: addr, status: WalletAnalysisStatus.STALE };
+                    return { walletAddress: addr, status: WalletAnalysisStatus.STALE, lastSuccessfulFetchTimestamp: lastFetch };
                 }
 
-                return { walletAddress: addr, status: WalletAnalysisStatus.READY };
+                return { walletAddress: addr, status: WalletAnalysisStatus.READY, lastSuccessfulFetchTimestamp: lastFetch };
             });
 
             return { statuses };
@@ -634,7 +651,6 @@ export class DatabaseService {
     async countAnalysisResults(params: {
         where?: Prisma.AnalysisResultWhereInput;
     }): Promise<number> {
-        this.logger.debug(`Counting AnalysisResults with params: ${JSON.stringify(params)}`);
         return this.executeWithRetry('analysisResult.count', async () => {
             return await this.prismaClient.analysisResult.count(params);
         });
@@ -696,7 +712,7 @@ export class DatabaseService {
             this.logger.warn('API key validation failed: No matching active user found for the provided key.');
             return null;
         } catch (error) {
-            this.logger.error('Error during API key validation:', error);
+            this.logger.error(`Error during API key validation: ${getErrorMessage(error)}`);
             throw new Error('Could not validate API key due to a server error.'); // Generic error to client
         }
     }
@@ -760,7 +776,7 @@ export class DatabaseService {
                 this.logger.warn(`User ${userId} not found or already active.`);
                 return null; 
             }
-            this.logger.error(`Error activating user ${userId}:`, error);
+            this.logger.error(`Error activating user ${userId}: ${getErrorMessage(error)}`);
             throw new Error('Could not activate user due to a server error.');
         }
     }
@@ -785,7 +801,7 @@ export class DatabaseService {
                 this.logger.warn(`User ${userId} not found or already inactive.`);
                 return null;
             }
-            this.logger.error(`Error deactivating user ${userId}:`, error);
+            this.logger.error(`Error deactivating user ${userId}: ${getErrorMessage(error)}`);
             throw new Error('Could not deactivate user due to a server error.');
         }
     }
@@ -845,7 +861,7 @@ export class DatabaseService {
                 this.logger.warn(`User ${userId} not found for deletion.`);
                 return null;
             }
-            this.logger.error(`Error deleting user ${userId}:`, error);
+            this.logger.error(`Error deleting user ${userId}: ${getErrorMessage(error)}`);
             throw new Error('Could not delete user due to a server error.');
         }
     }
@@ -870,7 +886,7 @@ export class DatabaseService {
                 this.logger.warn(`User with ID ${userId} not found for updating demo status.`);
                 return null;
             }
-            this.logger.error(`Error setting demo status for user ${userId}:`, error);
+            this.logger.error(`Error setting demo status for user ${userId}: ${getErrorMessage(error)}`);
             throw new Error('Could not set demo status due to a server error.');
         }
     }
@@ -958,7 +974,7 @@ export class DatabaseService {
      * @param userId The ID of the user.
      * @param walletAddress The address of the wallet to favorite.
      * @returns A promise that resolves to the created UserFavoriteWallet record.
-     * @throws NotFoundException if the user or wallet does not exist.
+       * @throws NotFoundException if the user does not exist.
      * @throws ConflictException if the wallet is already in the user\'s favorites.
      * @throws InternalServerErrorException for other database errors.
      */
@@ -971,11 +987,26 @@ export class DatabaseService {
             throw new NotFoundException(`User with ID "${userId}" not found.`);
         }
 
-        const walletExists = await this.prismaClient.wallet.findUnique({ where: { address: walletAddress } });
-        if (!walletExists) {
-            this.logger.warn(`Add favorite failed: Wallet ${walletAddress} not found.`);
-            throw new NotFoundException(`Wallet with address "${walletAddress}" not found. It may need to be analyzed first.`);
+        const existingFavorite = await this.prismaClient.userFavoriteWallet.findUnique({
+            where: { userId_walletAddress: { userId, walletAddress } },
+        });
+        if (existingFavorite) {
+            this.logger.warn(`Add favorite conflict: Wallet ${walletAddress} already in favorites for user ${userId}.`);
+            throw new ConflictException('This wallet is already in your favorites.');
         }
+
+        const currentCount = await this.prismaClient.userFavoriteWallet.count({ where: { userId } });
+        if (currentCount >= USER_FAVORITES_CONFIG.MAX_FAVORITES) {
+            this.logger.warn(`Add favorite blocked: User ${userId} reached max favorites (${USER_FAVORITES_CONFIG.MAX_FAVORITES}).`);
+            throw new ForbiddenException(`Favorites limit reached (${USER_FAVORITES_CONFIG.MAX_FAVORITES}). Remove a wallet to add another.`);
+        }
+
+        // Ensure wallet exists in DB; create a lightweight stub if missing.
+        await this.prismaClient.wallet.upsert({
+            where: { address: walletAddress },
+            create: { address: walletAddress },
+            update: {},
+        });
 
         try {
             const favorite = await this.prismaClient.userFavoriteWallet.create({
@@ -1031,6 +1062,27 @@ export class DatabaseService {
     }
 
     /**
+     * Removes all favorite wallets for a user.
+     *
+     * @param userId The ID of the user.
+     * @returns The number of favorites removed.
+     * @throws InternalServerErrorException for database errors.
+     */
+    async clearFavoriteWallets(userId: string): Promise<number> {
+        this.logger.warn(`Clearing all favorite wallets for user ${userId}`);
+        try {
+            const result = await this.prismaClient.userFavoriteWallet.deleteMany({
+                where: { userId },
+            });
+            this.logger.info(`Cleared ${result.count} favorite wallets for user ${userId}`);
+            return result.count;
+        } catch (error) {
+            this.logger.error(`Error clearing favorite wallets for user ${userId}:`, { error });
+            throw new InternalServerErrorException('Could not clear favorites due to an unexpected error.');
+        }
+    }
+
+    /**
      * Retrieves all favorite wallets for a given user.
      * Includes the related Wallet object for each favorite.
      *
@@ -1039,15 +1091,19 @@ export class DatabaseService {
      * @throws NotFoundException if the user does not exist.
      * @throws InternalServerErrorException for other database errors.
      */
-    async getFavoriteWalletsByUserId(userId: string): Promise<Array<Prisma.UserFavoriteWalletGetPayload<{ include: { wallet: { include: { pnlSummary: true, behaviorProfile: true } } } }>>> {
-        this.logger.debug(`Fetching favorite wallets for user ${userId}`);
+    async getFavoriteWalletsByUserId(userId: string): Promise<Array<Prisma.UserFavoriteWalletGetPayload<{ include: { wallet: { include: { pnlSummary: { include: { advancedStats: true } }, behaviorProfile: true } } } }>>> {
+       // this.logger.debug(`Fetching favorite wallets for user ${userId}`);
         try {
             return await this.prismaClient.userFavoriteWallet.findMany({
                 where: { userId: userId },
                 include: {
                     wallet: {
                         include: {
-                            pnlSummary: true,
+                            pnlSummary: {
+                                include: {
+                                    advancedStats: true,
+                                }
+                            },
                             behaviorProfile: true,
                         }
                     }
@@ -1072,9 +1128,9 @@ export class DatabaseService {
      * @throws InternalServerErrorException for other database errors.
      */
     async updateFavoriteWallet(
-        userId: string, 
-        walletAddress: string, 
-        updateData: { nickname?: string; tags?: string | null; collections?: string | null; metadata?: any }
+        userId: string,
+        walletAddress: string,
+        updateData: { nickname?: string; collections?: string | null; metadata?: any }
     ): Promise<void> {
         this.logger.debug(`Updating favorite wallet ${walletAddress} for user ${userId}`);
         try {
@@ -1114,41 +1170,6 @@ export class DatabaseService {
     }
 
     /**
-     * Gets all unique tags used by a user across their favorite wallets.
-     *
-     * @param userId The ID of the user.
-     * @returns Array of unique tag strings.
-     */
-    async getUserFavoriteTags(userId: string): Promise<string[]> {
-        this.logger.debug(`Fetching favorite tags for user ${userId}`);
-        try {
-            const favorites = await this.prismaClient.userFavoriteWallet.findMany({
-                where: { userId },
-                select: { tags: true },
-            });
-
-            const tagSet = new Set<string>();
-            favorites.forEach(fav => {
-                if (fav.tags) {
-                    try {
-                        const tags = JSON.parse(fav.tags);
-                        if (Array.isArray(tags)) {
-                            tags.forEach((tag: string) => tagSet.add(tag));
-                        }
-                    } catch (e) {
-                        // Skip invalid JSON
-                    }
-                }
-            });
-
-            return Array.from(tagSet).sort();
-        } catch (error) {
-            this.logger.error(`Error fetching favorite tags for user ${userId}:`, { error });
-            return [];
-        }
-    }
-
-    /**
      * Gets all unique collections used by a user across their favorite wallets.
      *
      * @param userId The ID of the user.
@@ -1183,6 +1204,219 @@ export class DatabaseService {
         }
     }
     // --- End Wallet Favorite Methods ---
+
+    /**
+     * Bulk upsert favorite wallets for a user.
+     * - Creates missing Wallet records.
+     * - Inserts new favorites via createMany.
+     * - Optionally merges collections and metadata for existing favorites.
+     */
+    async bulkUpsertFavoriteWallets(params: {
+        userId: string;
+        favorites: Array<{
+            walletAddress: string;
+            nickname?: string;
+            collections?: string[];
+            metadata?: any;
+        }>;
+        mergeCollections?: boolean;
+        overwriteNickname?: boolean;
+        mergeMetadata?: boolean;
+    }): Promise<{ added: number; updated: number; skipped: number; overLimit: number; createdWallets: string[] }> {
+        const {
+            userId,
+            favorites,
+            mergeCollections = true,
+            overwriteNickname = false,
+            mergeMetadata = true,
+        } = params;
+
+        this.logger.debug(`Bulk importing ${favorites.length} favorite wallets for user ${userId}`);
+
+        const userExists = await this.prismaClient.user.findUnique({ where: { id: userId } });
+        if (!userExists) {
+            this.logger.warn(`Bulk favorite import failed: User ${userId} not found.`);
+            throw new NotFoundException(`User with ID "${userId}" not found.`);
+        }
+
+        if (!favorites.length) {
+            return { added: 0, updated: 0, skipped: 0, overLimit: 0, createdWallets: [] };
+        }
+
+        const maxFavorites = USER_FAVORITES_CONFIG.MAX_FAVORITES;
+        const currentCount = await this.prismaClient.userFavoriteWallet.count({ where: { userId } });
+
+        const uniqueFavorites = new Map<string, { walletAddress: string; nickname?: string; collections?: string[]; metadata?: any }>();
+        for (const favorite of favorites) {
+            const existing = uniqueFavorites.get(favorite.walletAddress);
+            if (!existing) {
+                uniqueFavorites.set(favorite.walletAddress, {
+                    walletAddress: favorite.walletAddress,
+                    nickname: favorite.nickname,
+                    collections: favorite.collections ? [...favorite.collections] : [],
+                    metadata: favorite.metadata,
+                });
+                continue;
+            }
+
+            if (!existing.nickname && favorite.nickname) {
+                existing.nickname = favorite.nickname;
+            }
+
+            if (favorite.collections?.length) {
+                const merged = new Set<string>([...(existing.collections || []), ...favorite.collections]);
+                existing.collections = Array.from(merged);
+            }
+
+            if (favorite.metadata && typeof favorite.metadata === 'object') {
+                const existingMeta = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
+                existing.metadata = { ...existingMeta, ...favorite.metadata };
+            }
+        }
+
+        const addresses = Array.from(uniqueFavorites.keys());
+        if (!addresses.length) {
+            return { added: 0, updated: 0, skipped: 0, overLimit: 0, createdWallets: [] };
+        }
+
+        const existingFavorites = await this.prismaClient.userFavoriteWallet.findMany({
+            where: { userId, walletAddress: { in: addresses } },
+            select: { walletAddress: true, nickname: true, collections: true, metadata: true },
+        });
+
+        const existingMap = new Map<string, typeof existingFavorites[number]>();
+        existingFavorites.forEach(fav => existingMap.set(fav.walletAddress, fav));
+
+        const toCreate: Prisma.UserFavoriteWalletCreateManyInput[] = [];
+        const updates: Array<{ walletAddress: string; data: Prisma.UserFavoriteWalletUpdateInput }> = [];
+
+        const parseCollections = (raw: string | null): string[] => {
+            if (!raw) return [];
+            try {
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        };
+
+        for (const favorite of uniqueFavorites.values()) {
+            const existing = existingMap.get(favorite.walletAddress);
+            const normalizedCollections = favorite.collections?.filter(c => c && c.trim()) ?? [];
+            const metadata = favorite.metadata;
+
+            if (!existing) {
+                toCreate.push({
+                    userId,
+                    walletAddress: favorite.walletAddress,
+                    nickname: favorite.nickname ?? null,
+                    collections: normalizedCollections.length > 0 ? JSON.stringify(normalizedCollections) : null,
+                    metadata: metadata ?? undefined,
+                });
+                continue;
+            }
+
+            const updateData: Prisma.UserFavoriteWalletUpdateInput = {};
+            let changed = false;
+
+            if (favorite.nickname && (overwriteNickname || !existing.nickname)) {
+                updateData.nickname = favorite.nickname;
+                changed = true;
+            }
+
+            if (normalizedCollections.length > 0) {
+                const existingCollections = parseCollections(existing.collections ?? null);
+                const nextCollections = mergeCollections
+                    ? Array.from(new Set([...existingCollections, ...normalizedCollections]))
+                    : normalizedCollections;
+
+                if (JSON.stringify(existingCollections) !== JSON.stringify(nextCollections)) {
+                    updateData.collections = JSON.stringify(nextCollections);
+                    changed = true;
+                }
+            }
+
+            if (metadata !== undefined) {
+                const existingMeta = existing.metadata ?? undefined;
+                let nextMeta = metadata;
+                if (mergeMetadata && metadata && typeof metadata === 'object') {
+                    const baseMeta = existingMeta && typeof existingMeta === 'object' ? existingMeta : {};
+                    nextMeta = { ...baseMeta, ...metadata };
+                }
+
+                if (JSON.stringify(existingMeta) !== JSON.stringify(nextMeta)) {
+                    updateData.metadata = nextMeta as Prisma.InputJsonValue;
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                updates.push({ walletAddress: favorite.walletAddress, data: updateData });
+            }
+        }
+
+        const availableSlots = Math.max(0, maxFavorites - currentCount);
+        const allowedCreates = availableSlots > 0 ? toCreate.slice(0, availableSlots) : [];
+        const overLimit = Math.max(0, toCreate.length - allowedCreates.length);
+        const createdWallets = allowedCreates.map(entry => entry.walletAddress);
+
+        if (allowedCreates.length > 0) {
+            await this.prismaClient.wallet.createMany({
+                data: allowedCreates.map(entry => ({ address: entry.walletAddress })),
+                skipDuplicates: true,
+            });
+        }
+
+        let added = 0;
+        if (allowedCreates.length > 0) {
+            const result = await this.prismaClient.userFavoriteWallet.createMany({
+                data: allowedCreates,
+                skipDuplicates: true,
+            });
+            added = result.count;
+        }
+
+        if (updates.length > 0) {
+            const batchSize = 200;
+            for (let i = 0; i < updates.length; i += batchSize) {
+                const batch = updates.slice(i, i + batchSize);
+                await this.prismaClient.$transaction(
+                    batch.map(update =>
+                        this.prismaClient.userFavoriteWallet.update({
+                            where: { userId_walletAddress: { userId, walletAddress: update.walletAddress } },
+                            data: update.data,
+                        })
+                    )
+                );
+            }
+        }
+
+        const updated = updates.length;
+        const skipped = addresses.length - added - updated;
+
+        return { added, updated, skipped: Math.max(0, skipped), overLimit, createdWallets };
+    }
+
+    // --- User Methods ---
+
+    /**
+     * Get user by ID
+     */
+    async getUserById(userId: string): Promise<User | null> {
+        return this.prismaClient.user.findUnique({
+            where: { id: userId },
+        });
+    }
+
+    /**
+     * Update user's last bulk import timestamp
+     */
+    async updateUserLastBulkImport(userId: string): Promise<void> {
+        await this.prismaClient.user.update({
+            where: { id: userId },
+            data: { lastBulkImportAt: new Date() },
+        });
+    }
 
     // --- Wallet Methods ---
 
@@ -1415,6 +1649,42 @@ export class DatabaseService {
         }
     }
 
+    async upsertSignificantBuyersCache(data: {
+        mint: string;
+        startBlockTime: number;
+        endBlockTime: number;
+        walletAddresses: string[];
+        transactions: Array<{ signature: string; timestamp: number }>;
+    }): Promise<void> {
+        try {
+            await this.prismaClient.significantBuyersCache.upsert({
+                where: {
+                    mint_startBlockTime_endBlockTime: {
+                        mint: data.mint,
+                        startBlockTime: data.startBlockTime,
+                        endBlockTime: data.endBlockTime,
+                    },
+                },
+                create: {
+                    mint: data.mint,
+                    startBlockTime: data.startBlockTime,
+                    endBlockTime: data.endBlockTime,
+                    walletAddresses: JSON.stringify(data.walletAddresses),
+                    transactions: JSON.stringify(data.transactions),
+                    totalTransactions: data.transactions.length,
+                },
+                update: {
+                    walletAddresses: JSON.stringify(data.walletAddresses),
+                    transactions: JSON.stringify(data.transactions),
+                    totalTransactions: data.transactions.length,
+                    processedAt: new Date(),
+                },
+            });
+        } catch (error) {
+            this.logger.error(`Error upserting SignificantBuyersCache for ${data.mint}`, { error });
+        }
+    }
+
     // --- SwapAnalysisInput Methods ---
 
     /**
@@ -1473,7 +1743,7 @@ export class DatabaseService {
         //    - Duplicates within the incoming batch itself
         const uniqueNewRecordsToInsert: Prisma.SwapAnalysisInputCreateInput[] = [];
         // Map to track records being added in *this batch* to avoid intra-batch duplicates
-        const batchRecordTracker = new Map<string, Set<string>>(); 
+        const batchRecordTracker = new Map<string, Set<string>>();
 
         for (const record of inputs) {
             // Standardize amount for key generation
@@ -1490,8 +1760,11 @@ export class DatabaseService {
                 continue; // Duplicate within this batch
             }
 
+            // Sanitize record to remove null bytes and invalid UTF-8 characters
+            const sanitizedRecord = sanitizePrismaInput(record);
+
             // If not a duplicate, add to list and track it for this batch
-            uniqueNewRecordsToInsert.push(record);
+            uniqueNewRecordsToInsert.push(sanitizedRecord);
             if (!batchRecordTracker.has(record.signature)) {
                 batchRecordTracker.set(record.signature, new Set<string>());
             }
@@ -1760,6 +2033,11 @@ export class DatabaseService {
             totalSolSpent: r.totalSolSpent,
             totalSolReceived: r.totalSolReceived,
             netSolProfitLoss: r.netSolProfitLoss,
+            realizedPnlSol: r.realizedPnlSol ?? null,
+            unrealizedPnlSol: r.unrealizedPnlSol ?? null,
+            totalPnlSol: r.totalPnlSol ?? null,
+            hasIncompleteHistory: r.hasIncompleteHistory ?? false,
+            currentHoldingsCostBasisSol: r.currentHoldingsCostBasisSol ?? null,
             transferCountIn: r.transferCountIn,
             transferCountOut: r.transferCountOut,
             firstTransferTimestamp: r.firstTransferTimestamp,
@@ -2098,7 +2376,7 @@ export class DatabaseService {
             let totalSolReceived = 0;
 
             for (const result of results) {
-                overallRealizedPnl += result.netSolProfitLoss;
+                overallRealizedPnl += result.netSolProfitLoss ?? 0;
                 totalSolSpent += result.totalSolSpent;
                 totalSolReceived += result.totalSolReceived;
             }
@@ -2168,13 +2446,13 @@ export class DatabaseService {
                 
                 // Use transaction for batch processing
                 await this.prismaClient.$transaction(
-                    batch.map(record => 
+                    batch.map(record =>
                         this.prismaClient.analysisResult.upsert({
-                            where: { 
-                                walletAddress_tokenAddress: { 
-                                    walletAddress: record.walletAddress, 
-                                    tokenAddress: record.tokenAddress 
-                                }
+                            where: {
+                                walletAddress_tokenAddress: {
+                                    walletAddress: record.walletAddress,
+                                    tokenAddress: record.tokenAddress,
+                                },
                             },
                             create: record,
                             update: record,
@@ -2191,6 +2469,24 @@ export class DatabaseService {
             this.logger.error(`Error during batch upsert of AnalysisResult records:`, { error, totalProcessed });
             throw error;
         }
+    }
+
+    /**
+     * Replaces all TokenLot records for a wallet with the provided set.
+     * Intended for deterministic FIFO backfills and full recomputation runs.
+     */
+    async replaceTokenLotsForWallet(
+        walletAddress: string,
+        lots: TokenLotCreateData[],
+    ): Promise<void> {
+        await this.prismaClient.$transaction([
+            this.prismaClient.tokenLot.deleteMany({ where: { walletAddress } }),
+            ...(lots.length > 0 ? [this.prismaClient.tokenLot.createMany({ data: lots })] : []),
+        ]);
+    }
+
+    async getTokenLots(walletAddress: string): Promise<Array<Prisma.TokenLotGetPayload<{}>>> {
+        return this.prismaClient.tokenLot.findMany({ where: { walletAddress } });
     }
 
     /**
@@ -2318,7 +2614,7 @@ export class DatabaseService {
         this.logger.verbose(`CoreService: Note created with ID: ${note.id} for wallet ${walletAddress}`);
         return note;
       } catch (error: any) {
-        this.logger.error(`CoreService: Error creating wallet note for ${walletAddress}: ${error.message}`, error.stack);
+        this.logger.error(`CoreService: Error creating wallet note for ${walletAddress}: ${error.message}`);
         if (error instanceof Prisma.PrismaClientKnownRequestError) {
           // Example: Foreign key constraint failed (e.g., walletAddress or userId doesn't exist)
           if (error.code === 'P2003' || error.code === 'P2025') { 
@@ -2350,7 +2646,7 @@ export class DatabaseService {
         this.logger.verbose(`CoreService: Found ${notes.length} notes for wallet ${walletAddress} authored by user ${userId}`);
         return notes;
       } catch (error: any) {
-        this.logger.error(`CoreService: Error fetching wallet notes for ${walletAddress} by user ${userId}: ${error.message}`, error.stack);
+        this.logger.error(`CoreService: Error fetching wallet notes for ${walletAddress} by user ${userId}: ${error.message}`);
         throw new InternalServerErrorException('Could not retrieve wallet notes due to a database error.');
       }
     }
@@ -2392,8 +2688,8 @@ export class DatabaseService {
         return deletedNote;
       } catch (error: any) {
         if (error instanceof NotFoundException) throw error;
-        
-        this.logger.error(`CoreService: Error deleting note ${noteId} by user ${userId}: ${error.message}`, error.stack);
+
+        this.logger.error(`CoreService: Error deleting note ${noteId} by user ${userId}: ${error.message}`);
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
           // Record to delete does not exist - already handled by the explicit findUnique check above, but good fallback.
           throw new NotFoundException(`Note with ID ${noteId} not found for deletion.`);
@@ -2447,8 +2743,8 @@ export class DatabaseService {
         return updatedNote;
       } catch (error: any) {
         if (error instanceof NotFoundException) throw error;
-        
-        this.logger.error(`CoreService: Error updating note ${noteId} by user ${userId}: ${error.message}`, error.stack);
+
+        this.logger.error(`CoreService: Error updating note ${noteId} by user ${userId}: ${error.message}`);
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
           throw new NotFoundException(`Note with ID ${noteId} not found for update.`);
         }
@@ -2482,6 +2778,72 @@ export class DatabaseService {
     }
     // --- End Wallet Search Method ---
 
+    /**
+     * Retrieves wallets for the Discover page using cached summary tables only.
+     * Applies pagination and ordering to keep the query lightweight.
+     */
+    async getDiscoverWallets(params: {
+        where: Prisma.WalletWhereInput;
+        orderBy: Prisma.WalletOrderByWithRelationInput[];
+        skip: number;
+        take: number;
+    }): Promise<{
+        total: number;
+        wallets: Array<Prisma.WalletGetPayload<{ include: { pnlSummary: { include: { advancedStats: true } }, behaviorProfile: true } }>>;
+    }> {
+        return this.executeWithRetry('getDiscoverWallets', async () => {
+            const [total, wallets] = await this.prismaClient.$transaction([
+                this.prismaClient.wallet.count({ where: params.where }),
+                this.prismaClient.wallet.findMany({
+                    where: params.where,
+                    include: {
+                        pnlSummary: { include: { advancedStats: true } },
+                        behaviorProfile: true,
+                    },
+                    orderBy: params.orderBy,
+                    skip: params.skip,
+                    take: params.take,
+                }),
+            ]);
+
+            return { total, wallets };
+        });
+    }
+
+    /**
+     * Get speedCategory, flowPattern, and PnL for aggregation statistics
+     * Efficient query that only selects the fields needed for distribution calculation
+     */
+    async getDiscoverAggregationData(params: {
+        where: Prisma.WalletWhereInput;
+    }): Promise<Array<{ speedCategory: string | null; flowPattern: string | null; pnl: number | null }>> {
+        return this.executeWithRetry('getDiscoverAggregationData', async () => {
+            const wallets = await this.prismaClient.wallet.findMany({
+                where: params.where,
+                select: {
+                    behaviorProfile: {
+                        select: {
+                            speedCategory: true,
+                            flowPattern: true,
+                        },
+                    },
+                    pnlSummary: {
+                        select: {
+                            netPnl: true,
+                        },
+                    },
+                },
+            });
+
+            // Flatten the structure for easier processing
+            return wallets.map(w => ({
+                speedCategory: w.behaviorProfile?.speedCategory || null,
+                flowPattern: w.behaviorProfile?.flowPattern || null,
+                pnl: w.pnlSummary?.netPnl || null,
+            }));
+        });
+    }
+
     // --- TokenInfo Methods ---
     async findManyTokenInfo(tokenAddresses: string[]): Promise<TokenInfo[]> {
         if (tokenAddresses.length === 0) return [];
@@ -2495,22 +2857,58 @@ export class DatabaseService {
     async upsertManyTokenInfo(data: Prisma.TokenInfoCreateInput[]): Promise<void> {
         if (data.length === 0) return;
 
-        const operations = data.map(tokenData => {
-            return this.prismaClient.tokenInfo.upsert({
-                where: { tokenAddress: tokenData.tokenAddress },
-                update: { ...tokenData, updatedAt: new Date() },
-                create: tokenData,
-            });
-        });
+        const MAX_RETRIES = 3;
+        const BASE_DELAY_MS = 100;
 
-        try {
-            // Execute all upsert operations in a transaction
-            await this.prismaClient.$transaction(operations);
-            this.logger.debug(`Successfully upserted ${data.length} token info records.`);
-        } catch (error) {
-            this.logger.error('Error in upsertManyTokenInfo transaction', { error });
-            // Depending on requirements, you might want to re-throw or handle differently
-            throw new InternalServerErrorException('Failed to save token information.');
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                // Sort token addresses to ensure consistent lock acquisition order
+                // This significantly reduces deadlock probability
+                const sortedData = [...data].sort((a, b) =>
+                    a.tokenAddress.localeCompare(b.tokenAddress)
+                );
+
+                const operations = sortedData.map(tokenData => {
+                    return this.prismaClient.tokenInfo.upsert({
+                        where: { tokenAddress: tokenData.tokenAddress },
+                        update: { ...tokenData, updatedAt: new Date() },
+                        create: tokenData,
+                    });
+                });
+
+                // Execute all upsert operations in a transaction
+                await this.prismaClient.$transaction(operations);
+
+                if (attempt > 1) {
+                    this.logger.info(`Successfully upserted ${data.length} token info records after ${attempt} attempts.`);
+                } else {
+                    this.logger.debug(`Successfully upserted ${data.length} token info records.`);
+                }
+
+                return; // Success - exit retry loop
+
+            } catch (error) {
+                // Check if this is a deadlock error (PostgreSQL code 40P01)
+                const isDeadlock = (typeof error === 'object' && error !== null) && (
+                    ('code' in error && (error.code === '40P01' || error.code === 'P2034')) ||
+                    ('meta' in error && typeof error.meta === 'object' && error.meta !== null && 'code' in error.meta && error.meta.code === '40P01')
+                );
+
+                if (isDeadlock && attempt < MAX_RETRIES) {
+                    // Exponential backoff with jitter to reduce retry collision
+                    const delayMs = BASE_DELAY_MS * Math.pow(2, attempt - 1) + Math.random() * 50;
+                    this.logger.warn(
+                        `Deadlock detected in upsertManyTokenInfo (attempt ${attempt}/${MAX_RETRIES}), ` +
+                        `retrying in ${delayMs.toFixed(0)}ms...`
+                    );
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                    continue; // Retry
+                }
+
+                // Non-deadlock error or max retries exceeded
+                this.logger.error('Error in upsertManyTokenInfo transaction', { error });
+                throw new InternalServerErrorException('Failed to save token information.');
+            }
         }
     }
 
@@ -2635,21 +3033,41 @@ export class DatabaseService {
 
     /**
      * Update metadataSource to 'hybrid' for tokens with both onchain and dexscreener data
+     * Uses individual updates to avoid deadlocks from concurrent batch operations
      */
     async updateMetadataSourceToHybrid(tokenAddresses: string[]): Promise<number> {
         if (tokenAddresses.length === 0) return 0;
 
-        const result = await this.prismaClient.tokenInfo.updateMany({
-            where: {
-                tokenAddress: { in: tokenAddresses },
-                onchainBasicFetchedAt: { not: null },
-                dexscreenerUpdatedAt: { not: null },
-            },
-            data: {
-                metadataSource: 'hybrid',
-            },
-        });
+        // Process in smaller batches with retry logic to avoid deadlocks
+        let successCount = 0;
+        const BATCH_SIZE = 10; // Small batches to reduce lock contention
 
-        return result.count;
+        for (let i = 0; i < tokenAddresses.length; i += BATCH_SIZE) {
+            const batch = tokenAddresses.slice(i, i + BATCH_SIZE);
+
+            try {
+                const result = await this.prismaClient.tokenInfo.updateMany({
+                    where: {
+                        tokenAddress: { in: batch },
+                        onchainBasicFetchedAt: { not: null },
+                        dexscreenerUpdatedAt: { not: null },
+                    },
+                    data: {
+                        metadataSource: 'hybrid',
+                    },
+                });
+
+                successCount += result.count;
+            } catch (error: any) {
+                // Skip deadlock errors silently - this update is non-critical
+                if (error.code === '40P01') {
+                    logger.debug(`Skipping hybrid metadata update batch due to deadlock (${batch.length} tokens)`);
+                } else {
+                    logger.warn(`Error updating metadata source batch: ${getErrorMessage(error)}`);
+                }
+            }
+        }
+
+        return successCount;
     }
 }

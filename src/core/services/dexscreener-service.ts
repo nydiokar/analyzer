@@ -5,6 +5,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { METADATA_FETCHING_CONFIG } from '@config/constants';
 import { isWellKnownToken, getWellKnownTokenMetadata } from 'core/utils/token-metadata';
+import { getErrorMessage, getErrorSummary } from 'core/utils/error-utils';
 
 const logger = createLogger('DexscreenerService');
 
@@ -109,7 +110,7 @@ export class DexscreenerService {
                     const result = await this.fetchTokensFromDexScreener(chunk);
                     return result;
                 } catch (error) {
-                    logger.error(`❌ Chunk ${actualIndex + 1}/${chunks.length} failed:`, error);
+                    logger.error(`❌ Chunk ${actualIndex + 1}/${chunks.length} failed: ${getErrorMessage(error)}`);
                     return 0; // Return 0 on failure for counting
                 }
             });
@@ -152,7 +153,7 @@ export class DexscreenerService {
                 logger.debug(`Updated metadataSource to 'hybrid' for ${count} tokens with both data sources`);
             }
         } catch (error) {
-            logger.error('Failed to update metadataSource to hybrid:', error);
+            logger.error(`Failed to update metadataSource to hybrid: ${getErrorMessage(error)}`);
             // Non-critical error, don't throw
         }
     }
@@ -239,7 +240,7 @@ export class DexscreenerService {
                     logger.warn(`${source.name} returned no price data, trying next source`);
                 }
             } catch (error) {
-                logger.warn(`Failed to fetch SOL price from ${source.name}: ${error instanceof Error ? error.message : error}, trying next source`);
+                logger.warn(`Failed to fetch SOL price from ${source.name}: ${getErrorMessage(error)}, trying next source`);
             }
         }
 
@@ -412,33 +413,20 @@ export class DexscreenerService {
      * This can reduce API calls by 60-80% for wallets with many scam/new tokens
      */
     private async preFilterTokensForDexScreener(tokenAddresses: string[]): Promise<string[]> {
-        
-        // FILTER 1: Check database for recently checked tokens (within configured hours)
-        const recentlyCheckedTokens = await this.databaseService.getRecentlyCheckedTokens(
-            tokenAddresses, 
-            METADATA_FETCHING_CONFIG.dexscreener.cacheExpiryHours
-        );
-        const recentlyCheckedSet = new Set(recentlyCheckedTokens);
-        
-        const uncheckedTokens = tokenAddresses.filter(addr => !recentlyCheckedSet.has(addr));        
-        
-        
-        // FILTER 2: Skip known scam/spam patterns (if enabled)
+        // FILTER 1: Skip known scam/spam patterns (if enabled)
         const validTokens = METADATA_FETCHING_CONFIG.filtering.enableScamTokenFilter 
-            ? uncheckedTokens.filter(addr => {
+            ? tokenAddresses.filter(addr => {
                 // Skip tokens that are clearly invalid or scam patterns
                 if (!addr || addr.length !== 44) return false;
                 
                 // Skip tokens with configured scam patterns
                 return !METADATA_FETCHING_CONFIG.filtering.scamPatterns.some(pattern => pattern.test(addr));
             })
-            : uncheckedTokens;
+            : tokenAddresses;
         
-        logger.info(`🔍 Pre-filter: After scam filter - ${validTokens.length} tokens remain (${uncheckedTokens.length - validTokens.length} filtered as scam)`);
+        logger.info(`Pre-filter: After scam filter - ${validTokens.length} tokens remain (${tokenAddresses.length - validTokens.length} filtered as scam)`);
         
-        
-        
-        // FILTER 3: Prioritize tokens by wallet activity (if enabled)
+        // FILTER 2: Prioritize tokens by wallet activity (if enabled)
         if (METADATA_FETCHING_CONFIG.filtering.enableActivityPrioritization) {
             const tokensWithActivity = await this.databaseService.getTokensWithRecentActivity(validTokens);
             const prioritizedTokens = [
@@ -450,39 +438,42 @@ export class DexscreenerService {
         }
         
         return validTokens;
+
     }
 
     /**
      * Retry helper for DexScreener API calls with exponential backoff
      */
     private async fetchWithRetry<T>(
-        operation: () => Promise<T>, 
+        operation: () => Promise<T>,
         description: string
     ): Promise<T> {
-        let lastError: Error;
-        
+        let lastError: unknown;
+
         for (let attempt = 1; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
             try {
                 return await operation();
             } catch (error) {
-                lastError = error as Error;
-                
+                lastError = error;
+
                 if (attempt === RETRY_CONFIG.maxRetries) {
-                    logger.error(`Failed to fetch ${description} after ${RETRY_CONFIG.maxRetries} attempts:`, lastError);
-                    throw lastError;
+                    const errorMsg = getErrorMessage(error);
+                    logger.error(`Failed to fetch ${description} after ${RETRY_CONFIG.maxRetries} attempts: ${errorMsg}`);
+                    throw error;
                 }
-                
+
                 // Calculate exponential backoff delay
                 const delay = Math.min(
                     RETRY_CONFIG.baseDelay * Math.pow(2, attempt - 1),
                     RETRY_CONFIG.maxDelay
                 );
-                
-                logger.warn(`Attempt ${attempt}/${RETRY_CONFIG.maxRetries} failed for ${description}, retrying in ${delay}ms:`, lastError.message);
+
+                const errorMsg = getErrorMessage(error);
+                logger.warn(`Attempt ${attempt}/${RETRY_CONFIG.maxRetries} failed for ${description}, retrying in ${delay}ms: ${errorMsg}`);
                 await sleep(delay);
             }
         }
-        
+
         throw lastError!;
     }
 } 

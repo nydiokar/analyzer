@@ -25,6 +25,8 @@ import { AlertingService } from './services/alerting.service';
 import { DeadLetterQueueService } from './services/dead-letter-queue.service';
 import { QueueHealthService } from './services/queue-health.service';
 import { JobEventsBridgeService } from './services/job-events-bridge.service';
+import { JobPayloadCacheService } from '../api/services/job-payload-cache.service';
+import { SystemWalletDetectionService } from '../api/services/system-wallet-detection.service';
 
 // External dependencies - Import modules that provide the services we need
 import { DatabaseModule } from '../api/modules/database.module';
@@ -37,8 +39,11 @@ import { DexscreenerModule } from '../api/integrations/dexscreener.module';
 import { WebSocketModule } from '../api/modules/websocket.module';
 import { BalanceCacheModule } from '../api/modules/balance-cache.module';
 import { HolderProfilesCacheModule } from '../api/modules/holder-profiles-cache.module';
+import { WalletHudModule } from '../api/modules/wallet-hud.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
+import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+
 
 @Global()
 @Module({
@@ -74,6 +79,7 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     WebSocketModule,   // Provides JobProgressGateway
     BalanceCacheModule, // Provides BalanceCacheService
     HolderProfilesCacheModule, // Provides HolderProfilesCacheService
+    WalletHudModule,   // Provides WalletHudService
   ],
   
   providers: [
@@ -84,7 +90,9 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
-    
+    JobPayloadCacheService, // Cache service for storing large job payloads
+    SystemWalletDetectionService, // System wallet detection and filtering
+
     // Queue Services
     WalletOperationsQueue,
     AnalysisOperationsQueue,
@@ -100,13 +108,16 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
   ],
   
   exports: [
+    // Export RedisModule to make REDIS_CLIENT globally available
+    RedisModule,
+
     // Export queue services for use in other modules
     WalletOperationsQueue,
     AnalysisOperationsQueue,
     SimilarityOperationsQueue,
     EnrichmentOperationsQueue,
     MintParticipantsJobsQueue,
-    
+
     // Export core services for use in other modules
     RedisLockService,
     AlertingService,
@@ -114,10 +125,12 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
-    
+    JobPayloadCacheService, // Export for controllers/services that need to cache job payloads
+    SystemWalletDetectionService, // Export for system wallet filtering
+
     // Export processors if needed by other modules
     WalletOperationsProcessor,
-    AnalysisOperationsProcessor, 
+    AnalysisOperationsProcessor,
     SimilarityOperationsProcessor,
     EnrichmentOperationsProcessor,
   ],
@@ -127,6 +140,7 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly queueHealthService: QueueHealthService,
+    private readonly redisLockService: RedisLockService,
     private readonly walletOperationsQueue: WalletOperationsQueue,
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
@@ -138,6 +152,20 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    // 🧹 CRITICAL: Clean up orphaned locks from previous server crashes/restarts
+    // This prevents jobs from being permanently stuck due to locks held by dead processes
+    this.logger.log('Starting orphaned lock cleanup on startup...');
+    try {
+      const cleanedCount = await this.redisLockService.cleanupOrphanedLocksOnStartup();
+      if (cleanedCount > 0) {
+        this.logger.warn(`🧹 Cleaned up ${cleanedCount} orphaned lock(s) from previous session`);
+      } else {
+        this.logger.log('✅ No orphaned locks found - system is clean');
+      }
+    } catch (error) {
+      this.logger.error('❌ Failed to clean up orphaned locks (non-critical, continuing):', error);
+    }
+
     // Register all queues with the health service for monitoring
     this.queueHealthService.registerQueue(QueueNames.WALLET_OPERATIONS, this.walletOperationsQueue.getQueue());
     this.queueHealthService.registerQueue(QueueNames.ANALYSIS_OPERATIONS, this.analysisOperationsQueue.getQueue());
@@ -169,7 +197,7 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log('✅ Queue module shutdown completed successfully');
     } catch (error) {
-      this.logger.error('⚠️ Queue module shutdown encountered errors:', error);
+      this.logger.error('⚠️ Queue module shutdown encountered errors:', getErrorMessage(error));
       // Force close queues to prevent hanging
       await Promise.allSettled([
         this.walletOperationsQueue.getQueue().close(),

@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
-
 interface LoginCredentials {
   email: string;
   password: string;

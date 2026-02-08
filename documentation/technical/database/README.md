@@ -341,7 +341,7 @@ model WalletBehaviorProfile {
   buySellRatio             Float
   buySellSymmetry          Float
   averageFlipDurationHours Float
-  medianHoldTime           Float
+  medianHoldTime           Float @DEPRECATED
   sequenceConsistency      Float
   flipperScore             Float
   

@@ -1,6 +1,8 @@
 import { FactoryProvider, Logger } from '@nestjs/common';
 import Redis, { RedisOptions } from 'ioredis';
 import { redisConfig } from './redis.config';
+import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+
 
 export const REDIS_CLIENT = 'REDIS_CLIENT';
 
@@ -24,9 +26,15 @@ export const redisProvider: FactoryProvider<Redis> = {
       lazyConnect: true, // allow startup without immediate Redis
       maxRetriesPerRequest: 3,
       retryStrategy: (times: number) => {
+        // Exponential backoff with max 3 second delay
         const delay = Math.min(times * 50, 3000);
         return delay;
       },
+      // Enable automatic reconnection on connection errors
+      enableOfflineQueue: true, // Queue commands while disconnected
+      enableReadyCheck: false, // Don't block on ready check
+      connectTimeout: 10000, // 10 second connection timeout
+      keepAlive: 30000, // Keep connection alive with 30 second pings
     };
     const client = new Redis(lockServiceConfig);
 
@@ -69,8 +77,8 @@ export const redisProvider: FactoryProvider<Redis> = {
       } else if (errorMessage.includes('LOADING')) {
         logger.warn('⏳ Redis is loading data into memory. Waiting for it to be ready...');
       } else {
-        // Non-connection errors should still be logged with full details
-        logger.error(`🔥 Redis error: ${errorMessage}`, err.stack);
+        // Non-connection errors should be logged cleanly
+        logger.error(`🔥 Redis error: ${errorMessage}`);
       }
     });
 
@@ -107,7 +115,7 @@ export const redisProvider: FactoryProvider<Redis> = {
         await client.quit();
         logger.log('Redis connection closed gracefully.');
       } catch (error) {
-        logger.error('Error closing Redis connection:', error);
+        logger.error('Error closing Redis connection:', getErrorMessage(error));
       }
     });
 
