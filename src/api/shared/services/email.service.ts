@@ -79,7 +79,9 @@ export class EmailService {
 
     const appName = this.configService.get<string>('APP_NAME', 'Sova Intel');
     const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
-    const verificationUrl = `${frontendUrl}/verify?token=${token}`;
+    // Use the first URL if multiple are specified (comma-separated for CORS)
+    const primaryFrontendUrl = frontendUrl.split(',')[0].trim();
+    const verificationUrl = `${primaryFrontendUrl}/verify?token=${token}`;
 
     const subject = `Verify your ${appName} account`;
 
@@ -119,7 +121,9 @@ If you didn't create an account, you can safely ignore this email.`.trim();
 
     const appName = this.configService.get<string>('APP_NAME', 'Sova Intel');
     const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
-    const resetUrl = `${frontendUrl}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
+    // Use the first URL if multiple are specified (comma-separated for CORS)
+    const primaryFrontendUrl = frontendUrl.split(',')[0].trim();
+    const resetUrl = `${primaryFrontendUrl}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
 
     const subject = `Reset your ${appName} password`;
     const html = `
