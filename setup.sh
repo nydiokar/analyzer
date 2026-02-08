@@ -25,17 +25,17 @@ if [ -d "$HOME/.nvm" ]; then
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 fi
 
-# Step 1: Check/Install Node.js 22
+# Step 1: Check/Install Node.js 24
 echo ""
 echo "Step 1: Checking Node.js version..."
 CURRENT_NODE_VERSION=$(node -v 2>/dev/null || echo "v0.0.0")
-REQUIRED_MAJOR=22
+REQUIRED_MAJOR=24
 
-if [[ "$CURRENT_NODE_VERSION" < "v22" ]]; then
+if [[ "$CURRENT_NODE_VERSION" < "v24" ]]; then
     echo -e "${YELLOW}⚠${NC} Current Node.js version: $CURRENT_NODE_VERSION"
-    echo -e "${YELLOW}⚠${NC} Node.js 22+ required"
+    echo -e "${YELLOW}⚠${NC} Node.js 24+ required"
     echo ""
-    echo "Installing Node.js 22 via nvm..."
+    echo "Installing Node.js 24 via nvm..."
 
     # Check if nvm is installed
     if [ ! -d "$HOME/.nvm" ]; then
@@ -48,10 +48,10 @@ if [[ "$CURRENT_NODE_VERSION" < "v22" ]]; then
         [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
     fi
 
-    # Install Node 22
-    nvm install 22
-    nvm use 22
-    nvm alias default 22
+    # Install Node 24
+    nvm install 24
+    nvm use 24
+    nvm alias default 24
 
     echo -e "${GREEN}✓${NC} Node.js $(node -v) installed"
 else
@@ -200,7 +200,13 @@ fi
 # Step 6: Run Prisma migrations
 echo ""
 echo "Step 6: Running database migrations..."
-npx prisma migrate dev --name add_onchain_metadata_fields
+if [ "$NODE_ENV" = "production" ]; then
+    echo "Running production migrations..."
+    npx prisma migrate deploy
+else
+    echo "Running development migrations..."
+    npx prisma migrate dev
+fi
 echo -e "${GREEN}✓${NC} Database migrated"
 
 # Step 7: Generate Prisma client
@@ -209,6 +215,12 @@ echo "Step 7: Generating Prisma client..."
 npx prisma generate
 echo -e "${GREEN}✓${NC} Prisma client generated"
 
+# Step 8: Build the project
+echo ""
+echo "Step 8: Building the project..."
+npm run build
+echo -e "${GREEN}✓${NC} Project built"
+
 # All done!
 echo ""
 echo -e "${GREEN}========================${NC}"
@@ -216,15 +228,19 @@ echo -e "${GREEN}✓ Setup Complete!${NC}"
 echo -e "${GREEN}========================${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Start the backend: npm run dev"
-echo "  2. Test enrichment: curl -X POST http://localhost:3000/api/token-info \\"
-echo "       -H 'Content-Type: application/json' \\"
-echo "       -H 'x-api-key: YOUR_API_KEY' \\"
-echo "       -d '{\"tokenAddresses\": [\"DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263\"]}'"
+echo ""
+echo "For development:"
+echo "  npm run dev"
+echo ""
+echo "For production:"
+echo "  pm2 start ecosystem.backend.config.js --env production"
+echo "  pm2 logs        # View logs"
+echo "  pm2 status      # Check status"
+echo "  pm2 restart all # Restart services"
 echo ""
 echo "Useful commands:"
-echo "  - View logs: npm run dev"
 echo "  - View database: npx prisma studio"
 echo "  - Stop Redis: docker-compose down"
 echo "  - Restart Redis: docker-compose restart redis"
+echo "  - View PM2 logs: pm2 logs"
 echo ""
