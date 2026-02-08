@@ -119,7 +119,8 @@ export const QueueConfigs: Record<QueueNames, { queueOptions: QueueOptions; work
     },
     workerOptions: {
       connection: redisConnection,
-      concurrency: 5,              // ⚡ BALANCED: 5 workers for similarity operations
+      // Conservative default to avoid concurrent high-memory similarity jobs.
+      concurrency: getEnvNumber('SIMILARITY_WORKER_CONCURRENCY', 3),
       lockDuration: 180000,        // 🔒 3 minutes lock duration for long-running similarity jobs
       lockRenewTime: 90000,        // 🔒 Renew lock every 90 seconds to prevent expiry during processing
     }

@@ -20,6 +20,7 @@ import { SecurityCleanupService } from '../shared/services/security-cleanup.serv
 import { AdvancedThrottlerService } from '../shared/services/advanced-throttler.service';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { SecurityAlertsService } from '../shared/services/security-alerts.service';
+import { TelegramAlertsService } from '../services/telegram-alerts.service';
 import { EmailService } from '../shared/services/email.service';
 import { EmailEventService } from '../shared/services/email-event.service';
 import { JwtStrategy } from '../shared/strategies/jwt.strategy';
@@ -79,6 +80,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     AdvancedThrottlerService,
     SecurityLoggerService,
     SecurityAlertsService,
+    TelegramAlertsService,
     EmailService,
     EmailEventService,
     AuthService,
@@ -101,6 +103,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     AdvancedThrottlerService,
     SecurityLoggerService,
     SecurityAlertsService,
+    TelegramAlertsService,
     AdvancedThrottlerGuard,
     AdminGuard, // Export for use as APP_GUARD in AppModule
     JwtModule,

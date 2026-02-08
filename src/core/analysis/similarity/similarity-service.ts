@@ -109,18 +109,33 @@ export class SimilarityService {
             totalFeesPaidInSol: { gt: 0 } // Only tokens where wallet paid fees
         }
     });
+    const analysisResultsByWallet = new Map<string, typeof batchAnalysisResults>();
+    for (const result of batchAnalysisResults) {
+        const bucket = analysisResultsByWallet.get(result.walletAddress);
+        if (bucket) {
+            bucket.push(result);
+        } else {
+            analysisResultsByWallet.set(result.walletAddress, [result]);
+        }
+    }
     
     // Group results by wallet address
     for (const walletAddr of walletsWithFetchedData) {
-        const walletResults = batchAnalysisResults.filter(result => result.walletAddress === walletAddr);
+        const walletResults = analysisResultsByWallet.get(walletAddr) || [];
         const activeTokens = new Set(walletResults.map(result => result.tokenAddress));
         activelyTradedTokensByWalletPrimary.set(walletAddr, activeTokens);
         logger.debug(`[Primary Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${walletResults.length} actively traded tokens (paid fees)`);
     }
     
     // Filter primaryRelevantMints to only include tokens actively traded by at least one wallet
+    const allActivelyTradedMints = new Set<string>();
+    for (const tokenSet of activelyTradedTokensByWalletPrimary.values()) {
+        for (const mint of tokenSet) {
+            allActivelyTradedMints.add(mint);
+        }
+    }
     const filteredPrimaryMints = primaryRelevantMints.filter(mint => {
-        return Array.from(activelyTradedTokensByWalletPrimary.values()).some(tokenSet => tokenSet.has(mint));
+        return allActivelyTradedMints.has(mint);
     });
     
     logger.debug(`[Primary Filtered] Filtered from ${primaryRelevantMints.length} to ${filteredPrimaryMints.length} tokens for ${vectorType} similarity (excluding passive interactions)`);
@@ -184,15 +199,21 @@ export class SimilarityService {
         
         for (const walletAddr of walletsWithBinaryVectors) {
             // Reuse the already-fetched batch results instead of querying again
-            const walletResults = batchAnalysisResults.filter(result => result.walletAddress === walletAddr);
+            const walletResults = analysisResultsByWallet.get(walletAddr) || [];
             const activeTokens = new Set(walletResults.map(result => result.tokenAddress));
             activelyTradedTokensByWallet.set(walletAddr, activeTokens);
             // logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${walletResults.length} actively traded tokens (paid fees)`);
         }
         
         // Filter binaryRelevantMints to only include tokens actively traded by at least one wallet
+        const allHistoricalActivelyTradedMints = new Set<string>();
+        for (const tokenSet of activelyTradedTokensByWallet.values()) {
+            for (const mint of tokenSet) {
+                allHistoricalActivelyTradedMints.add(mint);
+            }
+        }
         const filteredHistoricalMints = binaryRelevantMints.filter(mint => {
-            return Array.from(activelyTradedTokensByWallet.values()).some(tokenSet => tokenSet.has(mint));
+            return allHistoricalActivelyTradedMints.has(mint);
         });
         
         // logger.debug(`[Historical Filtered] Filtered from ${binaryRelevantMints.length} to ${filteredHistoricalMints.length} tokens (excluding passive interactions)`);
@@ -200,13 +221,15 @@ export class SimilarityService {
         if (filteredHistoricalMints.length > 0) {
             // Create filtered binary vectors using only actively traded tokens
             const filteredBinaryVectors: Record<string, TokenVector> = {};
+            const filteredHistoricalMintSet = new Set(filteredHistoricalMints);
             for (const walletAddr of walletsWithBinaryVectors) {
                 filteredBinaryVectors[walletAddr] = {};
                 const activeTokens = activelyTradedTokensByWallet.get(walletAddr) || new Set();
                 
-                for (const mint of filteredHistoricalMints) {
-                    // Token = 1 if wallet actively traded it (paid fees), 0 otherwise
-                    filteredBinaryVectors[walletAddr][mint] = activeTokens.has(mint) ? 1 : 0;
+                for (const mint of activeTokens) {
+                    if (filteredHistoricalMintSet.has(mint)) {
+                        filteredBinaryVectors[walletAddr][mint] = 1;
+                    }
                 }
                 
                 const activeCount = Object.values(filteredBinaryVectors[walletAddr]).filter(v => v === 1).length;
@@ -373,7 +396,7 @@ export class SimilarityService {
                         
                         for (const walletAddr of walletsWithHoldingsVectors) {
                             // Reuse the batch results from the primary query
-                            const walletResults = batchAnalysisResults.filter(result => result.walletAddress === walletAddr);
+                            const walletResults = analysisResultsByWallet.get(walletAddr) || [];
                             
                             // ENHANCED FILTER: Only include tokens where wallet paid fees (actively traded, not just received)
                             const activelyTradedTokens = new Set(

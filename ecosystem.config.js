@@ -5,6 +5,7 @@ module.exports = {
       name: 'wallet-analyzer_0.0.14',
       script: 'dist/core/index.js',
       cwd: '.',
+      autostart: false, // Disabled by default; enable manually only when analysis bot is needed
       exec_mode: 'fork',
       instances: 1,
       autorestart: true,

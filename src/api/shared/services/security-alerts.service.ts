@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { SecurityLoggerService, SecurityEvent } from './security-logger.service';
 import { AdvancedThrottlerService } from './advanced-throttler.service';
+import { TelegramAlertsService } from '../../services/telegram-alerts.service';
 import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
 
 
@@ -58,6 +59,7 @@ export class SecurityAlertsService {
     private readonly configService: ConfigService,
     private readonly securityLogger: SecurityLoggerService,
     private readonly throttlerService: AdvancedThrottlerService,
+    private readonly telegramAlerts: TelegramAlertsService,
   ) {
     // Initialize configuration-dependent properties
     this.thresholds = {
@@ -263,13 +265,7 @@ export class SecurityAlertsService {
 
   private async sendTelegramAlert(message: string): Promise<void> {
     try {
-      const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
-      const chatId = this.configService.get<string>('ADMIN_TELEGRAM_ID');
-      
-      if (botToken && chatId) {
-        // In a real implementation, use a proper Telegram bot library
-        this.logger.log('Would send Telegram alert:', message.substring(0, 100) + '...');
-      }
+      await this.telegramAlerts.broadcast(message);
     } catch (error) {
       this.logger.error('Failed to send Telegram alert:', getErrorMessage(error));
     }

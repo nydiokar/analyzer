@@ -2,7 +2,6 @@ import { SimilarityAnalysisConfig } from '@/types/analysis';
 import { TokenVector, SingleSimilarityResult, CorePairwiseResult } from '@/types/similarity';
 import { TransactionData } from '@/types/correlation';
 import { createLogger } from 'core/utils/logger';
-import cosineSimilarity from 'compute-cosine-similarity';
 
 const logger = createLogger('SimilarityAnalyzer');
 
@@ -96,6 +95,7 @@ export class SimilarityAnalyzer {
       allUniqueBoughtTokens: string[]
   ): Record<string, TokenVector> {
       const vectors: Record<string, TokenVector> = {};
+      const tokenUniverse = new Set(allUniqueBoughtTokens);
       logger.debug('[createCapitalAllocationVectors] Creating vectors based on % capital allocation...');
 
       for (const walletAddress in walletData) {
@@ -105,25 +105,20 @@ export class SimilarityAnalyzer {
           let totalSolInvestedByWallet = 0;
           const solInvestedPerToken: Record<string, number> = {};
 
-          for (const token of allUniqueBoughtTokens) {
-              vectors[walletAddress][token] = 0;
-              solInvestedPerToken[token] = 0;
-          }
-
           if (buysForWallet.length === 0) {
               logger.debug(`- Wallet ${walletAddress}: No 'in' transactions for capital allocation vector.`);
               continue;
           }
 
           for (const tx of buysForWallet) {
-              if (allUniqueBoughtTokens.includes(tx.mint)) {
+              if (tokenUniverse.has(tx.mint)) {
                   solInvestedPerToken[tx.mint] = (solInvestedPerToken[tx.mint] || 0) + tx.associatedSolValue;
                   totalSolInvestedByWallet += tx.associatedSolValue;
               }
           }
           
           if (totalSolInvestedByWallet > 0) {
-              for (const token of allUniqueBoughtTokens) {
+              for (const token in solInvestedPerToken) {
                   if (solInvestedPerToken[token] > 0) {
                       vectors[walletAddress][token] = solInvestedPerToken[token] / totalSolInvestedByWallet;
                   }
@@ -140,14 +135,17 @@ export class SimilarityAnalyzer {
       allUniqueTradedTokens: string[]
   ): Record<string, TokenVector> {
       const vectors: Record<string, TokenVector> = {};
+      const tokenUniverse = new Set(allUniqueTradedTokens);
       logger.debug('[createBinaryTokenVectors] Creating vectors based on token presence (1/0)...');
 
       for (const walletAddress in walletData) {
           vectors[walletAddress] = {};
           const tradedTokensByWallet = new Set(walletData[walletAddress]?.map(tx => tx.mint) || []);
           
-          for (const token of allUniqueTradedTokens) {
-              vectors[walletAddress][token] = tradedTokensByWallet.has(token) ? 1 : 0;
+          for (const token of tradedTokensByWallet) {
+              if (tokenUniverse.has(token)) {
+                  vectors[walletAddress][token] = 1;
+              }
           }
       }
       return vectors;
@@ -158,18 +156,16 @@ export class SimilarityAnalyzer {
       walletOrder: string[]
   ): Record<string, Record<string, number>> {
       const similarityMatrix: Record<string, Record<string, number>> = {};
-      const allTokensInDimension = Object.keys(walletVectors[walletOrder[0]] || {});
-
-      if (allTokensInDimension.length === 0) {
-          logger.warn('Cannot calculate cosine similarity matrix with zero dimensions.');
-          for (const addr of walletOrder) { similarityMatrix[addr] = {}; }
-          return similarityMatrix;
+      const norms: Record<string, number> = {};
+      for (const walletAddress of walletOrder) {
+          norms[walletAddress] = this.calculateVectorNorm(walletVectors[walletAddress] || {});
       }
 
       for (let i = 0; i < walletOrder.length; i++) {
           const walletA_address = walletOrder[i];
           similarityMatrix[walletA_address] = {};
           const vectorA_raw = walletVectors[walletA_address];
+          const normA = norms[walletA_address];
 
           for (let j = 0; j < walletOrder.length; j++) {
               const walletB_address = walletOrder[j];
@@ -179,23 +175,15 @@ export class SimilarityAnalyzer {
               }
               
               const vectorB_raw = walletVectors[walletB_address];
+              const normB = norms[walletB_address];
 
-              const vectorA: number[] = [];
-              const vectorB: number[] = [];
-              for (const token of allTokensInDimension) {
-                  vectorA.push(vectorA_raw[token] || 0);
-                  vectorB.push(vectorB_raw[token] || 0);
-              }
-
-              const isVectorANotZero = vectorA.some(val => val !== 0);
-              const isVectorBNotZero = vectorB.some(val => val !== 0);
-
-              if (isVectorANotZero && isVectorBNotZero) {
-                  const sim = cosineSimilarity(vectorA, vectorB);
-                  similarityMatrix[walletA_address][walletB_address] = sim === null || isNaN(sim) ? 0 : sim;
-              } else {
+              if (normA === 0 || normB === 0) {
                   similarityMatrix[walletA_address][walletB_address] = 0;
+                  continue;
               }
+
+              const sim = this.calculateSparseCosineSimilarity(vectorA_raw, vectorB_raw, normA, normB);
+              similarityMatrix[walletA_address][walletB_address] = Number.isFinite(sim) ? sim : 0;
           }
       }
       return similarityMatrix;
@@ -302,13 +290,16 @@ export class SimilarityAnalyzer {
       vectorA: TokenVector,
       vectorB: TokenVector
   ): { mint: string; weightA: number; weightB: number }[] {
-      const shared = [];
-      const allTokens = new Set([...Object.keys(vectorA), ...Object.keys(vectorB)]);
-      for (const token of allTokens) {
-          const weightA = vectorA[token] || 0;
-          const weightB = vectorB[token] || 0;
-          if (weightA > 0 && weightB > 0) {
-              shared.push({ mint: token, weightA, weightB });
+      const shared = [] as { mint: string; weightA: number; weightB: number }[];
+      const [smaller, larger] = Object.keys(vectorA).length <= Object.keys(vectorB).length
+        ? [vectorA, vectorB]
+        : [vectorB, vectorA];
+
+      for (const token in smaller) {
+          const a = vectorA[token] || 0;
+          const b = vectorB[token] || 0;
+          if (a > 0 && b > 0) {
+              shared.push({ mint: token, weightA: a, weightB: b });
           }
       }
       return shared;
@@ -320,6 +311,7 @@ export class SimilarityAnalyzer {
   ): Record<string, TokenVector> {
     const vectors: Record<string, TokenVector> = {};
     logger.debug('[createHoldingsPresenceVectors] Creating binary vectors based on current token holdings...');
+    const tokenUniverse = new Set(allUniqueHeldTokens);
 
     for (const [walletAddress, balanceData] of walletBalances.entries()) {
         vectors[walletAddress] = {};
@@ -332,13 +324,52 @@ export class SimilarityAnalyzer {
             });
         }
         
-        for (const tokenMint of allUniqueHeldTokens) {
-            vectors[walletAddress][tokenMint] = heldTokensByWallet.has(tokenMint) ? 1 : 0;
+        for (const tokenMint of heldTokensByWallet) {
+            if (tokenUniverse.has(tokenMint)) {
+                vectors[walletAddress][tokenMint] = 1;
+            }
         }
     }
     return vectors;
   }
   // ---- END NEW Method ----
+
+  private calculateVectorNorm(vector: TokenVector): number {
+      let sumSquares = 0;
+      for (const key in vector) {
+          const value = vector[key] || 0;
+          if (value !== 0) {
+              sumSquares += value * value;
+          }
+      }
+      return Math.sqrt(sumSquares);
+  }
+
+  private calculateSparseCosineSimilarity(
+      vectorA: TokenVector,
+      vectorB: TokenVector,
+      normA: number,
+      normB: number
+  ): number {
+      if (normA === 0 || normB === 0) return 0;
+      const keysA = Object.keys(vectorA);
+      const keysB = Object.keys(vectorB);
+      const iterateA = keysA.length <= keysB.length;
+      const smaller = iterateA ? vectorA : vectorB;
+      const larger = iterateA ? vectorB : vectorA;
+
+      let dotProduct = 0;
+      for (const key in smaller) {
+          const valueA = smaller[key] || 0;
+          if (valueA === 0) continue;
+          const valueB = larger[key] || 0;
+          if (valueB !== 0) {
+              dotProduct += valueA * valueB;
+          }
+      }
+
+      return dotProduct / (normA * normB);
+  }
 
   // Potential private helper methods:
   // private buildTokenVectors(...)? -> Might belong in a service layer

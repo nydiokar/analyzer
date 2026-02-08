@@ -54,19 +54,14 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService);
     const config = QueueConfigs[QueueNames.SIMILARITY_OPERATIONS];
 
-    // FIXED: Run processor in main process instead of sandboxed worker
-    // This eliminates massive memory overhead from bootstrapping full NestJS app per job
-    // The sandboxed architecture was causing 500MB+ memory per job + 5 second cleanup delays
-    // Running in main process is standard BullMQ pattern and perfectly safe for I/O-bound work
+    // Run processor in main process instead of sandboxed worker.
+    // Keep concurrency controlled via queue config/env to avoid multi-job memory spikes.
     this.worker = new Worker(
       QueueNames.SIMILARITY_OPERATIONS,
       async (job: Job<ComprehensiveSimilarityFlowData>) => {
         return await this.processSimilarityFlow(job);
       },
-      {
-        ...config.workerOptions,
-        concurrency: 5, // Increased from 2 - inline processing eliminates 500MB overhead per job
-      }
+      config.workerOptions
     );
 
     this.worker.on('completed', (job) => {
