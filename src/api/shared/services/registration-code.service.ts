@@ -102,6 +102,22 @@ export class RegistrationCodeService {
   }
 
   /**
+   * Validate a registration code WITHOUT consuming it
+   * Use this to check if a code is valid before performing other operations
+   */
+  async validateCode(code: string): Promise<void> {
+    const registrationCode = await prisma.registrationCode.findUnique({
+      where: { code },
+    });
+
+    if (!registrationCode) {
+      throw new BadRequestException('Invalid registration code');
+    }
+
+    this.validateCodeRules(registrationCode);
+  }
+
+  /**
    * Validate and atomically mark a registration code as used
    * This is the ONLY method that should be called during registration
    */

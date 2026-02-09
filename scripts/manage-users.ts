@@ -55,21 +55,26 @@ async function main() {
         try {
           const users = await dbService.getAllUsers();
           if (users && users.length > 0) {
-            console.log('----------------------------------------------------------------------------------------------------------------------------------------');
+            console.log('═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════');
             console.log('🔑 All Users:');
-            console.log('----------------------------------------------------------------------------------------------------------------------------------------');
-            console.log('ID                                    | Email                              | Active | Is Demo | Description            | Created At');
-            console.log('---------------------------------------|---------------------------------------|--------|---------|------------------------|---------------------------');
+            console.log('═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════');
+            console.log('ID                                    | Display Name       | Email                              | Active | Admin  | Demo   | Email Ver. | Last Login  | Last Seen   | Description            | Created');
+            console.log('──────────────────────────────────────|────────────────────|────────────────────────────────────|────────|────────|────────|────────────|─────────────|─────────────|────────────────────────|─────────────');
             users.forEach(user => {
               const id = user.id.padEnd(36);
+              const displayName = ((user as any).displayName || 'N/A').padEnd(18);
               const email = (user.email || 'N/A').padEnd(35);
               const active = user.isActive ? '✅ Yes' : '❌ No ';
+              const isAdmin = (user as any).isAdmin ? '👑 Yes' : 'No    ';
               const isDemo = user.isDemo ? '✅ Yes' : 'No    ';
+              const emailVerified = (user as any).emailVerified ? '✅ Yes    ' : '❌ No     ';
+              const lastLogin = (user as any).lastLoginAt ? new Date((user as any).lastLoginAt).toISOString().substring(0, 10) : 'Never      ';
+              const lastSeen = (user as any).lastSeenAt ? new Date((user as any).lastSeenAt).toISOString().substring(0, 10) : 'Never      ';
               const description = (user.description || 'N/A').padEnd(22);
               const createdAt = new Date(user.createdAt).toISOString().substring(0, 10);
-              console.log(`${id} | ${email} | ${active} | ${isDemo} | ${description} | ${createdAt}`);
+              console.log(`${id} | ${displayName} | ${email} | ${active} | ${isAdmin} | ${isDemo} | ${emailVerified} | ${lastLogin} | ${lastSeen} | ${description} | ${createdAt}`);
             });
-            console.log('----------------------------------------------------------------------------------------------------------------------------------------');
+            console.log('═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════');
           } else {
             console.log('ℹ️ No users found in the database.');
           }
@@ -137,6 +142,7 @@ async function main() {
           console.log('  STATUS');
           console.log(`  Active:          ${user.isActive ? '✅ Yes' : '❌ No'}`);
           console.log(`  Email Verified:  ${user.emailVerified ? '✅ Yes' : '❌ No'}`);
+          console.log(`  Is Admin:        ${(user as any).isAdmin ? '👑 YES - Has admin privileges' : 'No'}`);
           console.log(`  Is Demo:         ${user.isDemo ? '✅ Yes' : 'No'}`);
           console.log('────────────────────────────────────────────────────────────────');
           console.log('  TIMESTAMPS');
@@ -380,9 +386,9 @@ async function main() {
       async (argv) => {
         console.log(`\n🔐 Attempting to set admin status for user ${argv.id} to ${argv.status}...`);
         try {
-          const user = await prisma.user.update({
+          const user: any = await prisma.user.update({
             where: { id: argv.id as string },
-            data: { isAdmin: argv.status as boolean },
+            data: { isAdmin: argv.status as boolean } as any,
           });
 
           if (user) {

@@ -94,7 +94,7 @@ export class AuthController {
   @Post('register')
   @Public()
   @UseGuards(CsrfGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 requests per minute for registration
+  @Throttle({ default: { limit: 15, ttl: 60000 } }) // 15 requests per minute for registration
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: RegisterRequestDto })
   @ApiResponse({ 
@@ -134,27 +134,28 @@ export class AuthController {
         );
       }
 
-      // Validate registration code
+      // Validate registration code FIRST before creating account
       if (!registerDto.registrationCode) {
         throw new BadRequestException('Registration code is required');
       }
 
-      // Create user first
+      // Pre-validate the code WITHOUT consuming it (via service - no raw Prisma!)
+      // This ensures we don't create orphaned accounts with invalid codes
+      await this.registrationCodeService.validateCode(registerDto.registrationCode);
+
+      // Code is valid - now create the user
       const result = this.attachAdminFlag(await this.authService.register(registerDto));
 
-      // Atomically consume the registration code
-      // NOTE: If this fails due to race condition (code already used), user account
-      // was already created but code won't be linked. These "orphaned" accounts are
-      // logged with ERROR level so admin can review manually if needed.
+      // Now atomically consume the code (mark as used)
       try {
         await this.registrationCodeService.consumeCode(registerDto.registrationCode, result.user.id);
       } catch (codeError) {
+        // If this fails (race condition), warn but don't fail registration
+        // User account already exists, but code wasn't marked as used
         this.logger.error(
-          `⚠️  ORPHANED ACCOUNT: User ${result.user.id} (${result.user.email}) registered but code "${registerDto.registrationCode}" could not be consumed. ` +
-          `Error: ${codeError instanceof Error ? codeError.message : 'Unknown error'}. ` +
-          `This typically happens when multiple users try to use the same code simultaneously. Admin review recommended.`
+          `⚠️  RACE CONDITION: User ${result.user.id} (${result.user.email}) registered but code "${registerDto.registrationCode}" could not be consumed. ` +
+          `Error: ${codeError instanceof Error ? codeError.message : 'Unknown error'}. Admin review recommended.`
         );
-        // Don't fail registration - user account already exists
       }
 
       // Set httpOnly cookie if cookie mode is enabled
@@ -443,7 +444,7 @@ export class AuthController {
   @Post('verify-email')
   @AllowUnverifiedEmail()
   @UseGuards(CompositeAuthGuard, CsrfGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
+  @Throttle({ default: { limit: 10, ttl: 300000 } }) // 10 attempts per 5 minutes
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Verify email with token' })
   @ApiBody({

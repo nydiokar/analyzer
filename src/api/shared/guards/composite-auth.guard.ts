@@ -28,6 +28,10 @@ export class CompositeAuthGuard implements CanActivate {
   private readonly JWT_CACHE_TTL = 15 * 60 * 1000; // 15 minutes in milliseconds
   private readonly API_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
+  // Log throttling to prevent spam (track last log time per user/error type)
+  private readonly logThrottle = new Map<string, number>();
+  private readonly LOG_THROTTLE_MS = 30000; // Only log same error once per 30s
+
   constructor(
     private readonly databaseService: JwtDatabaseService,
     private readonly authService: AuthService,
@@ -56,7 +60,7 @@ export class CompositeAuthGuard implements CanActivate {
     ]);
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    
+
     // Try JWT authentication first (preferred)
     const authHeader = request.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -66,13 +70,16 @@ export class CompositeAuthGuard implements CanActivate {
         if (user) {
           this.ensureEmailVerified(allowUnverified, request, user);
           request.user = user;
-          // Security logging handled at controller level
-          this.logger.debug(`User ${user.id} authenticated via JWT`);
           return true;
         }
       } catch (error) {
-        // Security logging handled at controller level
-        this.logger.warn(`JWT authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Email verification required = expected during registration (DEBUG)
+        // Invalid/expired tokens = potential security issue (WARN)
+        if (error instanceof ForbiddenException) {
+          this.throttledLog('debug', 'email-verification', `JWT auth: Email verification required`);
+        } else {
+          this.throttledLog('warn', 'jwt-invalid', `JWT auth failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+        }
         // Continue to API key fallback
       }
     }
@@ -86,20 +93,16 @@ export class CompositeAuthGuard implements CanActivate {
           this.ensureEmailVerified(allowUnverified, request, result.user);
           request.user = result.user;
           request.apiKeyScopes = result.scopes;
-          // Security logging handled at controller level
-          this.logger.debug(`User ${result.user.id} authenticated via API key with scopes: ${result.scopes?.join(', ')}`);
           return true;
         }
       } catch (error) {
-        // Security logging handled at controller level
-        this.logger.warn(`API key authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // API key validation failures are security-relevant (WARN)
+        this.throttledLog('warn', 'api-key-invalid', `API key validation failed`);
       }
     }
 
-    // No valid authentication method found
-    // Security logging handled at controller level
-    this.logger.warn(`No valid authentication provided for ${request.method} ${request.path} (IP: ${request.ip})`);
-    throw new UnauthorizedException('Authentication required. Log in with your account to perform analysis.');
+    // No valid authentication method found - throw without logging (already logged above)
+    throw new UnauthorizedException('Authentication required. Log in or verify your account to perform analysis.');
   }
 
   private async validateJwtToken(token: string): Promise<User | null> {
@@ -117,7 +120,7 @@ export class CompositeAuthGuard implements CanActivate {
         } else {
           // User is no longer active, remove from cache
           this.jwtCache.delete(token);
-          this.logger.warn(`Cached user is no longer active, removed from cache: ${cached.user.id}`);
+          this.throttledLog('warn', `inactive-user-${cached.user.id}`, `Cached user is no longer active: ${cached.user.id}`);
         }
       }
 
@@ -205,7 +208,7 @@ export class CompositeAuthGuard implements CanActivate {
         scopes: result.scopes || []
       };
     } catch (error) {
-      this.logger.warn(`Enhanced API key validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Don't log here - already logged in canActivate with throttling
       throw new UnauthorizedException('API key validation failed');
     }
   }
@@ -216,9 +219,7 @@ export class CompositeAuthGuard implements CanActivate {
     user: User,
   ) {
     if (!allowUnverified && !user.emailVerified) {
-      this.logger.warn(
-        `User ${user.id} attempted to access ${request.path} without verified email`,
-      );
+      // No logging - this is expected during registration flow
       throw new ForbiddenException({
         message: 'Please verify your email address to continue.',
         code: 'EMAIL_VERIFICATION_REQUIRED',
@@ -255,13 +256,31 @@ export class CompositeAuthGuard implements CanActivate {
     }
   }
 
+  /**
+   * Throttled logging to prevent spam - only log once per LOG_THROTTLE_MS per key
+   */
+  private throttledLog(level: 'warn' | 'debug', key: string, message: string): void {
+    const now = Date.now();
+    const lastLog = this.logThrottle.get(key);
+
+    if (!lastLog || now - lastLog > this.LOG_THROTTLE_MS) {
+      this.logThrottle.set(key, now);
+
+      if (level === 'warn') {
+        this.logger.warn(message);
+      } else {
+        this.logger.debug(message);
+      }
+    }
+  }
+
   private decodeJwtHeader(token: string): any {
     try {
       const headerB64 = token.split('.')[0];
       const headerJson = Buffer.from(headerB64, 'base64url').toString();
       return JSON.parse(headerJson);
     } catch (error) {
-      this.logger.warn('Failed to decode JWT header:', getErrorMessage(error));
+      this.throttledLog('warn', 'jwt-decode-error', `Failed to decode JWT header: ${getErrorMessage(error)}`);
       return null;
     }
   }

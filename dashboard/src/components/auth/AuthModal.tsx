@@ -22,7 +22,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
+  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '', registrationCode: '' });
   const { login, register, forgotPassword, loading } = useAuth();
 
   const isSessionExpired = reason === 'session_expired';
@@ -47,15 +47,16 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
     const credentials = {
       email: formData.email,
       password: formData.password,
+      ...((!isLogin && formData.registrationCode) && { registrationCode: formData.registrationCode }),
     };
 
-    const success = isLogin 
+    const success = isLogin
       ? await login(credentials)
       : await register(credentials);
 
     if (success) {
       onOpenChange(false);
-      setFormData({ email: '', password: '', confirmPassword: '' });
+      setFormData({ email: '', password: '', confirmPassword: '', registrationCode: '' });
       
       // Show email verification notice for new registrations
       if (!isLogin) {
@@ -70,7 +71,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
     }
   };
 
-  const handleInputChange = (field: 'email' | 'password' | 'confirmPassword', value: string) => {
+  const handleInputChange = (field: 'email' | 'password' | 'confirmPassword' | 'registrationCode', value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -87,19 +88,20 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
     canSubmitLogin &&
     formData.confirmPassword &&
     formData.password === formData.confirmPassword &&
-    isValidPassword(formData.password)
+    isValidPassword(formData.password) &&
+    formData.registrationCode
   );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">
+          <DialogTitle className="text-lg font-semibold">
             {isSessionExpired
               ? 'Session Expired'
               : activeTab === 'login' ? 'Welcome Back' : 'Create Account'}
           </DialogTitle>
-          <DialogDescription className="text-sm">
+          <DialogDescription className="text-xs text-slate-400">
             {isSessionExpired
               ? 'Your session has expired. Please log in again to continue.'
               : activeTab === 'login'
@@ -108,49 +110,49 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mt-4">
+        <div className="mt-2">
           <Tabs value={activeTab} onValueChange={(tab) => setActiveTab(tab as 'login' | 'register')}>
-            <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsList className="grid w-full grid-cols-2 mb-3">
               <TabsTrigger value="login">Log In</TabsTrigger>
               <TabsTrigger value="register">Sign Up</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="login" className="space-y-3 mt-0">
-              <form onSubmit={(e) => handleSubmit(e, true)} className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="login-email" className="text-sm">Email</Label>
+            <TabsContent value="login" className="space-y-2.5 mt-0">
+              <form onSubmit={(e) => handleSubmit(e, true)} className="space-y-2.5">
+                <div className="space-y-1">
+                  <Label htmlFor="login-email" className="text-xs text-slate-400">Email</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Mail className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                     <Input
                       id="login-email"
                       type="email"
                       placeholder="Enter your email"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      className="pl-10 h-11"
+                      className="pl-9 h-9 text-sm"
                       required
                     />
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="login-password" className="text-sm">Password</Label>
+                <div className="space-y-1">
+                  <Label htmlFor="login-password" className="text-xs text-slate-400">Password</Label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                     <Input
                       id="login-password"
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Enter your password"
                       value={formData.password}
                       onChange={(e) => handleInputChange('password', e.target.value)}
-                      className="pl-10 pr-10 h-11"
+                      className="pl-9 pr-9 h-9 text-sm"
                       autoComplete="current-password"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-300"
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-300"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -159,18 +161,18 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
 
                 <Button
                   type="submit"
-                  className="w-full h-11 bg-blue-600 hover:bg-blue-700"
+                  className="w-full h-9 text-sm bg-blue-600 hover:bg-blue-700 mt-3"
                   disabled={loading || !canSubmitLogin}
                 >
                   {loading ? 'Signing in...' : 'Log In'}
                 </Button>
-                
+
                 {!showForgotPassword && (
-                  <div className="text-center mt-4">
+                  <div className="text-center mt-2">
                     <button
                       type="button"
                       onClick={() => setShowForgotPassword(true)}
-                      className="text-sm text-blue-400 hover:text-blue-300 underline"
+                      className="text-xs text-blue-400 hover:text-blue-300 underline"
                     >
                       Forgot your password?
                     </button>
@@ -178,9 +180,9 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
                 )}
 
                 {showForgotPassword && (
-                  <div className="mt-4 p-4 border border-slate-700 rounded-lg bg-slate-800/50">
-                    <p className="text-sm text-slate-300 mb-3">
-                      Enter your email address and we&apos;ll send you a link to reset your password.
+                  <div className="mt-2 p-3 border border-slate-700 rounded-lg bg-slate-800/50">
+                    <p className="text-xs text-slate-400 mb-2">
+                      Enter your email and we&apos;ll send you a reset link.
                     </p>
                     <Button
                       type="button"
@@ -194,7 +196,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
                           setShowForgotPassword(false);
                         }
                       }}
-                      className="w-full bg-slate-700 hover:bg-slate-600"
+                      className="w-full h-8 text-sm bg-slate-700 hover:bg-slate-600"
                       disabled={loading || !formData.email}
                     >
                       {loading ? 'Sending...' : 'Send Reset Link'}
@@ -202,7 +204,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
                     <button
                       type="button"
                       onClick={() => setShowForgotPassword(false)}
-                      className="w-full mt-2 text-sm text-slate-400 hover:text-slate-300"
+                      className="w-full mt-1.5 text-xs text-slate-400 hover:text-slate-300"
                     >
                       Cancel
                     </button>
@@ -211,19 +213,19 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
               </form>
             </TabsContent>
 
-            <TabsContent value="register" className="space-y-3 mt-0">
-              <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="register-email" className="text-sm">Email</Label>
+            <TabsContent value="register" className="space-y-2.5 mt-0">
+              <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-2.5">
+                <div className="space-y-1">
+                  <Label htmlFor="register-email" className="text-xs text-slate-400">Email</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Mail className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                     <Input
                       id="register-email"
                       type="email"
                       placeholder="Enter your email"
                       value={formData.email}
                       onChange={(e) => handleInputChange('email', e.target.value)}
-                      className="pl-10 h-11"
+                      className="pl-9 h-9 text-sm"
                       required
                     />
                   </div>
@@ -232,61 +234,61 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="register-password" className="text-sm">Password</Label>
+                <div className="space-y-1">
+                  <Label htmlFor="register-password" className="text-xs text-slate-400">Password</Label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                     <Input
                       id="register-password"
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Create a strong password"
                       value={formData.password}
                       onChange={(e) => handleInputChange('password', e.target.value)}
-                      className="pl-10 pr-10 h-11"
+                      className="pl-9 pr-9 h-9 text-sm"
                       autoComplete="new-password"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-300"
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-300"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                   {formData.password && (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-xs">
-                        <div className={`w-2 h-2 rounded-full ${
-                          formData.password.length >= 8 ? 'bg-green-500' : 'bg-slate-400'
+                    <div className="space-y-0.5 mt-1">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                          formData.password.length >= 8 ? 'bg-green-500' : 'bg-slate-500'
                         }`} />
-                        <span className={formData.password.length >= 8 ? 'text-green-400' : 'text-slate-400'}>
-                          At least 8 characters
+                        <span className={formData.password.length >= 8 ? 'text-green-400' : 'text-slate-500'}>
+                          8+ characters
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <div className={`w-2 h-2 rounded-full ${
-                          /(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password) ? 'bg-green-500' : 'bg-slate-400'
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                          /(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password) ? 'bg-green-500' : 'bg-slate-500'
                         }`} />
-                        <span className={/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password) ? 'text-green-400' : 'text-slate-400'}>
-                          Contains uppercase, lowercase, and number
+                        <span className={/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password) ? 'text-green-400' : 'text-slate-500'}>
+                          Upper, lower & number
                         </span>
                       </div>
                     </div>
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="register-confirm-password" className="text-sm">Confirm Password</Label>
+                <div className="space-y-1">
+                  <Label htmlFor="register-confirm-password" className="text-xs text-slate-400">Confirm Password</Label>
                   <div className="relative">
-                    <Check className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Check className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                     <Input
                       id="register-confirm-password"
                       type="password"
                       placeholder="Re-enter your password"
                       value={formData.confirmPassword}
                       onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                      className="pl-10 h-11"
+                      className="pl-9 h-9 text-sm"
                       autoComplete="new-password"
                       required
                     />
@@ -296,9 +298,23 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
                   )}
                 </div>
 
+                <div className="space-y-1">
+                  <Label htmlFor="registration-code" className="text-xs text-slate-400">Registration Code</Label>
+                  <Input
+                    id="registration-code"
+                    type="text"
+                    placeholder="Enter your invite code"
+                    value={formData.registrationCode}
+                    onChange={(e) => handleInputChange('registrationCode', e.target.value)}
+                    className="h-9 text-sm font-mono"
+                    required
+                  />
+                  <p className="text-xs text-slate-500">Invite code required</p>
+                </div>
+
                 <Button
                   type="submit"
-                  className="w-full h-11 bg-blue-600 hover:bg-blue-700"
+                  className="w-full h-9 text-sm bg-blue-600 hover:bg-blue-700 mt-3"
                   disabled={loading || !canSubmitRegister}
                 >
                   {loading ? 'Creating account...' : 'Create Account'}
@@ -307,8 +323,8 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
             </TabsContent>
           </Tabs>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-slate-500">
+          <div className="mt-4 text-center">
+            <p className="text-xs text-slate-600">
               By continuing, you agree to our Terms of Service and Privacy Policy
             </p>
           </div>
