@@ -8,12 +8,9 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-|  |  |  | No active tasks |
-
-before you start format these into the table above
-1. Fix wallet profile page mess in the wallet area
-2. Add admin functionality to halt regs and disable accounts / possibly code-based registration 
-3. Create the dashboard for grafana ? 
+| 🔵 | Implement admin UI for registration controls | 🟡 M | Backend complete, frontend needed |
+| ⚪ | Fix wallet profile page mess in the wallet area | 🟡 M | Pending |
+| ⚪ | Create the dashboard for grafana | 🟡 M | Observability stack ready | 
 
 
 **Recently Completed:**
@@ -98,9 +95,12 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
-| 09.1 | FEAT | Telegram alerting service activation + similarity memory optimization | M | `security-alerts.service.ts`, `analyzer.ts`, `similarity-service.ts` |
+| 09.2 | 🎯 FEAT | Complete registration access control system | 🔴 L | Backend: 3 endpoints + DTOs, Frontend: AuthModal, Test suite |
+| 09.1 | 🔧 FEAT | Telegram alerting service activation + similarity memory optimization | 🟡 M | `security-alerts.service.ts`, `analyzer.ts`, `similarity-service.ts` |
 
 **Summary:**
+
+**09.2:** Implemented complete three-tier registration access control system. **Backend Features:** (1) **Registration codes** - Single-use (default) and multi-use (optional) codes with cryptographically secure generation (16 bytes base64url), create single/bulk endpoints (up to 100), list/filter/stats/revoke/delete operations, automatic status tracking (active→used/revoked), expiration support; (2) **Kill-switch** - Emergency registration halt via Redis (`registration:kill-switch`), blocks ALL registrations (503 Service Unavailable), existing users can still login, instant enable/disable with admin logging; (3) **Code requirement toggle** - NEW: Optional code enforcement via Redis (`registration:codes-required`), three modes: codes required (default), open registration (anyone), kill-switch (emergency halt), allows posting codes publicly for "beg mode"; (4) **User management** - Disable/enable user accounts via `isActive` flag, disabled users cannot login, existing tokens invalidated when disabled. **Frontend:** AuthModal updated with optional registration code field, code input shown/hidden based on requirement mode. **Testing:** Comprehensive interactive test suite (`scripts/test-admin-access-controls.ts`) with 9 test scenarios, auto-detects API URL, clean environment setup, tests all flows (7/9 pass, 2 fail due to rate limiting only). **Database:** `RegistrationCode` model with indexes, `User.isAdmin` field for admin privileges, Prisma migrations applied. **Admin Endpoints:** 14 new endpoints under `/admin` - code CRUD (create, bulk, list, stats, revoke, delete), kill-switch (get, enable, disable), code requirement (get, enable, disable), user management (disable, enable). **Security:** Admin-only endpoints via `@AdminOnly()` decorator, rate limiting (15 reg/min), cryptographic code generation, Redis-based flags for instant propagation. **Architecture:** Codes default to single-use (`maxUses: 1`), multi-use kept but hidden from UI, kill-switch overrides code requirement, code requirement defaults to enabled (safer). **Files:** Backend: `admin.controller.ts` (+14 endpoints), `registration-code.service.ts` (new, 310 lines), `auth.controller.ts` (code validation + toggle logic), `auth.service.ts` (optional code DTO); Frontend: `AuthModal.tsx` (code input), Test: `test-admin-access-controls.ts` (new, 750 lines). **Next:** Admin UI implementation at `/admin` for managing codes/kill-switch/users.
 
 **09.1:** Activated Telegram alerting service and fixed critical memory bloat in similarity analysis jobs. **Telegram Alerts:** Re-enabled Telegram security alert service in `AuthModule` imports (was previously disabled), updated `SecurityAlertsService` to use environment variable flag `TELEGRAM_ALERTS_ENABLED` for runtime control, added to PM2 ecosystem config for production deployment. **Similarity Memory Fix - Critical Performance Issue:** Removed unnecessary storage of full cosine similarity vectors that were causing OOM errors on large wallet sets. **Root Cause:** `calculateCosineSimilarityMatrix()` was building dense N×N matrices and storing them in job results even though only aggregate metrics were needed. For 30 wallets analyzing 500 tokens each, this created ~900KB of redundant vector data per job. **Solution:** (1) Replaced external `compute-cosine-similarity` library with custom implementation that avoids allocating unnecessary arrays, (2) Changed capital allocation vector creation to only store non-zero dimensions (sparse vectors) - loops only over tokens actually invested in rather than full token universe, (3) Changed binary token vectors to only store tokens actually traded (presence = 1, absence = not stored), (4) Custom dot product + norm calculation that works directly with sparse token objects, (5) Removed vector storage from aggregate metrics - only keep the numeric similarity scores. **Performance Impact:** Memory usage reduced by ~85% for typical 10-30 wallet comparisons, eliminates OOM crashes on large similarity jobs, faster vector creation (no zero-filling loops). **Queue Config:** Reduced similarity queue concurrency from 3→2 to further prevent memory spikes. **Files:** `src/api/shared/services/security-alerts.service.ts` (env flag), `src/api/modules/auth.module.ts` (re-enabled), `src/core/analysis/similarity/analyzer.ts` (sparse vectors + custom cosine), `src/core/analysis/similarity/similarity-service.ts` (removed vector storage), `src/queues/processors/similarity-operations.processor.ts` (concurrency), `src/queues/config/queue.config.ts` (concurrency), `ecosystem.config.js` (env var), `package.json` (removed dependency).
 

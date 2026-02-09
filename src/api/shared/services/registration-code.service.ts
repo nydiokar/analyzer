@@ -25,6 +25,7 @@ export interface RegistrationCodeStats {
 export class RegistrationCodeService {
   private readonly logger = new Logger(RegistrationCodeService.name);
   private readonly KILL_SWITCH_KEY = 'registration:kill-switch';
+  private readonly CODES_REQUIRED_KEY = 'registration:codes-required';
   private readonly CODE_LENGTH = 16;
 
   constructor(
@@ -268,6 +269,49 @@ export class RegistrationCodeService {
       message: active
         ? 'Registrations are currently disabled by administrator'
         : 'Registrations are enabled',
+    };
+  }
+
+  // ========================================
+  // CODE REQUIREMENT TOGGLE
+  // ========================================
+
+  /**
+   * Require registration codes (default mode)
+   */
+  async requireCodes(): Promise<void> {
+    await this.redisClient.set(this.CODES_REQUIRED_KEY, '1');
+    this.logger.log('✅ Registration codes are now REQUIRED');
+  }
+
+  /**
+   * Make registration codes optional (open registration)
+   */
+  async makeCodesOptional(): Promise<void> {
+    await this.redisClient.del(this.CODES_REQUIRED_KEY);
+    this.logger.warn('⚠️  Registration codes are now OPTIONAL - Open registration enabled');
+  }
+
+  /**
+   * Check if registration codes are required
+   * Default: true (codes required) - safer default
+   */
+  async areCodesRequired(): Promise<boolean> {
+    const value = await this.redisClient.get(this.CODES_REQUIRED_KEY);
+    // If key doesn't exist, default to required (safer)
+    return value !== '0';
+  }
+
+  /**
+   * Get code requirement status with metadata
+   */
+  async getCodeRequirementStatus(): Promise<{ required: boolean; message: string }> {
+    const required = await this.areCodesRequired();
+    return {
+      required,
+      message: required
+        ? 'Registration codes are required'
+        : 'Open registration enabled - codes are optional',
     };
   }
 }

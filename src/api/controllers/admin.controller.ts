@@ -370,6 +370,41 @@ export class AdminController {
   }
 
   // ========================================
+  // CODE REQUIREMENT TOGGLE
+  // ========================================
+
+  @Get('registration/code-requirement')
+  @ApiOperation({ summary: 'Get code requirement status (admin only)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Code requirement status' })
+  async getCodeRequirementStatus() {
+    return this.registrationCodeService.getCodeRequirementStatus();
+  }
+
+  @Post('registration/code-requirement/enable')
+  @ApiOperation({
+    summary: 'Require registration codes (admin only)',
+    description: 'Make registration codes mandatory. Users must provide a valid code to register.',
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Code requirement enabled' })
+  async requireCodes(@Req() req: AuthenticatedRequest) {
+    await this.registrationCodeService.requireCodes();
+    this.logger.log(`Admin ${req.user?.id} (${req.user?.email}) ENABLED code requirement`);
+    return { success: true, message: 'Registration codes are now required.' };
+  }
+
+  @Post('registration/code-requirement/disable')
+  @ApiOperation({
+    summary: 'Make registration codes optional - open registration (admin only)',
+    description: 'Allow anyone to register without a code. ⚠️ Use with caution in production.',
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Code requirement disabled - open registration' })
+  async makeCodesOptional(@Req() req: AuthenticatedRequest) {
+    await this.registrationCodeService.makeCodesOptional();
+    this.logger.warn(`⚠️  Admin ${req.user?.id} (${req.user?.email}) DISABLED code requirement - OPEN REGISTRATION`);
+    return { success: true, message: 'Registration codes are now optional. Anyone can register.' };
+  }
+
+  // ========================================
   // USER MANAGEMENT
   // ========================================
 

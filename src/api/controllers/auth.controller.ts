@@ -13,7 +13,7 @@ import { RegistrationCodeService } from '../shared/services/registration-code.se
 import { Public } from '../shared/decorators/public.decorator';
 import { AllowUnverifiedEmail } from '../shared/decorators/allow-unverified.decorator';
 import { ConfigService } from '@nestjs/config';
-import { IsEmail, IsString, MinLength, IsNotEmpty } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsNotEmpty, IsOptional } from 'class-validator';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
 // DTOs for validation
@@ -25,9 +25,9 @@ class RegisterRequestDto {
   @MinLength(8, { message: 'Password must be at least 8 characters long' })
   password: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'Registration code is required' })
-  registrationCode: string;
+  registrationCode?: string;
 }
 
 class LoginRequestDto {
@@ -134,28 +134,37 @@ export class AuthController {
         );
       }
 
-      // Validate registration code FIRST before creating account
-      if (!registerDto.registrationCode) {
-        throw new BadRequestException('Registration code is required');
+      // Check if registration codes are required (configurable via Redis)
+      const codesRequired = await this.registrationCodeService.areCodesRequired();
+
+      if (codesRequired) {
+        // Validate registration code FIRST before creating account
+        if (!registerDto.registrationCode) {
+          throw new BadRequestException('Registration code is required');
+        }
+
+        // Pre-validate the code WITHOUT consuming it (via service - no raw Prisma!)
+        // This ensures we don't create orphaned accounts with invalid codes
+        await this.registrationCodeService.validateCode(registerDto.registrationCode);
+      } else {
+        this.logger.log('Registration codes not required - open registration mode active');
       }
 
-      // Pre-validate the code WITHOUT consuming it (via service - no raw Prisma!)
-      // This ensures we don't create orphaned accounts with invalid codes
-      await this.registrationCodeService.validateCode(registerDto.registrationCode);
-
-      // Code is valid - now create the user
+      // Code is valid (or not required) - now create the user
       const result = this.attachAdminFlag(await this.authService.register(registerDto));
 
-      // Now atomically consume the code (mark as used)
-      try {
-        await this.registrationCodeService.consumeCode(registerDto.registrationCode, result.user.id);
-      } catch (codeError) {
-        // If this fails (race condition), warn but don't fail registration
-        // User account already exists, but code wasn't marked as used
-        this.logger.error(
-          `⚠️  RACE CONDITION: User ${result.user.id} (${result.user.email}) registered but code "${registerDto.registrationCode}" could not be consumed. ` +
-          `Error: ${codeError instanceof Error ? codeError.message : 'Unknown error'}. Admin review recommended.`
-        );
+      // Now atomically consume the code (mark as used) if one was provided
+      if (registerDto.registrationCode) {
+        try {
+          await this.registrationCodeService.consumeCode(registerDto.registrationCode, result.user.id);
+        } catch (codeError) {
+          // If this fails (race condition), warn but don't fail registration
+          // User account already exists, but code wasn't marked as used
+          this.logger.error(
+            `⚠️  RACE CONDITION: User ${result.user.id} (${result.user.email}) registered but code "${registerDto.registrationCode}" could not be consumed. ` +
+            `Error: ${codeError instanceof Error ? codeError.message : 'Unknown error'}. Admin review recommended.`
+          );
+        }
       }
 
       // Set httpOnly cookie if cookie mode is enabled
