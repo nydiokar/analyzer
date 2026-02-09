@@ -22,7 +22,7 @@ import type { FavoriteWallet, WalletHudDto, KnownWalletType } from "@/types/api"
 import { useFavorites } from "@/hooks/useFavorites";
 import { WalletHudOverlay } from "@/components/shared/WalletHudOverlay";
 import { WalletHudBadge } from "@/components/shared/WalletHudBadge";
-import { stripHudEncoding } from "@/lib/wallet-name-encoding";
+import { stripHudEncoding, getWalletDisplayIcon } from "@/lib/wallet-name-encoding";
 
 export interface WalletMetrics {
   totalBuys?: number | null;
@@ -276,6 +276,12 @@ const WalletBadge = memo(({
   const showSecondaryLabel = Boolean(displayNickname || knownLabel);
   const secondaryLabel = showSecondaryLabel ? truncateAddress(address) : null;
   const isKnownLabelOnly = Boolean(knownLabel) && !displayNickname;
+
+  // Get display icon: bot/whale takes priority, then user emoji, then default
+  const walletIcon = getWalletDisplayIcon(
+    favoriteData?.nickname,
+    favoriteData?.metadata?.emoji
+  );
 
   const normalizedSize =
     size === "sm" ? "s" : size === "md" ? "m" : size === "lg" ? "l" : size;
@@ -735,9 +741,9 @@ const WalletBadge = memo(({
           <div className="flex items-center justify-between gap-2 min-w-0">
             {/* Left side: Avatar + Address + Copy + Solscan + Details */}
             <div className="flex items-center gap-1 min-w-0 flex-shrink">
-              <Avatar className={cn(resolvedSize.avatar, "flex-shrink-0")}>
-                <AvatarFallback className="text-xs">
-                  <Wallet className={cn(resolvedSize.icon, "text-muted-foreground")} />
+              <Avatar className={cn(resolvedSize.avatar, "flex-shrink-0 bg-transparent")}>
+                <AvatarFallback className="text-xs bg-muted/30 border border-border/50">
+                  <span className="text-base">{walletIcon}</span>
                 </AvatarFallback>
               </Avatar>
 
@@ -910,9 +916,9 @@ const WalletBadge = memo(({
       >
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className={cn("flex min-w-0 items-center", resolvedSize.gap, "flex-1")}>
-            <Avatar className={cn(resolvedSize.avatar, "bg-accent/50")}>
-              <AvatarFallback className="text-xs">
-                <Wallet className={cn(resolvedSize.icon, "text-muted-foreground")} />
+            <Avatar className={cn(resolvedSize.avatar, "bg-transparent")}>
+              <AvatarFallback className="text-xs bg-muted/30 border border-border/50">
+                <span className="text-base">{walletIcon}</span>
               </AvatarFallback>
             </Avatar>
             <div className="flex min-w-0 flex-col gap-1">

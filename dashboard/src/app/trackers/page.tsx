@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Bookmark, Wallet, TrendingUp, X, Search, Plus, Upload, Download, Filter, Trash2, PlayCircle, Sparkles, Eraser, Loader2 } from 'lucide-react';
 import { useFavorites } from '@/hooks/useFavorites';
 import { fetcher } from '@/lib/fetcher';
-import { useState, useMemo, useCallback, useRef, memo } from 'react';
+import { useState, useMemo, useCallback, useRef, memo, useEffect } from 'react';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { WalletEditForm } from '@/components/layout/WalletEditForm';
@@ -387,12 +387,11 @@ export default function TrackersPage() {
 
   // Lazy HUD cache - only fetch when explicitly needed (for encode operations)
   const [hudFetchEnabled, setHudFetchEnabled] = useState(false);
-  const walletAddresses = useMemo(
-    () => filteredWallets.map((wallet) => wallet.walletAddress),
-    [filteredWallets]
-  );
-  const { data: hudData, isLoading: isHudLoading, error: hudError } = useWalletHudCache(walletAddresses, {
-    enabled: hudFetchEnabled,
+  const [hudTargetWallets, setHudTargetWallets] = useState<string[]>([]);
+  const pendingEncodeRef = useRef(false);
+
+  const { data: hudData, isLoading: isHudLoading, error: hudError } = useWalletHudCache(hudTargetWallets, {
+    enabled: hudFetchEnabled && hudTargetWallets.length > 0,
     proactiveFetch: false
   });
 
@@ -496,7 +495,6 @@ export default function TrackersPage() {
       name: wallet.nickname || '',
       emoji: wallet.metadata?.emoji || '😀',
       alertsOn: wallet.metadata?.alertsOn ?? true,
-      collections: wallet.collections || [],
     }));
 
     const jsonContent = JSON.stringify(jsonData, null, 2);
@@ -530,30 +528,24 @@ export default function TrackersPage() {
     }
 
     if (mode === 'encode') {
-      // Enable HUD fetching if not already enabled
-      if (!hudFetchEnabled) {
-        setHudFetchEnabled(true);
-        toast.info('Fetching HUD data...', {
-          description: 'Please wait while we load HUD metrics for encoding.',
-        });
+      const targetAddresses = targets.map((w) => w.walletAddress);
+      const missingForTargets = targetAddresses.filter((addr) => !hudData?.[addr]).length;
+
+      // If we need to fetch HUD data first
+      if (missingForTargets > 0) {
+        if (!isHudLoading && !hudFetchEnabled) {
+          setHudTargetWallets(targetAddresses);
+          setHudFetchEnabled(true);
+          pendingEncodeRef.current = true;
+          toast.info('Fetching HUD data...', {
+            description: `Loading metrics for ${missingForTargets} wallet${missingForTargets === 1 ? '' : 's'}...`,
+          });
+        }
         return;
       }
 
-      const missingForTargets = targets.filter((wallet) => !hudData?.[wallet.walletAddress]).length;
-
-      if (isHudLoading && missingForTargets > 0) {
-        toast.info('HUD data is still loading', {
-          description: `Waiting for ${missingForTargets} wallet${missingForTargets === 1 ? '' : 's'} to finish HUD fetch.`,
-        });
-        return;
-      }
-
-      if (hudError && missingForTargets === targets.length) {
-        toast.error('HUD data unavailable', {
-          description: 'Could not fetch HUD metrics right now. Try again in a moment.',
-        });
-        return;
-      }
+      // Clear pending encode flag when we proceed
+      pendingEncodeRef.current = false;
     }
 
     setIsEncodingNames(true);
@@ -602,15 +594,16 @@ export default function TrackersPage() {
         return;
       }
 
+      // Use PATCH to update nicknames directly (more efficient than import)
       if (updates.length > 0) {
-        await fetcher('/users/me/favorites/import', {
-          method: 'POST',
-          body: JSON.stringify({
-            wallets: updates,
-            overwriteNickname: true,
-            mergeCollections: true,
-          }),
-        });
+        await Promise.all(
+          updates.map(({ walletAddress, nickname }) =>
+            fetcher(`/users/me/favorites/${walletAddress}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ nickname }),
+            })
+          )
+        );
       }
 
       if (clears.length > 0) {
@@ -638,6 +631,20 @@ export default function TrackersPage() {
       setIsEncodingNames(false);
     }
   }, [favoriteWallets, resolveActionTargets, hudData, isHudLoading, hudError, hudFetchEnabled, mutateFavorites, selectedWallets.size]);
+
+  // Auto-encode when HUD data finishes loading
+  useEffect(() => {
+    if (pendingEncodeRef.current && !isHudLoading && hudData && hudTargetWallets.length > 0) {
+      const allDataLoaded = hudTargetWallets.every((addr) => hudData[addr]);
+      if (allDataLoaded) {
+        pendingEncodeRef.current = false;
+        // Small delay to ensure state is updated
+        setTimeout(() => {
+          handleHudNameTransform('encode');
+        }, 100);
+      }
+    }
+  }, [isHudLoading, hudData, hudTargetWallets, handleHudNameTransform]);
 
   const handleImportWallets = useCallback(async (file: File) => {
     setIsImporting(true);
