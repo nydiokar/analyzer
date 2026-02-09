@@ -361,6 +361,46 @@ async function main() {
         }
       }
     )
+    .command(
+      'set-admin <id> <status>',
+      '🔐 Set admin privileges for a user (e.g., set-admin <user-id> true)',
+      (yargs) => {
+        return yargs
+          .positional('id', {
+            describe: 'The ID of the user to modify',
+            type: 'string',
+            demandOption: true,
+          })
+          .positional('status', {
+            describe: 'Admin status to set (true or false)',
+            type: 'boolean',
+            demandOption: true,
+          });
+      },
+      async (argv) => {
+        console.log(`\n🔐 Attempting to set admin status for user ${argv.id} to ${argv.status}...`);
+        try {
+          const user = await prisma.user.update({
+            where: { id: argv.id as string },
+            data: { isAdmin: argv.status as boolean },
+          });
+
+          if (user) {
+            const emoji = user.isAdmin ? '👑' : '👤';
+            console.log(`${emoji} User ${user.id} (${user.email || user.description || 'N/A'}) admin status set to: ${user.isAdmin}`);
+            if (user.isAdmin) {
+              console.log('   ⚠️  This user now has FULL admin access to:');
+              console.log('       - Create/revoke registration codes');
+              console.log('       - Enable/disable registration kill-switch');
+              console.log('       - Disable/enable user accounts');
+              console.log('       - Manage API keys');
+            }
+          }
+        } catch (error) {
+          logger.error('❌ Error setting admin status:', getErrorMessage(error));
+        }
+      }
+    )
     .demandCommand(1, 'You need to specify a command (e.g., create, list, activate, deactivate, delete).')
     .strict() // Catches unrecognized options
     .help()

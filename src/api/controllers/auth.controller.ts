@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, Res, HttpStatus, UseGuards, Logger, UseInterceptors, ValidationPipe, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Res, HttpStatus, UseGuards, Logger, UseInterceptors, ValidationPipe, HttpCode, HttpException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { User } from '@prisma/client';
@@ -9,6 +9,7 @@ import { CsrfGuard } from '../shared/guards/csrf.guard';
 import { CsrfService } from '../shared/services/csrf.service';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { EmailService } from '../shared/services/email.service';
+import { RegistrationCodeService } from '../shared/services/registration-code.service';
 import { Public } from '../shared/decorators/public.decorator';
 import { AllowUnverifiedEmail } from '../shared/decorators/allow-unverified.decorator';
 import { ConfigService } from '@nestjs/config';
@@ -23,6 +24,10 @@ class RegisterRequestDto {
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters long' })
   password: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Registration code is required' })
+  registrationCode: string;
 }
 
 class LoginRequestDto {
@@ -79,6 +84,7 @@ export class AuthController {
     private readonly csrfService: CsrfService,
     private readonly securityLogger: SecurityLoggerService,
     private readonly emailService: EmailService,
+    private readonly registrationCodeService: RegistrationCodeService,
   ) {
     this.cookieMode = this.configService.get<string>('AUTH_COOKIE_MODE') === 'true';
     this.cookieName = this.configService.get<string>('AUTH_COOKIE_NAME') || 'analyzer.sid';
@@ -118,7 +124,38 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response
   ): Promise<AuthResponse> {
     try {
+      // Check if registration kill-switch is active
+      const killSwitchActive = await this.registrationCodeService.isKillSwitchActive();
+      if (killSwitchActive) {
+        this.logger.warn('Registration attempt blocked by kill-switch');
+        throw new HttpException(
+          'New registrations are temporarily disabled. Please try again later.',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
+
+      // Validate registration code
+      if (!registerDto.registrationCode) {
+        throw new BadRequestException('Registration code is required');
+      }
+
+      // Create user first
       const result = this.attachAdminFlag(await this.authService.register(registerDto));
+
+      // Atomically consume the registration code
+      // NOTE: If this fails due to race condition (code already used), user account
+      // was already created but code won't be linked. These "orphaned" accounts are
+      // logged with ERROR level so admin can review manually if needed.
+      try {
+        await this.registrationCodeService.consumeCode(registerDto.registrationCode, result.user.id);
+      } catch (codeError) {
+        this.logger.error(
+          `⚠️  ORPHANED ACCOUNT: User ${result.user.id} (${result.user.email}) registered but code "${registerDto.registrationCode}" could not be consumed. ` +
+          `Error: ${codeError instanceof Error ? codeError.message : 'Unknown error'}. ` +
+          `This typically happens when multiple users try to use the same code simultaneously. Admin review recommended.`
+        );
+        // Don't fail registration - user account already exists
+      }
 
       // Set httpOnly cookie if cookie mode is enabled
       if (this.cookieMode) {

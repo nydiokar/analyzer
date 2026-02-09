@@ -1,8 +1,12 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, HttpStatus, Logger, ValidationPipe } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, Logger, ValidationPipe, Req } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
+import { Request } from 'express';
+import { User } from '@prisma/client';
 import { AdminOnly } from '../shared/decorators/admin-only.decorator';
 import { ApiKeyService, ApiKeyScope } from '../shared/services/api-key.service';
-import { IsString, IsNotEmpty, IsArray, IsOptional, IsNumber, Min } from 'class-validator';
+import { RegistrationCodeService, CreateRegistrationCodeDto } from '../shared/services/registration-code.service';
+import { DatabaseService } from '../services/database.service';
+import { IsString, IsNotEmpty, IsArray, IsOptional, IsNumber, Min, Max, IsInt, IsDateString } from 'class-validator';
 
 // Response DTOs
 class ApiKeyInfoDto {
@@ -84,6 +88,48 @@ class UpdateApiKeyDto {
   scopes?: ApiKeyScope[];
 }
 
+// Registration Code DTOs
+class CreateCodeDto {
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  maxUses?: number;
+
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
+}
+
+class CreateBulkCodesDto {
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  count: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  maxUses?: number;
+
+  @IsOptional()
+  @IsDateString()
+  expiresAt?: string;
+}
+
+interface AuthenticatedRequest extends Request {
+  user?: User;
+}
+
 @ApiTags('Admin')
 @Controller('admin')
 @AdminOnly()
@@ -93,6 +139,8 @@ export class AdminController {
 
   constructor(
     private readonly apiKeyService: ApiKeyService,
+    private readonly registrationCodeService: RegistrationCodeService,
+    private readonly databaseService: DatabaseService,
   ) {}
 
   /**
@@ -210,5 +258,150 @@ export class AdminController {
   async deleteApiKey(@Param('keyId') keyId: string): Promise<AdminResponseDto> {
     this.logger.log(`Admin: Deleting API key ${keyId}`);
     return await this.apiKeyService.deleteApiKey(keyId);
+  }
+
+  // ========================================
+  // REGISTRATION CODES
+  // ========================================
+
+  @Post('registration-codes')
+  @ApiOperation({ summary: 'Create a new registration code (admin only)' })
+  @ApiBody({ type: CreateCodeDto })
+  @ApiResponse({ status: HttpStatus.CREATED, description: 'Registration code created successfully' })
+  async createRegistrationCode(@Body() dto: CreateCodeDto, @Req() req: AuthenticatedRequest) {
+    const adminId = req.user?.id;
+    const createDto: CreateRegistrationCodeDto = {
+      description: dto.description,
+      maxUses: dto.maxUses,
+      expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+      createdBy: adminId,
+    };
+    const code = await this.registrationCodeService.createCode(createDto);
+    this.logger.log(`Admin ${adminId} created registration code ${code.code}`);
+    return code;
+  }
+
+  @Post('registration-codes/bulk')
+  @ApiOperation({ summary: 'Create multiple registration codes at once (admin only)' })
+  @ApiBody({ type: CreateBulkCodesDto })
+  @ApiResponse({ status: HttpStatus.CREATED, description: 'Registration codes created successfully' })
+  async createBulkRegistrationCodes(@Body() dto: CreateBulkCodesDto, @Req() req: AuthenticatedRequest) {
+    const adminId = req.user?.id;
+    const createDto: CreateRegistrationCodeDto = {
+      description: dto.description,
+      maxUses: dto.maxUses,
+      expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
+      createdBy: adminId,
+    };
+    const codes = await this.registrationCodeService.createBulkCodes(dto.count, createDto);
+    this.logger.log(`Admin ${adminId} created ${dto.count} registration codes in bulk`);
+    return codes;
+  }
+
+  @Get('registration-codes')
+  @ApiOperation({ summary: 'List all registration codes (admin only)' })
+  @ApiQuery({ name: 'status', required: false, enum: ['active', 'used', 'revoked'] })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({ status: HttpStatus.OK, description: 'List of registration codes' })
+  async listRegistrationCodes(@Query('status') status?: string, @Query('limit') limit?: number) {
+    return this.registrationCodeService.listCodes(status, limit);
+  }
+
+  @Get('registration-codes/stats')
+  @ApiOperation({ summary: 'Get registration code statistics (admin only)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Registration code statistics' })
+  async getRegistrationCodeStats() {
+    return this.registrationCodeService.getStats();
+  }
+
+  @Patch('registration-codes/:code/revoke')
+  @ApiOperation({ summary: 'Revoke a registration code (admin only)' })
+  @ApiParam({ name: 'code', type: String })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Code revoked successfully' })
+  async revokeRegistrationCode(@Param('code') code: string, @Req() req: AuthenticatedRequest) {
+    await this.registrationCodeService.revokeCode(code);
+    this.logger.log(`Admin ${req.user?.id} revoked registration code ${code}`);
+    return { success: true, message: 'Registration code revoked successfully' };
+  }
+
+  @Delete('registration-codes/:code')
+  @ApiOperation({ summary: 'Permanently delete a registration code (admin only)' })
+  @ApiParam({ name: 'code', type: String })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Code deleted successfully' })
+  async deleteRegistrationCode(@Param('code') code: string, @Req() req: AuthenticatedRequest) {
+    await this.registrationCodeService.deleteCode(code);
+    this.logger.log(`Admin ${req.user?.id} permanently deleted registration code ${code}`);
+    return { success: true, message: 'Registration code deleted successfully' };
+  }
+
+  // ========================================
+  // REGISTRATION KILL-SWITCH
+  // ========================================
+
+  @Get('registration/kill-switch')
+  @ApiOperation({ summary: 'Get registration kill-switch status (admin only)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Kill-switch status' })
+  async getKillSwitchStatus() {
+    return this.registrationCodeService.getKillSwitchStatus();
+  }
+
+  @Post('registration/kill-switch/enable')
+  @ApiOperation({
+    summary: 'Enable registration kill-switch - block all new registrations (admin only)',
+    description: 'Emergency control to immediately halt all new user registrations. Existing users are not affected.',
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Registration kill-switch enabled' })
+  async enableKillSwitch(@Req() req: AuthenticatedRequest) {
+    await this.registrationCodeService.enableKillSwitch();
+    this.logger.warn(`🚨 Admin ${req.user?.id} (${req.user?.email}) ENABLED registration kill-switch`);
+    return { success: true, message: 'Registration kill-switch enabled. All new registration attempts will be blocked.' };
+  }
+
+  @Post('registration/kill-switch/disable')
+  @ApiOperation({
+    summary: 'Disable registration kill-switch - allow registrations (admin only)',
+    description: 'Re-enable user registrations after emergency shutdown.',
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Registration kill-switch disabled' })
+  async disableKillSwitch(@Req() req: AuthenticatedRequest) {
+    await this.registrationCodeService.disableKillSwitch();
+    this.logger.log(`✅ Admin ${req.user?.id} (${req.user?.email}) DISABLED registration kill-switch`);
+    return { success: true, message: 'Registration kill-switch disabled. New registrations are now allowed.' };
+  }
+
+  // ========================================
+  // USER MANAGEMENT
+  // ========================================
+
+  @Patch('users/:userId/disable')
+  @ApiOperation({
+    summary: 'Disable a user account (admin only)',
+    description: 'Sets isActive=false to prevent user from accessing the system. User data is preserved.',
+  })
+  @ApiParam({ name: 'userId', type: String })
+  @ApiResponse({ status: HttpStatus.OK, description: 'User account disabled successfully' })
+  async disableUser(@Param('userId') userId: string, @Req() req: AuthenticatedRequest) {
+    const user = await this.databaseService.deactivateUser(userId);
+    if (!user) {
+      return { success: false, message: `User ${userId} not found` };
+    }
+    this.logger.warn(`Admin ${req.user?.id} disabled user ${userId}`);
+    return { success: true, message: `User ${userId} has been disabled` };
+  }
+
+  @Patch('users/:userId/enable')
+  @ApiOperation({
+    summary: 'Re-enable a disabled user account (admin only)',
+    description: 'Sets isActive=true to restore user access.',
+  })
+  @ApiParam({ name: 'userId', type: String })
+  @ApiResponse({ status: HttpStatus.OK, description: 'User account enabled successfully' })
+  async enableUser(@Param('userId') userId: string, @Req() req: AuthenticatedRequest) {
+    const user = await this.databaseService.activateUser(userId);
+    if (!user) {
+      return { success: false, message: `User ${userId} not found` };
+    }
+    this.logger.log(`Admin ${req.user?.id} enabled user ${userId}`);
+    return { success: true, message: `User ${userId} has been enabled` };
   }
 }

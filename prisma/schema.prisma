@@ -279,6 +279,7 @@ model User {
   apiKey              String                   @unique
   description         String?
   isDemo              Boolean                  @default(false)
+  isAdmin             Boolean                  @default(false)
   createdAt           DateTime                 @default(now())
   lastSeenAt          DateTime?
   isActive            Boolean                  @default(true)
@@ -295,8 +296,29 @@ model User {
   passwordResetTokens PasswordResetToken[]
   favoriteWallets     UserFavoriteWallet[]
   walletNotes         WalletNote[]
+  registrationCode    RegistrationCode?
 
   @@index([lastBulkImportAt])
+}
+
+model RegistrationCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  status      String    @default("active")
+  description String?
+  maxUses     Int       @default(1)
+  usedCount   Int       @default(0)
+  usedByUserId String?  @unique
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+  createdBy   String?
+  usedBy      User?     @relation(fields: [usedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([code])
+  @@index([status])
+  @@index([createdAt])
+  @@index([expiresAt])
 }
 
 model EmailVerificationToken {
