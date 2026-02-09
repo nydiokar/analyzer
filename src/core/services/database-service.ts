@@ -734,6 +734,85 @@ export class DatabaseService {
     }
 
     /**
+     * List users with filtering, sorting, and pagination.
+     * Supports search by email/displayName and filtering by status flags.
+     *
+     * @param limit - Maximum number of users to return (1-1000)
+     * @param offset - Number of users to skip (for pagination)
+     * @param filters - Optional filters (search, isActive, isAdmin, isDemo)
+     * @param sortBy - Field to sort by (default: 'createdAt')
+     * @param sortOrder - Sort direction ('asc' or 'desc', default: 'desc')
+     * @returns Object containing users array and total count
+     */
+    async listUsers(
+        limit: number = 50,
+        offset: number = 0,
+        filters?: {
+            search?: string;
+            isActive?: boolean;
+            isAdmin?: boolean;
+            isDemo?: boolean;
+        },
+        sortBy: string = 'createdAt',
+        sortOrder: 'asc' | 'desc' = 'desc'
+    ): Promise<{ users: Array<Pick<User, 'id' | 'email' | 'displayName' | 'description' | 'isAdmin' | 'isActive' | 'isDemo' | 'emailVerified' | 'createdAt' | 'lastLoginAt' | 'lastSeenAt'>>; total: number }> {
+        this.logger.trace('Listing users with filters', { limit, offset, filters, sortBy, sortOrder });
+
+        try {
+            const where: Prisma.UserWhereInput = {};
+
+            // Apply boolean filters
+            if (filters?.isActive !== undefined) {
+                where.isActive = filters.isActive;
+            }
+            if (filters?.isAdmin !== undefined) {
+                where.isAdmin = filters.isAdmin;
+            }
+            if (filters?.isDemo !== undefined) {
+                where.isDemo = filters.isDemo;
+            }
+
+            // Apply search filter (case-insensitive search on email or displayName)
+            if (filters?.search) {
+                where.OR = [
+                    { email: { contains: filters.search, mode: 'insensitive' } },
+                    { displayName: { contains: filters.search, mode: 'insensitive' } }
+                ];
+            }
+
+            // Execute queries in parallel for performance
+            const [users, total] = await Promise.all([
+                this.prismaClient.user.findMany({
+                    where,
+                    select: {
+                        id: true,
+                        email: true,
+                        displayName: true,
+                        description: true,
+                        isAdmin: true,
+                        isActive: true,
+                        isDemo: true,
+                        emailVerified: true,
+                        createdAt: true,
+                        lastLoginAt: true,
+                        lastSeenAt: true,
+                    },
+                    orderBy: { [sortBy]: sortOrder },
+                    take: limit,
+                    skip: offset,
+                }),
+                this.prismaClient.user.count({ where }),
+            ]);
+
+            this.logger.info(`Listed ${users.length} users out of ${total} total (limit=${limit}, offset=${offset})`);
+            return { users, total };
+        } catch (error) {
+            this.logger.error('Error listing users', { error, filters, limit, offset });
+            throw error;
+        }
+    }
+
+    /**
      * Ensures a wallet record exists in the database.
      * If the wallet doesn't exist, it creates a new one with default values.
      * 

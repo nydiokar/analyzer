@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-02-09  **Status:**  Active Development
+**Branch:** `feat/admin-access-controls`  **Last Updated:** 2026-02-09  **Status:**  Active Development
 
 ---
 
@@ -8,12 +8,13 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🔵 | Implement admin UI for registration controls | 🟡 M | Backend complete, frontend needed |
+| 🔵 | Implement admin UI for registration controls | 🟡 M | Backend 100% complete, frontend needed |
 | ⚪ | Fix wallet profile page mess in the wallet area | 🟡 M | Pending |
-| ⚪ | Create the dashboard for grafana | 🟡 M | Observability stack ready | 
+| ⚪ | Create the dashboard for grafana | 🟡 M | Observability stack ready |
 
 
 **Recently Completed:**
+-  Admin user listing endpoint (Feb 9) - GET /admin/users with filtering, search, pagination, and sorting
 -  Telegram alerting service activation + similarity job memory optimization (Feb 9) - Removed unnecessary cosine vectors to fix OOM errors
 -  Phased production deployment toolkit (Feb 8) - 4-phase automated deployment scripts + observability stack
 -  Metrics endpoint firewall security documentation (Feb 6) - Critical security guidance for production
@@ -95,10 +96,13 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
+| 09.3 | 🎯 FEAT | Admin user listing endpoint | 🟢 S | `admin.controller.ts`, `database-service.ts`, test script |
 | 09.2 | 🎯 FEAT | Complete registration access control system | 🔴 L | Backend: 3 endpoints + DTOs, Frontend: AuthModal, Test suite |
 | 09.1 | 🔧 FEAT | Telegram alerting service activation + similarity memory optimization | 🟡 M | `security-alerts.service.ts`, `analyzer.ts`, `similarity-service.ts` |
 
 **Summary:**
+
+**09.3:** Added `GET /admin/users` endpoint for admin panel user management UI. **Backend:** (1) **AdminController** - New endpoint with comprehensive query parameters (search by email/displayName, filter by isActive/isAdmin/isDemo, sort by createdAt/lastLoginAt/lastSeenAt/email, pagination with limit/offset), full OpenAPI documentation with all parameters and examples, case-insensitive boolean parsing; (2) **DatabaseService** - New `listUsers()` method with optimized Prisma query (parallel execution of count + findMany, explicit field selection to exclude passwordHash, supports all filters/sorting/pagination); (3) **DTOs** - `UserListItemDto` (11 safe fields) and `UsersListResponseDto` (users array + total + pagination metadata), proper class-validator decorations. **Security:** Endpoint protected by `@AdminOnly()` decorator at controller level, excludes sensitive fields (passwordHash never returned), returns 401 for unauthorized access. **Testing:** Interactive test script `scripts/test-user-list-endpoint.ts` (6 tests: basic list, admin filter, search, pagination, active filter, unauthorized access - all passing). **Fixes Applied:** Removed duplicate section header, added case-insensitive boolean parsing helper, explicit type cast for DTO compliance. **Architecture:** Follows existing admin endpoint patterns, reuses authentication/authorization guards, maintains separation from CLI-only `getAllUsers()` method (different use case). **Files:** `src/api/controllers/admin.controller.ts` (+70 lines, endpoint + DTOs), `src/core/services/database-service.ts` (+78 lines, listUsers method), `scripts/test-user-list-endpoint.ts` (new, 200 lines). **Result:** Backend fully ready for admin UI implementation - all user listing/filtering/search functionality complete and tested.
 
 **09.2:** Implemented complete three-tier registration access control system. **Backend Features:** (1) **Registration codes** - Single-use (default) and multi-use (optional) codes with cryptographically secure generation (16 bytes base64url), create single/bulk endpoints (up to 100), list/filter/stats/revoke/delete operations, automatic status tracking (active→used/revoked), expiration support; (2) **Kill-switch** - Emergency registration halt via Redis (`registration:kill-switch`), blocks ALL registrations (503 Service Unavailable), existing users can still login, instant enable/disable with admin logging; (3) **Code requirement toggle** - NEW: Optional code enforcement via Redis (`registration:codes-required`), three modes: codes required (default), open registration (anyone), kill-switch (emergency halt), allows posting codes publicly for "beg mode"; (4) **User management** - Disable/enable user accounts via `isActive` flag, disabled users cannot login, existing tokens invalidated when disabled. **Frontend:** AuthModal updated with optional registration code field, code input shown/hidden based on requirement mode. **Testing:** Comprehensive interactive test suite (`scripts/test-admin-access-controls.ts`) with 9 test scenarios, auto-detects API URL, clean environment setup, tests all flows (7/9 pass, 2 fail due to rate limiting only). **Database:** `RegistrationCode` model with indexes, `User.isAdmin` field for admin privileges, Prisma migrations applied. **Admin Endpoints:** 14 new endpoints under `/admin` - code CRUD (create, bulk, list, stats, revoke, delete), kill-switch (get, enable, disable), code requirement (get, enable, disable), user management (disable, enable). **Security:** Admin-only endpoints via `@AdminOnly()` decorator, rate limiting (15 reg/min), cryptographic code generation, Redis-based flags for instant propagation. **Architecture:** Codes default to single-use (`maxUses: 1`), multi-use kept but hidden from UI, kill-switch overrides code requirement, code requirement defaults to enabled (safer). **Files:** Backend: `admin.controller.ts` (+14 endpoints), `registration-code.service.ts` (new, 310 lines), `auth.controller.ts` (code validation + toggle logic), `auth.service.ts` (optional code DTO); Frontend: `AuthModal.tsx` (code input), Test: `test-admin-access-controls.ts` (new, 750 lines). **Next:** Admin UI implementation at `/admin` for managing codes/kill-switch/users.
 

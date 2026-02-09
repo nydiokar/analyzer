@@ -1,12 +1,12 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, Logger, ValidationPipe, Req } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery, ApiBody, ApiProperty } from '@nestjs/swagger';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 import { AdminOnly } from '../shared/decorators/admin-only.decorator';
 import { ApiKeyService, ApiKeyScope } from '../shared/services/api-key.service';
 import { RegistrationCodeService, CreateRegistrationCodeDto } from '../shared/services/registration-code.service';
 import { DatabaseService } from '../services/database.service';
-import { IsString, IsNotEmpty, IsArray, IsOptional, IsNumber, Min, Max, IsInt, IsDateString } from 'class-validator';
+import { IsString, IsNotEmpty, IsArray, IsOptional, IsNumber, Min, Max, IsInt, IsDateString, IsBoolean } from 'class-validator';
 
 // Response DTOs
 class ApiKeyInfoDto {
@@ -124,6 +124,73 @@ class CreateBulkCodesDto {
   @IsOptional()
   @IsDateString()
   expiresAt?: string;
+}
+
+// User List DTOs
+class UserListItemDto {
+  @ApiProperty({ description: 'Unique user ID' })
+  @IsString()
+  id: string;
+
+  @ApiProperty({ description: 'User email address', nullable: true })
+  @IsString()
+  @IsOptional()
+  email: string | null;
+
+  @ApiProperty({ description: 'Display name', nullable: true })
+  @IsString()
+  @IsOptional()
+  displayName: string | null;
+
+  @ApiProperty({ description: 'User description', nullable: true })
+  @IsString()
+  @IsOptional()
+  description: string | null;
+
+  @ApiProperty({ description: 'Is admin user' })
+  @IsBoolean()
+  isAdmin: boolean;
+
+  @ApiProperty({ description: 'Account active status' })
+  @IsBoolean()
+  isActive: boolean;
+
+  @ApiProperty({ description: 'Is demo account' })
+  @IsBoolean()
+  isDemo: boolean;
+
+  @ApiProperty({ description: 'Email verified status' })
+  @IsBoolean()
+  emailVerified: boolean;
+
+  @ApiProperty({ description: 'Account creation timestamp', type: 'string', format: 'date-time' })
+  createdAt: Date;
+
+  @ApiProperty({ description: 'Last login timestamp', nullable: true, type: 'string', format: 'date-time' })
+  @IsOptional()
+  lastLoginAt: Date | null;
+
+  @ApiProperty({ description: 'Last activity timestamp', nullable: true, type: 'string', format: 'date-time' })
+  @IsOptional()
+  lastSeenAt: Date | null;
+}
+
+class UsersListResponseDto {
+  @ApiProperty({ type: [UserListItemDto], description: 'List of users' })
+  @IsArray()
+  users: UserListItemDto[];
+
+  @ApiProperty({ description: 'Total number of users matching the filter' })
+  @IsNumber()
+  total: number;
+
+  @ApiProperty({ description: 'Number of results per page' })
+  @IsNumber()
+  limit: number;
+
+  @ApiProperty({ description: 'Number of results skipped' })
+  @IsNumber()
+  offset: number;
 }
 
 interface AuthenticatedRequest extends Request {
@@ -407,6 +474,71 @@ export class AdminController {
   // ========================================
   // USER MANAGEMENT
   // ========================================
+
+  @Get('users')
+  @ApiOperation({
+    summary: 'List all users with filtering and pagination (admin only)',
+    description: 'Retrieve a paginated list of users with optional search and filtering by status, admin, or demo flags.',
+  })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by email or display name (case-insensitive)' })
+  @ApiQuery({ name: 'isActive', required: false, type: Boolean, description: 'Filter by active status' })
+  @ApiQuery({ name: 'isAdmin', required: false, type: Boolean, description: 'Filter by admin status' })
+  @ApiQuery({ name: 'isDemo', required: false, type: Boolean, description: 'Filter by demo status' })
+  @ApiQuery({ name: 'sortBy', required: false, enum: ['createdAt', 'lastLoginAt', 'lastSeenAt', 'email'], description: 'Field to sort by (default: createdAt)' })
+  @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'], description: 'Sort direction (default: desc)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 50, description: 'Max results per page (default: 50, max: 1000)' })
+  @ApiQuery({ name: 'offset', required: false, type: Number, example: 0, description: 'Number of results to skip (default: 0)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'List of users', type: UsersListResponseDto })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Admin privileges required' })
+  async listUsers(
+    @Query('search') search?: string,
+    @Query('isActive') isActive?: string,
+    @Query('isAdmin') isAdmin?: string,
+    @Query('isDemo') isDemo?: string,
+    @Query('sortBy') sortBy: string = 'createdAt',
+    @Query('sortOrder') sortOrder: string = 'desc',
+    @Query('limit') limitStr?: string,
+    @Query('offset') offsetStr?: string,
+  ): Promise<UsersListResponseDto> {
+    // Parse and validate pagination parameters
+    const limit = Math.min(Math.max(1, parseInt(limitStr || '50', 10)), 1000);
+    const offset = Math.max(0, parseInt(offsetStr || '0', 10));
+
+    // Parse boolean filters (handle string 'true'/'false' from query params)
+    const parseBoolean = (val: string | undefined): boolean | undefined => {
+      if (val === undefined) return undefined;
+      return val.toLowerCase() === 'true';
+    };
+
+    const filters: {
+      search?: string;
+      isActive?: boolean;
+      isAdmin?: boolean;
+      isDemo?: boolean;
+    } = {};
+
+    if (search) filters.search = search;
+    filters.isActive = parseBoolean(isActive);
+    filters.isAdmin = parseBoolean(isAdmin);
+    filters.isDemo = parseBoolean(isDemo);
+
+    // Validate sortBy and sortOrder
+    const validSortFields = ['createdAt', 'lastLoginAt', 'lastSeenAt', 'email'];
+    const finalSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    const finalSortOrder = sortOrder === 'asc' ? 'asc' : 'desc';
+
+    this.logger.log(`Listing users: filters=${JSON.stringify(filters)}, sort=${finalSortBy}:${finalSortOrder}, limit=${limit}, offset=${offset}`);
+
+    const result = await this.databaseService.listUsers(limit, offset, filters, finalSortBy, finalSortOrder as 'asc' | 'desc');
+
+    // Map to DTO (database already selects only safe fields)
+    return {
+      users: result.users as UserListItemDto[],
+      total: result.total,
+      limit,
+      offset,
+    };
+  }
 
   @Patch('users/:userId/disable')
   @ApiOperation({
