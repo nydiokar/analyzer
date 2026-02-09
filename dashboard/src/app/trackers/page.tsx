@@ -679,7 +679,8 @@ export default function TrackersPage() {
 
         try {
           return JSON.parse(trimmed);
-        } catch {
+        } catch (error) {
+          errors.push(`JSON parsing failed: ${error instanceof Error ? error.message : 'Invalid JSON format'}`);
           return null;
         }
       };
