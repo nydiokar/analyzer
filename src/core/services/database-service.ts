@@ -804,7 +804,7 @@ export class DatabaseService {
                 this.prismaClient.user.count({ where }),
             ]);
 
-            this.logger.info(`Listed ${users.length} users out of ${total} total (limit=${limit}, offset=${offset})`);
+            // this.logger.info(`Listed ${users.length} users out of ${total} total (limit=${limit}, offset=${offset})`);
             return { users, total };
         } catch (error) {
             this.logger.error('Error listing users', { error, filters, limit, offset });
