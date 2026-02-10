@@ -4,8 +4,8 @@ import { SecurityLoggerService } from '../shared/services/security-logger.servic
 import { SecurityAlertsService } from '../shared/services/security-alerts.service';
 import { AdvancedThrottlerService } from '../shared/services/advanced-throttler.service';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
+import { AdminGuard } from '../shared/guards/admin.guard';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 
@@ -18,20 +18,12 @@ interface BotAuthRequest {
 @ApiExcludeController() // Hide from main API docs
 @Controller('bot')
 export class BotIntegrationController {
-  private readonly adminUserIds: Set<string>;
-  private readonly adminEmails: Set<string>;
-
   constructor(
     private readonly securityLogger: SecurityLoggerService,
     private readonly securityAlerts: SecurityAlertsService,
     private readonly throttlerService: AdvancedThrottlerService,
-    private readonly configService: ConfigService,
-  ) {
-    const ids = (this.configService.get<string>('ADMIN_USER_IDS') || '').split(',').map((s) => s.trim()).filter(Boolean);
-    const emails = (this.configService.get<string>('ADMIN_EMAILS') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-    this.adminUserIds = new Set(ids);
-    this.adminEmails = new Set(emails);
-  }
+    private readonly adminGuard: AdminGuard,
+  ) {}
 
   /**
    * Simple health check for your other bot to poll
@@ -207,14 +199,8 @@ export class BotIntegrationController {
   }
 
   private assertAdmin(user?: User): void {
-    if (!user) {
+    if (!this.adminGuard.isUserAdmin(user)) {
       throw new ForbiddenException('Admin access required');
     }
-    const isAdminId = user.id && this.adminUserIds.has(user.id);
-    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
-    if (isAdminId || isAdminEmail) {
-      return;
-    }
-    throw new ForbiddenException('Admin access required');
   }
 }

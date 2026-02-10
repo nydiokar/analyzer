@@ -2,7 +2,7 @@ import { Controller, Get, Req, InternalServerErrorException, Logger, UseGuards, 
 import { Request } from 'express';
 import { DatabaseService } from '../services/database.service'; // Assuming this path is correct
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
-import { ConfigService } from '@nestjs/config';
+import { AdminGuard } from '../shared/guards/admin.guard';
 import { User } from '@prisma/client';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
 
@@ -11,18 +11,11 @@ import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
 @UseGuards(CompositeAuthGuard)
 export class TestController {
   private readonly logger = new Logger(TestController.name);
-  private readonly adminUserIds: Set<string>;
-  private readonly adminEmails: Set<string>;
 
   constructor(
     private readonly databaseService: DatabaseService,
-    private readonly configService: ConfigService,
-  ) {
-    const ids = (this.configService.get<string>('ADMIN_USER_IDS') || '').split(',').map((s) => s.trim()).filter(Boolean);
-    const emails = (this.configService.get<string>('ADMIN_EMAILS') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-    this.adminUserIds = new Set(ids);
-    this.adminEmails = new Set(emails);
-  }
+    private readonly adminGuard: AdminGuard,
+  ) {}
 
   @Get()
   async getTestData(@Req() req: Request & { user?: any }) {
@@ -109,14 +102,8 @@ export class TestController {
   }
 
   private assertAdmin(user?: User): void {
-    if (!user) {
+    if (!this.adminGuard.isUserAdmin(user)) {
       throw new ForbiddenException('Admin access required');
     }
-    const isAdminId = user.id && this.adminUserIds.has(user.id);
-    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
-    if (isAdminId || isAdminEmail) {
-      return;
-    }
-    throw new ForbiddenException('Admin access required');
   }
 }
