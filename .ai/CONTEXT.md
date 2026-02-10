@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/admin-access-controls`  **Last Updated:** 2026-02-09  **Status:**  Active Development
+**Branch:** `feat/admin-access-controls`  **Last Updated:** 2026-02-10  **Status:**  Active Development
 
 ---
 
@@ -14,6 +14,7 @@
 
 
 **Recently Completed:**
+-  **Stale Holdings Data Fix** (Feb 10) - Fixed stale portfolio values in HUD and holder profiles by recalculating with fresh token prices (30s TTL) instead of aggregating stale DB values
 -  **HUD Encoding System** (Feb 9) - Clean pipe-separated format (`name|R|2m|42td|20%wr|-0.31p|qG|🐋`), performance-based face emojis (😭/😐/😊/😁/🤑/😴), single-click auto-encode with PATCH updates
 -  **Admin UI Panel** (Feb 9) - Full-featured admin dashboard at `/admin` with tabbed interface for registration codes, access controls, and user management
 -  Admin user listing endpoint (Feb 9) - GET /admin/users with filtering, search, pagination, and sorting
@@ -94,7 +95,17 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 ##  Recent Activity
 
-### February 9, 2026 (Latest)
+### February 10, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 10.1 | 🔧 FIX | Fix stale portfolio values via fresh price recalculation | 🟡 M | `wallet-hud.service.ts`, `analysis-operations.processor.ts`, `token-info.service.ts` |
+
+**Summary:**
+
+**10.1:** Fixed critical data staleness issue where HUD whale badges and holder profiles showed outdated portfolio values (557 SOL stale vs 700 SOL actual). **Root Cause:** Both HUD and holder profiles were aggregating stale `currentHoldingsValueSol` from database (calculated during PnL analysis with old token prices) instead of recalculating with fresh prices. Token prices change constantly (30s TTL) but holdings values were frozen at analysis time. **Solution - Three-Part Fix:** (1) **WalletHudService** - Changed `getHud()` and `getHudBatch()` to fetch current balances + fresh token prices (30s TTL from TokenInfo cache), recalculate portfolio value on-demand instead of aggregating stale DB values, smart deduplication in batch mode (dedupe tokens across all wallets for single batch price fetch); (2) **Holder Profiles Processor** - Changed from conditional backfill (only if valueSol=null) to ALWAYS recalculate ALL holdings with fresh prices (ignore stale DB values), ensures consistent data between processor result and HUD display; (3) **TokenInfoService** - Added in-flight lock mechanism to `getTokenPrices()` to prevent duplicate DexScreener calls during race conditions (wait up to 2s for concurrent fetches, 2s timeout fallback). **Performance Optimizations:** Batch price fetch deduplication (50 wallets with overlapping tokens = single batch call for unique tokens), leverages existing 30s Redis cache (95%+ hit rate), in-flight locks prevent redundant API calls when holder profiles + HUD fetch simultaneously. **Data Flow:** Holder profiles job fetches prices → caches (30s TTL) → frontend renders → 120ms delay → HUD fetches → cache HIT → shows same values. **Result:** HUD and holder profiles now always show current portfolio values reflecting latest token prices, no more 557 → 595 → 700 SOL confusion, maintains efficient batching with zero redundant API calls. **Files:** `src/api/services/wallet-hud.service.ts` (fresh price recalculation in single + batch), `src/queues/processors/analysis-operations.processor.ts` (always recalculate holder profile values), `src/api/services/token-info.service.ts` (in-flight lock mechanism).
+
+### February 9, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
