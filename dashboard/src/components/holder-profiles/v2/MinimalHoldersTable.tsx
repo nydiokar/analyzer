@@ -116,11 +116,11 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                 </Tooltip>
               </th>
             )}
-            <th className="text-left px-4 py-2">Wallet</th>
-            <th className="text-left px-4 py-2">Current Holdings</th>
-            <th className="text-left px-4 py-2">Realized PnL</th>
-            <th className="text-left px-4 py-2">Behavior</th>
-            <th className="text-left px-4 py-2 whitespace-nowrap">Exit timings</th>
+            <th className="text-left px-4 py-2 min-w-[180px]">Wallet</th>
+            <th className="text-left px-4 py-2 w-[140px]">Current Holdings</th>
+            <th className="text-left px-4 py-2 w-[120px]">Realized PnL</th>
+            <th className="text-left px-4 py-2 w-[140px]">Behavior</th>
+            <th className="text-left px-4 py-2 whitespace-nowrap w-[140px]">Exit timings</th>
             <th className="text-left px-4 py-2">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -194,7 +194,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                 onClick={handleRowClick}
               >
                   {mode === 'token' && <td className="px-2 py-2 text-muted-foreground whitespace-nowrap w-[56px]">#{profile.rank}</td>}
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2 min-w-[180px]">
                     <div className="flex items-center gap-2">
                       <WalletBadge
                         address={profile.walletAddress}
@@ -294,9 +294,18 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                             {totalHoldingsValueSol !== null ? formatSol(totalHoldingsValueSol) : '—'}
                           </span>
                           {totalHoldingsValueSol === null && (profile.currentHoldingsCount ?? 0) > 0 ? (
-                            <span className="text-[12px] text-muted-foreground whitespace-nowrap">
-                              Value unavailable ({profile.currentHoldingsCount} holdings)
-                            </span>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="text-[12px] text-muted-foreground whitespace-nowrap cursor-help">
+                                  N/A ({profile.currentHoldingsCount})
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="text-xs">
+                                <p className="text-muted-foreground">
+                                  Value unavailable for {profile.currentHoldingsCount} {profile.currentHoldingsCount === 1 ? 'holding' : 'holdings'}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
                           ) : (
                             <span className="text-[12px] text-muted-foreground whitespace-nowrap">
                               {formatHoldTime(currentHoldTime)}

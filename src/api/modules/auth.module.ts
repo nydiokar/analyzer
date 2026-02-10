@@ -23,7 +23,9 @@ import { SecurityAlertsService } from '../shared/services/security-alerts.servic
 import { TelegramAlertsService } from '../services/telegram-alerts.service';
 import { EmailService } from '../shared/services/email.service';
 import { EmailEventService } from '../shared/services/email-event.service';
+import { RegistrationCodeService } from '../shared/services/registration-code.service';
 import { JwtStrategy } from '../shared/strategies/jwt.strategy';
+import { RedisModule } from '../../queues/config/redis.module';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { CsrfGuard } from '../shared/guards/csrf.guard';
 import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guard';
@@ -34,6 +36,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
 @Module({
   imports: [
     DatabaseModule, // Required for JwtDatabaseService and ApiKeyDatabaseService
+    RedisModule, // Required for RegistrationCodeService (kill-switch storage)
     PassportModule.register({ defaultStrategy: 'jwt' }),
     ThrottlerModule,
     EventEmitterModule.forRoot(), // Enable event-driven architecture for cache invalidation
@@ -83,6 +86,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     TelegramAlertsService,
     EmailService,
     EmailEventService,
+    RegistrationCodeService,
     AuthService,
     JwtStrategy,
     // CompositeAuthGuard is registered as APP_GUARD in AppModule, not here (but needs to be available for injection)
@@ -104,6 +108,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     SecurityLoggerService,
     SecurityAlertsService,
     TelegramAlertsService,
+    RegistrationCodeService,
     AdvancedThrottlerGuard,
     AdminGuard, // Export for use as APP_GUARD in AppModule
     JwtModule,

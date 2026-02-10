@@ -17,6 +17,7 @@ import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-util
 export interface RegisterDto {
   email: string;
   password: string;
+  registrationCode?: string;
 }
 
 export interface LoginDto {

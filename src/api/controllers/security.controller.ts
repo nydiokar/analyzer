@@ -1,33 +1,25 @@
 import { Controller, Get, Post, Query, UseGuards, HttpStatus, ForbiddenException, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
+import { AdminGuard } from '../shared/guards/admin.guard';
 import { SecurityLoggerService, SecurityMetrics } from '../shared/services/security-logger.service';
 import { AdvancedThrottlerService } from '../shared/services/advanced-throttler.service';
 import { SecurityAlertsService } from '../shared/services/security-alerts.service';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Request } from 'express';
 import { User } from '@prisma/client';
-import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Security')
 @Controller('security')
 @UseGuards(CompositeAuthGuard)
 @ApiBearerAuth()
 export class SecurityController {
-  private readonly adminUserIds: Set<string>;
-  private readonly adminEmails: Set<string>;
-
   constructor(
     private readonly securityLogger: SecurityLoggerService,
     private readonly advancedThrottler: AdvancedThrottlerService,
     private readonly securityAlerts: SecurityAlertsService,
-    private readonly configService: ConfigService,
-  ) {
-    const ids = (this.configService.get<string>('ADMIN_USER_IDS') || '').split(',').map((s) => s.trim()).filter(Boolean);
-    const emails = (this.configService.get<string>('ADMIN_EMAILS') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-    this.adminUserIds = new Set(ids);
-    this.adminEmails = new Set(emails);
-  }
+    private readonly adminGuard: AdminGuard,
+  ) {}
 
   @Get('metrics')
   @UseGuards(ThrottlerGuard)
@@ -226,14 +218,8 @@ export class SecurityController {
   }
 
   private assertAdmin(user?: User): void {
-    if (!user) {
+    if (!this.adminGuard.isUserAdmin(user)) {
       throw new ForbiddenException('Admin access required');
     }
-    const isAdminId = user.id && this.adminUserIds.has(user.id);
-    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
-    if (isAdminId || isAdminEmail) {
-      return;
-    }
-    throw new ForbiddenException('Admin access required');
   }
 }

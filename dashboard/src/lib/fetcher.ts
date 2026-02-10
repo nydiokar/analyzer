@@ -128,7 +128,10 @@ export const fetcher = async (url: string, options?: RequestInit) => {
       res.status === 400 &&
       (message.startsWith('Invalid Solana address') || message.startsWith('Invalid token mint address'));
     const isExpectedNotFound =
-      res.status === 404 && message.startsWith('Token mint not found');
+      res.status === 404 && (
+        message.startsWith('Token mint not found') ||
+        message.includes('not found or has insufficient data for HUD')
+      );
 
     // Don't emit session expired events - let automatic refresh handle it
     // Only log unexpected errors to avoid console spam during typing.

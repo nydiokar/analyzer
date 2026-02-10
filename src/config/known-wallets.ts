@@ -155,7 +155,14 @@ export const KNOWN_WALLETS: Record<string, KnownWalletEntry> = {
     label: 'BAGS VAULT',
     shortLabel: 'Jupiter',
   },
+  'ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ': {
+    type: 'PROTOCOL',
+    label: 'MEXC',
+    shortLabel: 'MEXC',
+  },
 
+
+  
   // ═══════════════════════════════════════════════════════════════════════════
   // RAYDIUM ACCOUNTS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -176,17 +183,17 @@ export const KNOWN_WALLETS: Record<string, KnownWalletEntry> = {
   // ═══════════════════════════════════════════════════════════════════════════
   '34FKjAdVcTax2DHqV2XnbXa9J3zmyKcFuFKWbcmgxjgm': {
     type: 'SYSTEM',
-    label: 'System Account ⚙️',
+    label: '⚙️ System Account',
     shortLabel: 'System',
   },
   'ZG98FUCjb8mJ824Gbs6RsgVmr1FhXb2oNiJHa2dwmPd': {
     type: 'SYSTEM',
-    label: 'System Account ⚙️',
+    label: '⚙️ System Account',
     shortLabel: 'System',
   },
   '8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf': {
     type: 'SYSTEM',
-    label: 'System Account ⚙️',
+    label: '⚙️ System Account',
     shortLabel: 'System',
   },
 };

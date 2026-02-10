@@ -30,12 +30,12 @@ Tiered health monitoring system with security-conscious endpoint design.
 - Admin-protected endpoints require authentication AND administrator privileges
 - **Critical Security (2025-12-03)**: Prevents infrastructure enumeration attacks
   - Regular authenticated users (JWT) cannot access detailed metrics
-  - Only admins (via `ADMIN_USER_IDS`/`ADMIN_EMAILS`) can see internal details
+  - Only admins (via `User.isAdmin` database field) can see internal details
   - Attackers cannot register → get JWT → scrape infrastructure metrics
 
 **Authentication:**
 - `/health` - Public (no auth required)
-- All other endpoints - Admin privileges required (configured via `ADMIN_USER_IDS` and `ADMIN_EMAILS` environment variables)
+- All other endpoints - Admin privileges required (configured via `User.isAdmin` database field)
 
 **Prometheus Integration:**
 - Use API key with `'admin'` or `'full'` scope for Prometheus scraper
@@ -458,7 +458,7 @@ The API supports two authentication methods via `CompositeAuthGuard` (tries JWT 
   - Optional HTTP-only cookie support with CSRF protection
 
 **Why No Scopes in JWT?**
-- ✅ Instant admin revocation (change `ADMIN_USER_IDS` env → restart)
+- ✅ Instant admin revocation (update `User.isAdmin` in database - no restart needed)
 - ✅ Simpler for human users (no scope management UI needed)
 - ✅ Smaller token payload (faster transmission)
 - ✅ Separation of concerns: Identity (JWT) vs Permissions (API keys)
@@ -475,7 +475,7 @@ The API supports two authentication methods via `CompositeAuthGuard` (tries JWT 
   - Scope validation via `ApiKeyService.hasScope()`
 
 **Use Cases:**
-- **JWT**: Human users with browser/Postman, admin checks via `ADMIN_USER_IDS`
+- **JWT**: Human users with browser/Postman, admin checks via database `User.isAdmin` field
 - **API Keys**: Services with specific scopes (Prometheus = `admin`, CI/CD = `read`)
 
 ### Cookie Authentication Support
@@ -602,7 +602,7 @@ Content-Type: application/json
 ### User Types & Permissions
 
 #### Administrator Users
-- **Configuration:** Set via `ADMIN_USER_IDS` (comma-separated user IDs) or `ADMIN_EMAILS` (comma-separated emails)
+- **Configuration:** Set via database - `UPDATE "User" SET "isAdmin"=true WHERE email='admin@example.com'`
 - **Access:** All regular user features PLUS admin-only endpoints
 - **Admin-Only Endpoints:**
   - `/health/detailed` - Comprehensive health metrics

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, Res, HttpStatus, UseGuards, Logger, UseInterceptors, ValidationPipe, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Res, HttpStatus, UseGuards, Logger, UseInterceptors, ValidationPipe, HttpCode, HttpException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { User } from '@prisma/client';
@@ -9,10 +9,11 @@ import { CsrfGuard } from '../shared/guards/csrf.guard';
 import { CsrfService } from '../shared/services/csrf.service';
 import { SecurityLoggerService } from '../shared/services/security-logger.service';
 import { EmailService } from '../shared/services/email.service';
+import { RegistrationCodeService } from '../shared/services/registration-code.service';
 import { Public } from '../shared/decorators/public.decorator';
 import { AllowUnverifiedEmail } from '../shared/decorators/allow-unverified.decorator';
 import { ConfigService } from '@nestjs/config';
-import { IsEmail, IsString, MinLength, IsNotEmpty } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsNotEmpty, IsOptional } from 'class-validator';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
 // DTOs for validation
@@ -23,6 +24,10 @@ class RegisterRequestDto {
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters long' })
   password: string;
+
+  @IsOptional()
+  @IsString()
+  registrationCode?: string;
 }
 
 class LoginRequestDto {
@@ -79,6 +84,7 @@ export class AuthController {
     private readonly csrfService: CsrfService,
     private readonly securityLogger: SecurityLoggerService,
     private readonly emailService: EmailService,
+    private readonly registrationCodeService: RegistrationCodeService,
   ) {
     this.cookieMode = this.configService.get<string>('AUTH_COOKIE_MODE') === 'true';
     this.cookieName = this.configService.get<string>('AUTH_COOKIE_NAME') || 'analyzer.sid';
@@ -88,7 +94,7 @@ export class AuthController {
   @Post('register')
   @Public()
   @UseGuards(CsrfGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 requests per minute for registration
+  @Throttle({ default: { limit: 15, ttl: 60000 } }) // 15 requests per minute for registration
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: RegisterRequestDto })
   @ApiResponse({ 
@@ -118,7 +124,48 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response
   ): Promise<AuthResponse> {
     try {
+      // Check if registration kill-switch is active
+      const killSwitchActive = await this.registrationCodeService.isKillSwitchActive();
+      if (killSwitchActive) {
+        this.logger.warn('Registration attempt blocked by kill-switch');
+        throw new HttpException(
+          'New registrations are temporarily disabled. Please try again later.',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
+
+      // Check if registration codes are required (configurable via Redis)
+      const codesRequired = await this.registrationCodeService.areCodesRequired();
+
+      if (codesRequired) {
+        // Validate registration code FIRST before creating account
+        if (!registerDto.registrationCode) {
+          throw new BadRequestException('Registration code is required');
+        }
+
+        // Pre-validate the code WITHOUT consuming it (via service - no raw Prisma!)
+        // This ensures we don't create orphaned accounts with invalid codes
+        await this.registrationCodeService.validateCode(registerDto.registrationCode);
+      } else {
+        this.logger.log('Registration codes not required - open registration mode active');
+      }
+
+      // Code is valid (or not required) - now create the user
       const result = this.attachAdminFlag(await this.authService.register(registerDto));
+
+      // Now atomically consume the code (mark as used) if one was provided
+      if (registerDto.registrationCode) {
+        try {
+          await this.registrationCodeService.consumeCode(registerDto.registrationCode, result.user.id);
+        } catch (codeError) {
+          // If this fails (race condition), warn but don't fail registration
+          // User account already exists, but code wasn't marked as used
+          this.logger.error(
+            `⚠️  RACE CONDITION: User ${result.user.id} (${result.user.email}) registered but code "${registerDto.registrationCode}" could not be consumed. ` +
+            `Error: ${codeError instanceof Error ? codeError.message : 'Unknown error'}. Admin review recommended.`
+          );
+        }
+      }
 
       // Set httpOnly cookie if cookie mode is enabled
       if (this.cookieMode) {
@@ -406,7 +453,7 @@ export class AuthController {
   @Post('verify-email')
   @AllowUnverifiedEmail()
   @UseGuards(CompositeAuthGuard, CsrfGuard, ThrottlerGuard)
-  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
+  @Throttle({ default: { limit: 10, ttl: 300000 } }) // 10 attempts per 5 minutes
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Verify email with token' })
   @ApiBody({

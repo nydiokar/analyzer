@@ -15,6 +15,8 @@ export interface RefreshSession {
   absoluteExpiresAt?: Date;
   status: 'active' | 'rotated' | 'revoked' | 'expired' | 'reused';
   prevSessionId?: string; // For rotation detection
+  rotatedAt?: Date; // When token was rotated
+  nextSessionId?: string; // Points to the new session after rotation
 }
 
 export interface RefreshTokens {
@@ -32,6 +34,7 @@ export class RefreshTokenService {
   private readonly USER_SESSIONS_PREFIX = 'user_sessions:';
   private readonly REFRESH_TTL: number; // seconds
   private readonly ABSOLUTE_REFRESH_TTL: number; // seconds (defense-in-depth)
+  private readonly ROTATION_GRACE_PERIOD = 60; // seconds - allow concurrent refreshes within this window
   
   constructor(private readonly configService: ConfigService) {
     // TTLs are env-driven with sane defaults
@@ -121,11 +124,60 @@ export class RefreshTokenService {
 
       const session: RefreshSession = JSON.parse(sessionData);
 
-      // Detect reuse/replay quickly
+      // Detect reuse/replay with grace period for concurrent requests
       if (session.status !== 'active') {
-        this.logger.error(`[${rotationId}] Refresh token reuse detected for user ${session.userId} (session ${session.sessionId}, status: ${session.status})`);
-        this.logger.error(`[${rotationId}] This suggests either: 1) Concurrent refresh requests, 2) Replay attack, or 3) Client not updating tokens`);
-        await this.handleReplay(session);
+        // Check if this is a concurrent refresh within the grace period
+        if (session.status === 'rotated' && session.rotatedAt && session.nextSessionId) {
+          const rotatedAt = new Date(session.rotatedAt);
+          const now = new Date();
+          const secondsSinceRotation = (now.getTime() - rotatedAt.getTime()) / 1000;
+          const minutesSinceRotation = secondsSinceRotation / 60;
+
+          // If rotated more than 30 minutes ago, treat as stale tab (not replay attack)
+          // This prevents logging out all sessions when a tab wakes up after sleeping
+          if (minutesSinceRotation > 30) {
+            this.logger.warn(`[${rotationId}] Stale session detected (rotated ${minutesSinceRotation.toFixed(1)} minutes ago) for user ${session.userId}`);
+            this.logger.warn(`[${rotationId}] Likely a tab that was sleeping - rejecting without revoking other sessions`);
+            return null; // Just return null, don't trigger replay attack handling
+          }
+
+          if (secondsSinceRotation <= this.ROTATION_GRACE_PERIOD) {
+            // Within grace period - this is likely a concurrent request from another tab
+            this.logger.debug(`[${rotationId}] Concurrent refresh detected within grace period (${secondsSinceRotation.toFixed(2)}s) for user ${session.userId}`);
+
+            // Return the same new session that was created during rotation
+            const newSessionKey = this.sessionKey(session.nextSessionId);
+            const newSessionData = await this.redis.get(newSessionKey);
+
+            if (newSessionData) {
+              const newSession: RefreshSession = JSON.parse(newSessionData);
+
+              // Regenerate the refresh token from the new session
+              // We can't return the exact same token, but we can provide the new session info
+              this.logger.log(`[${rotationId}] Allowing concurrent refresh for user ${session.userId}, pointing to session ${session.nextSessionId}`);
+
+              // Generate a new token for this concurrent request (alternative approach)
+              // This ensures each tab gets its own token but doesn't trigger a replay attack
+              const concurrentRefreshToken = this.generateRefreshToken();
+              const concurrentTokenHash = this.hashToken(concurrentRefreshToken);
+
+              // Map this new token to the already-created session
+              const concurrentTokenKey = this.tokenKey(concurrentTokenHash);
+              await this.redis.setex(concurrentTokenKey, this.REFRESH_TTL, session.nextSessionId);
+
+              return { newRefreshToken: concurrentRefreshToken, session: newSession };
+            }
+          }
+
+          // Between grace period and 30 minutes - likely replay attack or race condition
+          this.logger.error(`[${rotationId}] Potential replay attack detected for user ${session.userId} (rotated ${minutesSinceRotation.toFixed(1)} minutes ago)`);
+          this.logger.error(`[${rotationId}] Session ${session.sessionId} status: ${session.status}`);
+          await this.handleReplay(session);
+          return null;
+        }
+
+        // Other status (expired, revoked, reused) - reject without details
+        this.logger.warn(`[${rotationId}] Invalid session status: ${session.status} for user ${session.userId}`);
         return null;
       }
       
@@ -167,8 +219,14 @@ export class RefreshTokenService {
       await this.redis.sadd(this.userSessionsKey(session.userId), newSessionId);
       await this.redis.expire(this.userSessionsKey(session.userId), this.REFRESH_TTL);
 
-      // Remove old token and session
-      await this.redis.setex(sessionKey, this.REFRESH_TTL, JSON.stringify({ ...session, status: 'rotated' }));
+      // Mark old session as rotated with reference to new session
+      const rotatedSession = {
+        ...session,
+        status: 'rotated' as const,
+        rotatedAt: new Date(),
+        nextSessionId: newSessionId,
+      };
+      await this.redis.setex(sessionKey, this.REFRESH_TTL, JSON.stringify(rotatedSession));
       await this.redis.setex(tokenKey, this.REFRESH_TTL, sessionId); // keep mapping to detect replay
 
       this.logger.log(`[${rotationId}] Rotated refresh token for user ${session.userId}: ${sessionId} -> ${newSessionId}`);

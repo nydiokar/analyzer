@@ -2,10 +2,10 @@ import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete, Us
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { JobsService } from '../services/jobs.service';
 import { JobState } from 'bullmq';
-import { 
-  JobStatusResponseDto, 
-  QueueStatsResponseDto, 
-  AllQueueStatsResponseDto, 
+import {
+  JobStatusResponseDto,
+  QueueStatsResponseDto,
+  AllQueueStatsResponseDto,
   JobListResponseDto,
   SyncWalletJobRequestDto,
   AnalyzeWalletJobRequestDto,
@@ -15,7 +15,7 @@ import {
 } from '../shared/dto/job-status.dto';
 import { DeadLetterQueueService } from '../../queues/services/dead-letter-queue.service';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
-import { ConfigService } from '@nestjs/config';
+import { AdminGuard } from '../shared/guards/admin.guard';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 
@@ -25,19 +25,12 @@ import { User } from '@prisma/client';
 @ApiBearerAuth()
 export class JobsController {
   private readonly logger = new Logger(JobsController.name);
-  private readonly adminUserIds: Set<string>;
-  private readonly adminEmails: Set<string>;
 
   constructor(
     private readonly jobsService: JobsService,
     private readonly deadLetterQueueService: DeadLetterQueueService,
-    private readonly configService: ConfigService,
-  ) {
-    const ids = (this.configService.get<string>('ADMIN_USER_IDS') || '').split(',').map((s) => s.trim()).filter(Boolean);
-    const emails = (this.configService.get<string>('ADMIN_EMAILS') || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-    this.adminUserIds = new Set(ids);
-    this.adminEmails = new Set(emails);
-  }
+    private readonly adminGuard: AdminGuard,
+  ) {}
 
   // === DIRECT JOB SUBMISSION ENDPOINTS ===
   // 
@@ -385,14 +378,8 @@ export class JobsController {
   }
 
   private assertAdmin(user?: User): void {
-    if (!user) {
+    if (!this.adminGuard.isUserAdmin(user)) {
       throw new ForbiddenException('Admin access required');
     }
-    const isAdminId = user.id && this.adminUserIds.has(user.id);
-    const isAdminEmail = user.email && this.adminEmails.has(user.email.toLowerCase());
-    if (isAdminId || isAdminEmail) {
-      return;
-    }
-    throw new ForbiddenException('Admin access required');
   }
 } 
