@@ -29,6 +29,8 @@ export class WalletHudService {
   // Cache configuration
   private readonly CACHE_PREFIX = 'wallet-hud';
   private readonly CACHE_TTL = 86400; // 24 hours - auto-expire stale wallets, still invalidated on analysis
+  // NOTE: Portfolio values are now calculated with fresh token prices (30s TTL) on each cache miss
+  // This prevents showing stale holdings values while maintaining efficient batch operations
 
   // Whale thresholds (based on total portfolio value, not just SOL balance)
   private readonly WHALE_UNREALIZED_PNL_SOL_THRESHOLD = 200;
@@ -73,8 +75,8 @@ export class WalletHudService {
       // Cache miss - fetch from database
       this.logger.debug(`HUD cache miss for ${walletAddress}`);
 
-      // Fetch wallet data, portfolio value, and SOL price in parallel
-      const [wallet, portfolioValueResult, solPriceUsd] = await Promise.all([
+      // Fetch wallet data, current holdings balances, and SOL price in parallel
+      const [wallet, currentHoldings, solPriceUsd] = await Promise.all([
         prisma.wallet.findUnique({
           where: { address: walletAddress },
           include: {
@@ -86,15 +88,15 @@ export class WalletHudService {
             behaviorProfile: true,
           },
         }),
-        // Calculate total portfolio value (sum of all current holdings)
-        prisma.analysisResult.aggregate({
+        // Fetch current holdings balances (not stale values)
+        prisma.analysisResult.findMany({
           where: {
             walletAddress,
-            currentHoldingsValueSol: { not: null, gt: 0 },
+            currentUiBalance: { not: null, gt: 0 },
           },
-          _sum: {
-            currentHoldingsValueSol: true,
-            currentHoldingsValueUsd: true,
+          select: {
+            tokenAddress: true,
+            currentUiBalance: true,
           },
         }),
         this.tokenInfoService.getSolPrice().catch(() => undefined), // Don't fail if price fetch fails
@@ -104,12 +106,36 @@ export class WalletHudService {
         return null;
       }
 
+      // Calculate portfolio value with FRESH token prices
+      let portfolioValueSol = 0;
+      let portfolioValueUsd: number | undefined;
+
+      if (currentHoldings.length > 0 && solPriceUsd !== undefined) {
+        // Batch fetch fresh prices for all tokens in one call
+        const tokenMints = currentHoldings.map(h => h.tokenAddress);
+        const pricesByMint = await this.tokenInfoService.getTokenPrices(tokenMints);
+
+        // Calculate total portfolio value using fresh prices
+        for (const holding of currentHoldings) {
+          const balance = holding.currentUiBalance;
+          const priceUsd = pricesByMint.get(holding.tokenAddress);
+
+          if (balance && priceUsd && priceUsd > 0) {
+            const valueUsd = balance * priceUsd;
+            const valueSol = valueUsd / solPriceUsd;
+            portfolioValueSol += valueSol;
+          }
+        }
+
+        portfolioValueUsd = solPriceUsd > 0 ? portfolioValueSol * solPriceUsd : undefined;
+      }
+
       const hud = this.calculateHud(
         wallet,
         walletAddress,
         solPriceUsd,
-        portfolioValueResult._sum.currentHoldingsValueSol ?? 0,
-        portfolioValueResult._sum.currentHoldingsValueUsd,
+        portfolioValueSol,
+        portfolioValueUsd,
       );
 
       // Cache with 24h TTL to prevent memory bloat from old wallets
@@ -157,8 +183,8 @@ export class WalletHudService {
     const notFound: string[] = [];
 
     try {
-      // Fetch all wallets, portfolio values, and SOL price in parallel
-      const [wallets, portfolioValues, solPriceUsd] = await Promise.all([
+      // Fetch all wallets, current holdings balances, and SOL price in parallel
+      const [wallets, allHoldings, solPriceUsd] = await Promise.all([
         prisma.wallet.findMany({
           where: {
             address: { in: walletAddresses },
@@ -172,32 +198,71 @@ export class WalletHudService {
             behaviorProfile: true,
           },
         }),
-        // Calculate total portfolio value for each wallet (sum of all current holdings)
-        prisma.analysisResult.groupBy({
-          by: ['walletAddress'],
+        // Fetch current holdings balances for all wallets (not stale values)
+        prisma.analysisResult.findMany({
           where: {
             walletAddress: { in: walletAddresses },
-            currentHoldingsValueSol: { not: null, gt: 0 },
+            currentUiBalance: { not: null, gt: 0 },
           },
-          _sum: {
-            currentHoldingsValueSol: true,
-            currentHoldingsValueUsd: true,
+          select: {
+            walletAddress: true,
+            tokenAddress: true,
+            currentUiBalance: true,
           },
         }),
         this.tokenInfoService.getSolPrice().catch(() => undefined), // Don't fail if price fetch fails
       ]);
 
-      // Create maps for quick lookup
+      // Create wallet map for quick lookup
       const walletMap = new Map(wallets.map((w) => [w.address, w]));
-      const portfolioMap = new Map(
-        portfolioValues.map((p) => [
-          p.walletAddress,
-          {
-            sol: p._sum.currentHoldingsValueSol ?? 0,
-            usd: p._sum.currentHoldingsValueUsd,
-          },
-        ]),
-      );
+
+      // Group holdings by wallet address
+      const holdingsByWallet = new Map<string, Array<{ tokenAddress: string; currentUiBalance: number }>>();
+      for (const holding of allHoldings) {
+        if (!holdingsByWallet.has(holding.walletAddress)) {
+          holdingsByWallet.set(holding.walletAddress, []);
+        }
+        holdingsByWallet.get(holding.walletAddress)!.push({
+          tokenAddress: holding.tokenAddress,
+          currentUiBalance: holding.currentUiBalance!,
+        });
+      }
+
+      // Deduplicate token addresses across ALL wallets for batch price fetch
+      const uniqueTokenMints = new Set<string>();
+      for (const holdings of holdingsByWallet.values()) {
+        for (const holding of holdings) {
+          uniqueTokenMints.add(holding.tokenAddress);
+        }
+      }
+
+      // Batch fetch fresh prices for ALL unique tokens in ONE call
+      const pricesByMint = uniqueTokenMints.size > 0 && solPriceUsd !== undefined
+        ? await this.tokenInfoService.getTokenPrices(Array.from(uniqueTokenMints))
+        : new Map<string, number>();
+
+      // Calculate portfolio value for each wallet using fresh prices
+      const portfolioMap = new Map<string, { sol: number; usd: number | undefined }>();
+
+      if (solPriceUsd !== undefined) {
+        for (const [walletAddress, holdings] of holdingsByWallet.entries()) {
+          let portfolioValueSol = 0;
+
+          for (const holding of holdings) {
+            const balance = holding.currentUiBalance;
+            const priceUsd = pricesByMint.get(holding.tokenAddress);
+
+            if (balance && priceUsd && priceUsd > 0) {
+              const valueUsd = balance * priceUsd;
+              const valueSol = valueUsd / solPriceUsd;
+              portfolioValueSol += valueSol;
+            }
+          }
+
+          const portfolioValueUsd = solPriceUsd > 0 ? portfolioValueSol * solPriceUsd : undefined;
+          portfolioMap.set(walletAddress, { sol: portfolioValueSol, usd: portfolioValueUsd });
+        }
+      }
 
       // Process each requested address
       for (const address of walletAddresses) {
@@ -209,13 +274,13 @@ export class WalletHudService {
         }
 
         try {
-          const portfolio = portfolioMap.get(address);
+          const portfolio = portfolioMap.get(address) ?? { sol: 0, usd: undefined };
           const hud = this.calculateHud(
             wallet,
             address,
             solPriceUsd,
-            portfolio?.sol ?? 0,
-            portfolio?.usd,
+            portfolio.sol,
+            portfolio.usd,
           );
           if (hud) {
             huds[address] = hud;

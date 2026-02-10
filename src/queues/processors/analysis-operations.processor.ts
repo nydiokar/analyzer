@@ -1700,7 +1700,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     await job.updateProgress(100);
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
 
-    // Note: HUD cache invalidation handled by pnlAnalysisService (called above) - no need to duplicate here
+    // Invalidate HUD cache after wallet analysis completes
+    await this.walletHudService.invalidateCache(walletAddress);
+
     // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
     // No need to manually publish here to avoid duplicate events
     // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
@@ -2003,12 +2005,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             valueSol: r.currentHoldingsValueSol,
             valueUsd: r.currentHoldingsValueUsd,
           }));
-        const missingValueMints = currentHoldings
-          .filter((holding) => (holding.valueSol === null || holding.valueSol === undefined) && (holding.uiBalance ?? 0) > 0)
+        // ALWAYS recalculate holdings values with fresh prices (don't trust stale DB values)
+        const allTokenMints = currentHoldings
+          .filter((holding) => (holding.uiBalance ?? 0) > 0)
           .map((holding) => holding.tokenAddress);
-        if (missingValueMints.length > 0 && this.tokenInfoService) {
+        if (allTokenMints.length > 0 && this.tokenInfoService) {
           try {
-            const pricesByMint = await this.tokenInfoService.getTokenPrices(missingValueMints);
+            // Batch fetch fresh prices for all tokens
+            const pricesByMint = await this.tokenInfoService.getTokenPrices(allTokenMints);
             let solPriceUsd = 0;
             try {
               solPriceUsd = await this.tokenInfoService.getSolPrice();
@@ -2016,13 +2020,16 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
               this.logger.debug(`SOL price unavailable for current holdings valuation: ${walletAddress}`);
             }
             if (solPriceUsd > 0) {
+              // Recalculate ALL holdings with fresh prices (ignore stale DB values)
               currentHoldings = currentHoldings.map((holding) => {
-                if (holding.valueSol !== null && holding.valueSol !== undefined) {
-                  return holding;
-                }
                 const priceUsd = pricesByMint.get(holding.tokenAddress) ?? null;
                 if (!priceUsd || priceUsd <= 0) {
-                  return holding;
+                  // Keep holding but clear stale price-dependent values
+                  return {
+                    ...holding,
+                    valueUsd: null,
+                    valueSol: null,
+                  };
                 }
                 const valueUsd = (holding.uiBalance ?? 0) * priceUsd;
                 const valueSol = valueUsd / solPriceUsd;
@@ -2034,7 +2041,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
               });
             }
           } catch (error: any) {
-            this.logger.debug(`Failed to backfill current holdings values: ${error?.message || 'Unknown error'}`);
+            this.logger.debug(`Failed to recalculate current holdings values with fresh prices: ${error?.message || 'Unknown error'}`);
           }
         }
         this.logger.debug(

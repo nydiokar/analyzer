@@ -163,29 +163,80 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
   async getTokenPrices(tokenMints: string[]): Promise<Map<string, number>> {
     const result = new Map<string, number>();
     const uncachedMints: string[] = [];
+    const waitForInflightMints: string[] = [];
 
-    // Check cache for each mint
+    // Check cache and in-flight status for each mint
     for (const mint of tokenMints) {
       const cacheKey = `token_price:${mint}`;
       const cached = await this.redis.get(cacheKey);
-      
+
       if (cached) {
         result.set(mint, parseFloat(cached));
       } else {
-        uncachedMints.push(mint);
+        // Check if another process is already fetching this token
+        const inFlight = await this.redis.get(`token:in-flight:${mint}`);
+        if (inFlight) {
+          waitForInflightMints.push(mint);
+        } else {
+          uncachedMints.push(mint);
+        }
+      }
+    }
+
+    // Wait briefly for in-flight tokens to complete (max 2 seconds)
+    if (waitForInflightMints.length > 0) {
+      this.logger.debug(`[Token Prices] Waiting for ${waitForInflightMints.length} in-flight tokens`);
+      const maxRetries = 20; // 20 × 100ms = 2 seconds max wait
+      for (let i = 0; i < maxRetries; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const stillWaiting: string[] = [];
+        for (const mint of waitForInflightMints) {
+          const cached = await this.redis.get(`token_price:${mint}`);
+          if (cached) {
+            result.set(mint, parseFloat(cached));
+          } else {
+            stillWaiting.push(mint);
+          }
+        }
+
+        if (stillWaiting.length === 0) break;
+        waitForInflightMints.length = 0;
+        waitForInflightMints.push(...stillWaiting);
+      }
+
+      // If still waiting after timeout, fetch ourselves
+      if (waitForInflightMints.length > 0) {
+        this.logger.debug(`[Token Prices] Timeout waiting for in-flight, fetching ${waitForInflightMints.length} ourselves`);
+        uncachedMints.push(...waitForInflightMints);
       }
     }
 
     // Fetch uncached mints from provider
     if (uncachedMints.length > 0) {
       this.logger.debug(`[Token Prices] Cache miss for ${uncachedMints.length}/${tokenMints.length} tokens`);
-      const fetchedPrices = await this.priceProvider.fetchTokenPrices(uncachedMints);
-      
-      // Cache and add to result
-      for (const [mint, price] of fetchedPrices.entries()) {
-        const cacheKey = `token_price:${mint}`;
-        await this.redis.set(cacheKey, price.toString(), 'EX', 30);
-        result.set(mint, price);
+
+      // Mark as in-flight BEFORE fetching
+      const pipeline = this.redis.pipeline();
+      for (const mint of uncachedMints) {
+        pipeline.setex(`token:in-flight:${mint}`, 30, Date.now().toString());
+      }
+      await pipeline.exec();
+
+      try {
+        const fetchedPrices = await this.priceProvider.fetchTokenPrices(uncachedMints);
+
+        // Cache and add to result
+        const cachePipeline = this.redis.pipeline();
+        for (const [mint, price] of fetchedPrices.entries()) {
+          const cacheKey = `token_price:${mint}`;
+          cachePipeline.setex(cacheKey, 30, price.toString());
+          result.set(mint, price);
+        }
+        await cachePipeline.exec();
+      } finally {
+        // Clear in-flight markers
+        await this.clearInFlightMarkers(uncachedMints);
       }
     } else {
       this.logger.debug(`[Token Prices] All ${tokenMints.length} prices from cache`);
