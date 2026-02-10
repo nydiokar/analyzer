@@ -125,9 +125,9 @@ export default function TimeRangeSelector() {
     return presetButtonsList.map((p: PresetButton) => (
       <Button
         key={p.value}
-        variant={preset === p.value ? 'default' : 'outline'}
+        variant={preset === p.value ? 'default' : 'ghost'}
         size="sm"
-        className="h-8 text-xs px-3"
+        className="h-7 text-[11px] px-2 font-medium"
         onClick={clickHandlers[p.value]}
       >
         {p.label}
@@ -136,72 +136,8 @@ export default function TimeRangeSelector() {
   }, [preset, clickHandlers]);
 
   return (
-    <div className="flex flex-col items-center gap-2 p-1 rounded-lg shadow-sm bg-card text-card-foreground border">
-      <div className="flex items-center gap-1">
-        {presetButtons}
-      </div>
-      <div className="flex items-center gap-1">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant={"outline"}
-              size="sm"
-              className={cn(
-                "w-[110px] justify-start text-left font-normal h-8 text-xs px-2",
-                !currentDisplayStartDate && "text-muted-foreground"
-              )}
-              id="startDatePickerButton"
-              name="startDatePickerButton"
-              suppressHydrationWarning
-            >
-              <CalendarIcon className="mr-1 h-3 w-3" />
-              {currentDisplayStartDate ? format(currentDisplayStartDate, 'MMM d, yy') : <span>Start</span>}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0">
-            <Calendar
-              mode="single"
-              selected={currentDisplayStartDate}
-              onSelect={(d) => handleDateChange(d, 'start')}
-              initialFocus
-              disabled={(date) => date > (currentDisplayEndDate || new Date()) || date < new Date("2000-01-01")}
-            />
-          </PopoverContent>
-        </Popover>
-
-        <span className="text-xs text-muted-foreground">-</span>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant={"outline"}
-              size="sm"
-              className={cn(
-                "w-[110px] justify-start text-left font-normal h-8 text-xs px-2",
-                !currentDisplayEndDate && "text-muted-foreground"
-              )}
-              id="endDatePickerButton"
-              name="endDatePickerButton"
-              suppressHydrationWarning
-            >
-              <CalendarIcon className="mr-1 h-3 w-3" />
-              {currentDisplayEndDate ? format(currentDisplayEndDate, 'MMM d, yy') : <span>End</span>}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0">
-            <Calendar
-              mode="single"
-              selected={currentDisplayEndDate}
-              onSelect={(d) => handleDateChange(d, 'end')}
-              initialFocus
-              disabled={(date) => date < (currentDisplayStartDate || new Date("2000-01-01")) || date > new Date()}
-            />
-          </PopoverContent>
-        </Popover>
-      </div>
-      <p className='text-xs text-muted-foreground/80 text-center whitespace-nowrap pt-0.5' suppressHydrationWarning>
-        {isMounted ? currentRangeLabel : 'Loading...'}
-      </p>
+    <div className="flex items-center gap-1">
+      {presetButtons}
     </div>
   );
 } 

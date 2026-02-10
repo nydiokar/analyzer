@@ -43,30 +43,31 @@ const EmptyState: React.FC<EmptyStateProps> = ({
   const shouldSpin = FinalIconComponent === Loader2;
 
   return (
-    <div 
+    <div
       className={cn(
-        "flex flex-col items-center justify-center text-center p-6 md:p-10 border bg-card rounded-lg shadow-sm min-h-[200px]",
-        className // Apply the passed className
+        "flex flex-col items-center justify-center text-center p-6 border bg-card rounded-lg min-h-[140px]",
+        className
       )}
     >
-      <FinalIconComponent 
+      <FinalIconComponent
         className={cn(
-          "h-12 w-12 mb-4",
-          iconColorClass,
-          shouldSpin && "animate-spin" // Conditionally add animate-spin
-        )} 
-        strokeWidth={1.5} 
+          "h-8 w-8 mb-2 text-muted-foreground/60",
+          variant === 'error' && "text-red-500/60",
+          variant === 'info' && "text-blue-500/60",
+          shouldSpin && "animate-spin"
+        )}
+        strokeWidth={1.5}
       />
-      <h3 className="text-lg font-semibold text-foreground mb-1">{title}</h3>
+      <h3 className="text-sm font-medium text-foreground mb-1">{title}</h3>
       {description && (
-        <p className="text-sm text-muted-foreground mb-4 max-w-md">{description}</p>
+        <p className="text-xs text-muted-foreground mb-3 max-w-sm">{description}</p>
       )}
       {actionText && onActionClick && (
-        <Button onClick={onActionClick} disabled={isActionLoading} variant="default" size="sm">
+        <Button onClick={onActionClick} disabled={isActionLoading} variant="outline" size="sm">
           {isActionLoading && ActionIconComponent === RefreshCw ? (
-            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            <RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />
           ) : ActionIconComponent ? (
-            <ActionIconComponent className="h-4 w-4 mr-2" />
+            <ActionIconComponent className="h-3.5 w-3.5 mr-2" />
           ) : null}
           {isActionLoading ? 'Processing...' : actionText}
         </Button>

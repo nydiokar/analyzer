@@ -121,36 +121,42 @@ export default function AccountSummaryCard({
   }
 
   if (error) {
-    let title = `API Error (Status: ${error.statusCode || 'Unknown'})`;
+    let title = `Error`;
     let description = error.message || "An unexpected error occurred.";
     let Icon = AlertTriangle;
-    
+    let showAction = false;
+
     if (error.statusCode === 404) {
-      title = "Not Yet Analyzed";
-      description = "No analysis data is available for this wallet yet. You can trigger a new analysis to get started.";
+      title = "No Data Yet";
+      description = "Run analysis to populate metrics";
       Icon = SearchX;
+      showAction = true;
     } else if (error.statusCode === 403) {
       title = "Access Denied";
-      description = "This wallet is not part of the demo, or you do not have permission to view it.";
+      description = "Not available in demo";
       Icon = ShieldAlert;
     }
-    
+
     return (
-      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-4">
-            <Icon className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
-            <div className="space-y-1">
-              <h3 className="text-lg font-semibold text-foreground">{title}</h3>
-              <p className="text-sm text-muted-foreground">{description}</p>
-            </div>
-          </div>
-          {error.statusCode === 404 && (
-            <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
-              {isAnalyzingGlobal ? "Analysis in Progress..." : "Analyze Wallet"}
-            </Button>
-          )}
-        </div>
+      <Card className={cn("p-4 rounded-xl shadow-base flex flex-col items-center justify-center text-center min-h-[140px]", className)}>
+        <Icon className="h-8 w-8 text-muted-foreground/60 mb-2" strokeWidth={1.5} />
+        <h3 className="text-sm font-medium text-foreground mb-1">{title}</h3>
+        <p className="text-xs text-muted-foreground mb-3">{description}</p>
+        {showAction && (
+          <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm" variant="outline">
+            {isAnalyzingGlobal ? (
+              <>
+                <RefreshCcw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                Analyzing...
+              </>
+            ) : (
+              <>
+                <RefreshCcw className="mr-2 h-3.5 w-3.5" />
+                Analyze Wallet
+              </>
+            )}
+          </Button>
+        )}
       </Card>
     );
   }
@@ -170,19 +176,23 @@ export default function AccountSummaryCard({
 
   if (data?.status === 'unanalyzed' || !data) {
     return (
-      <Card className={cn("p-3 sm:p-4 rounded-xl shadow-base w-full md:w-auto", className)}>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-4">
-            <SearchX className="h-10 w-10 text-blue-500" strokeWidth={1.5} />
-            <div>
-              <h3 className="text-lg font-semibold text-foreground"></h3>
-              <p className="text-sm text-muted-foreground">Trigger an analysis to get started.</p>
-            </div>
-          </div>
-          <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm">
-            {isAnalyzingGlobal ? "Analysis in Progress..." : "Analyze Wallet"}
-          </Button>
-        </div>
+      <Card className={cn("p-4 rounded-xl shadow-base flex flex-col items-center justify-center text-center min-h-[140px]", className)}>
+        <SearchX className="h-8 w-8 text-muted-foreground/60 mb-2" strokeWidth={1.5} />
+        <h3 className="text-sm font-medium text-foreground mb-1">No Data Yet</h3>
+        <p className="text-xs text-muted-foreground mb-3">Run analysis to populate metrics</p>
+        <Button onClick={triggerAnalysis} disabled={isAnalyzingGlobal || isDemo} size="sm" variant="outline">
+          {isAnalyzingGlobal ? (
+            <>
+              <RefreshCcw className="mr-2 h-3.5 w-3.5 animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>
+              <RefreshCcw className="mr-2 h-3.5 w-3.5" />
+              Analyze Wallet
+            </>
+          )}
+        </Button>
       </Card>
     );
   }
@@ -245,140 +255,65 @@ export default function AccountSummaryCard({
   return (
     <Card
       className={cn(
-        "p-2 sm:p-3 rounded-xl shadow-base hover:shadow-hover transition-shadow w-full md:w-auto",
+        "p-4 rounded-xl border bg-card",
         className
       )}
     >
-      <div className="space-y-2.5">
-        <div
-          className={cn(
-            "grid gap-2 items-center",
-            hasBalance ? "grid-cols-3" : "grid-cols-2"
-          )}
-        >
-          <div className="text-center space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
-              Realized PNL
+      <div className="grid grid-cols-3 gap-6">
+        {/* PNL */}
+        <div>
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1.5">
+            PNL
+          </p>
+          <div className="flex items-baseline gap-1.5 mb-1">
+            <span className={cn(
+              "text-2xl font-bold tabular-nums",
+              pnlVariant === "success" ? "text-green-600 dark:text-green-400" :
+              pnlVariant === "error" ? "text-red-600 dark:text-red-400" :
+              "text-foreground"
+            )}>
+              {formatPnl(data.latestPnl ?? null)}
+            </span>
+            <span className="text-sm text-muted-foreground">SOL</span>
+          </div>
+          {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
+            <p className="text-xs text-muted-foreground">
+              {formatUsdValue(data.latestPnlUsd)}
             </p>
-            <div className="text-sm font-bold">
-              <span className={cn(
-                pnlVariant === "success" ? "text-green-600 dark:text-green-400" :
-                pnlVariant === "error" ? "text-red-600 dark:text-red-400" :
-                "text-foreground"
-              )}>
-                {formatPnl(data.latestPnl ?? null)}
+          )}
+        </div>
+
+        {/* Balance */}
+        {data.currentSolBalance !== undefined && (
+          <div>
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1.5">
+              Balance
+            </p>
+            <div className="flex items-baseline gap-1.5 mb-1">
+              <span className="text-2xl font-bold tabular-nums">
+                {data.currentSolBalance?.toFixed(1) ?? "N/A"}
               </span>
-              <span className="text-[10px] text-muted-foreground ml-1 font-normal">SOL</span>
+              <span className="text-sm text-muted-foreground">SOL</span>
             </div>
-            {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
-              <p className="text-[10px] text-muted-foreground">
-                {formatUsdValue(data.latestPnlUsd)}
+            {data.currentSolBalanceUsd !== null && (
+              <p className="text-xs text-muted-foreground">
+                {formatUsdValue(data.currentSolBalanceUsd)}
               </p>
             )}
           </div>
+        )}
 
-          <div className="text-center space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
-              Win Rate
+        {/* Last Active */}
+        {data.lastActiveTimestamp && (
+          <div>
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1.5">
+              Last Active
             </p>
-            <p className="text-sm font-bold">
-              {formatWinRate(data.tokenWinRate ?? null)}
-            </p>
-            {data.profitableTradesCount !== null &&
-              data.profitableTradesCount !== undefined &&
-              data.totalTradesCount !== null &&
-              data.totalTradesCount !== undefined &&
-              data.totalTradesCount > 0 && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <p className="text-[10px] text-muted-foreground cursor-help">
-                        {data.profitableTradesCount}/{data.totalTradesCount} trades
-                      </p>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Profitable trades / Total trades</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-          </div>
-
-          {data.currentSolBalance !== undefined && (
-            <div className="text-center space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
-                Balance
-              </p>
-              <p className="text-sm font-bold">
-                {data.currentSolBalance?.toFixed(2) ?? "N/A"} <span className="text-[10px] text-muted-foreground font-normal">SOL</span>
-              </p>
-              {data.currentSolBalanceUsd !== null && data.currentSolBalanceUsd !== undefined && (
-                <p className="text-[10px] text-muted-foreground">
-                  {formatUsdValue(data.currentSolBalanceUsd)}
-                </p>
-              )}
+            <div className="text-base font-semibold">
+              {format(new Date(data.lastActiveTimestamp * 1000), "MMM d, yyyy")}
             </div>
-          )}
-        </div>
-
-        <div className="pt-2 border-t border-muted/50">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5 cursor-help">
-                    <CalendarDays className="h-3.5 w-3.5" />
-                    <span>
-                      {data.lastActiveTimestamp
-                        ? format(new Date(data.lastActiveTimestamp * 1000), "MMM d, yyyy")
-                        : "N/A"}
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Latest Activity Date</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
-            {(data.strategyType || data.behaviorClassification) && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge variant="outline" className="uppercase tracking-wide text-[10px] py-0.5 px-2 cursor-help">
-                      {formatStrategyType(data.strategyType || data.behaviorClassification)}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-sm">
-                    <div className="space-y-2">
-                      <p className="font-semibold text-sm">{formatStrategyType(data.strategyType || data.behaviorClassification)}</p>
-                      <p className="text-xs leading-relaxed">{getStrategyDescription(data.strategyType || data.behaviorClassification || '')}</p>
-
-                      {/* Show underlying dimensions if available */}
-                      {(data.speedCategory || data.flowPattern) && (
-                        <div className="border-t border-border pt-2 mt-2 space-y-1.5">
-                          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Classification Breakdown:</p>
-                          {data.speedCategory && (
-                            <div className="text-xs">
-                              <span className="font-semibold">Speed:</span> {formatStrategyType(data.speedCategory)}
-                              <p className="text-[10px] text-muted-foreground mt-0.5">How fast they exit positions</p>
-                            </div>
-                          )}
-                          {data.flowPattern && (
-                            <div className="text-xs">
-                              <span className="font-semibold">Flow:</span> {formatStrategyType(data.flowPattern)}
-                              <p className="text-[10px] text-muted-foreground mt-0.5">Buy vs sell activity balance</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
           </div>
-        </div>
+        )}
       </div>
     </Card>
   );

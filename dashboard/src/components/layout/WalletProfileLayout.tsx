@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import useSWR, { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
+import { WalletHudOverlay } from '@/components/shared/WalletHudOverlay';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
@@ -58,7 +59,6 @@ import QuickAddForm from './QuickAddForm';
 import LazyTabContent from './LazyTabContent';
 import { FavoriteWallet } from '@/types/api';
 import { WalletBadge } from '@/components/shared/WalletBadge';
-import { WalletHudOverlay } from '@/components/shared/WalletHudOverlay';
 
 interface WalletProfileLayoutProps {
   children: React.ReactNode;
@@ -1066,57 +1066,58 @@ export default function WalletProfileLayout({
     const deepBusy = deepState.status === 'running' || deepState.status === 'queued';
     const ctaBusy = isAnalyzing;
     const ctaDisabled = ctaBusy || !walletAddress || isRestrictedWallet || isDemoAccount;
+
+    // Cleaner button labels
     const ctaLabel = isRestrictedWallet
-      ? 'Analysis restricted'
+      ? 'Restricted'
       : isDemoAccount
-        ? 'Analysis unavailable in demo'
-        : deepBusy
-          ? 'Deep sync running...'
-          : ctaBusy
-            ? 'Analysis running...'
-          : 'Refresh';
+        ? 'Demo Mode'
+        : ctaBusy
+          ? 'Syncing...'
+          : 'Sync Data';
+
+    // Status indicator when not busy
+    const showStatus = !ctaBusy && !isRestrictedWallet && !isDemoAccount && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp);
+    const statusColor = lastAnalysisStatus === 'success' ? 'bg-emerald-500' :
+                        lastAnalysisStatus === 'error' ? 'bg-red-500' :
+                        'bg-yellow-500';
+    const statusLabel = lastAnalysisStatus === 'success' ? 'Fresh' :
+                        lastAnalysisStatus === 'error' ? 'Error' :
+                        'Stale';
 
     return (
-      <div className="flex flex-col items-start gap-1 w-full md:w-auto">
-        <TooltipProvider delayDuration={100}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={handleTriggerAnalysis}
-                variant="outline"
-                size="sm"
-                className="w-full md:w-auto"
-                disabled={ctaDisabled}
-              >
-                <RefreshCw className={`mr-2 h-4 w-4 ${ctaBusy ? 'animate-spin' : ''}`} />
-                {ctaLabel}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Trigger full wallet analysis to refresh all data</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        {!ctaBusy && !isRestrictedWallet && !isDemoAccount && lastAnalysisTimestamp && isValid(lastAnalysisTimestamp) ? (
-          <div className="flex items-center space-x-1.5 text-xs text-muted-foreground">
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                lastAnalysisStatus === 'success' && "bg-green-500",
-                lastAnalysisStatus === 'error' && "bg-red-500",
-                lastAnalysisStatus === 'idle' && "bg-yellow-500",
+      <TooltipProvider delayDuration={100}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={handleTriggerAnalysis}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={ctaDisabled}
+            >
+              <RefreshCw className={`h-4 w-4 ${ctaBusy ? 'animate-spin' : ''}`} />
+              {ctaLabel}
+              {showStatus && (
+                <>
+                  <span className="text-muted-foreground">•</span>
+                  <span className={cn("h-2 w-2 rounded-full", statusColor)} />
+                  <span className="text-xs text-muted-foreground">{statusLabel}</span>
+                </>
               )}
-              title={
-                lastAnalysisStatus === 'success' ? 'Analysis data is fresh' :
-                lastAnalysisStatus === 'error'   ? 'Last analysis attempt failed' :
-                lastAnalysisStatus === 'idle'    ? 'Analysis data may be outdated' : ''
-              }
-            />
-            <span>{formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}</span>
-          </div>
-        ) : null}
-      </div>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            <p className="font-medium">Full Analysis</p>
+            {showStatus && lastAnalysisTimestamp && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Last synced {formatDistanceToNow(lastAnalysisTimestamp, { addSuffix: true })}
+              </p>
+            )}
+            {!showStatus && <p className="text-xs text-muted-foreground mt-1">Refresh all wallet data</p>}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   };
 
@@ -1130,82 +1131,76 @@ export default function WalletProfileLayout({
       <div className="bg-background border-b shadow-sm">
         <div className="container mx-auto py-3 px-1 md:py-4">
 
-          {/* Row 1: Wallet Badge + Collections + Actions */}
-          <div className='flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-3 md:pl-11'>
-            <div className="flex flex-col gap-2">
-              {walletAddress && (
-                <>
-                  <div className="flex items-center gap-2">
-                    <WalletBadge
-                      address={walletAddress}
-                      className="text-sm"
-                      favoriteData={currentFavoriteData}
-                      isFavorite={isCurrentWalletFavorite}
-                      onFavoriteToggle={handleToggleFavorite}
-                      onEdit={openEditModal}
-                      showActions={true}
-                      showMetrics={false}
-                      knownType={walletSummary?.knownType ?? undefined}
-                      knownLabel={walletSummary?.knownLabel ?? undefined}
-                    />
+          {/* Row 1: Wallet Badge + Collections + Bot Icon + Actions (Single Row) */}
+          <div className='flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-3'>
+            {walletAddress && (
+              <div className="flex flex-wrap items-center gap-2">
+                <WalletBadge
+                  address={walletAddress}
+                  className="text-sm"
+                  favoriteData={currentFavoriteData}
+                  isFavorite={isCurrentWalletFavorite}
+                  onFavoriteToggle={handleToggleFavorite}
+                  onEdit={openEditModal}
+                  showActions={true}
+                  showMetrics={false}
+                  knownType={walletSummary?.knownType ?? undefined}
+                  knownLabel={walletSummary?.knownLabel ?? undefined}
+                />
 
-                    {isValidData && walletSummary?.classification === 'high_frequency' && (
-                      <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="h-7 w-7 md:h-8 md:w-8 flex items-center justify-center">
-                              <Bot className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-500" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            <p>High-frequency trading wallet</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                  </div>
+                {/* Collections inline */}
+                {currentFavoriteData && currentFavoriteData.collections && currentFavoriteData.collections.length > 0 && (
+                  <>
+                    {currentFavoriteData.collections.map((collection: string) => (
+                      <Badge
+                        key={collection}
+                        className={`text-xs px-2 py-0.5 font-medium ${getCollectionColorFilled(collection)}`}
+                      >
+                        {collection}
+                      </Badge>
+                    ))}
+                  </>
+                )}
 
-                  {currentFavoriteData && currentFavoriteData.collections && currentFavoriteData.collections.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 items-center">
-                      {currentFavoriteData.collections.map((collection: string) => (
-                        <Badge
-                          key={collection}
-                          className={`text-xs px-2 py-0.5 font-medium ${getCollectionColorFilled(collection)}`}
-                        >
-                          {collection}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+                {/* Bot icon inline */}
+                {isValidData && walletSummary?.classification === 'high_frequency' && (
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center justify-center">
+                          <Bot className="h-4 w-4 text-orange-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p>High-frequency trading wallet</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
+            )}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               <ExpandedAnalysisControl />
               <TimeRangeSelector />
             </div>
           </div>
 
-          {/* Row 2: Summary Card + Performance HUD (side by side, centered) */}
+          {/* Row 2: Summary Card + Performance HUD */}
           {walletAddress && (
-            <div className="flex flex-col md:flex-row items-stretch justify-center gap-3 max-w-6xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <AccountSummaryCard
                 walletAddress={walletAddress}
-                className="flex-1"
                 triggerAnalysis={handleTriggerAnalysis}
                 isAnalyzingGlobal={isAnalyzing}
                 walletSummary={walletSummary}
                 summaryError={summaryError}
                 summaryIsLoading={!walletSummary && !summaryError}
               />
-
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <h3 className="text-xs font-semibold text-muted-foreground">Performance HUD</h3>
-                </div>
-                <WalletHudOverlay walletAddress={walletAddress} display="expanded" className="bg-muted/30" />
-              </div>
+              <WalletHudOverlay
+                walletAddress={walletAddress}
+                display="expanded"
+              />
             </div>
           )}
         </div>

@@ -378,7 +378,7 @@ const TooltipDisplay = memo(function TooltipDisplay({
           )}
           {data.isWhale && (
             <div className="text-blue-600 dark:text-blue-400">
-              🐋 Whale wallet (Portfolio: {data.currentHoldingsSol.toFixed(1)} SOL)
+              🐋 (Holding: {data.currentHoldingsSol.toFixed(1)} SOL)
             </div>
           )}
         </div>
@@ -405,59 +405,59 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
 
   return (
-    <div className={`grid grid-cols-2 md:grid-cols-3 gap-4 p-4 border rounded-lg ${className || ''}`}>
+    <div className={`grid grid-cols-2 md:grid-cols-3 gap-4 p-4 border rounded-xl bg-card ${className || ''}`}>
       {/* Data Quality */}
       <div className="text-center">
         <div className={`text-3xl ${qualityConfig.color}`}>{qualityConfig.emoji}</div>
-        <div className="text-xs text-muted-foreground mt-1">{data.dataQualityTier}</div>
+        <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Data Quality</div>
       </div>
 
       {/* Behavior Category + Median Hold Time */}
       <div className="text-center">
-        <div className={`text-2xl font-bold ${behaviorColor}`}>
+        <div className={`text-3xl font-bold ${behaviorColor}`}>
           {data.behaviorCode}
           {data.medianHoldTimeHours !== undefined && (
-            <span className="text-sm text-muted-foreground font-normal ml-1">
+            <span className="text-lg text-muted-foreground font-normal ml-1.5">
               {formatHoldTime(data.medianHoldTimeHours)}
             </span>
           )}
         </div>
-        <div className="text-xs text-muted-foreground mt-1">
+        <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">
           {data.behaviorCategory || 'Unknown'}
         </div>
       </div>
 
       {/* Trimmed Mean PNL */}
       <div className="text-center">
-        <div className={`text-lg font-bold ${pnlColor}`}>
+        <div className={`text-2xl font-bold ${pnlColor}`}>
           {formatPnl(data.trimmedMeanPnl)}
         </div>
-        <div className="text-xs text-muted-foreground mt-1">Trimmed Mean PNL</div>
+        <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Trimmed Mean PNL</div>
       </div>
 
       {/* Median PNL */}
       <div className="text-center">
-        <div className="text-lg font-bold">{formatNumber(data.medianPnlPerToken)}</div>
-        <div className="text-xs text-muted-foreground mt-1">Median P/L</div>
+        <div className="text-2xl font-bold">{formatNumber(data.medianPnlPerToken)}</div>
+        <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Median P/L</div>
       </div>
 
       {/* Win Rate */}
       <div className="text-center">
-        <div className="text-lg font-bold">{formatPercent(data.winRate)}</div>
-        <div className="text-xs text-muted-foreground mt-1">Win Rate</div>
+        <div className="text-2xl font-bold">{formatPercent(data.winRate)}</div>
+        <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Win Rate</div>
       </div>
 
       {/* Unique Tokens/Day */}
       <div className="text-center">
-        <div className="text-lg font-bold">{data.uniqueTokensPerDay.toFixed(1)}</div>
-        <div className="text-xs text-muted-foreground mt-1">Tokens/Day</div>
+        <div className="text-2xl font-bold">{data.uniqueTokensPerDay.toFixed(1)}</div>
+        <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Tokens/Day</div>
       </div>
 
       {/* Conditional Badges */}
       {data.isBot && (
         <div className="text-center">
           <div className="text-2xl">🤖</div>
-          <div className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+          <div className="text-xs text-orange-600 dark:text-orange-400 mt-1.5 font-medium">
             Bot Detected
           </div>
         </div>
@@ -466,8 +466,8 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
       {data.isWhale && (
         <div className="text-center">
           <div className="text-2xl">🐋</div>
-          <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-            Whale Wallet
+          <div className="text-xs text-blue-600 dark:text-blue-400 mt-1.5 font-medium">
+            HOLDING &gt; 200 SOL   
           </div>
         </div>
       )}
