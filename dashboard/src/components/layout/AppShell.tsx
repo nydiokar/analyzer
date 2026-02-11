@@ -15,7 +15,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUIStore } from '@/store/ui-store';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Star, Menu } from 'lucide-react';
+import { Star, Menu, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';

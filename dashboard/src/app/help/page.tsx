@@ -1,5 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Lightbulb, Rocket, Milestone, HelpCircle, ShieldQuestion, Construction, AlertOctagon, MessageSquare, History } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Lightbulb, Rocket, Milestone, HelpCircle, ShieldQuestion, Construction, AlertOctagon, MessageSquare, History, Send } from "lucide-react";
+import Link from "next/link";
 import {
   Popover,
   PopoverContent,
@@ -16,7 +18,7 @@ export default function HelpPage() {
         <header className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl flex items-center gap-3">
             <HelpCircle className="h-8 w-8 text-blue-500" />
-            About & Help
+            Help & About
           </h1>
           <p className="text-lg text-muted-foreground">
             Your guide to understanding our wallet analysis platform.
@@ -32,7 +34,7 @@ export default function HelpPage() {
           </CardHeader>
           <CardContent className="prose prose-invert max-w-none text-muted-foreground">
             <p>
-              Our mission is to demystify on-chain activity by providing powerful, institutional-grade wallet analysis. This platform is currently in a public beta. The core analysis engine is stable, but we are self-hosting on initial hardware (a trusty Raspberry Pi 5!), so performance for wallets with very extensive histories might be slow. We appreciate your patience as we build and scale.
+              Our mission is to demystify on-chain activity by providing powerful, institutional-grade wallet analysis. This platform is currently in a public beta. The core analysis engine is stable, but we are self-hosting on initial hardware, so performance for wallets with very extensive histories might be slow. We appreciate your patience as we build and scale.
             </p>
           </CardContent>
         </Card>
@@ -62,7 +64,7 @@ export default function HelpPage() {
           </CardHeader>
           <CardContent className="prose prose-invert max-w-none text-muted-foreground space-y-2">
             <p><strong>Analysis seems slow or stuck:</strong> For wallets with thousands of transactions, the initial analysis can take several minutes due to our current beta hardware. Please be patient. If it fails, please try again later.</p>
-            <p><strong>Key issues:</strong> If you&apos;ve been issued a key and it&apos;s not working, please ensure it is entered correctly. For all key-related inquiries, please use the contact method below.</p>
+            <p><strong>Key issues:</strong> If you&apos;ve stumbled on bug, please use the contact method below to report it.</p>
           </CardContent>
         </Card>
         
@@ -117,8 +119,44 @@ export default function HelpPage() {
                 Contact & Support
               </CardTitle>
             </CardHeader>
-            <CardContent className="prose prose-invert max-w-none text-muted-foreground">
-              <p>For key requests, support, or to share your feedback, please reach out to us directly on Telegram at <a href="https://t.me/kKu22uUhG772" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">@NydIokar</a>.</p>
+            <CardContent className="space-y-4">
+              <p className="text-muted-foreground">
+                For key requests, support, or to share your feedback, reach out to us:
+              </p>
+              <div className="flex items-center justify-center gap-4">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="gap-2 hover:bg-accent hover:border-blue-500 transition-all"
+                  asChild
+                >
+                  <Link
+                    href="https://t.me/kKu22uUhG772"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Send className="h-5 w-5 text-blue-400" />
+                    <span>Telegram</span>
+                  </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="gap-2 hover:bg-accent hover:border-blue-500 transition-all"
+                  asChild
+                >
+                  <Link
+                    href="https://x.com/Sova_intel"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                    </svg>
+                    <span>X / Twitter</span>
+                  </Link>
+                </Button>
+              </div>
             </CardContent>
         </Card>
 

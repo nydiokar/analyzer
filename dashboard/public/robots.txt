@@ -1,0 +1,29 @@
+# Sova Intel - Robots.txt
+# Solana wallet analytics platform
+
+User-agent: *
+
+# Allow public pages
+Allow: /$
+Allow: /help$
+
+# Block authenticated app routes
+Disallow: /discover
+Disallow: /trackers
+Disallow: /similarity-lab
+Disallow: /tools/
+Disallow: /wallet/
+Disallow: /profile/
+Disallow: /account
+Disallow: /settings
+Disallow: /admin
+
+# Block authentication pages (no value for crawlers)
+Disallow: /verify
+Disallow: /reset-password
+
+# Block API routes (should be blocked by your backend anyway)
+Disallow: /api/
+
+# Sitemap (uncomment when you create one)
+# Sitemap: https://yourdomain.com/sitemap.xml

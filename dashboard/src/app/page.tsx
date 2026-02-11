@@ -7,6 +7,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LandingShell } from '@/components/layout/LandingShell';
+import { Send } from 'lucide-react';
+import Link from 'next/link';
 
 // Component that uses search params - must be wrapped in Suspense
 function SearchParamsHandler({ showAuthModal, setShowAuthModal }: { showAuthModal: boolean; setShowAuthModal: (show: boolean) => void }) {
@@ -113,6 +115,31 @@ export default function LandingPage() {
               >
                 Start Analyzing
               </Button>
+            </div>
+
+            {/* Social Links - Landing Page Footer Style */}
+            <div className="flex items-center justify-center gap-6 pt-16 pb-8">
+              <Link
+                href="https://t.me/sovaintel"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors group"
+              >
+                <Send className="h-5 w-5 group-hover:scale-110 transition-transform" />
+                <span className="text-sm font-medium">Telegram</span>
+              </Link>
+              <div className="h-5 w-px bg-slate-700"></div>
+              <Link
+                href="https://x.com/Sova_intel"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors group"
+              >
+                <svg className="h-5 w-5 group-hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+                <span className="text-sm font-medium">X / Twitter</span>
+              </Link>
             </div>
           </div>
         </main>
