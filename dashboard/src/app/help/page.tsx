@@ -78,6 +78,13 @@ export default function HelpPage() {
             </CardHeader>
             <CardContent className="prose prose-invert max-w-none text-muted-foreground">
               <p>We take privacy seriously. All wallet analysis is performed on-demand. We temporarily cache analysis results and permanently store wallet history to speed up repeat lookups, but never sell or share the wallet addresses you analyze with any third party.</p>
+              <p className="text-sm pt-2">
+                For full details, see our{" "}
+                <Link href="/terms" className="text-blue-400 hover:underline">
+                  Terms of Service
+                </Link>
+                .
+              </p>
             </CardContent>
           </Card>
           <Card>

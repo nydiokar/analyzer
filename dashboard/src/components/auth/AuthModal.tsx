@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { Eye, EyeOff, Mail, Lock, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import Link from 'next/link';
 
 interface AuthModalProps {
   open: boolean;
@@ -324,8 +325,11 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
           </Tabs>
 
           <div className="mt-4 text-center">
-            <p className="text-xs text-slate-600">
-              By continuing, you agree to our Terms of Service and Privacy Policy
+            <p className="text-xs text-slate-500">
+              By continuing, you agree to our{' '}
+              <Link href="/terms" target="_blank" className="text-blue-400 hover:text-blue-300 underline">
+                Terms of Service
+              </Link>
             </p>
           </div>
         </div>
