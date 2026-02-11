@@ -1,5 +1,40 @@
 export const changelog = [
   {
+    version: "v1.0.0",
+    date: "February 2026",
+    changes: [
+      "🏗️ Prometheus + Grafana observability (6 dashboards)",
+      "🔐 Admin panel with registration codes",
+      "💰 FIFO PnL engine with inventory tracking",
+      "🎯 Wallet HUD with poker-style metrics",
+      "🔍 Holder profiles with similarity analysis",
+      "📋 Tracked wallets CSV import/export",
+      "🛡️ Rate limiting + system wallet detection",
+      "✅ Major stability fixes (95% deadlock reduction)",
+    ]
+  },
+  {
+    version: "v0.20",
+    date: "November 2025",
+    changes: [
+      "💰 FIFO inventory system foundation",
+      "📊 Trade-level winrate calculations",
+      "🎯 Wallet pair highlighting",
+      "🔗 Holder profiles with PnL metrics",
+      "🤖 GitHub releases automation",
+    ]
+  },
+  {
+    version: "v0.19",
+    date: "October 2025",
+    changes: [
+      "🔍 System wallet detection",
+      "🎨 Three-tier wallet classification",
+      "🌊 Helius V2 API integration",
+      "⚡ Token affinity optimization",
+    ]
+  },
+  {
     version: "v0.15",
     date: "September 2025",
     changes: [

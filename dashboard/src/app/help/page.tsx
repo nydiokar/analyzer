@@ -177,7 +177,7 @@ export default function HelpPage() {
                 <span>Last updated: {changelog[0].date} (View Changelog)</span>
              </button>
           </PopoverTrigger>
-          <PopoverContent className="w-80" side="top" align="center">
+          <PopoverContent className="w-[500px]" side="top" align="center">
             <div className="grid gap-4">
               <div className="space-y-2">
                 <h4 className="font-medium leading-none">Changelog</h4>
@@ -185,18 +185,18 @@ export default function HelpPage() {
                   Recent updates to the platform.
                 </p>
               </div>
-              <div className="grid gap-2 max-h-64 overflow-y-auto">
+              <div className="grid gap-3 max-h-[400px] overflow-y-auto pr-2">
                 {changelog.map((entry) => (
-                  <div key={entry.version} className="grid grid-cols-[1fr_auto] items-start gap-4 rounded-md p-2 hover:bg-muted/50">
-                    <div className="grid gap-1">
-                      <p className="font-semibold">{entry.version}</p>
-                      <ul className="list-disc pl-4 text-xs text-muted-foreground">
+                  <div key={entry.version} className="grid grid-cols-[1fr_auto] items-start gap-4 rounded-md p-3 hover:bg-muted/50">
+                    <div className="grid gap-2">
+                      <p className="font-semibold text-sm">{entry.version}</p>
+                      <ul className="list-none space-y-1 text-xs text-muted-foreground">
                         {entry.changes.map((change, index) => (
-                          <li key={index}>{change}</li>
+                          <li key={index} className="leading-relaxed">{change}</li>
                         ))}
                       </ul>
                     </div>
-                    <div className="text-xs text-muted-foreground">{entry.date}</div>
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">{entry.date}</div>
                   </div>
                 ))}
               </div>
