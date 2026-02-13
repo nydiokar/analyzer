@@ -541,6 +541,17 @@ export default function AdminDashboardPage() {
     }
   }, [API_BASE_URL, buildHeaders, usersPage, usersSearch, usersFilter, usersSortBy]);
 
+  // Debounced effect for fetching users when search/filter/sort changes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (isAdminVerified) {
+        fetchUsers();
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [usersPage, usersSearch, usersFilter, usersSortBy, isAdminVerified, fetchUsers]);
+
   const handleToggleUserActive = async (userId: string, isActive: boolean) => {
     try {
       const endpoint = isActive
@@ -579,6 +590,11 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      // Prevent re-running if already verified
+      if (isAdminVerified) {
+        return;
+      }
+
       try {
         // Verify admin status by checking user profile
         // This is cleaner than calling admin endpoints and getting 403 errors
@@ -607,7 +623,7 @@ export default function AdminDashboardPage() {
         fetchCodeStats();
         fetchKillSwitch();
         fetchCodeRequirement();
-        fetchUsers();
+        // fetchUsers is now handled by the debounced useEffect
       } catch (error) {
         console.error('Admin verification failed:', error);
         router.replace('/');
@@ -617,18 +633,8 @@ export default function AdminDashboardPage() {
     };
 
     verifyAdminAccess();
-  }, [
-    isInitialized,
-    isAuthenticated,
-    router,
-    buildHeaders,
-    fetchApiKeys,
-    fetchRegistrationCodes,
-    fetchCodeStats,
-    fetchKillSwitch,
-    fetchCodeRequirement,
-    fetchUsers
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialized, isAuthenticated]);
 
   const totalPages = Math.ceil(usersTotal / PAGE_SIZE);
 
