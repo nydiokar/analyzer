@@ -1,5 +1,5 @@
 import type { HolderProfile } from '../types';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { formatHoldTime, formatPercentage, formatSol } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -88,10 +88,14 @@ function hasSignificantHoldings(profile: HolderProfile) {
 
 export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highlightedWallets, connectionCounts }: Props) {
   const { isFavorite, openFavoriteDialog } = useFavoriteActions();
+
+  // Sort wallet addresses for stable SWR cache key
+  // Even if profiles order changes, same wallets = same sorted array
   const walletAddresses = useMemo(
-    () => profiles.map((profile) => profile.walletAddress),
+    () => profiles.map((profile) => profile.walletAddress).sort(),
     [profiles]
   );
+
   const { data: hudData } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
 
   return (

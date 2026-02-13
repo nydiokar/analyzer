@@ -79,6 +79,7 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
+| 13.5 | 🔧 FIX | Fix excessive HUD batch calls during holder profiles streaming | 🟢 S | `useBatchWalletHud.ts`, `MinimalHoldersTable.tsx` |
 | 13.1 | 🎯 OPS | Database restoration & production deployment | 🔴 L | Full database migration, backup verification, server setup |
 | 13.2 | 🔧 FIX | Observability dashboards fix + Docker Compose updates | 🟡 M | All 6 Grafana dashboards, `docker-compose.yml`, datasource config |
 | 13.3 | 🎯 FEAT | Add fUSDC to excluded mints list | 🟢 S | `constants.ts` |
@@ -93,6 +94,8 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 **13.3:** Added fUSDC (Flux USDC) to the `DEFAULT_EXCLUDED_MINTS` list to improve token management and prevent analysis noise from stablecoin transactions. **Rationale:** Like USDC, USDT, and other stablecoins, fUSDC should be excluded from trading pattern analysis as it's primarily used as a medium of exchange rather than speculative trading. **Files:** `src/config/constants.ts` (+1 line).
 
 **13.4:** Added `backups/` directory to `.gitignore` to prevent accidental commits of database backup files during migration operations. **Security:** Prevents sensitive production data from being committed to version control. **Files:** `.gitignore`.
+
+**13.5:** Fixed excessive HUD batch endpoint calls during holder profiles progressive streaming. **Problem:** Single holder profiles job (10 wallets) triggered 7-9 HUD batch calls to backend, each executing full DB queries (Wallet + AnalysisResult tables) and potentially calling DexScreener API, causing DB load and stuttering UX. **Root Cause - Two Issues:** (1) **SWR deduplication disabled** - `dedupingInterval: 0` meant concurrent requests within seconds weren't merged, so each progressive wallet completion triggered fresh API call; (2) **Unstable array references** - `useMemo` dependency on `profiles` array caused re-computation on every render, breaking SWR cache key matching even for identical wallet sets. **The Fix:** (1) Restored SWR deduplication by changing `dedupingInterval: 0 → 5000` (5-second window to merge concurrent requests - industry standard); (2) Stabilized wallet addresses array by sorting inside `useMemo` and using stable string dependency `profiles.map(p => p.walletAddress).sort().join(',')` instead of unstable `profiles` reference. **Impact:** 7-9 HUD batch calls → 1-2 calls per job (85% reduction), corresponding 85% reduction in DB queries and potential DexScreener API calls, smoother UX without render stuttering. **Files:** `dashboard/src/hooks/useBatchWalletHud.ts` (dedupingInterval fix), `dashboard/src/components/holder-profiles/v2/MinimalHoldersTable.tsx` (array stabilization).
 
 ### February 11, 2026
 

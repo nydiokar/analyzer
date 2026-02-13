@@ -58,7 +58,7 @@ export function useBatchWalletHud(walletAddresses: string[], options: BatchHudOp
     },
     {
       revalidateOnFocus: false,
-      dedupingInterval: 0,
+      dedupingInterval: 5000, // 5 seconds - merge concurrent requests for same wallets
       refreshInterval: 0,
       revalidateIfStale: true,
       keepPreviousData: true,
