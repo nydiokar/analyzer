@@ -121,7 +121,7 @@ export default function LandingPage() {
             <div className="flex flex-col items-center justify-center gap-6 pt-16 pb-8">
               <div className="flex items-center gap-6">
                 <Link
-                  href="https://t.me/sovaintel"
+                  href="https://t.me/+i8TIMJfk9JQ1OWZk"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors group"
