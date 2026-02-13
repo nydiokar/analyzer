@@ -1,192 +1,301 @@
 {
-  "dashboard": {
-    "title": "Host Overview - System Resources",
-    "tags": ["prometheus", "node-exporter", "system"],
-    "timezone": "browser",
-    "schemaVersion": 38,
-    "version": 0,
-    "refresh": "10s",
-    "panels": [
-      {
-        "id": 1,
-        "title": "CPU Usage",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-        "targets": [
-          {
-            "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-            "legendFormat": "CPU Usage %",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "percent", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "thresholds": [
-          {"value": 80, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
-        ]
+  "title": "Host Overview - System Resources",
+  "tags": [
+    "prometheus",
+    "node-exporter",
+    "system"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 0,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "CPU Usage",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
       },
-      {
-        "id": 2,
-        "title": "Memory Usage",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-        "targets": [
-          {
-            "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
-            "legendFormat": "Memory Usage %",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "percent", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "thresholds": [
-          {"value": 85, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
-        ]
-      },
-      {
-        "id": 3,
-        "title": "Disk Usage",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
-        "targets": [
-          {
-            "expr": "(node_filesystem_size_bytes{mountpoint=\"/\"} - node_filesystem_avail_bytes{mountpoint=\"/\"}) / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
-            "legendFormat": "Disk Usage % (root)",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "percent", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "thresholds": [
-          {"value": 90, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
-        ]
-      },
-      {
-        "id": 4,
-        "title": "Load Average",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
-        "targets": [
-          {
-            "expr": "node_load1",
-            "legendFormat": "1 min",
-            "refId": "A"
-          },
-          {
-            "expr": "node_load5",
-            "legendFormat": "5 min",
-            "refId": "B"
-          },
-          {
-            "expr": "node_load15",
-            "legendFormat": "15 min",
-            "refId": "C"
-          }
-        ]
-      },
-      {
-        "id": 5,
-        "title": "Network Traffic",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-        "targets": [
-          {
-            "expr": "rate(node_network_receive_bytes_total[5m])",
-            "legendFormat": "RX {{device}}",
-            "refId": "A"
-          },
-          {
-            "expr": "rate(node_network_transmit_bytes_total[5m])",
-            "legendFormat": "TX {{device}}",
-            "refId": "B"
-          }
-        ],
-        "yaxes": [
-          {"format": "Bps", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 6,
-        "title": "Disk I/O",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-        "targets": [
-          {
-            "expr": "rate(node_disk_read_bytes_total[5m])",
-            "legendFormat": "Read {{device}}",
-            "refId": "A"
-          },
-          {
-            "expr": "rate(node_disk_written_bytes_total[5m])",
-            "legendFormat": "Write {{device}}",
-            "refId": "B"
-          }
-        ],
-        "yaxes": [
-          {"format": "Bps", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 7,
-        "title": "System Uptime",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 24},
-        "targets": [
-          {
-            "expr": "node_time_seconds - node_boot_time_seconds",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "graphMode": "none",
-          "textMode": "value_and_name"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "decimals": 0
-          }
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "CPU Usage %",
+          "refId": "A"
         }
-      },
-      {
-        "id": 8,
-        "title": "CPU Temperature (if available)",
-        "type": "gauge",
-        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 24},
-        "targets": [
-          {
-            "expr": "node_hwmon_temp_celsius",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "showThresholdLabels": false,
-          "showThresholdMarkers": true
+      ],
+      "yaxes": [
+        {
+          "format": "percent",
+          "label": null,
+          "show": true
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "celsius",
-            "min": 0,
-            "max": 100,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "green"},
-                {"value": 70, "color": "yellow"},
-                {"value": 85, "color": "red"}
-              ]
-            }
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ],
+      "thresholds": [
+        {
+          "value": 80,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Memory Usage",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
+          "legendFormat": "Memory Usage %",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "percent",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ],
+      "thresholds": [
+        {
+          "value": 85,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Disk Usage",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "(node_filesystem_size_bytes{mountpoint=\"/\"} - node_filesystem_avail_bytes{mountpoint=\"/\"}) / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
+          "legendFormat": "Disk Usage % (root)",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "percent",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ],
+      "thresholds": [
+        {
+          "value": 90,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Load Average",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "node_load1",
+          "legendFormat": "1 min",
+          "refId": "A"
+        },
+        {
+          "expr": "node_load5",
+          "legendFormat": "5 min",
+          "refId": "B"
+        },
+        {
+          "expr": "node_load15",
+          "legendFormat": "15 min",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Network Traffic",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "rate(node_network_receive_bytes_total[5m])",
+          "legendFormat": "RX {{device}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(node_network_transmit_bytes_total[5m])",
+          "legendFormat": "TX {{device}}",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "Bps",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Disk I/O",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "rate(node_disk_read_bytes_total[5m])",
+          "legendFormat": "Read {{device}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(node_disk_written_bytes_total[5m])",
+          "legendFormat": "Write {{device}}",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "Bps",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "System Uptime",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "node_time_seconds - node_boot_time_seconds",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "CPU Temperature (if available)",
+      "type": "gauge",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "node_hwmon_temp_celsius",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 70,
+                "color": "yellow"
+              },
+              {
+                "value": 85,
+                "color": "red"
+              }
+            ]
           }
         }
       }
-    ]
-  }
+    }
+  ]
 }

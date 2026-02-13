@@ -10,8 +10,11 @@ export class CsrfService {
   private readonly csrfSecret: string;
   
   constructor(private readonly configService: ConfigService) {
-    this.csrfSecret = this.configService.get<string>('CSRF_SECRET') || this.generateSecret();
-    if (!this.configService.get<string>('CSRF_SECRET')) {
+    const cookieModeEnabled = this.configService.get<string>('AUTH_COOKIE_MODE') === 'true';
+    const configuredSecret = this.configService.get<string>('CSRF_SECRET');
+
+    this.csrfSecret = configuredSecret || this.generateSecret();
+    if (cookieModeEnabled && !configuredSecret) {
       this.logger.warn('CSRF_SECRET not set in environment variables. Using generated secret (not recommended for production)');
     }
   }

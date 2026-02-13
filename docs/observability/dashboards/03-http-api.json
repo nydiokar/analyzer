@@ -1,260 +1,380 @@
 {
-  "dashboard": {
-    "title": "HTTP API - Request Performance",
-    "tags": ["prometheus", "http", "api"],
-    "timezone": "browser",
-    "schemaVersion": 38,
-    "version": 0,
-    "refresh": "10s",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Request Rate (RPS)",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-        "targets": [
-          {
-            "expr": "sum(rate(http_requests_total[5m]))",
-            "legendFormat": "Total RPS",
-            "refId": "A"
-          },
-          {
-            "expr": "sum(rate(http_requests_total{status_code=~\"2..\"}[5m]))",
-            "legendFormat": "2xx RPS",
-            "refId": "B"
-          },
-          {
-            "expr": "sum(rate(http_requests_total{status_code=~\"4..\"}[5m]))",
-            "legendFormat": "4xx RPS",
-            "refId": "C"
-          },
-          {
-            "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m]))",
-            "legendFormat": "5xx RPS",
-            "refId": "D"
-          }
-        ],
-        "yaxes": [
-          {"format": "reqps", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
+  "title": "HTTP API - Request Performance",
+  "tags": [
+    "prometheus",
+    "http",
+    "api"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 0,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate (RPS)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
       },
-      {
-        "id": 2,
-        "title": "Error Rate %",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-        "targets": [
-          {
-            "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
-            "legendFormat": "5xx Error Rate",
-            "refId": "A"
-          },
-          {
-            "expr": "sum(rate(http_requests_total{status_code=~\"4..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
-            "legendFormat": "4xx Error Rate",
-            "refId": "B"
-          }
-        ],
-        "yaxes": [
-          {"format": "percent", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "thresholds": [
-          {"value": 1, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
-        ]
-      },
-      {
-        "id": 3,
-        "title": "Latency Percentiles",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p50",
-            "refId": "A"
-          },
-          {
-            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p95",
-            "refId": "B"
-          },
-          {
-            "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
-            "legendFormat": "p99",
-            "refId": "C"
-          }
-        ],
-        "yaxes": [
-          {"format": "s", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "thresholds": [
-          {"value": 2, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
-        ]
-      },
-      {
-        "id": 4,
-        "title": "Top Slowest Routes",
-        "type": "table",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
-        "targets": [
-          {
-            "expr": "topk(10, histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (route, le)))",
-            "format": "table",
-            "instant": true,
-            "refId": "A"
-          }
-        ],
-        "transformations": [
-          {
-            "id": "organize",
-            "options": {
-              "excludeByName": {"Time": true, "le": true},
-              "renameByName": {"Value": "p95 Latency (s)", "route": "Route"}
-            }
-          }
-        ]
-      },
-      {
-        "id": 5,
-        "title": "Requests by Route",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-        "targets": [
-          {
-            "expr": "sum(rate(http_requests_total[5m])) by (route)",
-            "legendFormat": "{{route}}",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "reqps", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 6,
-        "title": "Requests by Status Code",
-        "type": "piechart",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-        "targets": [
-          {
-            "expr": "sum(rate(http_requests_total[5m])) by (status_code)",
-            "legendFormat": "{{status_code}}",
-            "refId": "A"
-          }
-        ]
-      },
-      {
-        "id": 7,
-        "title": "Total Requests (24h)",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 24},
-        "targets": [
-          {
-            "expr": "sum(increase(http_requests_total[24h]))",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "background",
-          "graphMode": "area",
-          "textMode": "value_and_name"
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m]))",
+          "legendFormat": "Total RPS",
+          "refId": "A"
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "decimals": 0
-          }
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"2..\"}[5m]))",
+          "legendFormat": "2xx RPS",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"4..\"}[5m]))",
+          "legendFormat": "4xx RPS",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m]))",
+          "legendFormat": "5xx RPS",
+          "refId": "D"
         }
-      },
-      {
-        "id": 8,
-        "title": "Current RPS",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 24},
-        "targets": [
-          {
-            "expr": "sum(rate(http_requests_total[1m]))",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "value",
-          "graphMode": "area",
-          "textMode": "value"
+      ],
+      "yaxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "show": true
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "reqps",
-            "decimals": 2
-          }
+        {
+          "format": "short",
+          "label": null,
+          "show": true
         }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error Rate %",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
       },
-      {
-        "id": 9,
-        "title": "Avg Response Time",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 24},
-        "targets": [
-          {
-            "expr": "sum(rate(http_request_duration_seconds_sum[5m])) / sum(rate(http_request_duration_seconds_count[5m]))",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "value",
-          "graphMode": "area",
-          "textMode": "value"
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+          "legendFormat": "5xx Error Rate",
+          "refId": "A"
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "decimals": 3,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "green"},
-                {"value": 1, "color": "yellow"},
-                {"value": 2, "color": "red"}
-              ]
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"4..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+          "legendFormat": "4xx Error Rate",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "percent",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ],
+      "thresholds": [
+        {
+          "value": 1,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latency Percentiles",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "s",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ],
+      "thresholds": [
+        {
+          "value": 2,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Top Slowest Routes",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (route, le)))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "le": true
+            },
+            "renameByName": {
+              "Value": "p95 Latency (s)",
+              "route": "Route"
             }
           }
         }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Requests by Route",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
       },
-      {
-        "id": 10,
-        "title": "Error Rate (24h avg)",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 24},
-        "targets": [
-          {
-            "expr": "sum(increase(http_requests_total{status_code=~\"5..\"}[24h])) / sum(increase(http_requests_total[24h])) * 100",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "background",
-          "graphMode": "area",
-          "textMode": "value"
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m])) by (route)",
+          "legendFormat": "{{route}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "show": true
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "decimals": 2,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "green"},
-                {"value": 0.1, "color": "yellow"},
-                {"value": 1, "color": "red"}
-              ]
-            }
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Requests by Status Code",
+      "type": "piechart",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m])) by (status_code)",
+          "legendFormat": "{{status_code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Total Requests (24h)",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(http_requests_total[24h]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Current RPS",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[1m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Avg Response Time",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_request_duration_seconds_sum[5m])) / sum(rate(http_request_duration_seconds_count[5m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 2,
+                "color": "red"
+              }
+            ]
           }
         }
       }
-    ]
-  }
+    },
+    {
+      "id": 10,
+      "title": "Error Rate (24h avg)",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(http_requests_total{status_code=~\"5..\"}[24h])) / sum(increase(http_requests_total[24h])) * 100",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 0.1,
+                "color": "yellow"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

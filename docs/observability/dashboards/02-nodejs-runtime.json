@@ -1,170 +1,267 @@
 {
-  "dashboard": {
-    "title": "Node.js Runtime - Application Health",
-    "tags": ["prometheus", "nodejs", "application"],
-    "timezone": "browser",
-    "schemaVersion": 38,
-    "version": 0,
-    "refresh": "10s",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Heap Memory Usage",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-        "targets": [
-          {
-            "expr": "nodejs_memory_usage_bytes{type=\"heapUsed\"}",
-            "legendFormat": "Heap Used",
-            "refId": "A"
-          },
-          {
-            "expr": "nodejs_memory_usage_bytes{type=\"heapTotal\"}",
-            "legendFormat": "Heap Total",
-            "refId": "B"
-          }
-        ],
-        "yaxes": [
-          {"format": "bytes", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
+  "title": "Node.js Runtime - Application Health",
+  "tags": [
+    "prometheus",
+    "nodejs",
+    "application"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 0,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Heap Memory Usage",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
       },
-      {
-        "id": 2,
-        "title": "RSS Memory",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-        "targets": [
-          {
-            "expr": "nodejs_memory_usage_bytes{type=\"rss\"}",
-            "legendFormat": "RSS (Resident Set Size)",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "bytes", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 3,
-        "title": "Event Loop Lag",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
-        "targets": [
-          {
-            "expr": "nodejs_eventloop_lag_seconds",
-            "legendFormat": "Event Loop Lag",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "s", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "thresholds": [
-          {"value": 0.1, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
-        ]
-      },
-      {
-        "id": 4,
-        "title": "Garbage Collection Duration",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
-        "targets": [
-          {
-            "expr": "rate(nodejs_gc_duration_seconds_sum[5m])",
-            "legendFormat": "GC Duration (rate)",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "s", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 5,
-        "title": "Active Handles & Requests",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-        "targets": [
-          {
-            "expr": "nodejs_active_handles_total",
-            "legendFormat": "Active Handles",
-            "refId": "A"
-          },
-          {
-            "expr": "nodejs_active_requests_total",
-            "legendFormat": "Active Requests",
-            "refId": "B"
-          }
-        ]
-      },
-      {
-        "id": 6,
-        "title": "External Memory",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-        "targets": [
-          {
-            "expr": "nodejs_memory_usage_bytes{type=\"external\"}",
-            "legendFormat": "External Memory",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "bytes", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 7,
-        "title": "Memory Leak Detection",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 12, "x": 0, "y": 24},
-        "description": "Heap growth over 1 hour. Consistent growth may indicate memory leak.",
-        "targets": [
-          {
-            "expr": "delta(nodejs_memory_usage_bytes{type=\"heapUsed\"}[1h])",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "background",
-          "graphMode": "area",
-          "textMode": "value_and_name"
+      "targets": [
+        {
+          "expr": "nodejs_memory_usage_bytes{type=\"heapUsed\"}",
+          "legendFormat": "Heap Used",
+          "refId": "A"
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "bytes",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "green"},
-                {"value": 104857600, "color": "yellow"},
-                {"value": 524288000, "color": "red"}
-              ]
-            }
-          }
+        {
+          "expr": "nodejs_memory_usage_bytes{type=\"heapTotal\"}",
+          "legendFormat": "Heap Total",
+          "refId": "B"
         }
+      ],
+      "yaxes": [
+        {
+          "format": "bytes",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "RSS Memory",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
       },
-      {
-        "id": 8,
-        "title": "Node.js Version",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 12, "x": 12, "y": 24},
-        "targets": [
-          {
-            "expr": "nodejs_version_info",
-            "refId": "A"
+      "targets": [
+        {
+          "expr": "nodejs_memory_usage_bytes{type=\"rss\"}",
+          "legendFormat": "RSS (Resident Set Size)",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "bytes",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Event Loop Lag",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "nodejs_eventloop_lag_seconds",
+          "legendFormat": "Event Loop Lag",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "s",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ],
+      "thresholds": [
+        {
+          "value": 0.1,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Garbage Collection Duration",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(nodejs_gc_duration_seconds_sum[5m])",
+          "legendFormat": "GC Duration (rate)",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "s",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Active Handles & Requests",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "nodejs_active_handles_total",
+          "legendFormat": "Active Handles",
+          "refId": "A"
+        },
+        {
+          "expr": "nodejs_active_requests_total",
+          "legendFormat": "Active Requests",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "External Memory",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "nodejs_memory_usage_bytes{type=\"external\"}",
+          "legendFormat": "External Memory",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "bytes",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Memory Leak Detection",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "description": "Heap growth over 1 hour. Consistent growth may indicate memory leak.",
+      "targets": [
+        {
+          "expr": "delta(nodejs_memory_usage_bytes{type=\"heapUsed\"}[1h])",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 104857600,
+                "color": "yellow"
+              },
+              {
+                "value": 524288000,
+                "color": "red"
+              }
+            ]
           }
-        ],
-        "options": {
-          "graphMode": "none",
-          "textMode": "name"
         }
       }
-    ]
-  }
+    },
+    {
+      "id": 8,
+      "title": "Node.js Version",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "nodejs_version_info",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "none",
+        "textMode": "name"
+      }
+    }
+  ]
 }

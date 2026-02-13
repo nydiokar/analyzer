@@ -11,6 +11,7 @@
 | ✅ | HUD encoding + performance emoji system | 🟡 M | **COMPLETE** - Clean pipe format with smart emojis |
 | ⚪ | Fix wallet profile page mess in the wallet area | 🟡 M | Pending |
 | ⚪ | Create the dashboard for grafana | 🟡 M | Observability stack ready |
+| ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete |
 
 
 **Recently Completed:**
@@ -436,7 +437,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 ---
 
 **Last Updated:** 2026-02-06  **Branch:** `discover-analytics-ux`
-
 
 
 

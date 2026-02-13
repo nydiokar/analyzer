@@ -24,6 +24,8 @@ services:
       - ../../docs/observability/dashboards:/var/lib/grafana/dashboards:ro
     ports:
       - "127.0.0.1:3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - prometheus
     restart: unless-stopped

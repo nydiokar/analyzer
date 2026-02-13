@@ -1,232 +1,334 @@
 {
-  "dashboard": {
-    "title": "PostgreSQL - Database Performance",
-    "tags": ["prometheus", "postgres", "database"],
-    "timezone": "browser",
-    "schemaVersion": 38,
-    "version": 0,
-    "refresh": "30s",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Connections",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-        "targets": [
-          {
-            "expr": "pg_stat_database_numbackends{datname!~\"template.*|postgres\"}",
-            "legendFormat": "{{datname}}",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "short", "label": "Connections", "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
+  "title": "PostgreSQL - Database Performance",
+  "tags": [
+    "prometheus",
+    "postgres",
+    "database"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 0,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Connections",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
       },
-      {
-        "id": 2,
-        "title": "Transactions per Second",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-        "targets": [
-          {
-            "expr": "rate(pg_stat_database_xact_commit{datname!~\"template.*|postgres\"}[5m])",
-            "legendFormat": "Commits {{datname}}",
-            "refId": "A"
-          },
-          {
-            "expr": "rate(pg_stat_database_xact_rollback{datname!~\"template.*|postgres\"}[5m])",
-            "legendFormat": "Rollbacks {{datname}}",
-            "refId": "B"
-          }
-        ],
-        "yaxes": [
-          {"format": "ops", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 3,
-        "title": "Cache Hit Ratio",
-        "type": "gauge",
-        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
-        "description": "Percentage of blocks read from cache vs disk. >99% is good.",
-        "targets": [
-          {
-            "expr": "sum(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}) / (sum(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}) + sum(pg_stat_database_blks_read{datname!~\"template.*|postgres\"})) * 100",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "showThresholdLabels": true,
-          "showThresholdMarkers": true
+      "targets": [
+        {
+          "expr": "pg_stat_database_numbackends{datname!~\"template.*|postgres\"}",
+          "legendFormat": "{{datname}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Connections",
+          "show": true
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "min": 0,
-            "max": 100,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "red"},
-                {"value": 90, "color": "yellow"},
-                {"value": 99, "color": "green"}
-              ]
-            }
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Transactions per Second",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_xact_commit{datname!~\"template.*|postgres\"}[5m])",
+          "legendFormat": "Commits {{datname}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(pg_stat_database_xact_rollback{datname!~\"template.*|postgres\"}[5m])",
+          "legendFormat": "Rollbacks {{datname}}",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "ops",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Cache Hit Ratio",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "description": "Percentage of blocks read from cache vs disk. >99% is good.",
+      "targets": [
+        {
+          "expr": "sum(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}) / (sum(pg_stat_database_blks_hit{datname!~\"template.*|postgres\"}) + sum(pg_stat_database_blks_read{datname!~\"template.*|postgres\"})) * 100",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              },
+              {
+                "value": 90,
+                "color": "yellow"
+              },
+              {
+                "value": 99,
+                "color": "green"
+              }
+            ]
           }
         }
-      },
-      {
-        "id": 4,
-        "title": "Database Size",
-        "type": "stat",
-        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
-        "targets": [
-          {
-            "expr": "pg_database_size_bytes{datname!~\"template.*|postgres\"}",
-            "legendFormat": "{{datname}}",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "value",
-          "graphMode": "area",
-          "textMode": "value_and_name"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "bytes",
-            "decimals": 2
-          }
-        }
-      },
-      {
-        "id": 5,
-        "title": "Deadlocks",
-        "type": "stat",
-        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
-        "description": "Cumulative deadlocks. Monitor rate of increase.",
-        "targets": [
-          {
-            "expr": "pg_stat_database_deadlocks{datname!~\"template.*|postgres\"}",
-            "legendFormat": "{{datname}}",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "background",
-          "graphMode": "area",
-          "textMode": "value_and_name"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "decimals": 0,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "green"},
-                {"value": 1, "color": "yellow"},
-                {"value": 10, "color": "red"}
-              ]
-            }
-          }
-        }
-      },
-      {
-        "id": 6,
-        "title": "Locks",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-        "targets": [
-          {
-            "expr": "pg_locks_count",
-            "legendFormat": "{{mode}}",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "short", "label": "Lock Count", "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 7,
-        "title": "Tuple Operations (Insert/Update/Delete)",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-        "targets": [
-          {
-            "expr": "rate(pg_stat_database_tup_inserted{datname!~\"template.*|postgres\"}[5m])",
-            "legendFormat": "Inserts",
-            "refId": "A"
-          },
-          {
-            "expr": "rate(pg_stat_database_tup_updated{datname!~\"template.*|postgres\"}[5m])",
-            "legendFormat": "Updates",
-            "refId": "B"
-          },
-          {
-            "expr": "rate(pg_stat_database_tup_deleted{datname!~\"template.*|postgres\"}[5m])",
-            "legendFormat": "Deletes",
-            "refId": "C"
-          }
-        ],
-        "yaxes": [
-          {"format": "ops", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 8,
-        "title": "Slow Queries (if pg_stat_statements enabled)",
-        "type": "table",
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
-        "description": "Top 10 slowest queries by mean execution time. Requires pg_stat_statements extension.",
-        "targets": [
-          {
-            "expr": "topk(10, pg_stat_statements_mean_exec_time_seconds)",
-            "format": "table",
-            "instant": true,
-            "refId": "A"
-          }
-        ]
-      },
-      {
-        "id": 9,
-        "title": "Rows Fetched vs Returned",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
-        "description": "High fetched/returned ratio indicates inefficient queries (fetching too much data).",
-        "targets": [
-          {
-            "expr": "rate(pg_stat_database_tup_fetched{datname!~\"template.*|postgres\"}[5m])",
-            "legendFormat": "Fetched",
-            "refId": "A"
-          },
-          {
-            "expr": "rate(pg_stat_database_tup_returned{datname!~\"template.*|postgres\"}[5m])",
-            "legendFormat": "Returned",
-            "refId": "B"
-          }
-        ]
-      },
-      {
-        "id": 10,
-        "title": "Temp Files Created",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
-        "description": "Queries spilling to disk. May indicate work_mem is too small.",
-        "targets": [
-          {
-            "expr": "rate(pg_stat_database_temp_files{datname!~\"template.*|postgres\"}[5m])",
-            "legendFormat": "{{datname}}",
-            "refId": "A"
-          }
-        ]
       }
-    ]
-  }
+    },
+    {
+      "id": 4,
+      "title": "Database Size",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "pg_database_size_bytes{datname!~\"template.*|postgres\"}",
+          "legendFormat": "{{datname}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Deadlocks",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "description": "Cumulative deadlocks. Monitor rate of increase.",
+      "targets": [
+        {
+          "expr": "pg_stat_database_deadlocks{datname!~\"template.*|postgres\"}",
+          "legendFormat": "{{datname}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 10,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Locks",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "pg_locks_count",
+          "legendFormat": "{{mode}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Lock Count",
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Tuple Operations (Insert/Update/Delete)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_tup_inserted{datname!~\"template.*|postgres\"}[5m])",
+          "legendFormat": "Inserts",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(pg_stat_database_tup_updated{datname!~\"template.*|postgres\"}[5m])",
+          "legendFormat": "Updates",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(pg_stat_database_tup_deleted{datname!~\"template.*|postgres\"}[5m])",
+          "legendFormat": "Deletes",
+          "refId": "C"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "ops",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Slow Queries (if pg_stat_statements enabled)",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "description": "Top 10 slowest queries by mean execution time. Requires pg_stat_statements extension.",
+      "targets": [
+        {
+          "expr": "topk(10, pg_stat_statements_mean_exec_time_seconds)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Rows Fetched vs Returned",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "description": "High fetched/returned ratio indicates inefficient queries (fetching too much data).",
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_tup_fetched{datname!~\"template.*|postgres\"}[5m])",
+          "legendFormat": "Fetched",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(pg_stat_database_tup_returned{datname!~\"template.*|postgres\"}[5m])",
+          "legendFormat": "Returned",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Temp Files Created",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "description": "Queries spilling to disk. May indicate work_mem is too small.",
+      "targets": [
+        {
+          "expr": "rate(pg_stat_database_temp_files{datname!~\"template.*|postgres\"}[5m])",
+          "legendFormat": "{{datname}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
 }

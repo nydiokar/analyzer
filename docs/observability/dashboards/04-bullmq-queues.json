@@ -1,391 +1,593 @@
 {
-  "dashboard": {
-    "title": "BullMQ Queues - Job Processing",
-    "tags": ["prometheus", "bullmq", "queues", "jobs"],
-    "timezone": "browser",
-    "schemaVersion": 38,
-    "version": 0,
-    "refresh": "5s",
-    "panels": [
-      {
-        "id": 1,
-        "title": "Queue Depth (Waiting Jobs)",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-        "description": "Number of jobs waiting to be processed. High values indicate backlog.",
-        "targets": [
-          {
-            "expr": "bullmq_jobs_waiting",
-            "legendFormat": "{{queue}}",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "short", "label": "Jobs", "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "thresholds": [
-          {"value": 100, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
-        ]
+  "title": "BullMQ Queues - Job Processing",
+  "tags": [
+    "prometheus",
+    "bullmq",
+    "queues",
+    "jobs"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 0,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Queue Depth (Waiting Jobs)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
       },
-      {
-        "id": 2,
-        "title": "Active Jobs",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-        "description": "Jobs currently being processed by workers.",
-        "targets": [
-          {
-            "expr": "bullmq_jobs_active",
-            "legendFormat": "{{queue}}",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "short", "label": "Jobs", "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 3,
-        "title": "Failed Jobs",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
-        "description": "Jobs that failed and are in failed state. Requires manual intervention.",
-        "targets": [
-          {
-            "expr": "bullmq_jobs_failed",
-            "legendFormat": "{{queue}}",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "short", "label": "Jobs", "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "alert": {
-          "conditions": [
-            {
-              "evaluator": {"params": [10], "type": "gt"},
-              "operator": {"type": "and"},
-              "query": {"params": ["A", "5m", "now"]},
-              "reducer": {"params": [], "type": "avg"},
-              "type": "query"
-            }
-          ],
-          "executionErrorState": "alerting",
-          "frequency": "1m",
-          "handler": 1,
-          "name": "High Failed Job Count",
-          "noDataState": "no_data",
-          "notifications": []
+      "description": "Number of jobs waiting to be processed. High values indicate backlog.",
+      "targets": [
+        {
+          "expr": "bullmq_jobs_waiting",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
         }
-      },
-      {
-        "id": 4,
-        "title": "Completed Jobs (24h)",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
-        "description": "Total completed jobs over time.",
-        "targets": [
-          {
-            "expr": "increase(bullmq_jobs_completed[24h])",
-            "legendFormat": "{{queue}}",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "short", "label": "Jobs", "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 5,
-        "title": "Job Throughput (jobs/sec)",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-        "description": "Rate of job completions. Higher is better.",
-        "targets": [
-          {
-            "expr": "sum(rate(analysis_jobs_total{status=\"success\"}[5m])) by (type)",
-            "legendFormat": "{{type}} (success)",
-            "refId": "A"
-          },
-          {
-            "expr": "sum(rate(analysis_jobs_total{status=\"failed\"}[5m])) by (type)",
-            "legendFormat": "{{type}} (failed)",
-            "refId": "B"
-          }
-        ],
-        "yaxes": [
-          {"format": "jobs/s", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 6,
-        "title": "Job Processing Duration (p95)",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-        "description": "95th percentile job processing time by type.",
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, sum(rate(analysis_job_duration_seconds_bucket[5m])) by (type, le))",
-            "legendFormat": "{{type}} p95",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "s", "label": null, "show": true},
-          {"format": "short", "label": null, "show": true}
-        ],
-        "thresholds": [
-          {"value": 120, "colorMode": "critical", "op": "gt", "fill": true, "line": true}
-        ]
-      },
-      {
-        "id": 7,
-        "title": "Delayed Jobs",
-        "type": "graph",
-        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
-        "description": "Jobs scheduled to run in the future.",
-        "targets": [
-          {
-            "expr": "bullmq_jobs_delayed",
-            "legendFormat": "{{queue}}",
-            "refId": "A"
-          }
-        ],
-        "yaxes": [
-          {"format": "short", "label": "Jobs", "show": true},
-          {"format": "short", "label": null, "show": true}
-        ]
-      },
-      {
-        "id": 8,
-        "title": "Stalled Jobs",
-        "type": "stat",
-        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
-        "description": "Jobs stuck in active state. May require manual cleanup.",
-        "targets": [
-          {
-            "expr": "bullmq_jobs_stalled",
-            "legendFormat": "{{queue}}",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "background",
-          "graphMode": "none",
-          "textMode": "value_and_name"
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Jobs",
+          "show": true
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "green"},
-                {"value": 1, "color": "yellow"},
-                {"value": 5, "color": "red"}
-              ]
-            }
-          }
+        {
+          "format": "short",
+          "label": null,
+          "show": true
         }
+      ],
+      "thresholds": [
+        {
+          "value": 100,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Active Jobs",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
       },
-      {
-        "id": 9,
-        "title": "Queue Status Overview",
-        "type": "table",
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32},
-        "description": "Current state of all queues at a glance.",
-        "targets": [
+      "description": "Jobs currently being processed by workers.",
+      "targets": [
+        {
+          "expr": "bullmq_jobs_active",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Jobs",
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Failed Jobs",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "description": "Jobs that failed and are in failed state. Requires manual intervention.",
+      "targets": [
+        {
+          "expr": "bullmq_jobs_failed",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Jobs",
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ],
+      "alert": {
+        "conditions": [
           {
-            "expr": "bullmq_jobs_waiting",
-            "format": "table",
-            "instant": true,
-            "refId": "A"
-          },
-          {
-            "expr": "bullmq_jobs_active",
-            "format": "table",
-            "instant": true,
-            "refId": "B"
-          },
-          {
-            "expr": "bullmq_jobs_failed",
-            "format": "table",
-            "instant": true,
-            "refId": "C"
-          },
-          {
-            "expr": "bullmq_jobs_completed",
-            "format": "table",
-            "instant": true,
-            "refId": "D"
-          },
-          {
-            "expr": "bullmq_jobs_delayed",
-            "format": "table",
-            "instant": true,
-            "refId": "E"
-          }
-        ],
-        "transformations": [
-          {
-            "id": "merge"
-          },
-          {
-            "id": "organize",
-            "options": {
-              "excludeByName": {"Time": true, "instance": true, "job": true},
-              "renameByName": {
-                "queue": "Queue",
-                "Value #A": "Waiting",
-                "Value #B": "Active",
-                "Value #C": "Failed",
-                "Value #D": "Completed",
-                "Value #E": "Delayed"
-              }
-            }
-          }
-        ],
-        "fieldConfig": {
-          "overrides": [
-            {
-              "matcher": {"id": "byName", "options": "Failed"},
-              "properties": [
-                {
-                  "id": "custom.cellOptions",
-                  "value": {
-                    "type": "color-background",
-                    "mode": "gradient"
-                  }
-                },
-                {
-                  "id": "thresholds",
-                  "value": {
-                    "mode": "absolute",
-                    "steps": [
-                      {"value": 0, "color": "green"},
-                      {"value": 5, "color": "yellow"},
-                      {"value": 20, "color": "red"}
-                    ]
-                  }
-                }
+            "evaluator": {
+              "params": [
+                10
+              ],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "A",
+                "5m",
+                "now"
               ]
             },
-            {
-              "matcher": {"id": "byName", "options": "Waiting"},
-              "properties": [
-                {
-                  "id": "custom.cellOptions",
-                  "value": {
-                    "type": "color-background",
-                    "mode": "gradient"
-                  }
-                },
-                {
-                  "id": "thresholds",
-                  "value": {
-                    "mode": "absolute",
-                    "steps": [
-                      {"value": 0, "color": "green"},
-                      {"value": 50, "color": "yellow"},
-                      {"value": 200, "color": "red"}
-                    ]
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      },
-      {
-        "id": 10,
-        "title": "Job Success Rate %",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 40},
-        "targets": [
-          {
-            "expr": "sum(rate(analysis_jobs_total{status=\"success\"}[5m])) / sum(rate(analysis_jobs_total[5m])) * 100",
-            "refId": "A"
+            "reducer": {
+              "params": [],
+              "type": "avg"
+            },
+            "type": "query"
           }
         ],
-        "options": {
-          "colorMode": "background",
-          "graphMode": "area",
-          "textMode": "value"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "decimals": 2,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "red"},
-                {"value": 95, "color": "yellow"},
-                {"value": 99, "color": "green"}
-              ]
-            }
-          }
-        }
+        "executionErrorState": "alerting",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "High Failed Job Count",
+        "noDataState": "no_data",
+        "notifications": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Completed Jobs (24h)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
       },
-      {
-        "id": 11,
-        "title": "Total Jobs Processed (24h)",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 40},
-        "targets": [
-          {
-            "expr": "sum(increase(analysis_jobs_total[24h]))",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "value",
-          "graphMode": "area",
-          "textMode": "value"
-        },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "decimals": 0
-          }
+      "description": "Total completed jobs over time.",
+      "targets": [
+        {
+          "expr": "increase(bullmq_jobs_completed[24h])",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
         }
-      },
-      {
-        "id": 12,
-        "title": "Avg Job Duration",
-        "type": "stat",
-        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 40},
-        "targets": [
-          {
-            "expr": "sum(rate(analysis_job_duration_seconds_sum[5m])) / sum(rate(analysis_job_duration_seconds_count[5m]))",
-            "refId": "A"
-          }
-        ],
-        "options": {
-          "colorMode": "value",
-          "graphMode": "area",
-          "textMode": "value"
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Jobs",
+          "show": true
         },
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "decimals": 1,
-            "thresholds": {
-              "mode": "absolute",
-              "steps": [
-                {"value": 0, "color": "green"},
-                {"value": 60, "color": "yellow"},
-                {"value": 180, "color": "red"}
-              ]
-            }
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Job Throughput (jobs/sec)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "description": "Rate of job completions. Higher is better.",
+      "targets": [
+        {
+          "expr": "sum(rate(analysis_jobs_total{status=\"success\"}[5m])) by (type)",
+          "legendFormat": "{{type}} (success)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(analysis_jobs_total{status=\"failed\"}[5m])) by (type)",
+          "legendFormat": "{{type}} (failed)",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "jobs/s",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Job Processing Duration (p95)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "description": "95th percentile job processing time by type.",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(analysis_job_duration_seconds_bucket[5m])) by (type, le))",
+          "legendFormat": "{{type}} p95",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "s",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ],
+      "thresholds": [
+        {
+          "value": 120,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Delayed Jobs",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "description": "Jobs scheduled to run in the future.",
+      "targets": [
+        {
+          "expr": "bullmq_jobs_delayed",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Jobs",
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Stalled Jobs",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "description": "Jobs stuck in active state. May require manual cleanup.",
+      "targets": [
+        {
+          "expr": "bullmq_jobs_stalled",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "yellow"
+              },
+              {
+                "value": 5,
+                "color": "red"
+              }
+            ]
           }
         }
       }
-    ]
-  }
+    },
+    {
+      "id": 9,
+      "title": "Queue Status Overview",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "description": "Current state of all queues at a glance.",
+      "targets": [
+        {
+          "expr": "bullmq_jobs_waiting",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "bullmq_jobs_active",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "bullmq_jobs_failed",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "expr": "bullmq_jobs_completed",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        },
+        {
+          "expr": "bullmq_jobs_delayed",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "queue": "Queue",
+              "Value #A": "Waiting",
+              "Value #B": "Active",
+              "Value #C": "Failed",
+              "Value #D": "Completed",
+              "Value #E": "Delayed"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "value": 0,
+                      "color": "green"
+                    },
+                    {
+                      "value": 5,
+                      "color": "yellow"
+                    },
+                    {
+                      "value": 20,
+                      "color": "red"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Waiting"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "value": 0,
+                      "color": "green"
+                    },
+                    {
+                      "value": 50,
+                      "color": "yellow"
+                    },
+                    {
+                      "value": 200,
+                      "color": "red"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "title": "Job Success Rate %",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 40
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(analysis_jobs_total{status=\"success\"}[5m])) / sum(rate(analysis_jobs_total[5m])) * 100",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "red"
+              },
+              {
+                "value": 95,
+                "color": "yellow"
+              },
+              {
+                "value": 99,
+                "color": "green"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Total Jobs Processed (24h)",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 40
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(analysis_jobs_total[24h]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Avg Job Duration",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 40
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(analysis_job_duration_seconds_sum[5m])) / sum(rate(analysis_job_duration_seconds_count[5m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": 0,
+                "color": "green"
+              },
+              {
+                "value": 60,
+                "color": "yellow"
+              },
+              {
+                "value": 180,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
 }
