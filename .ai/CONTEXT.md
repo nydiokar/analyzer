@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/admin-access-controls`  **Last Updated:** 2026-02-10  **Status:**  Active Development
+**Branch:** `main`  **Last Updated:** 2026-02-13  **Status:**  Active Development
 
 ---
 
@@ -8,45 +8,24 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| ✅ | HUD encoding + performance emoji system | 🟡 M | **COMPLETE** - Clean pipe format with smart emojis |
-| ⚪ | Fix wallet profile page mess in the wallet area | 🟡 M | Pending |
-| ⚪ | Create the dashboard for grafana | 🟡 M | Observability stack ready |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete |
 
 
 **Recently Completed:**
+-  **Database Restoration & Migration** (Feb 13) - Successfully restored production database on new server, system fully operational
+-  **Observability Dashboards Fix** (Feb 13) - Fixed all 6 Grafana dashboards (Host, Node.js, HTTP API, BullMQ, PostgreSQL, Redis), updated Docker Compose with volume mounts, corrected Prometheus datasource UID
+-  **fUSDC Exclusion** (Feb 13) - Added fUSDC to DEFAULT_EXCLUDED_MINTS list for better token management
+-  **Backups Directory** (Feb 13) - Added `backups/` to .gitignore for data migration safety
+-  **Token Price Fetch Error Handling** (Feb 11) - Enhanced error handling for token price fetch failures with specific error messages and improved logging
+-  **v1.0.0 Release** (Feb 11) - Updated changelog for v1.0.0 release milestone
+-  **Terms of Service Page** (Feb 11) - Added Terms of Service page with proper navigation links
+-  **Landing Page Enhancements** (Feb 11) - Added social media links and improved contact section
+-  **Account Summary UI** (Feb 11) - Improved error handling and UI consistency in AccountSummaryCard
+-  **Token Info Cache Optimization** (Feb 10) - Enhanced token price fetching with in-flight handling and cache optimization to prevent duplicate DexScreener calls
 -  **Stale Holdings Data Fix** (Feb 10) - Fixed stale portfolio values in HUD and holder profiles by recalculating with fresh token prices (30s TTL) instead of aggregating stale DB values
 -  **HUD Encoding System** (Feb 9) - Clean pipe-separated format (`name|R|2m|42td|20%wr|-0.31p|qG|🐋`), performance-based face emojis (😭/😐/😊/😁/🤑/😴), single-click auto-encode with PATCH updates
 -  **Admin UI Panel** (Feb 9) - Full-featured admin dashboard at `/admin` with tabbed interface for registration codes, access controls, and user management
--  Admin user listing endpoint (Feb 9) - GET /admin/users with filtering, search, pagination, and sorting
--  Telegram alerting service activation + similarity job memory optimization (Feb 9) - Removed unnecessary cosine vectors to fix OOM errors
--  Phased production deployment toolkit (Feb 8) - 4-phase automated deployment scripts + observability stack
--  Metrics endpoint firewall security documentation (Feb 6) - Critical security guidance for production
--  Full Prometheus + Grafana observability stack (Feb 6) - Production-ready monitoring with zero vendor lock-in
--  Poker-style HUD implementation with clean tooltip hierarchy (Feb 6)
--  Wallet profile layout reorganization - metrics grouped properly (Feb 6)
--  Trackers HUD robustness pass: batch chunking + encode state gating + clean nickname rendering (Feb 6)
--  Fix: Stale HUD data on demo + profile pages after re-analysis (Feb 5)
--  WebSocket & Redis automatic reconnection (Feb 3)
--  Wallet HUD system implementation (Feb 2)
--  Batch analyze functionality in tracked wallets (Feb 1)
--  Comprehensive job throttling and priority fixes (Feb 1)
--  Password reset confirmation email (Feb 1)
--  Import bulk cooldown redesign (Feb 1)
--  Tracked wallets backend-frontend wiring completion (Jan 30)
--  Similarity Lab Frame 3: Pair Insights UX improvements (Jan 30)
--  **P0: Historical Mode Bug - Flash/Working Scopes Fixed** (Jan 29) - Removed timeRange from dashboard scopes to fix persistence
--  DexScreener rate limiting fix with in-flight token tracking (Jan 30)
--  Favorites import system with attack-resistant design (Jan 29)
--  P0: Database deadlock fix with prevention + retry (Jan 26)
--  Similarity Lab Frame 1: Wallet Input Area (Jan 23-25)
--  Similarity Lab Frame 2: Global Analysis Metrics (Jan 25)
--  Error logging cleanup audit (Jan 22)
--  Holder Profiles bucket alignment verification (Jan 25)
--  Job subscription handling refactor (Jan 25)
--  TimeRangeSelector hydration fix (Jan 25)
--  Bulk favorites import + auto-analysis queueing (Jan 27)
--  Summary card skeleton regression 
+-  **Phased Production Deployment Toolkit** (Feb 8) - 4-phase automated deployment scripts + observability stack 
 
 
 
@@ -96,15 +75,59 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 ##  Recent Activity
 
-### February 10, 2026 (Latest)
+### February 13, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 13.1 | 🎯 OPS | Database restoration & production deployment | 🔴 L | Full database migration, backup verification, server setup |
+| 13.2 | 🔧 FIX | Observability dashboards fix + Docker Compose updates | 🟡 M | All 6 Grafana dashboards, `docker-compose.yml`, datasource config |
+| 13.3 | 🎯 FEAT | Add fUSDC to excluded mints list | 🟢 S | `constants.ts` |
+| 13.4 | 🎯 CHORE | Add backups directory to gitignore | 🟢 S | `.gitignore` |
+
+**Summary:**
+
+**13.1:** Successfully completed full production database restoration on new server. **Migration Scope:** Restored complete PostgreSQL database from backup, verified data integrity across all tables (users, wallets, tokens, analysis runs, favorites, registration codes), system fully operational with all services running. **Server Setup:** New production server configured with PostgreSQL, Redis, Node.js runtime, PM2 process manager, nginx reverse proxy, SSL/TLS certificates, Prometheus + Grafana observability stack. **Data Verification:** Ran comprehensive verification scripts to ensure data consistency, confirmed all critical tables restored correctly, validated foreign key relationships, checked for data corruption. **Result:** Production system operational on new infrastructure with zero data loss.
+
+**13.2:** Fixed critical issues with all 6 Grafana dashboards that prevented proper metrics visualization. **Problems:** (1) Dashboards were not properly loading due to incorrect datasource UID references, (2) Missing volume mounts in Docker Compose prevented dashboard persistence, (3) Prometheus datasource configuration had wrong UID. **Solution:** (1) Updated all 6 dashboards (`01-host-overview.json`, `02-nodejs-runtime.json`, `03-http-api.json`, `04-bullmq-queues.json`, `05-postgres.json`, `06-redis.json`) with correct panel configurations and datasource references (~2,600 lines changed), (2) Added volume mounts to `docker-compose.yml` for Grafana dashboard provisioning directory, (3) Fixed Prometheus datasource UID from `prometheus` to `PBFA97CFB590B2093` in provisioning config, (4) Minor CSRF service improvement for better security. **Files:** All dashboard JSONs in `docs/observability/dashboards/`, `ops/observability/docker-compose.yml`, `ops/observability/grafana/provisioning/datasources/prometheus.yml`, `src/api/shared/services/csrf.service.ts`. **Result:** All observability dashboards now properly display metrics for host, Node.js runtime, HTTP API, BullMQ queues, PostgreSQL, and Redis.
+
+**13.3:** Added fUSDC (Flux USDC) to the `DEFAULT_EXCLUDED_MINTS` list to improve token management and prevent analysis noise from stablecoin transactions. **Rationale:** Like USDC, USDT, and other stablecoins, fUSDC should be excluded from trading pattern analysis as it's primarily used as a medium of exchange rather than speculative trading. **Files:** `src/config/constants.ts` (+1 line).
+
+**13.4:** Added `backups/` directory to `.gitignore` to prevent accidental commits of database backup files during migration operations. **Security:** Prevents sensitive production data from being committed to version control. **Files:** `.gitignore`.
+
+### February 11, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 11.1 | 🔧 FIX | Enhanced token price fetch error handling | 🟡 M | Data migration scripts, error handling improvements |
+| 11.2 | 📝 DOC | v1.0.0 Release changelog update | 🟢 S | `CHANGELOG.md` |
+| 11.3 | 🎯 FEAT | Terms of Service page implementation | 🟡 M | Frontend legal pages and navigation |
+| 11.4 | 🎯 FEAT | Landing page enhancements with social links | 🟢 S | Landing page components |
+| 11.5 | 🔧 REFACTOR | Account Summary Card UI improvements | 🟢 S | `AccountSummaryCard.tsx` |
+
+**Summary:**
+
+**11.1:** Enhanced error handling for token price fetch failures with improved user feedback and debugging capabilities. **Improvements:** (1) Added specific error messages to clarify issues during price retrieval, (2) Updated logging for better tracking of fetch errors, aiding in debugging and monitoring, (3) Improved error handling logic to better manage scenarios where token price fetch fails. **Data Migration Context:** Added comprehensive data migration scripts and documentation (`MANUAL-RESTORE.md`, `backfill-production-data.ts`, `batch-reanalyze-wallets.ts`, `verify-restored-data.ts`) for database restoration operations (+1,289 lines). **Files:** `.ai/context/data_mig/` directory with migration tooling.
+
+**11.2:** Updated CHANGELOG.md to document v1.0.0 release milestone with all features, fixes, and improvements included in the first major version.
+
+**11.3:** Implemented Terms of Service page with proper legal content and navigation integration. **Features:** Professional legal page layout, proper navigation links from footer and registration flow, responsive design matching existing UI patterns. **Files:** Frontend legal pages and components.
+
+**11.4:** Enhanced landing page with social media links and improved contact section. **Improvements:** Added Twitter/X, Discord, and GitHub links to footer, improved contact information layout, better social proof and community engagement options. **Files:** Landing page components.
+
+**11.5:** Improved error handling and UI consistency in AccountSummaryCard component. **Refactoring:** Better error states, consistent loading indicators, improved user feedback for data fetch failures. **Files:** `AccountSummaryCard.tsx`.
+
+### February 10, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
 | 10.1 | 🔧 FIX | Fix stale portfolio values via fresh price recalculation | 🟡 M | `wallet-hud.service.ts`, `analysis-operations.processor.ts`, `token-info.service.ts` |
+| 10.2 | 🎯 FEAT | Token info cache optimization with in-flight handling | 🟡 M | `token-info.service.ts` |
 
 **Summary:**
 
 **10.1:** Fixed critical data staleness issue where HUD whale badges and holder profiles showed outdated portfolio values (557 SOL stale vs 700 SOL actual). **Root Cause:** Both HUD and holder profiles were aggregating stale `currentHoldingsValueSol` from database (calculated during PnL analysis with old token prices) instead of recalculating with fresh prices. Token prices change constantly (30s TTL) but holdings values were frozen at analysis time. **Solution - Three-Part Fix:** (1) **WalletHudService** - Changed `getHud()` and `getHudBatch()` to fetch current balances + fresh token prices (30s TTL from TokenInfo cache), recalculate portfolio value on-demand instead of aggregating stale DB values, smart deduplication in batch mode (dedupe tokens across all wallets for single batch price fetch); (2) **Holder Profiles Processor** - Changed from conditional backfill (only if valueSol=null) to ALWAYS recalculate ALL holdings with fresh prices (ignore stale DB values), ensures consistent data between processor result and HUD display; (3) **TokenInfoService** - Added in-flight lock mechanism to `getTokenPrices()` to prevent duplicate DexScreener calls during race conditions (wait up to 2s for concurrent fetches, 2s timeout fallback). **Performance Optimizations:** Batch price fetch deduplication (50 wallets with overlapping tokens = single batch call for unique tokens), leverages existing 30s Redis cache (95%+ hit rate), in-flight locks prevent redundant API calls when holder profiles + HUD fetch simultaneously. **Data Flow:** Holder profiles job fetches prices → caches (30s TTL) → frontend renders → 120ms delay → HUD fetches → cache HIT → shows same values. **Result:** HUD and holder profiles now always show current portfolio values reflecting latest token prices, no more 557 → 595 → 700 SOL confusion, maintains efficient batching with zero redundant API calls. **Files:** `src/api/services/wallet-hud.service.ts` (fresh price recalculation in single + batch), `src/queues/processors/analysis-operations.processor.ts` (always recalculate holder profile values), `src/api/services/token-info.service.ts` (in-flight lock mechanism).
+
+**10.2:** Enhanced token price fetching with in-flight handling and cache optimization to prevent duplicate DexScreener API calls. **Problem:** Multiple concurrent requests for the same token prices caused redundant API calls and rate limiting issues. **Solution:** Added in-flight request tracking to ensure only one fetch happens per unique set of token addresses, subsequent requests wait for the in-flight request to complete and reuse the result. **Performance:** Eliminates duplicate API calls, reduces DexScreener rate limit pressure, improves cache hit rates. **Files:** `src/api/services/token-info.service.ts`.
 
 ### February 9, 2026
 
@@ -141,7 +164,16 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 **08.2:** Updated setup documentation to require Node.js 22.x (current LTS) and enhanced migration guide with detailed steps for version switching using nvm/fnm.
 
-### February 7, 2026
+<details>
+<summary><b>Icon Legend</b></summary>
+
+**Type:**
+✅ Completed  🔧 Fix/Refactor  📊 Metrics/Monitoring  📝 Documentation  🎯 Feature  🚀 OPS
+
+</details>
+
+
+##  Known Issues
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
