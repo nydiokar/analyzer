@@ -32,6 +32,7 @@ export const DEFAULT_EXCLUDED_MINTS = [
   '9gP2kCy3wA1ctvYWQk75guqXuHfrEomqydHLtcTCqiLa', // Wrapped BNB (Wormhole)
   'AR1Mtgh7zAtxuxGd2XPovXPVjcSdY3i4rQYisNadjfKy', // Wrapped SUSHI (Sollet)
   'JEFFSQ3s8T3wKsvp4tnRASUBW7Cqgnf8ukBZC4C8XBm1', // Saber Wrapped USD Coin (9 decimals)
+  '9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D', // fUSDC
 ];
 
 // Define specific program IDs
