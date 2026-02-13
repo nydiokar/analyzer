@@ -1578,7 +1578,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
   }
   if (mappingStats.feeSelfHealingTriggered > 0) {
     const examples = feeSelfHealingExamples.length > 0 ? ` Examples: ${feeSelfHealingExamples.join(' | ')}` : '';
-    logger.debug(`Self-healing fee guard triggered ${mappingStats.feeSelfHealingTriggered}x for ${walletAddress}.${examples}`);
+    // logger.debug(`Self-healing fee guard triggered ${mappingStats.feeSelfHealingTriggered}x for ${walletAddress}.${examples}`);
   }
   // --- End Log Final Stats ---
 
