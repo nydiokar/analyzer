@@ -1,5 +1,6 @@
 import globals from "globals";
 import pluginReact from "eslint-plugin-react";
+import pluginReactHooks from "eslint-plugin-react-hooks";
 import nextPlugin from "@next/eslint-plugin-next";
 import tseslint from "typescript-eslint";
 
@@ -12,6 +13,7 @@ export default [
     files: ["**/*.{js,mjs,cjs,jsx,mjsx,ts,tsx,mtsx}"],
     plugins: {
       react: pluginReact,
+      'react-hooks': pluginReactHooks,
       '@next/next': nextPlugin,
       '@typescript-eslint': tseslint.plugin,
     },
@@ -42,6 +44,8 @@ export default [
         "@typescript-eslint/no-explicit-any": "off",
         "react/no-unescaped-entities": "warn",
         "prefer-const": "warn",
+        "react-hooks/rules-of-hooks": "warn",
+        "react-hooks/exhaustive-deps": "warn",
     },
   },
 ]; 

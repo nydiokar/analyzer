@@ -90,7 +90,8 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
     }, [commonTokens]);
     const { data: hudData } = useBatchWalletHud(allWalletAddresses, { enabled: allWalletAddresses.length > 0 });
 
-    
+    const [expandedTokens, setExpandedTokens] = useState<Set<string>>(new Set());
+
     if (commonTokens.length === 0) {
         return (
             <Card className="border">
@@ -104,8 +105,6 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
             </Card>
         );
     }
-    
-    const [expandedTokens, setExpandedTokens] = useState<Set<string>>(new Set());
 
     const toggleToken = (mint: string) => {
         const newExpanded = new Set(expandedTokens);

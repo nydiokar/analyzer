@@ -492,48 +492,16 @@ interface PairDetailProps {
 
 // Enhanced PairDetail with context and tooltips
 const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoading }: PairDetailProps & { sortKey: SortKey; setSortKey: (key: SortKey) => void; isLoading?: boolean }) => {
-  if (isLoading) {
-    return <PairDetailSkeleton />;
-  }
+  // State to track expanded groups - moved before early returns
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['major'])); // Major expanded by default
 
-  if (!processedPair) {
-    return (
-      <div className="flex flex-col items-center justify-center h-96 border-2 border-dashed border-border rounded-lg">
-        <div className="p-4 rounded-full bg-muted mb-4">
-          <Users2 className="h-8 w-8 text-muted-foreground" />
-        </div>
-        <h3 className="text-lg font-semibold mb-2">Select a Wallet Pair</h3>
-        <p className="text-muted-foreground text-center max-w-sm text-sm">
-          Choose a wallet pair from the list to view detailed similarity analysis and shared token breakdown.
-        </p>
-      </div>
-    );
-  }
+  // Compute hooks with safe fallback values - moved before early returns
+  const pair = processedPair?.pair;
+  const sharedTokens = pair?.sharedTokens || [];
+  const capitalAllocation = pair?.capitalAllocation;
+  const walletATotalValue = pair ? (results.walletBalances?.[pair.walletA]?.totalValueUsd ?? 0) : 0;
+  const walletBTotalValue = pair ? (results.walletBalances?.[pair.walletB]?.totalValueUsd ?? 0) : 0;
 
-  const { insight, pair } = processedPair;
-  const { binaryScore, capitalScore, sharedTokens, capitalAllocation, binarySharedTokenCount, capitalSharedTokenCount } = pair;
-  
-  const labelA = results.walletLabels?.[pair.walletA];
-  const labelB = results.walletLabels?.[pair.walletB];
-  
-  const overallScore = calculateOverallScore(binaryScore, capitalScore);
-  const overallScoreInfo = getScoreLevel(overallScore);
-  const binaryScoreInfo = getScoreLevel(binaryScore);
-  const capitalScoreInfo = getScoreLevel(capitalScore);
-
-  // Get total token counts for context
-  const totalBinaryTokensA = results.uniqueTokensPerWallet[pair.walletA]?.binary ?? 0;
-  const totalBinaryTokensB = results.uniqueTokensPerWallet[pair.walletB]?.binary ?? 0;
-  const totalCapitalTokensA = results.uniqueTokensPerWallet[pair.walletA]?.capital ?? 0;
-  const totalCapitalTokensB = results.uniqueTokensPerWallet[pair.walletB]?.capital ?? 0;
-
-  const sharedBehavioralPctA = totalBinaryTokensA > 0 ? (binarySharedTokenCount / totalBinaryTokensA) * 100 : 0;
-  const sharedBehavioralPctB = totalBinaryTokensB > 0 ? (binarySharedTokenCount / totalBinaryTokensB) * 100 : 0;
-  
-  // Calculate total unique tokens (union) between both wallets
-  const totalUniqueBinaryTokens = totalBinaryTokensA + totalBinaryTokensB - binarySharedTokenCount;
-  const totalUniqueCapitalTokens = totalCapitalTokensA + totalCapitalTokensB - capitalSharedTokenCount;
-  
   const { capitalOverlapPctA, capitalOverlapPctB } = useMemo(() => {
     let capitalOverlapA = 0;
     let capitalOverlapB = 0;
@@ -550,14 +518,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
       capitalOverlapPctA: Math.min(capitalOverlapA * 100, 100),
       capitalOverlapPctB: Math.min(capitalOverlapB * 100, 100)
     };
-  }, [sharedTokens.length, capitalAllocation]);
-
-  // Generate realistic insight text
-  const realisticInsight = generateRealisticInsight(pair, overallScore);
-
-  // Get wallet total values for calculating USD amounts
-  const walletATotalValue = results.walletBalances?.[pair.walletA]?.totalValueUsd ?? 0;
-  const walletBTotalValue = results.walletBalances?.[pair.walletB]?.totalValueUsd ?? 0;
+  }, [sharedTokens, capitalAllocation]);
 
   // Process and group tokens by significance
   const { majorHoldings, meaningfulHoldings, minorHoldings } = useMemo(() => {
@@ -604,6 +565,52 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
     };
   }, [sharedTokens, capitalAllocation, sortKey, walletATotalValue, walletBTotalValue, results.walletBalances]);
 
+  // Early returns AFTER all hooks
+  if (isLoading) {
+    return <PairDetailSkeleton />;
+  }
+
+  if (!processedPair) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 border-2 border-dashed border-border rounded-lg">
+        <div className="p-4 rounded-full bg-muted mb-4">
+          <Users2 className="h-8 w-8 text-muted-foreground" />
+        </div>
+        <h3 className="text-lg font-semibold mb-2">Select a Wallet Pair</h3>
+        <p className="text-muted-foreground text-center max-w-sm text-sm">
+          Choose a wallet pair from the list to view detailed similarity analysis and shared token breakdown.
+        </p>
+      </div>
+    );
+  }
+
+  const { insight } = processedPair;
+  const { binaryScore, capitalScore, binarySharedTokenCount, capitalSharedTokenCount } = pair!;
+
+  const labelA = results.walletLabels?.[pair!.walletA];
+  const labelB = results.walletLabels?.[pair!.walletB];
+
+  const overallScore = calculateOverallScore(binaryScore, capitalScore);
+  const overallScoreInfo = getScoreLevel(overallScore);
+  const binaryScoreInfo = getScoreLevel(binaryScore);
+  const capitalScoreInfo = getScoreLevel(capitalScore);
+
+  // Get total token counts for context
+  const totalBinaryTokensA = results.uniqueTokensPerWallet[pair!.walletA]?.binary ?? 0;
+  const totalBinaryTokensB = results.uniqueTokensPerWallet[pair!.walletB]?.binary ?? 0;
+  const totalCapitalTokensA = results.uniqueTokensPerWallet[pair!.walletA]?.capital ?? 0;
+  const totalCapitalTokensB = results.uniqueTokensPerWallet[pair!.walletB]?.capital ?? 0;
+
+  const sharedBehavioralPctA = totalBinaryTokensA > 0 ? (binarySharedTokenCount / totalBinaryTokensA) * 100 : 0;
+  const sharedBehavioralPctB = totalBinaryTokensB > 0 ? (binarySharedTokenCount / totalBinaryTokensB) * 100 : 0;
+
+  // Calculate total unique tokens (union) between both wallets
+  const totalUniqueBinaryTokens = totalBinaryTokensA + totalBinaryTokensB - binarySharedTokenCount;
+  const totalUniqueCapitalTokens = totalCapitalTokensA + totalCapitalTokensB - capitalSharedTokenCount;
+
+  // Generate realistic insight text
+  const realisticInsight = generateRealisticInsight(pair!, overallScore);
+
   // Helper to format USD values
   const formatUSD = (value: number) => {
     if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
@@ -612,9 +619,6 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
     if (value > 0) return `$${value.toFixed(2)}`;
     return null; // Return null for zero values instead of "$0.00"
   };
-
-  // State to track expanded groups
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['major'])); // Major expanded by default
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups(prev => {
@@ -819,7 +823,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs max-w-xs">
                   <WalletBadge
-                    address={pair.walletA}
+                    address={pair!.walletA}
                     size="s"
                     knownType={labelA?.knownType}
                     knownLabel={labelA?.knownLabel}
@@ -833,7 +837,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs max-w-xs">
                   <WalletBadge
-                    address={pair.walletB}
+                    address={pair!.walletB}
                     size="s"
                     knownType={labelB?.knownType}
                     knownLabel={labelB?.knownLabel}

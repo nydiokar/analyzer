@@ -76,6 +76,10 @@ export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefre
   // const [tokenValues, setTokenValues] = useState<Record<string, number | null>>({});
   // const [isLoading, setIsLoading] = useState(true);
 
+  // Use useCallback for functions passed as props to memoized components
+  const memoizedFormatUsdValue = useCallback(formatUsdValue, []);
+  const memoizedTruncateAddress = useCallback(truncateAddress, []);
+
   if (!balancesSource) {
     return (
       <Card>
@@ -92,10 +96,6 @@ export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefre
   const walletAddresses = Object.keys(balancesSource);
 
   const areBalancesLoading = !balancesSource || Object.keys(balancesSource).length === 0;
-
-  // Use useCallback for functions passed as props to memoized components
-  const memoizedFormatUsdValue = useCallback(formatUsdValue, []);
-  const memoizedTruncateAddress = useCallback(truncateAddress, []);
 
   return (
     <Card>

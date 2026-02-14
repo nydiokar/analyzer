@@ -22,13 +22,13 @@ export function ClusterIndicator({
   selectedClusterId,
   onClusterSelect,
 }: Props) {
-  // Only show if there are clusters
-  if (clusters.length === 0) return null;
-
   const totalWalletsInClusters = useMemo(
     () => clusters.reduce((sum, c) => sum + c.wallets.length, 0),
     [clusters]
   );
+
+  // Only show if there are clusters
+  if (clusters.length === 0) return null;
 
   return (
     <TooltipProvider delayDuration={200}>
