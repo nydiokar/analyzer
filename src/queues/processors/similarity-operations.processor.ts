@@ -253,21 +253,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       // STEP 3.5: Use only valid wallets that have balances for similarity calculation
       const validWalletsWithBalances = finalWalletsToAnalyze.filter(address => actualWalletBalances[address]);
       this.logger.log(`Using valid wallets for similarity calculation: ${validWalletsWithBalances.length} wallets`);
-
-      // STEP 3.6: Verify all wallets have transaction data before similarity analysis
-      if (validWalletsWithBalances.length >= 2) {
-        try {
-          const transactionData = await this.databaseService.getTransactionsForAnalysis(validWalletsWithBalances, { excludedMints: [] });
-          const walletsWithData = Object.keys(transactionData).filter(addr => transactionData[addr]?.length > 0);
-          if (walletsWithData.length < 2) {
-            throw new Error(`Insufficient valid wallets for similarity analysis. Only ${walletsWithData.length} wallets have transaction data out of ${validWalletsWithBalances.length} wallets with balances.`);
-          }
-          this.logger.log(`Verified ${walletsWithData.length} wallets have transaction data for similarity analysis`);
-        } catch (error: any) {
-          this.logger.error(`Error verifying transaction data: ${getErrorMessage(error)}`);
-          throw new Error(`Failed to verify transaction data for similarity analysis: ${error.message || 'Unknown error'}`);
-        }
-      } else {
+      if (validWalletsWithBalances.length < 2) {
         throw new Error(`Insufficient valid wallets for similarity analysis. Need at least 2 wallets, got ${validWalletsWithBalances.length}.`);
       }
 

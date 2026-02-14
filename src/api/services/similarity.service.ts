@@ -75,17 +75,25 @@ export class SimilarityApiService {
             }
             
             const transactionData = await this.databaseService.getTransactionsForAnalysis(dto.walletAddresses, config);
-            if (!transactionData || Object.keys(transactionData).length < 2) {
+            const walletsWithData = Object.keys(transactionData).filter(w => (transactionData[w]?.length || 0) > 0);
+            if (walletsWithData.length < 2) {
                 throw new UnprocessableEntityException('Insufficient valid wallets for similarity analysis. Some wallets may be invalid or have no transaction data.');
             }
 
-            // Kick off the core analysis with shared transaction data.
-            const analysisPromise = Promise.all([
-                similarityAnalyzer.calculateWalletSimilarityFromTransactions(transactionData, 'binary', balancesMap, { includeVectors }),
-                similarityAnalyzer.calculateWalletSimilarityFromTransactions(transactionData, 'capital', balancesMap, { includeVectors })
-            ]);
-            
-            const [binaryResults, capitalResults] = await analysisPromise;
+            // Run sequentially to reduce peak heap and to allow SimilarityService internal memoization
+            // (binary + capital share expensive vectorType-independent computations).
+            const binaryResults = await similarityAnalyzer.calculateWalletSimilarityFromTransactions(
+                transactionData,
+                'binary',
+                balancesMap,
+                { includeVectors }
+            );
+            const capitalResults = await similarityAnalyzer.calculateWalletSimilarityFromTransactions(
+                transactionData,
+                'capital',
+                balancesMap,
+                { includeVectors }
+            );
             
             if (!binaryResults || !capitalResults) {
                 throw new UnprocessableEntityException('Insufficient valid wallets for similarity analysis. Some wallets may be invalid or have no transaction data.');

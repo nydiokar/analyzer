@@ -16,7 +16,7 @@
     "clean": "rimraf dist logs",
     "build:watch": "tsc --watch",
     "verify": "tsc --noEmit",
-    "test:unit": "node --test -r ts-node/register -r tsconfig-paths/register src/core/services/helius-api-client.v2.test.ts src/core/services/helius-transaction-mapper.test.ts",
+    "test:unit": "node --test -r ts-node/register -r tsconfig-paths/register src/core/services/helius-sync-service.leak.test.ts src/core/services/helius-transaction-mapper.test.ts src/api/services/similarity.service.test.ts",
     "test:cache": "npx ts-node -r tsconfig-paths/register src/scripts/test-holder-profiles-cache.ts",
     "analyze": "npx ts-node -r tsconfig-paths/register src/scripts/helius-analyzer.ts",
     "similarity": "npx ts-node -r tsconfig-paths/register src/scripts/activityCorrelator.ts",

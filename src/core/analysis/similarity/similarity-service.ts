@@ -23,6 +23,23 @@ export class SimilarityService {
   private similarityAnalyzer: SimilarityAnalyzer;
   private config: SimilarityAnalysisConfig; // Store specific config
 
+  // Cache expensive, vectorType-independent computations across two sequential calls
+  // on the same SimilarityService instance (binary + capital).
+  private memo:
+    | {
+        txRef: Record<string, TransactionData[]>;
+        balancesRef?: Map<string, WalletBalance>;
+        walletsKey: string;
+        sharedTokenDetailsInternal: SharedTokenInfoInternal[];
+        sharedTokenCountsMatrix: Record<string, Record<string, number>>;
+        analysisResultsByWallet: Map<string, any[]>;
+        jaccardSimilarityMatrix?: Record<string, Record<string, number>>;
+        holdingsPresenceJaccardMatrix?: Record<string, Record<string, number>>;
+        holdingsPresenceCosineMatrix?: Record<string, Record<string, number>>;
+        holdingsPresenceFilteredJaccardMatrix?: Record<string, Record<string, number>>;
+      }
+    | undefined;
+
   constructor(
     private databaseService: DatabaseService,
     config: SimilarityAnalysisConfig // Update constructor signature
@@ -83,41 +100,55 @@ export class SimilarityService {
         return null;
     }
 
-    // 2. Analyze Shared Tokens (used for counts matrix and report list)
-    const sharedTokenDetailsInternal = this.analyzeSharedTokensInternal(transactionData);
-    const fullSharedTokenListForReport = sharedTokenDetailsInternal.map(info => ({
-        mint: info.mint,
-        sharedByWallets: Array.from(info.sharedByWallets).sort(),
-        count: info.count,
-    }));
+    // Memoize shared / historical / holdings work across the binary+capital calls.
+    const walletsKey = walletsWithFetchedData.slice().sort().join(',');
+    const balancesRef = walletBalances;
 
-    // 3. Calculate Shared Token Pair Counts Matrix
-    const sharedTokenCountsMatrix = this.calculateWalletPairCounts(sharedTokenDetailsInternal, walletsWithFetchedData);
+    if (
+      !this.memo ||
+      this.memo.txRef !== transactionData ||
+      this.memo.balancesRef !== balancesRef ||
+      this.memo.walletsKey !== walletsKey
+    ) {
+    // 2. Analyze Shared Tokens (used for counts matrix)
+      const sharedTokenDetailsInternal = this.analyzeSharedTokensInternal(transactionData);
+      // 3. Calculate Shared Token Pair Counts Matrix
+      const sharedTokenCountsMatrix = this.calculateWalletPairCounts(sharedTokenDetailsInternal, walletsWithFetchedData);
+
+      // One batch DB query for all wallets (reused across primary/historical/holdings filtered).
+      const batchAnalysisResults = await this.databaseService.getAnalysisResults({
+        where: {
+          walletAddress: { in: walletsWithFetchedData },
+          totalFeesPaidInSol: { gt: 0 }, // Only tokens where wallet paid fees
+        },
+      });
+      const analysisResultsByWallet = new Map<string, typeof batchAnalysisResults>();
+      for (const result of batchAnalysisResults) {
+        const bucket = analysisResultsByWallet.get(result.walletAddress);
+        if (bucket) bucket.push(result);
+        else analysisResultsByWallet.set(result.walletAddress, [result]);
+      }
+
+      this.memo = {
+        txRef: transactionData,
+        balancesRef,
+        walletsKey,
+        sharedTokenDetailsInternal,
+        sharedTokenCountsMatrix,
+        analysisResultsByWallet: analysisResultsByWallet as any,
+      };
+    }
+
+    const sharedTokenDetailsInternal = this.memo.sharedTokenDetailsInternal;
+    const sharedTokenCountsMatrix = this.memo.sharedTokenCountsMatrix;
+    const analysisResultsByWallet = this.memo.analysisResultsByWallet;
 
     // 4. Calculate Primary Similarity (Cosine) based on vectorType
     const primaryRelevantMints = this.similarityAnalyzer['getAllRelevantMints'](transactionData, vectorType);
     let primaryVectors: Record<string, TokenVector> = {};
     let cosineSimilarityMatrix: Record<string, Record<string, number>> = {};
     
-    // 🚀 PERFORMANCE FIX: Batch database queries instead of individual calls
     const activelyTradedTokensByWalletPrimary = new Map<string, Set<string>>();
-    
-    // Single batch query for all wallets 
-    const batchAnalysisResults = await this.databaseService.getAnalysisResults({
-        where: { 
-            walletAddress: { in: walletsWithFetchedData },
-            totalFeesPaidInSol: { gt: 0 } // Only tokens where wallet paid fees
-        }
-    });
-    const analysisResultsByWallet = new Map<string, typeof batchAnalysisResults>();
-    for (const result of batchAnalysisResults) {
-        const bucket = analysisResultsByWallet.get(result.walletAddress);
-        if (bucket) {
-            bucket.push(result);
-        } else {
-            analysisResultsByWallet.set(result.walletAddress, [result]);
-        }
-    }
     
     // Group results by wallet address
     for (const walletAddr of walletsWithFetchedData) {
@@ -186,80 +217,47 @@ export class SimilarityService {
     );
 
     // 5. Calculate Jaccard Similarity Matrix (always uses binary vectors)
-    const binaryRelevantMints = this.similarityAnalyzer['getAllRelevantMints'](transactionData, 'binary');
-    let jaccardSimilarityMatrix: Record<string, Record<string, number>> = {};
-    logger.debug(`[Historical Similarity] Found ${binaryRelevantMints.length} relevant mints from transaction data`);
-    
-    if (binaryRelevantMints.length > 0) {
+    let jaccardSimilarityMatrix: Record<string, Record<string, number>> = this.memo.jaccardSimilarityMatrix || {};
+    if (!this.memo.jaccardSimilarityMatrix) {
+      const binaryRelevantMints = this.similarityAnalyzer['getAllRelevantMints'](transactionData, 'binary');
+      logger.debug(`[Historical Similarity] Found ${binaryRelevantMints.length} relevant mints from transaction data`);
+
+      if (binaryRelevantMints.length > 0) {
         const binaryVectors = this.similarityAnalyzer['createBinaryTokenVectors'](transactionData, binaryRelevantMints);
         const walletsWithBinaryVectors = walletsWithFetchedData.filter(addr => binaryVectors[addr]);
-        
-        // 🚀 PERFORMANCE FIX: Reuse batch results from primary query (avoid duplicate DB calls)
+
         const activelyTradedTokensByWallet = new Map<string, Set<string>>();
-        
         for (const walletAddr of walletsWithBinaryVectors) {
-            // Reuse the already-fetched batch results instead of querying again
-            const walletResults = analysisResultsByWallet.get(walletAddr) || [];
-            const activeTokens = new Set(walletResults.map(result => result.tokenAddress));
-            activelyTradedTokensByWallet.set(walletAddr, activeTokens);
-            // logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${walletResults.length} actively traded tokens (paid fees)`);
+          const walletResults = analysisResultsByWallet.get(walletAddr) || [];
+          activelyTradedTokensByWallet.set(walletAddr, new Set(walletResults.map(result => result.tokenAddress)));
         }
-        
-        // Filter binaryRelevantMints to only include tokens actively traded by at least one wallet
+
         const allHistoricalActivelyTradedMints = new Set<string>();
         for (const tokenSet of activelyTradedTokensByWallet.values()) {
-            for (const mint of tokenSet) {
-                allHistoricalActivelyTradedMints.add(mint);
-            }
+          for (const mint of tokenSet) allHistoricalActivelyTradedMints.add(mint);
         }
-        const filteredHistoricalMints = binaryRelevantMints.filter(mint => {
-            return allHistoricalActivelyTradedMints.has(mint);
-        });
-        
-        // logger.debug(`[Historical Filtered] Filtered from ${binaryRelevantMints.length} to ${filteredHistoricalMints.length} tokens (excluding passive interactions)`);
-        
+        const filteredHistoricalMints = binaryRelevantMints.filter(mint => allHistoricalActivelyTradedMints.has(mint));
+
         if (filteredHistoricalMints.length > 0) {
-            // Create filtered binary vectors using only actively traded tokens
-            const filteredBinaryVectors: Record<string, TokenVector> = {};
-            const filteredHistoricalMintSet = new Set(filteredHistoricalMints);
-            for (const walletAddr of walletsWithBinaryVectors) {
-                filteredBinaryVectors[walletAddr] = {};
-                const activeTokens = activelyTradedTokensByWallet.get(walletAddr) || new Set();
-                
-                for (const mint of activeTokens) {
-                    if (filteredHistoricalMintSet.has(mint)) {
-                        filteredBinaryVectors[walletAddr][mint] = 1;
-                    }
-                }
-                
-                const activeCount = Object.values(filteredBinaryVectors[walletAddr]).filter(v => v === 1).length;
-               //  logger.debug(`[Historical Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${activeCount} actively traded out of ${filteredHistoricalMints.length} total`);
+          const filteredBinaryVectors: Record<string, TokenVector> = {};
+          const filteredHistoricalMintSet = new Set(filteredHistoricalMints);
+          for (const walletAddr of walletsWithBinaryVectors) {
+            filteredBinaryVectors[walletAddr] = {};
+            const activeTokens = activelyTradedTokensByWallet.get(walletAddr) || new Set();
+            for (const mint of activeTokens) {
+              if (filteredHistoricalMintSet.has(mint)) filteredBinaryVectors[walletAddr][mint] = 1;
             }
-            
-            // Calculate Jaccard similarity matrix manually since the method is private
-            jaccardSimilarityMatrix = this.calculateJaccardSimilarityMatrix(filteredBinaryVectors, walletsWithBinaryVectors);
-            
-            // DEBUG: Log the actual similarity calculation
-            for (const wallet1 of walletsWithBinaryVectors) {
-                for (const wallet2 of walletsWithBinaryVectors) {
-                    if (wallet1 !== wallet2 && jaccardSimilarityMatrix[wallet1] && jaccardSimilarityMatrix[wallet1][wallet2] !== undefined) {
-                        const similarity = jaccardSimilarityMatrix[wallet1][wallet2];
-                        const wallet1Tokens = Object.values(filteredBinaryVectors[wallet1]).filter(v => v === 1).length;
-                        const wallet2Tokens = Object.values(filteredBinaryVectors[wallet2]).filter(v => v === 1).length;
-                       //  logger.info(`[Historical Filtered Similarity] ${wallet1.slice(0, 8)}...${wallet1.slice(-4)} ↔ ${wallet2.slice(0, 8)}...${wallet2.slice(-4)}: ${(similarity * 100).toFixed(1)}% (actively traded tokens)`);
-                    }
-                }
-            }
+          }
+          jaccardSimilarityMatrix = this.calculateJaccardSimilarityMatrix(filteredBinaryVectors, walletsWithBinaryVectors);
         } else {
-            logger.warn('[Historical Filtered] No actively traded tokens found after filtering. Skipping historical similarity.');
+          logger.warn('[Historical Filtered] No actively traded tokens found after filtering. Skipping historical similarity.');
         }
-        
-        // DEBUG: Log the actual vectors for historical trading
-        // logger.debug(`[Historical Debug] Wallets with binary vectors: ${walletsWithBinaryVectors.length}`);
-    } else {
+      } else {
         logger.warn('No relevant mints for binary vectors. Jaccard matrix will be empty.');
-        // Initialize empty matrix structure
-        for (const addr of walletsWithFetchedData) { jaccardSimilarityMatrix[addr] = {}; }
+        for (const addr of walletsWithFetchedData) jaccardSimilarityMatrix[addr] = {};
+      }
+
+      this.memo.jaccardSimilarityMatrix = jaccardSimilarityMatrix;
     }
 
     // 6. Combine all results
@@ -282,6 +280,14 @@ export class SimilarityService {
 
     // ---- NEW: Calculate Similarity based on Current Holdings ----
     if (walletBalances && walletBalances.size >= 2) {
+        // VectorType-independent. Cache across binary+capital calls.
+        if (this.memo.holdingsPresenceJaccardMatrix && this.memo.holdingsPresenceCosineMatrix) {
+            finalResult.holdingsPresenceJaccardMatrix = this.memo.holdingsPresenceJaccardMatrix;
+            finalResult.holdingsPresenceCosineMatrix = this.memo.holdingsPresenceCosineMatrix;
+            if (this.memo.holdingsPresenceFilteredJaccardMatrix) {
+                finalResult['holdingsPresenceFilteredJaccardMatrix'] = this.memo.holdingsPresenceFilteredJaccardMatrix;
+            }
+        } else {
         const walletsWithBalanceData = Array.from(walletBalances.keys());
         if (walletsWithBalanceData.length >= 2) {
             // logger.info(`Calculating similarity based on current holdings for ${walletsWithBalanceData.length} wallets.`);
@@ -445,6 +451,7 @@ export class SimilarityService {
                         
                         // Store as additional field
                         finalResult['holdingsPresenceFilteredJaccardMatrix'] = filteredSimilarityMatrix;
+                        this.memo.holdingsPresenceFilteredJaccardMatrix = filteredSimilarityMatrix;
                         
                     } catch (error) {
                         logger.error(`[Holdings Filtered] Error calculating filtered holdings similarity: ${getErrorMessage(error)}`);
@@ -458,6 +465,11 @@ export class SimilarityService {
             }
         } else {
              logger.warn('Less than 2 wallets have balance data provided. Skipping holdings similarity.');
+        }
+
+        // Cache holdings matrices for subsequent call on this instance.
+        if (finalResult.holdingsPresenceJaccardMatrix) this.memo.holdingsPresenceJaccardMatrix = finalResult.holdingsPresenceJaccardMatrix;
+        if (finalResult.holdingsPresenceCosineMatrix) this.memo.holdingsPresenceCosineMatrix = finalResult.holdingsPresenceCosineMatrix;
         }
     } else if (walletBalances && walletBalances.size > 0 && walletBalances.size < 2) {
         logger.warn('Only 1 wallet has balance data; cannot calculate holdings-based similarity.');

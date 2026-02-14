@@ -1993,7 +1993,13 @@ export class DatabaseService {
         walletAddresses: string[],
         config: BaseAnalysisConfig
     ): Promise<Record<string, TransactionData[]>> {
-        this.logger.debug(`Fetching transactions for analysis for ${walletAddresses.length} wallets.`);
+        const excludedCount = config.excludedMints?.length || 0;
+        const hasStart = Boolean(config.timeRange?.startTs);
+        const hasEnd = Boolean(config.timeRange?.endTs);
+        this.logger.debug(
+            `Fetching transactions for analysis for ${walletAddresses.length} wallets ` +
+            `(excludedMints=${excludedCount}, timeRange=${hasStart || hasEnd ? 'yes' : 'no'}).`
+        );
         const results: Record<string, TransactionData[]> = {};
         
         try {
