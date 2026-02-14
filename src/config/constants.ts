@@ -112,6 +112,8 @@ export const BALANCE_CACHE_CONFIG = {
   MEDIUM_TOKEN_THRESHOLD: getEnvNumber('BALANCE_CACHE_MEDIUM_TOKEN_THRESHOLD', 1000),
   WHALE_TOKEN_THRESHOLD: getEnvNumber('BALANCE_CACHE_WHALE_TOKEN_THRESHOLD', 5000),
   MIN_UI_BALANCE: getEnvNumber('BALANCE_CACHE_MIN_UI_BALANCE', 1000),
+  // Incremental fetch: Only refresh cache if older than this (prevents rapid successive fetches)
+  INCREMENTAL_FETCH_MIN_AGE_MS: getEnvNumber('BALANCE_CACHE_INCREMENTAL_MIN_AGE_MS', 30000), // 30 seconds
 } as const;
 
 export const USER_FAVORITES_CONFIG = {

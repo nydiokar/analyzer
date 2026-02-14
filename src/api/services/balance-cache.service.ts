@@ -134,24 +134,37 @@ export class BalanceCacheService {
     const incrementalAddresses: string[] = [];
     const incrementalSlots: Record<string, number> = {};
 
+    const now = Date.now();
+    const minAgeForRefresh = BALANCE_CACHE_CONFIG.INCREMENTAL_FETCH_MIN_AGE_MS;
+
     cachedResults.forEach((cached, index) => {
       const address = walletAddresses[index];
       if (cached) {
-        balances[address] = JSON.parse(cached);
+        const balance = JSON.parse(cached);
+        balances[address] = balance;
+
+        // ✅ SMART INCREMENTAL FETCH: Only refresh if cache is older than threshold (default: 30sec)
+        // This prevents wasteful API calls for rapid successive requests (holder profiles → similarity)
+        // while still keeping data fresh for longer-lived cache entries
+        const cacheAge = now - new Date(balance.fetchedAt).getTime();
         const slotRaw = cachedSlots[index];
         const slot = slotRaw ? Number(slotRaw) : undefined;
-        if (balances[address] && Number.isFinite(slot)) {
+
+        if (cacheAge > minAgeForRefresh && Number.isFinite(slot)) {
+          // Cache is old enough - do incremental refresh
           incrementalAddresses.push(address);
           incrementalSlots[address] = slot as number;
-        } else if (!balances[address]) {
-          missedAddresses.push(address);
         }
+        // If cache is fresh (< threshold), just return it without incremental fetch
       } else {
         missedAddresses.push(address);
       }
     });
 
-    this.logger.debug(`Cache hit for ${walletAddresses.length - missedAddresses.length} wallets. Missed: ${missedAddresses.length}`);
+    const cacheHits = walletAddresses.length - missedAddresses.length;
+    this.logger.debug(
+      `Cache status: ${cacheHits} hits, ${missedAddresses.length} misses, ${incrementalAddresses.length} incremental refreshes`
+    );
 
     if (incrementalAddresses.length > 0) {
       try {

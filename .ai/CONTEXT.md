@@ -12,6 +12,7 @@
 | ⚪ | In holder profiles outcome should be influenced by categories and weighted on the supply they hold. ALSO CONFIRM the formula is adequate -   9X8VSUD8yhYbHtR3KdKeCvnb7TNfgTKMFufgpCympump - see this profile 
 
 **Recently Completed:**
+-  **Smart Incremental Balance Cache** (Feb 14) - Fixed wasteful incremental fetches (79 RPC calls → 0 for similarity jobs within 30sec window). Added time-based deduplication: only refresh cache if >30sec old, preventing rapid successive API calls while keeping data fresh. Result: ~70% RPC reduction for holder profiles → similarity flow.
 -  **Holder Profiles Optimization Part 2** (Feb 14) - Eliminated redundant system wallet detection (10-20 RPC calls saved) + fixed memory explosion by replacing full balance objects (250KB) with Redis cache keys (50 bytes) - 99.95% memory reduction
 -  **Database Restoration & Migration** (Feb 13) - Successfully restored production database on new server, system fully operational
 -  **Observability Dashboards Fix** (Feb 13) - Fixed all 6 Grafana dashboards (Host, Node.js, HTTP API, BullMQ, PostgreSQL, Redis), updated Docker Compose with volume mounts, corrected Prometheus datasource UID
