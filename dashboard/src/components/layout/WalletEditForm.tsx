@@ -82,19 +82,6 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
     }));
   }, []);
 
-  const handleSave = useCallback(async () => {
-    if (isSaving) return;
-
-    // Show warning if there's unsaved collection text
-    if (formData.newCollection.trim()) {
-      setShowUnsavedWarning(true);
-      return;
-    }
-
-    // Proceed with save
-    await performSave();
-  }, [formData, isSaving, performSave]);
-
   const performSave = useCallback(async () => {
     setIsSaving(true);
     setShowUnsavedWarning(false);
@@ -108,6 +95,19 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
       setIsSaving(false);
     }
   }, [formData, onSave, onClose]);
+
+  const handleSave = useCallback(async () => {
+    if (isSaving) return;
+
+    // Show warning if there's unsaved collection text
+    if (formData.newCollection.trim()) {
+      setShowUnsavedWarning(true);
+      return;
+    }
+
+    // Proceed with save
+    await performSave();
+  }, [formData, isSaving, performSave]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {

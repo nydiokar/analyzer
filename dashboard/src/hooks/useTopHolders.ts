@@ -94,6 +94,7 @@ export function useTopHolders(mint?: string, commitment?: 'finalized' | 'confirm
       window.removeEventListener('focus', maybeRevalidate);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, mutate]);
 
   return {
