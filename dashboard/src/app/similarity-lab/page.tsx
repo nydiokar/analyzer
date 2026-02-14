@@ -242,7 +242,7 @@ export default function AnalysisLabPage() {
           console.log('Ignoring completion for unrelated job:', data.jobId);
         }
       }
-    }, [toast, currentJobId, jobSocketDebug, clearJobPointer]),
+    }, [currentJobId, jobSocketDebug]),
     
     onJobFailed: useCallback((data: JobFailedData) => {
       console.error('❌ Job failed (WebSocket):', data.jobId, data.error);
@@ -286,7 +286,7 @@ export default function AnalysisLabPage() {
         // Don't show toast for enrichment failures, they're non-critical
       }
       setError(data.error);
-    }, [toast, currentJobId, enrichmentJobId, clearJobPointer]),
+    }, [currentJobId, enrichmentJobId, clearJobPointer]),
     
     onEnrichmentComplete: useCallback(async (data: EnrichmentCompletionData) => {
       if (jobSocketDebug) {
@@ -320,7 +320,7 @@ export default function AnalysisLabPage() {
         setJobStatuses(prev => ({ ...prev, enrichment: 'failed' }));
         setIsRefreshing(false);
       }
-    }, [toast, jobSocketDebug]),
+    }, [jobSocketDebug]),
   });
 
   const isRunning = useMemo(() => {
@@ -455,7 +455,7 @@ export default function AnalysisLabPage() {
         description: error.message || "Could not start the price refresh job.",
       });
     }
-  }, [analysisResult, subscribeToJob, toast, setEnrichmentJobId]);
+  }, [analysisResult, setEnrichmentJobId]);
 
   const handleAnalyze = async () => {
     // Prevent multiple simultaneous analyses

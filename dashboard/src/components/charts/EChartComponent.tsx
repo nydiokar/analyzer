@@ -74,7 +74,7 @@ const EChartComponent: React.FC<EChartComponentProps> = ({
         chartInstanceRef.current?.dispose();
       };
     }
-  }, []); // Empty dependency array to run only once on mount and unmount
+  }, [onEvents, option]); // Re-initialize when events or option change
 
   useEffect(() => {
     // Update chart when option changes

@@ -390,7 +390,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       });
       newSocket.disconnect();
     };
-  }, [debugLog, incrementDebugCounter, hydrateJobResult]);
+  }, [debugLog, incrementDebugCounter, hydrateJobResult, completedJobs]);
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {

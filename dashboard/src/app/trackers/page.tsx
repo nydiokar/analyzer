@@ -457,11 +457,11 @@ export default function TrackersPage() {
     );
   };
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setSelectedCollections([]);
     setSearchQuery('');
     setShowActiveOnly(false);
-  };
+  }, []);
 
   const handleCollectionSelect = (collection: string) => {
     setSelectedCollections((prev) => {
@@ -630,7 +630,7 @@ export default function TrackersPage() {
     } finally {
       setIsEncodingNames(false);
     }
-  }, [favoriteWallets, resolveActionTargets, hudData, isHudLoading, hudError, hudFetchEnabled, mutateFavorites, selectedWallets.size]);
+  }, [favoriteWallets, resolveActionTargets, hudData, isHudLoading, hudFetchEnabled, mutateFavorites, selectedWallets.size]);
 
   // Auto-encode when HUD data finishes loading
   useEffect(() => {

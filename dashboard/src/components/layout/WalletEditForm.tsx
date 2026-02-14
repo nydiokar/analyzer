@@ -93,7 +93,7 @@ export const WalletEditForm: React.FC<WalletEditFormProps> = React.memo(({
 
     // Proceed with save
     await performSave();
-  }, [formData, isSaving]);
+  }, [formData, isSaving, performSave]);
 
   const performSave = useCallback(async () => {
     setIsSaving(true);

@@ -74,7 +74,7 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
             count: walletsSet.size,
             wallets: Array.from(walletsSet),
         })).sort((a, b) => b.count - a.count).slice(0, 20);
-    }, [results.pairwiseSimilarities, enrichedBalances]);
+    }, [results.pairwiseSimilarities]);
 
     const targetMints = useMemo(() => new Set(commonTokens.map(token => token.mint)), [commonTokens]);
     const tokenMetadataMap = useMemo(

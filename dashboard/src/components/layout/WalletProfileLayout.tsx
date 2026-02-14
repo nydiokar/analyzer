@@ -966,7 +966,7 @@ export default function WalletProfileLayout({
       queueDeepAfter: false,
       enrichMetadata: true,
     });
-  }, [triggerDashboardScope, isDemoAccount]);
+  }, [triggerDashboardScope, isDemoAccount, isAnalyzing, walletAddress]);
 
   const handleToggleFavorite = async () => {
     if (!walletAddress || isTogglingFavorite) {

@@ -46,8 +46,10 @@ export function TopHoldersPanel({ onAddToSet, maxHeightClass }: Props) {
   const { data, isLoading } = useTopHolders(isValidMint ? debouncedMint : undefined, commitment);
   const { meta: tokenMeta } = useTokenMetadata(isValidMint ? debouncedMint : undefined);
   // Remove verbose logs now that things load correctly
-  const holdersRaw: TopHolderItem[] = data?.holders || [];
-  const holders: TopHolderItem[] = useMemo(() => ownersOnly ? holdersRaw.filter(h => !!h.ownerAccount) : holdersRaw, [holdersRaw, ownersOnly]);
+  const holders: TopHolderItem[] = useMemo(() => {
+    const holdersRaw: TopHolderItem[] = data?.holders || [];
+    return ownersOnly ? holdersRaw.filter(h => !!h.ownerAccount) : holdersRaw;
+  }, [data?.holders, ownersOnly]);
   const holderAddresses = useMemo(
     () => holders.map(h => h.ownerAccount || h.tokenAccount).filter(Boolean),
     [holders]

@@ -47,6 +47,7 @@ export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning, jobProg
     };
   }, [walletsText]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedOnWalletsChange = useCallback(
     debounce((list: string[]) => {
       onWalletsChange(list);
@@ -73,7 +74,7 @@ export function WalletInputForm({ onWalletsChange, onAnalyze, isRunning, jobProg
     if (merged.length !== current.length) {
       setWalletsText(merged.join('\n'));
     }
-  }, [externalWallets]);
+  }, [externalWallets, walletsText]);
 
   const hasErrors = invalidWallets.length > 0;
   const canAnalyze = validWallets.length >= 2 && !hasErrors && wallets.length === validWallets.length;

@@ -27,30 +27,36 @@ export function WalletSearch() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
 
-  // Debounced search function
-  const debouncedSearch = useCallback(
-    debounce(async (searchQuery: string) => {
-      if (searchQuery.length < MIN_QUERY_LENGTH) {
-        setSearchResults([]);
-        return;
-      }
+  // Search function
+  const performSearch = useCallback(async (searchQuery: string) => {
+    if (searchQuery.length < MIN_QUERY_LENGTH) {
+      setSearchResults([]);
+      return;
+    }
 
-      setIsSearching(true);
-      try {
-        const responseData = await fetcher(`/wallets/search?query=${encodeURIComponent(searchQuery)}`) as { wallets: WalletSearchResultItem[] };
-        if (responseData && Array.isArray(responseData.wallets)) {
-          setSearchResults(responseData.wallets);
-        } else {
-          setSearchResults([]);
-        }
-      } catch (error) {
-        console.error('Search error:', error);
+    setIsSearching(true);
+    try {
+      const responseData = await fetcher(`/wallets/search?query=${encodeURIComponent(searchQuery)}`) as { wallets: WalletSearchResultItem[] };
+      if (responseData && Array.isArray(responseData.wallets)) {
+        setSearchResults(responseData.wallets);
+      } else {
         setSearchResults([]);
-      } finally {
-        setIsSearching(false);
       }
+    } catch (error) {
+      console.error('Search error:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  // Debounced search function
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const debouncedSearch = useCallback(
+    debounce((searchQuery: string) => {
+      performSearch(searchQuery);
     }, DEBOUNCE_DELAY),
-    []
+    [performSearch]
   );
 
   useEffect(() => {

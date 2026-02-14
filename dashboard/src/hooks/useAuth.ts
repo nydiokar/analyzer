@@ -77,6 +77,7 @@ export const useAuth = () => {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStore]);
 
   const login = useCallback(async (credentials: LoginCredentials): Promise<boolean> => {
@@ -134,6 +135,7 @@ export const useAuth = () => {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStore]);
 
   const logout = useCallback(async () => {
@@ -177,6 +179,7 @@ export const useAuth = () => {
       console.error('Failed to refresh user profile:', error);
       return false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStore]);
 
   const requestEmailVerification = useCallback(async (): Promise<boolean> => {
@@ -206,6 +209,7 @@ export const useAuth = () => {
       toast.error('Failed to request email verification. Please try again.');
       return false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStore]);
 
   const verifyEmail = useCallback(async (token: string): Promise<boolean> => {
@@ -239,6 +243,7 @@ export const useAuth = () => {
       toast.error('Failed to verify email. Please try again.');
       return false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStore, refreshUserProfile]);
 
   const forgotPassword = useCallback(async (email: string): Promise<boolean> => {
@@ -278,6 +283,7 @@ export const useAuth = () => {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const resetPassword = useCallback(async (email: string, token: string, newPassword: string): Promise<boolean> => {
@@ -315,6 +321,7 @@ export const useAuth = () => {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {

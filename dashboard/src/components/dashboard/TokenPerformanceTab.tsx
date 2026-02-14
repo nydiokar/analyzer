@@ -688,7 +688,7 @@ function TokenPerformanceTab({
       // Use SWR's built-in revalidation instead of manual mutate
       // This prevents multiple calls
     }
-  }, [walletAddress]); // Removed localMutate from dependencies
+  }, [walletAddress, swrKey]);
 
   // Effect to auto-refresh when analysis completes
   const prevAnalyzingRef = useRef(isAnalyzingGlobal);

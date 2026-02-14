@@ -497,7 +497,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
 
   // Compute hooks with safe fallback values - moved before early returns
   const pair = processedPair?.pair;
-  const sharedTokens = pair?.sharedTokens || [];
+  const sharedTokens = useMemo(() => pair?.sharedTokens || [], [pair?.sharedTokens]);
   const capitalAllocation = pair?.capitalAllocation;
   const walletATotalValue = pair ? (results.walletBalances?.[pair.walletA]?.totalValueUsd ?? 0) : 0;
   const walletBTotalValue = pair ? (results.walletBalances?.[pair.walletB]?.totalValueUsd ?? 0) : 0;
@@ -947,7 +947,7 @@ export const EnhancedKeyInsights = memo(({ results, isLoading }: EnhancedKeyInsi
       const firstPairId = generatePairId(processedPairs[0].pair.walletA, processedPairs[0].pair.walletB);
       setSelectedPairId(firstPairId);
     }
-  }, [processedPairs.length, selectedPairId]);
+  }, [processedPairs, selectedPairId]);
 
   // Find selected pair data
   const selectedPair = useMemo(() => {

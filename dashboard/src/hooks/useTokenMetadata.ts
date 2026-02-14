@@ -340,6 +340,7 @@ export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata
         globalBatcher.unsubscribe(mint, updateCallback);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mint, providedMetadata]);
 
   return { metadata, isLoading };

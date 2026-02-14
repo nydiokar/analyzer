@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { GlobalMetrics, CombinedPairwiseSimilarity } from './types';
 import { Badge } from '@/components/ui/badge';
@@ -69,7 +69,7 @@ const getSimilarityStatus = (avgSim: number) => {
 };
 
 const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, walletLabels, summary }: GlobalMetricsCardProps) => {
-  const getWalletLabel = (address: string) => walletLabels?.[address];
+  const getWalletLabel = useCallback((address: string) => walletLabels?.[address], [walletLabels]);
   const topPairs = useMemo(() => (
     [...pairwiseSimilarities]
       .sort((a, b) => calculateOverallScore(b.binaryScore, b.capitalScore) - calculateOverallScore(a.binaryScore, a.capitalScore))
@@ -416,7 +416,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
         </CardContent>
       </Card>
     );
-  }, [metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, summary, topPairs, hudData, walletLabels]);
+  }, [metrics, pairwiseSimilarities, walletBalances, uniqueTokensPerWallet, summary, topPairs, hudData, getWalletLabel]);
   
   return content;
 };

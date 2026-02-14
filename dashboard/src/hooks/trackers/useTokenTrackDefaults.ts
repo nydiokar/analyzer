@@ -23,7 +23,7 @@ export function useTokenTrackDefaults(tokenMint: string | null) {
       return String(rawLabel).trim();
     }
     return 'TOKEN';
-  }, [tokenMeta, tokenMint]);
+  }, [tokenMeta]);
 
   const tokenLabelSafe = useMemo(() => sanitizeTokenLabel(tokenLabel), [tokenLabel]);
   const defaultCollectionName = useMemo(() => `${tokenLabelSafe.toUpperCase()}_TH`, [tokenLabelSafe]);
