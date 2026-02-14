@@ -35,7 +35,8 @@ corepack pnpm build
 
 log "== Deploy: PM2 start/restart =="
 if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
-  pm2 restart "$APP_NAME" --update-env
+  # Enforce the memory restart threshold on every deploy to avoid config drift.
+  pm2 restart "$APP_NAME" --update-env --max-memory-restart 2G
 else
   pm2 start ecosystem.backend.config.js --env production
 fi
@@ -47,4 +48,3 @@ sleep 2
 curl -fsS http://127.0.0.1:3001/api/v1/health >/dev/null
 curl -fsS http://127.0.0.1:3001/api/v1/metrics >/dev/null
 log "OK: backend healthy on 127.0.0.1:3001"
-
