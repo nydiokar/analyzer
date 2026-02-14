@@ -4,7 +4,8 @@ module.exports = {
     script      : "dist/main.js",     // Path to your NestJS entry point
     node_args   : "-r tsconfig-paths/register", // Crucial for resolving path aliases
     watch       : false,
-    max_memory_restart : '1G',       // Optional: restart if it exceeds memory
+    // Keep in sync with prod expectations; heavy similarity/analysis bursts can exceed 1G RSS.
+    max_memory_restart : '2G',       // Optional: restart if it exceeds memory
     env_production: {                // Environment variables for production
        NODE_ENV: "production",
        PORT: 3001,
