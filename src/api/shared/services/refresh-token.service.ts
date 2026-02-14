@@ -37,6 +37,8 @@ export class RefreshTokenService {
   private readonly ROTATION_GRACE_PERIOD = 60; // seconds - allow concurrent refreshes within this window
   
   constructor(private readonly configService: ConfigService) {
+    this.logger.log('Initializing RefreshTokenService instance');
+
     // TTLs are env-driven with sane defaults
     const refreshTtlDays = Number(this.configService.get<string>('REFRESH_TOKEN_TTL_DAYS') || 7);
     const absoluteRefreshTtlDays = Number(this.configService.get<string>('REFRESH_TOKEN_ABSOLUTE_TTL_DAYS') || 30);
@@ -56,6 +58,22 @@ export class RefreshTokenService {
 
     this.redis.on('connect', () => {
       this.logger.log('Redis connected successfully');
+    });
+
+    this.redis.on('ready', () => {
+      this.logger.log('Redis connection ready and authenticated');
+    });
+
+    this.redis.on('reconnecting', (delay: number) => {
+      this.logger.warn(`Redis reconnecting in ${delay}ms...`);
+    });
+
+    this.redis.on('close', () => {
+      this.logger.warn('Redis connection closed');
+    });
+
+    this.redis.on('end', () => {
+      this.logger.warn('Redis connection ended (will not reconnect)');
     });
   }
 
