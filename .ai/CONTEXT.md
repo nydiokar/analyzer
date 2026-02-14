@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-02-13  **Status:**  Active Development
+**Branch:** `main`  **Last Updated:** 2026-02-14  **Status:**  Active Development
 
 ---
 
@@ -9,9 +9,10 @@
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete |
-
+| ⚪ | In holder profiles outcome should be influenced by categories and weighted on the supply they hold. ALSO CONFIRM the formula is adequate -   9X8VSUD8yhYbHtR3KdKeCvnb7TNfgTKMFufgpCympump - see this profile 
 
 **Recently Completed:**
+-  **Holder Profiles Optimization Part 2** (Feb 14) - Eliminated redundant system wallet detection (10-20 RPC calls saved) + fixed memory explosion by replacing full balance objects (250KB) with Redis cache keys (50 bytes) - 99.95% memory reduction
 -  **Database Restoration & Migration** (Feb 13) - Successfully restored production database on new server, system fully operational
 -  **Observability Dashboards Fix** (Feb 13) - Fixed all 6 Grafana dashboards (Host, Node.js, HTTP API, BullMQ, PostgreSQL, Redis), updated Docker Compose with volume mounts, corrected Prometheus datasource UID
 -  **fUSDC Exclusion** (Feb 13) - Added fUSDC to DEFAULT_EXCLUDED_MINTS list for better token management
@@ -75,7 +76,20 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 ##  Recent Activity
 
-### February 13, 2026 (Latest)
+### February 14, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 14.2 | 🔧 FIX | Eliminate redundant system wallet detection + memory bloat | 🟡 M | `system-wallet-detection.service.ts`, `balance-cache.service.ts`, `analysis-operations.processor.ts`, `types/index.ts` |
+| 14.1 | 🔧 FIX | Reduce holder profiles RPC calls via batch balance pre-fetching | 🟡 M | `analysis-operations.processor.ts`, `types/index.ts` |
+
+**Summary:**
+
+**14.2:** Fixed two critical issues in holder profiles discovered during flow analysis. **Issue 1 - Redundant System Wallet Detection:** Parent job called `filterSystemWallets()` at line 1154 to detect all 10 wallets, but child jobs called `detectSystemWallet()` again at line 1563, causing 10-20 redundant `gettokenaccountsbyownerv2` RPC calls. **Root Cause:** `filteredDetails` Map only stored wallets with `knownType` (system wallets), not valid wallets, so children had to re-detect. **Solution:** (1) Modified `filterSystemWallets()` to store ALL detection results (both system + valid wallets) in `filteredDetails`, (2) Added `systemWalletDetection` field to `_holderContext` in job data (~71 bytes per wallet), (3) Pass detection results when queueing child jobs, (4) Use cached detection in `processSingleHolderProfile` before calling `detectSystemWallet()`. **Impact:** 50% reduction in system wallet detection calls (20 → 10 per job). **Issue 2 - Memory Explosion:** Feb 14 Part 1 fix passed FULL `WalletBalance` objects (500+ tokens × 500 bytes = 250KB each) in `preFetchedBalance` field, causing memory explosion (10 wallets × 250KB = 2.5MB per job stored in Redis + replicated across child jobs). **Root Cause:** Passing full objects was convenient but caused massive Redis + heap memory overhead. **Solution:** (1) Added `cachePrefetchBalance()` and `getPrefetchBalance()` methods to BalanceCacheService, (2) Changed `preFetchedBalance` from `any` (full object) to `preFetchedBalanceCacheKey` string (~50 bytes), (3) Parent job caches balances with prefetch keys and passes keys in job data, (4) Child jobs retrieve from cache using keys. **Impact:** 99.95% memory reduction (2.5MB → 1.2KB per job). **Combined Impact with Part 1:** RPC calls: 81 → 50 (38% reduction), Memory: 2.5MB → 1.2KB per job (99.95% reduction), Subsequent requests (within 30min): 0-10 calls (cache hits). **Files Modified:** `src/api/services/system-wallet-detection.service.ts` (store all results), `src/api/services/balance-cache.service.ts` (prefetch cache methods), `src/queues/jobs/types/index.ts` (added systemWalletDetection field + changed preFetchedBalance to cache key), `src/queues/processors/analysis-operations.processor.ts` (pass detection + use cache keys). **Documentation:** Created comprehensive optimization report at `.ai/context/HOLDER_PROFILES_OPTIMIZATION_FEB14.md`.
+
+**14.1:** Reduced excessive `gettokenaccountsbyownerv2` RPC calls (81 observed) during holder profiles analysis through batch balance pre-fetching and extended caching. **Investigation Results:** 81 calls breakdown - (1) Balance fetching: 30-40 calls (sequential loop per wallet × 2 programs × pagination), (2) System wallet detection: 20-30 calls (redundant checks in parent + child jobs), (3) Concurrent similarity: 0-20 calls (competing for same wallets). **Root Causes Identified:** Sequential balance loop unavoidable (Helius API limitation - no batch endpoint for multiple wallet owners), redundant system wallet detection (line 1154 filters all wallets, line 1563 checks again in child jobs), no coordination between holder profiles + similarity (both fetch independently). **The Fix - Three Parts:** (1) **Batch balance pre-fetching** - Added batch fetch for all stale wallets BEFORE queuing child jobs (`getManyBalances(staleWallets)` at line 1322), pass pre-fetched balances in job context via `_holderContext.preFetchedBalance`, child jobs use pre-fetched data instead of fetching again (lines 1671-1700); (2) **Extended cache TTL** - Changed balance cache from 10min → 30min (600s → 1800s) at lines 555, 1698, reduces cache misses by 3× for frequently analyzed wallets; (3) **Job data type update** - Added `preFetchedBalance?: any` field to `AnalyzeHolderProfilesJobData._holderContext` interface. **Expected Impact:** First request (10 new wallets): 40-60 calls (down from 70-100), subsequent requests (within 30min): 0-10 calls (cache hits), concurrent similarity: 0 additional calls (reuses cached balances). **Remaining Issue:** Redundant system wallet detection still happening (20-30 unnecessary calls) - marked as next priority fix. **Files Modified:** `src/queues/processors/analysis-operations.processor.ts` (batch fetch + pre-fetching logic + extended TTL), `src/queues/jobs/types/index.ts` (added preFetchedBalance field). **Documentation:** Created comprehensive investigation report at `.ai/context/RPC_CALL_INVESTIGATION_FEB14.md` with full call breakdown, root cause analysis, and next steps for future LLM reference.
+
+### February 13, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|

@@ -54,6 +54,12 @@ export interface AnalyzeHolderProfilesJobData {
   _holderContext?: {
     rank: number;
     supplyPercent: number;
+    systemWalletDetection?: {
+      isSystemWallet: boolean;      // True if wallet has knownType (should skip analysis)
+      knownType?: string;            // KnownWalletType if detected
+      knownLabel?: string;           // Display label for UI
+      reason?: string;               // Detection reason
+    };
   };
 }
 

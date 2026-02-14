@@ -160,7 +160,12 @@ export const KNOWN_WALLETS: Record<string, KnownWalletEntry> = {
     label: 'MEXC',
     shortLabel: 'MEXC',
   },
-
+  'u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w': {
+    type: 'PROTOCOL',
+    label: 'GATE.IO',
+    shortLabel: 'GATE.IO',
+  },
+  
 
   
   // ═══════════════════════════════════════════════════════════════════════════

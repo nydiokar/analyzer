@@ -236,10 +236,12 @@ export class SystemWalletDetectionService {
       );
 
       results.forEach(result => {
+        // ✅ ALWAYS store detection results (for passing to child jobs to avoid re-detection)
+        filteredDetails.set(result.address, result);
+
         if (result.knownType) {
           // Wallet has knownType → skip based on service exclusion sets
           filtered.set(result.address, result.reason);
-          filteredDetails.set(result.address, result);
         } else if (result.isLarge) {
           // Large wallet (15k-70k tokens) → monitor but analyze
           largeWallets.push(result.address);

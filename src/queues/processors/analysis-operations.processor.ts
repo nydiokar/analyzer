@@ -549,10 +549,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         );
         balanceData = await walletBalanceService.fetchWalletBalances([walletAddress], 'default', true);
         
-        // Cache with 10-minute TTL for dashboard analysis chains
+        // Cache with 30-minute TTL for dashboard analysis chains (extended from 10 min)
         const fetchedBalance = balanceData?.get(walletAddress);
         if (fetchedBalance) {
-          await this.balanceCacheService.cacheBalances(walletAddress, fetchedBalance, 600);
+          await this.balanceCacheService.cacheBalances(walletAddress, fetchedBalance, 1800); // ✅ Extended TTL
           this.logger.debug(`Cached balances for ${walletAddress} for follow-up scopes`);
         }
       }
@@ -1321,6 +1321,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
         const walletsNeedingJobs = staleWallets.filter(addr => holderMetadataByWallet.has(addr));
 
+      // ✅ BATCH FETCH BALANCES: Reduces RPC calls by caching all balances at once
+      // Parent fetches once for all wallets → child jobs hit cache instead of fetching individually
+      if (walletsNeedingJobs.length > 0) {
+        this.logger.log(`🚀 Batch fetching balances for ${walletsNeedingJobs.length} stale wallets to reduce RPC calls...`);
+        try {
+          await this.balanceCacheService.getManyBalances(walletsNeedingJobs);
+          this.logger.log(`✅ Batch balance fetch complete - all balances now cached for child jobs`);
+        } catch (error) {
+          this.logger.warn(`⚠️ Batch balance fetch failed, jobs will fetch individually: ${getErrorMessage(error)}`);
+          // Continue - jobs will fetch individually as fallback
+        }
+      }
+
       const childJobIds: string[] = [];
       const jobIdToWallet = new Map<string, string>();
 
@@ -1332,6 +1345,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       for (const wallet of walletsNeedingJobs) {
         const metadata = holderMetadataByWallet.get(wallet);
+
+        // ✅ Get pre-computed system wallet detection result
+        const detection = filteredDetails.get(wallet);
+
         const childJob = await this.analysisQueueService.addHolderProfilesJob({
           mode: 'wallet',
           userId: job.data.userId,
@@ -1340,6 +1357,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           _holderContext: {
             rank: metadata?.rank ?? childJobIds.length + 1,
             supplyPercent: metadata?.supplyPercent ?? 0,
+            systemWalletDetection: detection ? {
+              isSystemWallet: !!detection.knownType,
+              knownType: detection.knownType,
+              knownLabel: detection.knownLabel,
+              reason: detection.reason,
+            } : undefined,
           },
         }, {
           priority: jobPriority,  // Pass priority to ensure fair processing
@@ -1543,6 +1566,26 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const inferredRank = holderContext?.rank ?? 1;
       const inferredSupplyPercent = holderContext?.supplyPercent ?? 0;
 
+      // ✅ Use pre-computed detection from parent job if available
+      const cachedDetection = holderContext?.systemWalletDetection;
+
+      if (cachedDetection?.isSystemWallet && cachedDetection.knownType) {
+        // Use cached result - no RPC call needed!
+        this.logger.debug(`✅ Using pre-computed system wallet detection for ${walletAddress} (saved RPC call)`);
+        return this.createStubHolderProfile(
+          walletAddress,
+          cachedDetection.knownType as any, // Type assertion needed
+          cachedDetection.knownLabel,
+          inferredRank,
+          inferredSupplyPercent,
+          cachedDetection.reason || 'System wallet (pre-detected in parent job)',
+          startTime,
+          job
+        );
+      }
+
+      // ❌ FALLBACK: Only detect if not already done in parent
+      // This path runs for wallet-mode jobs NOT from holder profiles parent
       const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
       if (detection.knownType && SKIP_BEHAVIOR_ANALYSIS.has(detection.knownType)) {
         return this.createStubHolderProfile(
@@ -1650,18 +1693,25 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Aggregate SwapAnalysisInput → AnalysisResult (PnL calculation)
     // Reuse cached balances when available to avoid extra RPC calls later (e.g., similarity).
     this.logger.debug(`Running PnL aggregation for ${walletAddress} [holder-profile mode]`);
+
+    // Check cache first (parent's batch fetch likely cached this already)
     const cachedBalance = await this.balanceCacheService.getBalances(walletAddress);
-    const preFetchedBalances = cachedBalance ? new Map([[walletAddress, cachedBalance]]) : undefined;
+    const preFetchedBalances = cachedBalance
+      ? new Map([[walletAddress, cachedBalance]])
+      : undefined;
+
     const pnlSummary = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, {
       preFetchedBalances,
     });
+
+    // Cache balance from PnL summary if not already cached
     if (!cachedBalance && pnlSummary?.tokenBalances && pnlSummary.balancesFetchedAt) {
       const balanceToCache: WalletBalance = {
         solBalance: pnlSummary.currentSolBalance ?? 0,
         tokenBalances: pnlSummary.tokenBalances,
         fetchedAt: pnlSummary.balancesFetchedAt,
       };
-      await this.balanceCacheService.cacheBalances(walletAddress, balanceToCache, 600);
+      await this.balanceCacheService.cacheBalances(walletAddress, balanceToCache, 1800); // 30 min TTL
     }
     await job.updateProgress(50);
 
