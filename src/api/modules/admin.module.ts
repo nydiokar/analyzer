@@ -6,10 +6,9 @@ import { JwtDatabaseService } from '../shared/services/jwt-database.service';
 import { RegistrationCodeService } from '../shared/services/registration-code.service';
 import { DatabaseModule } from './database.module';
 import { ConfigModule } from '@nestjs/config';
-import { AuthModule } from './auth.module';
 
 @Module({
-  imports: [DatabaseModule, ConfigModule, AuthModule],
+  imports: [DatabaseModule, ConfigModule], // AuthModule is @Global and imported in AppModule
   controllers: [AdminController],
   providers: [
     ApiKeyService,

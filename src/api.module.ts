@@ -20,7 +20,7 @@ import { WalletHudModule } from './api/modules/wallet-hud.module';
 @Module({
   imports: [
     DatabaseModule, // Shared database access for any direct needs in ApiModule (e.g. Auth)
-    AuthModule,     // Authentication services required by global CompositeAuthGuard
+    // AuthModule is @Global and imported in AppModule - no need to import here
     WalletsModule,  // Imports all wallet-related features and controllers
     AnalysesModule, // Imports analysis triggering endpoints
     UsersModule,    // Add UsersModule here

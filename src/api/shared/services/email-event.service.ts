@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../../../queues/config/redis.provider';
 
 export type EmailEventType = 'delivered' | 'bounced' | 'complained' | 'other';
 
@@ -16,17 +17,15 @@ export interface EmailEvent {
 @Injectable()
 export class EmailEventService {
   private readonly logger = new Logger(EmailEventService.name);
-  private readonly redis: Redis;
   private readonly SUPPRESS_PREFIX = 'email_suppression:';
   private readonly EVENT_PREFIX = 'email_event:';
   private readonly TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
-  constructor(private readonly configService: ConfigService) {
-    const redisUrl = this.configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
-    this.redis = new Redis(redisUrl, { maxRetriesPerRequest: 3, lazyConnect: true });
-
-    this.redis.on('error', (error) => this.logger.error('Redis error (EmailEventService):', error));
-    this.redis.on('connect', () => this.logger.log('Redis connected (EmailEventService)'));
+  constructor(
+    private readonly configService: ConfigService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) {
+    this.logger.log('EmailEventService initialized with shared Redis connection');
   }
 
   async isSuppressed(email: string): Promise<boolean> {
@@ -48,6 +47,7 @@ export class EmailEventService {
   }
 
   async onModuleDestroy() {
-    await this.redis.disconnect();
+    // Shared Redis connection managed centrally by RedisProvider
+    return;
   }
 }

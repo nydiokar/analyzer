@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
 import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+import { REDIS_CLIENT } from '../../../queues/config/redis.provider';
 
 
 export interface RefreshSession {
@@ -28,7 +29,6 @@ export interface RefreshTokens {
 @Injectable()
 export class RefreshTokenService {
   private readonly logger = new Logger(RefreshTokenService.name);
-  private readonly redis: Redis;
   private readonly REFRESH_PREFIX = 'refresh_session:';
   private readonly REFRESH_TOKEN_PREFIX = 'refresh_token_hash:';
   private readonly USER_SESSIONS_PREFIX = 'user_sessions:';
@@ -36,45 +36,17 @@ export class RefreshTokenService {
   private readonly ABSOLUTE_REFRESH_TTL: number; // seconds (defense-in-depth)
   private readonly ROTATION_GRACE_PERIOD = 60; // seconds - allow concurrent refreshes within this window
   
-  constructor(private readonly configService: ConfigService) {
-    this.logger.log('Initializing RefreshTokenService instance');
+  constructor(
+    private readonly configService: ConfigService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) {
+    this.logger.log('Initializing RefreshTokenService instance with shared Redis connection');
 
     // TTLs are env-driven with sane defaults
     const refreshTtlDays = Number(this.configService.get<string>('REFRESH_TOKEN_TTL_DAYS') || 7);
     const absoluteRefreshTtlDays = Number(this.configService.get<string>('REFRESH_TOKEN_ABSOLUTE_TTL_DAYS') || 30);
     this.REFRESH_TTL = refreshTtlDays * 24 * 60 * 60;
     this.ABSOLUTE_REFRESH_TTL = absoluteRefreshTtlDays * 24 * 60 * 60;
-
-    // Initialize Redis connection
-    const redisUrl = this.configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
-    this.redis = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-    });
-
-    this.redis.on('error', (error) => {
-      this.logger.error('Redis connection error:', getErrorMessage(error));
-    });
-
-    this.redis.on('connect', () => {
-      this.logger.log('Redis connected successfully');
-    });
-
-    this.redis.on('ready', () => {
-      this.logger.log('Redis connection ready and authenticated');
-    });
-
-    this.redis.on('reconnecting', (delay: number) => {
-      this.logger.warn(`Redis reconnecting in ${delay}ms...`);
-    });
-
-    this.redis.on('close', () => {
-      this.logger.warn('Redis connection closed');
-    });
-
-    this.redis.on('end', () => {
-      this.logger.warn('Redis connection ended (will not reconnect)');
-    });
   }
 
   /**
@@ -475,6 +447,7 @@ export class RefreshTokenService {
   }
 
   async onModuleDestroy() {
-    await this.redis.disconnect();
+    // Shared Redis connection managed centrally by RedisProvider
+    return;
   }
 }

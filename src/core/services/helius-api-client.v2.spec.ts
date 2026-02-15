@@ -40,11 +40,11 @@ async function testV2Success(): Promise<void> {
       v2Page += 1;
       if (v2Page === 1) {
         return {
-          data: { jsonrpc: '2.0', id: '1', result: { accounts: [makeTokenAccount('acc1', 'mint1'), makeTokenAccount('acc2', 'mint2')], paginationKey: 'key-1', context: { slot: 111 } } }
+          data: { jsonrpc: '2.0', id: '1', result: { context: { slot: 111 }, value: { accounts: [makeTokenAccount('acc1', 'mint1'), makeTokenAccount('acc2', 'mint2')], paginationKey: 'key-1' } } }
         };
       }
       return {
-        data: { jsonrpc: '2.0', id: '1', result: { accounts: [makeTokenAccount('acc3', 'mint3')], context: { slot: 112 } } }
+        data: { jsonrpc: '2.0', id: '1', result: { context: { slot: 112 }, value: { accounts: [makeTokenAccount('acc3', 'mint3')] } } }
       };
     }
     throw new Error(`Unexpected method ${method}`);
