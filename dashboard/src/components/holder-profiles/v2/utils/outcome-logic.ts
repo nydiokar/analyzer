@@ -94,6 +94,7 @@ function calculateWeightedMedian(values: Array<{ value: number; weight: number }
 
   // Calculate total weight
   const totalWeight = sorted.reduce((sum, item) => sum + item.weight, 0);
+  if (totalWeight === 0) return sorted[0]?.value ?? 0;
 
   // Find weighted median
   let cumulativeWeight = 0;
@@ -119,29 +120,45 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
     };
   }
 
-  const speed = getSpeedPrimitive(profiles);
+  // Calculate SUPPLY-WEIGHTED median hold time instead of simple median
+  // This ensures large holders define the outcome, not the long tail of small wallets
+  const holdTimeData = profiles
+    .map((p) => ({
+      value: p.realizedMedianHoldTimeHours ?? null,
+      weight: p.supplyPercent,
+    }))
+    .filter((item): item is { value: number; weight: number } =>
+      item.value !== null && Number.isFinite(item.value)
+    );
+
+  const supplyWeightedMedianHoldTime = calculateWeightedMedian(holdTimeData);
+
   const consistency = getConsistencyPrimitive(profiles);
 
-  // Calculate speed score (0-10 scale based on median hold time)
+  // Calculate speed score (0-10 scale based on SUPPLY-WEIGHTED median hold time)
   // Faster = lower score, slower = higher score
   const speedScore = (() => {
-    if (['Instant', 'Ultra-fast'].includes(speed.category)) return 1;
-    if (speed.category === 'Fast') return 2.5;
-    if (speed.category === 'Intraday') return 4.5;
-    if (speed.category === 'Multi-day') return 7;
+    const hours = supplyWeightedMedianHoldTime;
+    // Same thresholds as SPEED_BUCKETS in cognitive-primitives.ts
+    if (hours <= 1 / 60) return 1;      // Instant (< 1 min)
+    if (hours <= 5 / 60) return 1;      // Ultra-fast (< 5 min)
+    if (hours <= 0.5) return 2.5;       // Fast (< 30 min)
+    if (hours <= 6) return 4.5;         // Intraday (< 6 hours)
+    if (hours <= 24) return 7;          // Multi-day (< 24 hours)
     return 9; // Long-term
   })();
 
-  // Calculate PnL variance score (0-10 scale) with quality weighting
+  // Calculate PnL variance score (0-10 scale) with SUPPLY weighting
   // Lower variance = more stable = higher score
   // Note: Known wallets have null PnL, naturally excluded by the filter
   const pnlData = profiles
     .map((p) => ({
       value: p.walletPnlSol ?? null,
-      weight: getQualityWeight(p.dataQualityTier),
+      // Weight by supply held (economic significance) multiplied by data quality
+      weight: p.supplyPercent * getQualityWeight(p.dataQualityTier),
     }))
     .filter((item): item is { value: number; weight: number } =>
-      item.value !== null && Number.isFinite(item.value)
+      item.value !== null && Number.isFinite(item.value) && item.weight > 0
     );
 
   const pnlVarianceScore = (() => {
@@ -149,6 +166,8 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
 
     // Calculate weighted mean
     const totalWeight = pnlData.reduce((sum, item) => sum + item.weight, 0);
+    if (totalWeight === 0) return 5;
+
     const weightedMean = pnlData.reduce((sum, item) => sum + item.value * item.weight, 0) / totalWeight;
 
     // Calculate weighted variance
@@ -167,27 +186,34 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
     return 1;
   })();
 
-  // Calculate weighted average tokens held (diversification indicator)
-  // Note: Known wallets have INSUFFICIENT tier (weight=0.1), minimal impact on weighted avg
+  // Calculate SUPPLY-weighted average tokens held (diversification indicator)
+  // Weight by supply held so large holders' diversification matters more
   const avgTokensHeld = (() => {
     const tokenData = profiles
       .map((p) => ({
         count: p.currentHoldings?.length ?? 0,
-        weight: getQualityWeight(p.dataQualityTier),
+        // Weight by supply * data quality
+        weight: p.supplyPercent * getQualityWeight(p.dataQualityTier),
       }))
-      .filter((item) => item.count > 0);
+      .filter((item) => item.count > 0 && item.weight > 0);
 
     if (!tokenData.length) return 1;
 
     const totalWeight = tokenData.reduce((sum, item) => sum + item.weight, 0);
+    if (totalWeight === 0) return 1;
+
     const weightedSum = tokenData.reduce((sum, item) => sum + item.count * item.weight, 0);
 
     return weightedSum / totalWeight;
   })();
 
-  // Data quality ratio (GOLD + SILVER / total)
-  const highQuality = profiles.filter((p) => p.dataQualityTier === 'GOLD' || p.dataQualityTier === 'SILVER').length;
-  const dataQualityRatio = highQuality / profiles.length;
+  // Data quality ratio weighted by supply (GOLD + SILVER supply / total supply)
+  // This ensures we care about data quality where the supply sits
+  const totalSupply = profiles.reduce((sum, p) => sum + p.supplyPercent, 0);
+  const highQualitySupply = profiles
+    .filter((p) => p.dataQualityTier === 'GOLD' || p.dataQualityTier === 'SILVER')
+    .reduce((sum, p) => sum + p.supplyPercent, 0);
+  const dataQualityRatio = totalSupply > 0 ? highQualitySupply / totalSupply : 0;
 
   return classifyWeightedOutcome(speedScore, pnlVarianceScore, dataQualityRatio, avgTokensHeld);
 }
