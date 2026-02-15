@@ -32,15 +32,16 @@ export class BalanceCacheService {
    */
   async getBalances(walletAddress: string): Promise<WalletBalance | null> {
     const cacheKey = `balance:${walletAddress}`;
-    const slotKey = `balance:slot:${walletAddress}`;
-    
+    const filterKey = 'program:spl-token'; // Standard SPL token program filter
+
     // Try to get from cache first
     const cached = await this.redis.get(cacheKey);
     if (cached) {
       this.logger.debug(`Cache hit for wallet ${walletAddress}`);
       const cachedBalance = JSON.parse(cached) as WalletBalance | null;
-      const cachedSlotRaw = await this.redis.get(slotKey);
-      const cachedSlot = cachedSlotRaw ? Number(cachedSlotRaw) : undefined;
+
+      // Get watermark from database (persistent storage)
+      const cachedSlot = await this.databaseService.getTokenAccountWatermark(walletAddress, filterKey);
 
       if (cachedBalance && Number.isFinite(cachedSlot)) {
         try {
@@ -64,8 +65,10 @@ export class BalanceCacheService {
               `Incremental balance update for ${walletAddress}: delta tokens=${delta.tokenBalances.length}, slot=${slotByAddress[walletAddress] || cachedSlot}`
             );
           }
+
+          // Update watermark in database if new slot received
           if (slotByAddress[walletAddress]) {
-            await this.redis.set(slotKey, String(slotByAddress[walletAddress]), 'EX', 30);
+            await this.databaseService.setTokenAccountWatermark(walletAddress, filterKey, slotByAddress[walletAddress]);
           }
 
           await this.redis.set(cacheKey, JSON.stringify(merged), 'EX', 30);
@@ -81,7 +84,7 @@ export class BalanceCacheService {
 
     // Not in cache, fetch from the source of truth (Helius)
     this.logger.debug(`Cache miss for wallet ${walletAddress}, fetching from Helius via WalletBalanceService.`);
-    
+
     try {
       const slotByAddress: Record<string, number> = {};
       const balancesMap = await this.walletBalanceService.fetchWalletBalancesRaw(
@@ -96,17 +99,19 @@ export class BalanceCacheService {
       if (!balances) {
         this.logger.warn(`Failed to fetch balances for ${walletAddress} from Helius.`);
         // Cache a null/empty indicator to prevent re-fetching constantly on failures for a short period
-        await this.redis.set(cacheKey, JSON.stringify(null), 'EX', 60); 
+        await this.redis.set(cacheKey, JSON.stringify(null), 'EX', 60);
         return null;
       }
 
       const ttlSeconds = this.getTtlSeconds(balances);
       // Cache the fresh result with an adaptive TTL
       await this.redis.set(cacheKey, JSON.stringify(balances), 'EX', ttlSeconds);
+
+      // Store watermark in database (persistent)
       if (slotByAddress[walletAddress]) {
-        await this.redis.set(slotKey, String(slotByAddress[walletAddress]), 'EX', ttlSeconds);
+        await this.databaseService.setTokenAccountWatermark(walletAddress, filterKey, slotByAddress[walletAddress]);
       }
-    
+
       return balances;
     } catch (error) {
       this.logger.error(`Error fetching balances for ${walletAddress} in BalanceCacheService:`, getErrorMessage(error));
@@ -124,11 +129,16 @@ export class BalanceCacheService {
       return {};
     }
 
+    const filterKey = 'program:spl-token'; // Standard SPL token program filter
     const cacheKeys = walletAddresses.map(addr => `balance:${addr}`);
-    const slotKeys = walletAddresses.map(addr => `balance:slot:${addr}`);
     const cachedResults = await this.redis.mget(cacheKeys);
-    const cachedSlots = await this.redis.mget(slotKeys);
-    
+
+    // Fetch watermarks from database for all addresses (batch query)
+    const watermarkPromises = walletAddresses.map(addr =>
+      this.databaseService.getTokenAccountWatermark(addr, filterKey)
+    );
+    const watermarks = await Promise.all(watermarkPromises);
+
     const balances: Record<string, WalletBalance | null> = {};
     const missedAddresses: string[] = [];
     const incrementalAddresses: string[] = [];
@@ -147,8 +157,7 @@ export class BalanceCacheService {
         // This prevents wasteful API calls for rapid successive requests (holder profiles → similarity)
         // while still keeping data fresh for longer-lived cache entries
         const cacheAge = now - new Date(balance.fetchedAt).getTime();
-        const slotRaw = cachedSlots[index];
-        const slot = slotRaw ? Number(slotRaw) : undefined;
+        const slot = watermarks[index]; // Get slot from database watermark
 
         if (cacheAge > minAgeForRefresh && Number.isFinite(slot)) {
           // Cache is old enough - do incremental refresh
@@ -182,7 +191,9 @@ export class BalanceCacheService {
         );
 
         const cachePipeline = this.redis.pipeline();
+        const watermarkUpdates: Promise<void>[] = [];
         let deltaTokensTotal = 0;
+
         for (const address of incrementalAddresses) {
           const existing = balances[address];
           const delta = deltaMap.get(address);
@@ -193,12 +204,16 @@ export class BalanceCacheService {
             const ttlSeconds = this.getTtlSeconds(merged);
             cachePipeline.set(`balance:${address}`, JSON.stringify(merged), 'EX', ttlSeconds);
           }
+
+          // Update watermark in database if new slot received
           if (slotByAddress[address]) {
-            const ttlSeconds = this.getTtlSeconds(balances[address] || null);
-            cachePipeline.set(`balance:slot:${address}`, String(slotByAddress[address]), 'EX', ttlSeconds);
+            watermarkUpdates.push(
+              this.databaseService.setTokenAccountWatermark(address, filterKey, slotByAddress[address])
+            );
           }
         }
-        await cachePipeline.exec();
+
+        await Promise.all([cachePipeline.exec(), ...watermarkUpdates]);
         this.logger.debug(
           `Incremental balance updates: wallets=${incrementalAddresses.length}, deltaTokens=${deltaTokensTotal}`
         );
@@ -219,18 +234,23 @@ export class BalanceCacheService {
         );
         
         const cachePipeline = this.redis.pipeline();
-        
+        const watermarkUpdates: Promise<void>[] = [];
+
         for (const address of missedAddresses) {
           const fetchedBalance = fetchedBalancesMap.get(address) || null;
           balances[address] = fetchedBalance;
           const ttlSeconds = this.getTtlSeconds(fetchedBalance);
           cachePipeline.set(`balance:${address}`, JSON.stringify(fetchedBalance), 'EX', ttlSeconds);
+
+          // Store watermark in database
           if (slotByAddress[address]) {
-            cachePipeline.set(`balance:slot:${address}`, String(slotByAddress[address]), 'EX', ttlSeconds);
+            watermarkUpdates.push(
+              this.databaseService.setTokenAccountWatermark(address, filterKey, slotByAddress[address])
+            );
           }
         }
-        
-        await cachePipeline.exec();
+
+        await Promise.all([cachePipeline.exec(), ...watermarkUpdates]);
         this.logger.debug(`Fetched and cached ${missedAddresses.length} missing balances.`);
 
       } catch (error) {
@@ -256,13 +276,13 @@ export class BalanceCacheService {
   }
 
   /**
-   * Clear cache for a specific wallet
+   * Clear cache for a specific wallet (both Redis cache and database watermarks)
    */
   async clearCache(walletAddress: string): Promise<void> {
     const cacheKey = `balance:${walletAddress}`;
-    const slotKey = `balance:slot:${walletAddress}`;
     await this.redis.del(cacheKey);
-    await this.redis.del(slotKey);
+    // Clear all watermarks for this wallet from database
+    await this.databaseService.deleteTokenAccountWatermark(walletAddress);
   }
 
   /**
