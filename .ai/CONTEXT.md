@@ -8,8 +8,11 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| 🔴 | **CRITICAL: Fix broken incremental fetch - move from 30s Redis TTL to persistent DB storage** | 🔴 L | Incremental fetch WAS implemented (Jan 30, commit e09ff2b) but **DEVIATED from original plan** - stores slots in Redis with 30s TTL instead of persistent DB! After 30s slots expire → full fetch (30k accounts). **Root cause of current RPC issue:** Slots don't persist between jobs. **The Fix:** Migrate from `balance:slot:{address}` (Redis 30s) → `TokenAccountWatermark` table (Prisma persistent). Requires: (1) Prisma model, (2) DB methods, (3) Change balance-cache.service.ts to use DB instead of Redis, (4) Increase TTL to match balance cache (30min-1hr). **Expected impact:** 95%+ RPC reduction that actually PERSISTS. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete |
-| ⚪ | In holder profiles outcome should be influenced by categories and weighted on the supply they hold. ALSO CONFIRM the formula is adequate -   9X8VSUD8yhYbHtR3KdKeCvnb7TNfgTKMFufgpCympump - see this profile 
+| ⚪ | In holder profiles outcome should be influenced by categories and weighted on the supply they hold. ALSO CONFIRM the formula is adequate -   9X8VSUD8yhYbHtR3KdKeCvnb7TNfgTKMFufgpCympump - see this profile - user should show picture with the categories;
+| feat | Implemnet feed 
+
 
 **Recently Completed:**
 -  **React Hooks ESLint Fixes** (Feb 14) - Fixed all 27 react-hooks/exhaustive-deps warnings across 16 frontend files. Critical fixes: added missing dependencies in EChartComponent (onEvents/option), WalletEditForm (performSave), WalletProfileLayout (isAnalyzing/walletAddress), useJobProgress (completedJobs) - preventing stale closure bugs. Cleanup: removed unnecessary 'toast' deps (stable from Sonner), wrapped unstable functions in useCallback/useMemo, suppressed API_BASE_URL warnings (constant), fixed debounce wrapper patterns. Result: Zero ESLint warnings, prevented race conditions and stale data bugs.
@@ -45,32 +48,168 @@
 ##  Current Focus & Priorities
 
 
-### P1: Helius API Optimization (Mandatory, Not Urgent)
+### P1: Helius API Optimization (CRITICAL - High Impact)
 **Goal:** Reduce redundant RPC calls from 29k account fetches to ~10-50 per check (95%+ reduction)
 
+**Current Status:** 🟡 **Phase 1 BROKEN** - Implemented on Jan 30 but with fatal design flaw!
+
 <details>
-<summary><b>Implementation Recommendation</b></summary>
+<parameter name="<b>The Stupid Thing That Happened (Jan 30, 2026)</b></summary>
 
-**Phase 1: Quick Win   Implemented (Jan 30, 2026)**
-1. Enable `changedSinceSlot` in V2 API calls
-   - Store last checkpoint slot in Redis per wallet
-   - Only fetch changed accounts on subsequent calls
-   - Falls back to full fetch if slot too old
-2. Transaction-triggered cache invalidation
-   - HeliusSyncService already processes transactions
-   - When new transaction arrives, invalidate affected token accounts
-   - Next balance request fetches only invalidated accounts
+Someone implemented incremental fetch in commit `e09ff2b` but **DEVIATED from the original plan**:
 
-**Phase 2: Long-term Solution**
-3. Helius Webhooks for account changes
-   - Subscribe to account change webhooks (not just transaction webhooks)
-   - Real-time balance updates, no polling needed
-4. WebSocket subscriptions for active wallets
-   - Open WebSocket connections for actively monitored wallets
-   - Close connections when no longer needed
-   - Instant updates for tracked wallets
+❌ **Original Plan (Sep 2025):** Store slots in **Prisma database** (persistent, survives restarts)
+❌ **What Was Actually Built:** Store slots in **Redis with 30-second TTL** (`balance:slot:{address}`)
+
+**Why This Is Broken:**
+1. ⏱️ **30-second expiration** - Slot watermarks expire after 30s, forcing full fetch on next request
+2. 🔄 **Job spacing** - Holder profiles/similarity jobs often run >30s apart, slots always expired
+3. 💾 **No persistence** - Server restart = all slots lost, back to full fetches
+4. 📉 **Defeats the purpose** - 95% RPC reduction only lasts 30 seconds!
+
+**What Works (The 90% That's Done):**
+✅ **V2 API integration** - Code correctly passes `changedSinceSlot` to Helius (wallet-balance-service.ts:139)
+✅ **Delta merge logic** - Properly merges changed accounts with cached balances (balance-cache.service.ts:62)
+✅ **Batch support** - Works for both single wallet and batch operations
+✅ **Error handling** - Falls back gracefully if incremental fetch fails
+✅ **Slot tracking** - Captures and stores slot numbers from API responses
 
 </details>
+
+<details>
+<summary><b>The Fix (Replace Redis → Database)</b></summary>
+
+**Step 1: Database Table** - Add Prisma model (replaces Redis keys):
+```prisma
+model TokenAccountWatermark {
+  id              String   @id @default(cuid())
+  ownerPubkey     String
+  filterKey       String   // "program:spl-token" or "mint:{address}"
+  lastSlot        Int
+  updatedAt       DateTime @updatedAt
+  @@unique([ownerPubkey, filterKey])
+  @@index([ownerPubkey])
+}
+```
+
+**Step 2: Database Methods** - Add to DatabaseService:
+```typescript
+async getWatermark(owner: string, filter: string): Promise<number | null> {
+  const record = await this.prisma.tokenAccountWatermark.findUnique({
+    where: { ownerPubkey_filterKey: { ownerPubkey: owner, filterKey: filter } }
+  });
+  return record?.lastSlot ?? null;
+}
+
+async setWatermark(owner: string, filter: string, slot: number): Promise<void> {
+  await this.prisma.tokenAccountWatermark.upsert({
+    where: { ownerPubkey_filterKey: { ownerPubkey: owner, filterKey: filter } },
+    create: { ownerPubkey: owner, filterKey: filter, lastSlot: slot },
+    update: { lastSlot: slot }
+  });
+}
+```
+
+**Step 3: Update BalanceCacheService** - Replace Redis slot storage (lines 35, 54, 128, 198, 229, 264):
+
+REMOVE these lines:
+```typescript
+const slotKey = `balance:slot:${walletAddress}`;
+const cachedSlot = await this.redis.get(slotKey);
+await this.redis.set(slotKey, String(slot), 'EX', 30);
+```
+
+REPLACE with:
+```typescript
+const filterKey = 'program:spl-token'; // or mint-specific
+const cachedSlot = await this.databaseService.getWatermark(walletAddress, filterKey);
+if (newSlot) await this.databaseService.setWatermark(walletAddress, filterKey, newSlot);
+```
+
+**Step 4: OPTIONAL - Keep Redis for Short-Term Caching:**
+- Store slots in BOTH places: Redis (30s for speed) + DB (persistent fallback)
+- Check Redis first (fast), fall back to DB if not found
+- This gives you both speed AND persistence
+
+~~❌ **3. Wire Up Integration** - In helius-api-client.ts `getTokenAccountsByOwner()` (line 1401):~~
+**ALREADY DONE!** The integration exists in wallet-balance-service.ts:139
+```typescript
+if (HELIUS_V2_CONFIG.enableIncremental) {
+  const filterKey = mintPubkey ? `mint:${mintPubkey}` : `program:${programId}`;
+  const watermark = await this.db.getWatermark(ownerPubkey, filterKey);
+  if (watermark) changedSinceSlot = watermark;
+}
+// ... after V2 fetch succeeds ...
+if (HELIUS_V2_CONFIG.enableIncremental && v2.context.slot) {
+  await this.db.setWatermark(ownerPubkey, filterKey, v2.context.slot);
+}
+```
+
+❌ **4. Edge Case Handling**:
+- Stale watermark detection (if slot >7 days old, do full fetch + reset)
+- Error handling (on fetch failure, don't update watermark)
+- Watermark cleanup (delete old entries after wallet deleted)
+
+</details>
+
+<details>
+<summary><b>Implementation Checklist (Est. 2-3 hours)</b></summary>
+
+**Step 1: Database Schema (15 min)**
+- [ ] Add Prisma model to schema.prisma
+- [ ] Run `npx prisma migrate dev --name add-token-account-watermark`
+- [ ] Verify migration applied
+
+**Step 2: Database Service (30 min)**
+- [ ] Add `getWatermark()` method
+- [ ] Add `setWatermark()` method
+- [ ] Add `deleteWatermark()` for cleanup
+- [ ] Add staleness check helper (>7 days = stale)
+
+**Step 3: Helius Client Integration (45 min)**
+- [ ] Add watermark fetch before V2 call (lines 1401-1410)
+- [ ] Add watermark update after successful fetch (lines 1414-1416)
+- [ ] Add staleness check (if >7 days, skip changedSinceSlot)
+- [ ] Add error handling (try/catch watermark ops, log failures)
+
+**Step 4: Testing (30 min)**
+- [ ] Run helius-api-client.v2.spec.ts (should still pass)
+- [ ] Manual test: analyze wallet twice (2nd should use changedSinceSlot)
+- [ ] Check logs for "V2 pagination page 1: X accounts" - should be low on 2nd run
+- [ ] Verify watermark stored in DB after first run
+
+**Step 5: Production Rollout (30 min)**
+- [ ] Set `ENABLE_HELIUS_V2_INCREMENTAL=true` in .env
+- [ ] Monitor RPC call volume in Grafana (should drop 70-95%)
+- [ ] Monitor for errors in logs
+- [ ] If issues: set flag to false, investigate
+
+</details>
+
+<details>
+<summary><b>Expected Impact</b></summary>
+
+**Before (Current State):**
+- Wallet with 30k tokens: 30,000 accounts fetched EVERY time
+- 10 similarity wallets: 300,000 accounts fetched per job
+- Cost: ~$X per 1M RPC calls
+
+**After (With Incremental):**
+- First fetch: 30,000 accounts (same)
+- Subsequent fetches (within 7 days): 10-50 changed accounts (95%+ reduction)
+- 10 similarity wallets: 30,000 (first) + 100-500 (subsequent) = 98%+ reduction
+- Cost savings: ~$Y saved per month
+
+**Real-World Scenario:**
+- Holder profiles job analyzing 10 wallets
+- Without incremental: 79 RPC calls (current issue you're seeing!)
+- With incremental: First run 79 calls → Subsequent runs 5-15 calls (80%+ reduction)
+
+</details>
+
+**Phase 2: Long-term Solution (Future)**
+3. Helius Webhooks for account changes
+4. WebSocket subscriptions for active wallets
 
 Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` to mark progress.
 
@@ -78,7 +217,17 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 ##  Recent Activity
 
-### February 14, 2026 (Latest)
+### February 15, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 15.1 | 🔍 INVESTIGATION | Helius V2 incremental fetch discovery - "TODO that never got done" | 🟢 S | `helius-api-client.ts`, `helius-api-client.v2.spec.ts`, docs |
+
+**Summary:**
+
+**15.1:** Discovered incremental fetch was implemented but with fatal design flaw causing current RPC issues. **The Discovery:** User reported disproportionate RPC calls despite balance cache. Investigation revealed incremental fetch WAS implemented (Jan 30, commit e09ff2b) but **deviated from original plan** - stores watermark slots in Redis with 30-second TTL instead of persistent database! **The Stupid Design Choice:** Original plan (Sep 2025, docs/helius_v2_API/helius-v2-pagination-migration.md): Store slots in Prisma database (survives restarts, persists between jobs). **What was actually built:** Stores slots in `balance:slot:{address}` Redis keys with 30s expiration. **Why This Breaks:** (1) Jobs run >30s apart = slots always expired = full fetch every time, (2) Server restart = all slots lost, (3) 95% RPC reduction only lasts 30 seconds! **What Works (The 90%):** changedSinceSlot correctly passed to Helius API (wallet-balance-service.ts:139), delta merge logic works (balance-cache.service.ts:62), batch support functional, error handling graceful, slot tracking implemented. **What's Broken (The 10%):** Storage layer uses wrong persistence mechanism. **The Fix:** Replace 6 Redis operations in balance-cache.service.ts (lines 35, 54, 128, 198, 229, 264) with database calls: (1) Add `TokenAccountWatermark` Prisma model, (2) Add `getWatermark()`/`setWatermark()` to DatabaseService, (3) Replace `redis.get(slotKey)` → `db.getWatermark()`, (4) Replace `redis.set(slotKey, slot, 'EX', 30)` → `db.setWatermark()`. **Test Bug Fixed:** Also discovered helius-api-client.v2.spec.ts had wrong response structure causing tests to fail (expected `{context, value: {accounts}}` but mocked `{result: {accounts, context}}`), corrected lines 42-48. **Helius Docs Validated:** Confirmed changedSinceSlot returns ONLY changed accounts, pagination continues until paginationKey=null, feature in beta. **Expected Impact After Fix:** 30k wallet: first fetch 30k → subsequent 10-50 (95%+ reduction THAT PERSISTS), holder profiles: 79 calls → 5-15 calls across ALL jobs (not just within 30s window). **Estimated Fix Time:** 1-2 hours (schema already designed in original plan). **Files:** Updated CONTEXT.md P1 section with "what went wrong" analysis, test fix in helius-api-client.v2.spec.ts.
+
+### February 14, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
