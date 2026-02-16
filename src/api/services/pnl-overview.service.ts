@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PnlAnalysisService } from './pnl-analysis.service';
 import { TokenInfoService } from './token-info.service';
 import { DexscreenerService } from './dexscreener.service';
+import { BalanceCacheService } from './balance-cache.service';
 import { SwapAnalysisSummary } from '../../types/helius-api';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
 
@@ -45,6 +46,7 @@ export class PnlOverviewService {
     private readonly pnlAnalysisService: PnlAnalysisService,
     private readonly tokenInfoService: TokenInfoService,
     private readonly dexscreenerService: DexscreenerService,
+    private readonly balanceCacheService: BalanceCacheService,
   ) {}
 
   private async formatPnlData(analysisSummary: (SwapAnalysisSummary & { analysisSkipped?: boolean }) | null): Promise<PnlOverviewResponseData | null> {
@@ -138,11 +140,17 @@ export class PnlOverviewService {
       this.logger.warn(`[PnlOverview] Failed to fetch SOL price: ${getErrorMessage(error)}. Unrealized PNL calculation will be skipped.`);
     }
 
-    // Fetch all-time data with SOL price for unrealized PNL calculation
+    // 🔥 FRESH BALANCES: Fetch current balances using BalanceCacheService
+    // This uses Redis cache (30s) + incremental fetch + persistent watermarks
+    // Result: Fresh data (<30s old) without RPC explosion
+    const freshBalance = await this.balanceCacheService.getBalances(walletAddress);
+    const preFetchedBalances = freshBalance ? new Map([[walletAddress, freshBalance]]) : undefined;
+
+    // Fetch all-time data with fresh balances for accurate unrealized PNL
     const allTimeAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
       walletAddress,
       undefined, // No time range for all-time
-      { isViewOnly: true, skipBalanceFetch: true, solPriceUsd },
+      { isViewOnly: true, skipBalanceFetch: false, preFetchedBalances, solPriceUsd },
     );
 
     const allTimeData = await this.formatPnlData(allTimeAnalysisSummary);
@@ -155,7 +163,7 @@ export class PnlOverviewService {
       const periodAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
         walletAddress,
         timeRange,
-        { isViewOnly: true, skipBalanceFetch: true, solPriceUsd },
+        { isViewOnly: true, skipBalanceFetch: false, preFetchedBalances, solPriceUsd },
       );
       periodData = await this.formatPnlData(periodAnalysisSummary);
       // If periodData is null (e.g. no transactions in period), it's fine, it will be returned as null.

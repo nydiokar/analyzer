@@ -149,6 +149,8 @@ export class BalanceCacheService {
 
     cachedResults.forEach((cached, index) => {
       const address = walletAddresses[index];
+      const slot = watermarks[index]; // Get slot from database watermark
+
       if (cached) {
         const balance = JSON.parse(cached);
         balances[address] = balance;
@@ -157,7 +159,6 @@ export class BalanceCacheService {
         // This prevents wasteful API calls for rapid successive requests (holder profiles → similarity)
         // while still keeping data fresh for longer-lived cache entries
         const cacheAge = now - new Date(balance.fetchedAt).getTime();
-        const slot = watermarks[index]; // Get slot from database watermark
 
         if (cacheAge > minAgeForRefresh && Number.isFinite(slot)) {
           // Cache is old enough - do incremental refresh
@@ -166,7 +167,17 @@ export class BalanceCacheService {
         }
         // If cache is fresh (< threshold), just return it without incremental fetch
       } else {
-        missedAddresses.push(address);
+        // Redis cache miss - check if we have a watermark from previous fetch
+        if (Number.isFinite(slot)) {
+          // ✅ Have watermark - do INCREMENTAL fetch (not full!)
+          // This handles the case where Redis expired but DB watermark persists
+          incrementalAddresses.push(address);
+          incrementalSlots[address] = slot as number;
+          this.logger.debug(`Cache miss for ${address}, but have watermark slot ${slot} - using incremental fetch`);
+        } else {
+          // No cache AND no watermark - first time fetch, need full data
+          missedAddresses.push(address);
+        }
       }
     });
 
