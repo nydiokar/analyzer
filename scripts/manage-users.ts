@@ -1,9 +1,81 @@
 import 'reflect-metadata';
+import 'tsconfig-paths/register';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { DatabaseService, prisma } from '../src/core/services/database-service'; // Adjusted path
 import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
 import logger from '../src/core/utils/logger';
+
+async function confirmOrExit(prompt: string, force?: boolean): Promise<void> {
+  if (force) return;
+  const readline = require('readline').createInterface({ input: process.stdin, output: process.stdout });
+  await new Promise<void>((resolve) => {
+    readline.question(prompt, (answer: string) => {
+      readline.close();
+      if (answer.toLowerCase() !== 'yes') {
+        console.log('Cancelled.');
+        process.exit(0);
+      }
+      resolve();
+    });
+  });
+}
+
+async function setEmailVerifiedForUser(params: { userId: string; status: boolean; force?: boolean }): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: params.userId },
+    select: { id: true, email: true, emailVerified: true, isActive: true, isDemo: true, isAdmin: true },
+  });
+
+  if (!user) {
+    console.log(`⚠️ User with ID ${params.userId} not found.`);
+    return;
+  }
+
+  await confirmOrExit(
+    `🚨 Set emailVerified=${params.status} for user ${user.id} (${user.email || 'no-email'})? Type "yes" to confirm: `,
+    params.force
+  );
+
+  if (params.status) {
+    // Mark verified and invalidate any outstanding tokens (prevents later token reuse).
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: user.id },
+        data: { emailVerified: true },
+        select: { id: true, email: true, emailVerified: true },
+      });
+      const invalidated = await tx.emailVerificationToken.updateMany({
+        where: { userId: user.id, used: false },
+        data: { used: true },
+      });
+      return { updated, invalidatedCount: invalidated.count };
+    });
+
+    console.log(`✅ Updated: ${result.updated.id} (${result.updated.email || 'no-email'}) emailVerified=${result.updated.emailVerified}`);
+    console.log(`   Invalidated ${result.invalidatedCount} pending EmailVerificationToken rows.`);
+    return;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { emailVerified: false },
+    select: { id: true, email: true, emailVerified: true },
+  });
+  console.log(`✅ Updated: ${updated.id} (${updated.email || 'no-email'}) emailVerified=${updated.emailVerified}`);
+}
+
+async function setEmailVerifiedForEmail(params: { email: string; status: boolean; force?: boolean }): Promise<void> {
+  const user = await prisma.user.findFirst({
+    where: { email: params.email },
+    select: { id: true },
+  });
+  if (!user) {
+    console.log(`⚠️ No user found with email ${params.email}`);
+    return;
+  }
+  await setEmailVerifiedForUser({ userId: user.id, status: params.status, force: params.force });
+}
 
 
 
@@ -404,6 +476,66 @@ async function main() {
           }
         } catch (error) {
           logger.error('❌ Error setting admin status:', getErrorMessage(error));
+        }
+      }
+    )
+    .command(
+      'set-email-verified <id> <status>',
+      'Set a user email verification status (temporary workaround when email sending is down)',
+      (yargs) => {
+        return yargs
+          .positional('id', {
+            describe: 'User ID',
+            type: 'string',
+            demandOption: true,
+          })
+          .positional('status', {
+            describe: 'Email verified status to set (true or false)',
+            type: 'boolean',
+            demandOption: true,
+          })
+          .option('force', {
+            alias: 'f',
+            type: 'boolean',
+            description: 'Skip confirmation prompt',
+            default: false,
+          });
+      },
+      async (argv) => {
+        try {
+          await setEmailVerifiedForUser({ userId: argv.id as string, status: argv.status as boolean, force: argv.force as boolean });
+        } catch (error) {
+          logger.error('❌ Error setting emailVerified:', getErrorMessage(error));
+        }
+      }
+    )
+    .command(
+      'set-email-verified-by-email <email> <status>',
+      'Set a user email verification status by email address',
+      (yargs) => {
+        return yargs
+          .positional('email', {
+            describe: 'User email address',
+            type: 'string',
+            demandOption: true,
+          })
+          .positional('status', {
+            describe: 'Email verified status to set (true or false)',
+            type: 'boolean',
+            demandOption: true,
+          })
+          .option('force', {
+            alias: 'f',
+            type: 'boolean',
+            description: 'Skip confirmation prompt',
+            default: false,
+          });
+      },
+      async (argv) => {
+        try {
+          await setEmailVerifiedForEmail({ email: argv.email as string, status: argv.status as boolean, force: argv.force as boolean });
+        } catch (error) {
+          logger.error('❌ Error setting emailVerified by email:', getErrorMessage(error));
         }
       }
     )
