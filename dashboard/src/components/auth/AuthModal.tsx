@@ -304,13 +304,12 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
                   <Input
                     id="registration-code"
                     type="text"
-                    placeholder="Enter your invite code"
+                    placeholder="Enter your invite code (optional for dev)"
                     value={formData.registrationCode}
                     onChange={(e) => handleInputChange('registrationCode', e.target.value)}
                     className="h-9 text-sm font-mono"
-                    required
                   />
-                  <p className="text-xs text-slate-500">Invite code required</p>
+                  <p className="text-xs text-slate-500">Invite code optional</p>
                 </div>
 
                 <Button

@@ -3170,7 +3170,7 @@ export class DatabaseService {
      */
     async getTokenAccountWatermark(ownerPubkey: string, filterKey: string): Promise<number | null> {
         try {
-            const record = await this.prisma.tokenAccountWatermark.findUnique({
+            const record = await this.prismaClient.tokenAccountWatermark.findUnique({
                 where: {
                     ownerPubkey_filterKey: {
                         ownerPubkey,
@@ -3198,7 +3198,7 @@ export class DatabaseService {
      */
     async setTokenAccountWatermark(ownerPubkey: string, filterKey: string, lastSlot: number): Promise<void> {
         try {
-            await this.prisma.tokenAccountWatermark.upsert({
+            await this.prismaClient.tokenAccountWatermark.upsert({
                 where: {
                     ownerPubkey_filterKey: {
                         ownerPubkey,
@@ -3230,7 +3230,7 @@ export class DatabaseService {
     async deleteTokenAccountWatermark(ownerPubkey: string, filterKey?: string): Promise<void> {
         try {
             if (filterKey) {
-                await this.prisma.tokenAccountWatermark.delete({
+                await this.prismaClient.tokenAccountWatermark.delete({
                     where: {
                         ownerPubkey_filterKey: {
                             ownerPubkey,
@@ -3240,7 +3240,7 @@ export class DatabaseService {
                 });
             } else {
                 // Delete all watermarks for this wallet
-                await this.prisma.tokenAccountWatermark.deleteMany({
+                await this.prismaClient.tokenAccountWatermark.deleteMany({
                     where: {
                         ownerPubkey
                     }
