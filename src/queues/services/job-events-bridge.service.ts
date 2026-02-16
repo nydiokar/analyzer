@@ -110,9 +110,15 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
       const userId = await this.resolveUserId(job, jobId);
 
-      // Use manual processing time from job result if available, otherwise fallback to BullMQ timing
+      // BullMQ QueueEvents returns returnvalue as a JSON string; parse it into an object
+      // so downstream consumers (WebSocket clients) receive a proper object, not a string.
       let processingTime = 0;
-      const result = returnvalue as any;
+      let result: any;
+      try {
+        result = typeof returnvalue === 'string' ? JSON.parse(returnvalue) : returnvalue;
+      } catch {
+        result = returnvalue;
+      }
       if (result && typeof result === 'object' && 'processingTimeMs' in result) {
         processingTime = result.processingTimeMs;
       } else if (job && job.finishedOn && job.processedOn) {
