@@ -5,6 +5,7 @@ import { PnlAnalysisModule } from './pnl-analysis.module'; // Import PnlAnalysis
 import { TokenInfoModule } from '../integrations/token-info.module';
 import { HeliusModule } from '../integrations/helius.module'; // Import HeliusModule to use global singleton
 import { DexscreenerModule } from '../integrations/dexscreener.module';
+import { BalanceCacheModule } from './balance-cache.module'; // Import for fresh balance fetching
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { DexscreenerModule } from '../integrations/dexscreener.module';
     HeliusModule, // Import HeliusModule to get the global HeliusApiClient singleton
     DexscreenerModule, // Import DexscreenerModule to get DexscreenerService
     PnlAnalysisModule, // Import PnlAnalysisModule to use the shared PnlAnalysisService singleton
+    BalanceCacheModule, // Import BalanceCacheModule to get fresh balances for unrealized PnL
   ],
   providers: [
     PnlOverviewService,

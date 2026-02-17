@@ -106,9 +106,10 @@ export const ANALYSIS_EXECUTION_CONFIG = {
 } as const;
 
 export const BALANCE_CACHE_CONFIG = {
-  DEFAULT_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_TTL_SECONDS', 300), // 5 minutes
-  MEDIUM_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_MEDIUM_TTL_SECONDS', 900), // 15 minutes
-  WHALE_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_WHALE_TTL_SECONDS', 2700), // 45 minutes
+  // Increased TTLs to maximize incremental fetch window (persistent watermarks enable this)
+  DEFAULT_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_TTL_SECONDS', 1800), // 30 minutes (was 5min)
+  MEDIUM_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_MEDIUM_TTL_SECONDS', 7200), // 2 hours (was 15min)
+  WHALE_TTL_SECONDS: getEnvNumber('BALANCE_CACHE_WHALE_TTL_SECONDS', 14400), // 4 hours (was 45min)
   MEDIUM_TOKEN_THRESHOLD: getEnvNumber('BALANCE_CACHE_MEDIUM_TOKEN_THRESHOLD', 1000),
   WHALE_TOKEN_THRESHOLD: getEnvNumber('BALANCE_CACHE_WHALE_TOKEN_THRESHOLD', 5000),
   MIN_UI_BALANCE: getEnvNumber('BALANCE_CACHE_MIN_UI_BALANCE', 1000),
@@ -220,7 +221,8 @@ const numFromEnv = (key: string, fallback: number): number => {
 export const HELIUS_V2_CONFIG = {
   enablePagination: boolFromEnv('ENABLE_HELIUS_V2_PAGINATION', true),
   pageLimit: Math.max(1000, Math.min(10000, numFromEnv('HELIUS_V2_PAGE_LIMIT', 10000))), // Helius V2 max: 10,000 accounts per request
-  enableIncremental: boolFromEnv('ENABLE_HELIUS_V2_INCREMENTAL', false),
+  // NOTE: Incremental fetch (changedSinceSlot) is ALWAYS ACTIVE at the BalanceCacheService layer
+  // when cached balances exist. No flag needed - it's automatic and smart about when to use it.
   // Phase 1 migration: getTransactionsForAddress (signatures mode)
   enableTransactionsForAddressSignatures: boolFromEnv('ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES', false),
   txForAddressSignaturesPageLimit: Math.max(100, Math.min(1000, numFromEnv('HELIUS_TX_FOR_ADDRESS_PAGE_LIMIT', 1000))),

@@ -58,7 +58,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [completedJobs, setCompletedJobs] = useState<Set<string>>(new Set());
+  const completedJobsRef = useRef<Set<string>>(new Set());
   const jobSocketDebug = process.env.NEXT_PUBLIC_JOB_SOCKET_DEBUG === 'true';
   const debugStatsRef = useRef<Map<string, DebugJobStats>>(new Map());
   const activeJobIdsRef = useRef<Set<string>>(new Set());
@@ -119,28 +119,48 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   );
 
   // This handler processes job completion data from the initial HTTP poll.
-  const handleJobCompletedFromHttp = useCallback((job: JobStatusResponseDto) => {
+  const handleJobCompletedFromHttp = useCallback(async (job: JobStatusResponseDto) => {
     // Prevent duplicate processing
-    if (completedJobs.has(job.id)) {
+    if (completedJobsRef.current.has(job.id)) {
       return;
     }
-    
-    setCompletedJobs(prev => new Set(prev).add(job.id));
-    
+
+    completedJobsRef.current.add(job.id);
+
+    // Similarity jobs store large payloads in Redis behind a pointer key.
+    // The /jobs/:id status endpoint returns the raw returnvalue (with resultKey),
+    // so we must hydrate via /jobs/:id/result which resolves the pointer.
+    let result = job.result;
+    const pointerKey = getResultPointerKey(result);
+    if (job.queue === 'similarity-operations' && pointerKey) {
+      const hydrated = await hydrateJobResult(job.id);
+      if (hydrated) {
+        const existing = result && typeof result === 'object' ? (result as JobResult) : undefined;
+        result = {
+          success: existing?.success ?? true,
+          timestamp: existing?.timestamp ?? Date.now(),
+          data: hydrated,
+          requestId: existing?.requestId,
+          processingTimeMs: existing?.processingTimeMs,
+          enrichmentJobId: existing?.enrichmentJobId,
+        } as JobResult;
+      }
+    }
+
     const completionData: JobCompletionData = {
       jobId: job.id,
       queue: job.queue,
-      result: job.result,
+      result,
       timestamp: job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now(),
       processingTime: (job.finishedAt && job.processedAt)
         ? new Date(job.finishedAt).getTime() - new Date(job.processedAt).getTime()
         : 0,
-      enrichmentJobId: job.result?.enrichmentJobId,
+      enrichmentJobId: result?.enrichmentJobId,
     };
 
-    if (job.queue === 'enrichment-operations' && job.result) {
+    if (job.queue === 'enrichment-operations' && result) {
       // Transform JobResult to EnrichmentCompletionData
-      const resultData = job.result as { enrichedBalances?: unknown; data?: unknown };
+      const resultData = result as { enrichedBalances?: unknown; data?: unknown };
       const enrichmentData: EnrichmentCompletionData = {
         requestId: job.id,
         enrichedBalances: resultData.enrichedBalances || resultData.data || {},
@@ -150,7 +170,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     } else {
       callbacksRef.current.onJobCompleted?.(completionData);
     }
-  }, [callbacksRef, completedJobs]);
+  }, [callbacksRef, hydrateJobResult]);
 
   // This handler processes job failure data from the initial HTTP poll.
   const handleJobFailedFromHttp = useCallback((job: JobStatusResponseDto) => {
@@ -247,11 +267,11 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobCompleted = (data: JobCompletionData) => {
-      incrementDebugCounter(data.jobId, 'completed', { dedupSkipped: completedJobs.has(data.jobId) });
-      if (completedJobs.has(data.jobId)) {
+      incrementDebugCounter(data.jobId, 'completed', { dedupSkipped: completedJobsRef.current.has(data.jobId) });
+      if (completedJobsRef.current.has(data.jobId)) {
         return; 
       }
-      setCompletedJobs(prev => new Set(prev).add(data.jobId));
+      completedJobsRef.current.add(data.jobId);
 
       const processCompletion = async () => {
         let resolvedResult = data.result;
@@ -390,7 +410,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       });
       newSocket.disconnect();
     };
-  }, [debugLog, incrementDebugCounter, hydrateJobResult, completedJobs]);
+  }, [debugLog, incrementDebugCounter, hydrateJobResult]);
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {
@@ -462,7 +482,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       socket.disconnect();
     }
     // Clear completed jobs on cleanup
-    setCompletedJobs(new Set());
+    completedJobsRef.current.clear();
     activeJobIdsRef.current.clear();
     debugStatsRef.current.clear();
     debugLog('cleanup', {});

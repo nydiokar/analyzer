@@ -3155,4 +3155,100 @@ export class DatabaseService {
 
         return successCount;
     }
+
+    // ========================
+    // Token Account Watermarks (for incremental balance fetching)
+    // ========================
+
+    /**
+     * Get the last processed slot for a wallet + filter combination.
+     * Used for incremental balance fetching with changedSinceSlot.
+     *
+     * @param ownerPubkey Wallet address
+     * @param filterKey Filter identifier (e.g., "program:spl-token", "mint:{address}")
+     * @returns The last processed slot number, or null if no watermark exists
+     */
+    async getTokenAccountWatermark(ownerPubkey: string, filterKey: string): Promise<number | null> {
+        try {
+            const record = await this.prismaClient.tokenAccountWatermark.findUnique({
+                where: {
+                    ownerPubkey_filterKey: {
+                        ownerPubkey,
+                        filterKey
+                    }
+                },
+                select: {
+                    lastSlot: true
+                }
+            });
+            return record?.lastSlot ?? null;
+        } catch (error) {
+            logger.warn(`Error fetching watermark for ${ownerPubkey}/${filterKey}: ${getErrorMessage(error)}`);
+            return null; // Fail open - return null to trigger full fetch
+        }
+    }
+
+    /**
+     * Set/update the last processed slot for a wallet + filter combination.
+     * Creates new watermark if doesn't exist, updates if exists.
+     *
+     * @param ownerPubkey Wallet address
+     * @param filterKey Filter identifier (e.g., "program:spl-token", "mint:{address}")
+     * @param lastSlot The slot number to store
+     */
+    async setTokenAccountWatermark(ownerPubkey: string, filterKey: string, lastSlot: number): Promise<void> {
+        try {
+            await this.prismaClient.tokenAccountWatermark.upsert({
+                where: {
+                    ownerPubkey_filterKey: {
+                        ownerPubkey,
+                        filterKey
+                    }
+                },
+                create: {
+                    ownerPubkey,
+                    filterKey,
+                    lastSlot
+                },
+                update: {
+                    lastSlot
+                }
+            });
+        } catch (error) {
+            // Non-critical - log but don't throw
+            logger.warn(`Error setting watermark for ${ownerPubkey}/${filterKey}: ${getErrorMessage(error)}`);
+        }
+    }
+
+    /**
+     * Delete watermark for a specific wallet + filter.
+     * Used for cleanup when wallet is deleted or cache invalidation.
+     *
+     * @param ownerPubkey Wallet address
+     * @param filterKey Optional filter key - if not provided, deletes all watermarks for wallet
+     */
+    async deleteTokenAccountWatermark(ownerPubkey: string, filterKey?: string): Promise<void> {
+        try {
+            if (filterKey) {
+                await this.prismaClient.tokenAccountWatermark.delete({
+                    where: {
+                        ownerPubkey_filterKey: {
+                            ownerPubkey,
+                            filterKey
+                        }
+                    }
+                });
+            } else {
+                // Delete all watermarks for this wallet
+                await this.prismaClient.tokenAccountWatermark.deleteMany({
+                    where: {
+                        ownerPubkey
+                    }
+                });
+            }
+        } catch (error) {
+            // Ignore errors (might not exist)
+            logger.debug(`Watermark deletion for ${ownerPubkey}/${filterKey || 'all'}: ${getErrorMessage(error)}`);
+        }
+    }
 }

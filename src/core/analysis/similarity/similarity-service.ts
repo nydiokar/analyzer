@@ -155,9 +155,9 @@ export class SimilarityService {
         const walletResults = analysisResultsByWallet.get(walletAddr) || [];
         const activeTokens = new Set(walletResults.map(result => result.tokenAddress));
         activelyTradedTokensByWalletPrimary.set(walletAddr, activeTokens);
-        logger.debug(`[Primary Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${walletResults.length} actively traded tokens (paid fees)`);
+        logger.debug(`[Primary Filtered - ${vectorType.toUpperCase()}] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${walletResults.length} actively traded tokens (paid fees)`);
     }
-    
+
     // Filter primaryRelevantMints to only include tokens actively traded by at least one wallet
     const allActivelyTradedMints = new Set<string>();
     for (const tokenSet of activelyTradedTokensByWalletPrimary.values()) {
@@ -168,8 +168,8 @@ export class SimilarityService {
     const filteredPrimaryMints = primaryRelevantMints.filter(mint => {
         return allActivelyTradedMints.has(mint);
     });
-    
-    logger.debug(`[Primary Filtered] Filtered from ${primaryRelevantMints.length} to ${filteredPrimaryMints.length} tokens for ${vectorType} similarity (excluding passive interactions)`);
+
+    logger.debug(`[Primary Filtered - ${vectorType.toUpperCase()}] Filtered from ${primaryRelevantMints.length} to ${filteredPrimaryMints.length} tokens for ${vectorType} similarity (excluding passive interactions)`);
 
     if (filteredPrimaryMints.length > 0) {
         // Create filtered transaction data that only includes actively traded tokens
@@ -177,13 +177,13 @@ export class SimilarityService {
         
         for (const walletAddr of walletsWithFetchedData) {
             const activeTokens = activelyTradedTokensByWalletPrimary.get(walletAddr) || new Set();
-            filteredTransactionData[walletAddr] = (transactionData[walletAddr] || []).filter(tx => 
+            filteredTransactionData[walletAddr] = (transactionData[walletAddr] || []).filter(tx =>
                 activeTokens.has(tx.mint)
             );
-            
+
             const originalCount = transactionData[walletAddr]?.length || 0;
             const filteredCount = filteredTransactionData[walletAddr].length;
-            logger.debug(`[Primary Filtered] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${filteredCount}/${originalCount} transactions (actively traded only)`);
+            logger.debug(`[Primary Filtered - ${vectorType.toUpperCase()}] Wallet ${walletAddr.slice(0, 8)}...${walletAddr.slice(-4)}: ${filteredCount}/${originalCount} transactions (actively traded only)`);
         }
         
         if (vectorType === 'capital') {
@@ -197,7 +197,7 @@ export class SimilarityService {
         if (walletsWithPrimaryVectors.length >= 2) {
             cosineSimilarityMatrix = this.similarityAnalyzer['calculateCosineSimilarityMatrix'](primaryVectors, walletsWithPrimaryVectors);
             
-            logger.info(`[Primary Filtered Similarity] Calculated ${vectorType} similarity for ${walletsWithPrimaryVectors.length} wallets using ${filteredPrimaryMints.length} actively traded tokens`);
+            logger.info(`[Primary Filtered Similarity - ${vectorType.toUpperCase()}] Calculated ${vectorType} similarity for ${walletsWithPrimaryVectors.length} wallets using ${filteredPrimaryMints.length} actively traded tokens`);
         } else {
              logger.warn(`Less than 2 wallets have data for filtered primary vector type ${vectorType}. Cosine matrix will be empty.`);
         }

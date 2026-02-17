@@ -576,3 +576,16 @@ model WatchedToken {
 
   @@unique([tokenAddress, list])
 }
+
+model TokenAccountWatermark {
+  id          String   @id @default(cuid())
+  ownerPubkey String
+  filterKey   String   // "program:spl-token", "program:token-2022", or "mint:{address}"
+  lastSlot    Int
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([ownerPubkey, filterKey])
+  @@index([ownerPubkey])
+  @@index([updatedAt])
+}
