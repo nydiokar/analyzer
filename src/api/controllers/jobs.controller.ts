@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete, UseGuards, ForbiddenException, Req } from '@nestjs/common';
+import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete, UseGuards, ForbiddenException, Req, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { JobsService } from '../services/jobs.service';
 import { JobState } from 'bullmq';
@@ -125,6 +125,31 @@ export class JobsController {
   }
 
   // === Existing Job Status Endpoints ===
+
+  /**
+   * Lightweight single-Redis-read endpoint for result hydration.
+   * Use this when the caller already has the resultKey from a WebSocket event —
+   * it skips the BullMQ job lookup entirely and does a single Redis GET.
+   */
+  @Get('result/by-key')
+  @ApiOperation({
+    summary: 'Fetch a job result directly from Redis by result key',
+    description:
+      'Skips BullMQ job lookup. Use when the resultKey is already known (e.g. from the job-completed WebSocket event). ' +
+      'Validates key prefix server-side (only similarity:result:* and holder-profiles:result:* are allowed).',
+  })
+  @ApiQuery({ name: 'key', description: 'The Redis result key (e.g. similarity:result:{requestId})', type: String })
+  @ApiResponse({ status: 200, description: 'Result data from Redis' })
+  @ApiResponse({ status: 400, description: 'Invalid key prefix' })
+  @ApiResponse({ status: 404, description: 'Result not found or expired' })
+  async getResultByKey(
+    @Query('key') key: string,
+  ): Promise<unknown> {
+    if (!key) {
+      throw new BadRequestException('key query parameter is required');
+    }
+    return this.jobsService.getResultByKey(key);
+  }
 
   @Get(':jobId')
   @ApiOperation({

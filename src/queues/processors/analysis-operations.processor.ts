@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, Inject } from '@nestjs/common';
 import { Job, Worker, UnrecoverableError } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts, JobPriority } from '../config/queue.config';
 import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult, HolderProfile } from '../jobs/types';
@@ -31,6 +31,8 @@ import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
 import { MetricsService } from '../../api/services/metrics.service';
 import { getErrorMessage } from 'core/utils/error-utils';
+import { REDIS_CLIENT } from '../config/redis.provider';
+import Redis from 'ioredis';
 
 @Injectable()
 export class AnalysisOperationsProcessor implements OnModuleDestroy {
@@ -54,6 +56,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly balanceCacheService: BalanceCacheService,
     private readonly systemWalletDetection: SystemWalletDetectionService,
     private readonly metricsService: MetricsService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -864,10 +867,21 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     return job.id ?? null;
   }
 
+  // TTL for holder-profiles results stored in Redis (matches similarity job TTL).
+  private readonly holderProfilesResultTtlSeconds = 15 * 60; // 15 minutes
+
   /**
-   * Wrapper for holder profiles with metrics tracking
+   * Wrapper for holder profiles with metrics tracking.
+   *
+   * Mirrors the similarity pointer pattern:
+   * - Stores the full HolderProfilesResult in Redis under `holder-profiles:result:{jobId}`
+   * - Returns only { resultKey, success, metadata } as BullMQ returnvalue (~200 bytes)
+   * - Frontend hydrates via GET /jobs/result/by-key?key=... (1 Redis read, no BullMQ lookup)
+   *
+   * This prevents blasting ~50-200KB through BullMQ Redis → bridge → pub/sub → WebSocket.
+   * Progressive streaming (job.updateProgress) continues unchanged.
    */
-  private async processAnalyzeHolderProfilesWithMetrics(job: Job<AnalyzeHolderProfilesJobData>): Promise<HolderProfilesResult> {
+  private async processAnalyzeHolderProfilesWithMetrics(job: Job<AnalyzeHolderProfilesJobData>): Promise<object> {
     const metricsStartTime = Date.now();
     try {
       const result = await this.processAnalyzeHolderProfiles(job);
@@ -876,7 +890,23 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       this.metricsService.analysisJobsTotal.labels('holder-profiles', 'success').inc();
       this.metricsService.analysisJobDuration.labels('holder-profiles').observe((Date.now() - metricsStartTime) / 1000);
 
-      return result;
+      // Store full payload in Redis; return only a lightweight pointer as BullMQ returnvalue.
+      const resultKey = `holder-profiles:result:${job.id}`;
+      try {
+        await this.redisClient.set(resultKey, JSON.stringify(result), 'EX', this.holderProfilesResultTtlSeconds);
+        this.logger.debug(`Stored holder-profiles result for job ${job.id} with TTL ${this.holderProfilesResultTtlSeconds}s`);
+        return {
+          success: result.success,
+          data: { resultKey },
+          metadata: result.metadata,
+          processingTimeMs: result.processingTimeMs,
+          timestamp: result.timestamp,
+        };
+      } catch (storeError) {
+        // Redis storage failed — fall back to returning full result (safe but large)
+        this.logger.error(`Failed to store holder-profiles result in Redis for job ${job.id}:`, storeError);
+        return result;
+      }
     } catch (error) {
       // Track failed job
       this.metricsService.analysisJobsTotal.labels('holder-profiles', 'failed').inc();
@@ -1398,9 +1428,12 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           }
 
           let walletResult: HolderProfilesResult | null = null;
-          if (result.data && typeof result.data === 'object') {
-            walletResult = result.data as HolderProfilesResult;
+          const resultData = result.data as unknown as Record<string, unknown> | undefined;
+          if (resultData && typeof resultData === 'object' && Array.isArray(resultData['profiles'])) {
+            // Inline result (should not happen with pointer pattern, kept for safety)
+            walletResult = resultData as unknown as HolderProfilesResult;
           } else {
+            // Pointer pattern: child job returned { resultKey } — fetch from wallet cache
             walletResult = await this.holderProfilesCacheService.getWalletResult(wallet);
           }
 

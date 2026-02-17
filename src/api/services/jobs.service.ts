@@ -522,21 +522,22 @@ export class JobsService {
                         job.processedOn ? 'active' : 'waiting';
 
           let result = job.returnvalue;
-          // For similarity jobs we store large payloads in Redis; fetch if key provided
-          if (name === 'similarity-operations' && result && typeof result === 'object' && 'data' in result) {
-            const data: any = (result as any).data;
-            const resultKey = data?.resultKey;
-            if (resultKey) {
-              try {
-                const cached = await this.redisClient.get(resultKey);
-                if (cached) {
-                  result = JSON.parse(cached);
-                } else {
-                  this.logger.warn(`Similarity result key ${resultKey} not found in Redis for job ${jobId}`);
-                }
-              } catch (error) {
-                this.logger.warn(`Failed to read similarity result from Redis (${resultKey}) for job ${jobId}`, error as Error);
+          // Resolve Redis pointer for any job type that uses the pointer pattern
+          // (similarity-operations and analysis-operations/holder-profiles).
+          const pointerData = result && typeof result === 'object' && 'data' in result
+            ? (result as any).data
+            : null;
+          const resultKey: string | undefined = pointerData?.resultKey;
+          if (resultKey) {
+            try {
+              const cached = await this.redisClient.get(resultKey);
+              if (cached) {
+                result = JSON.parse(cached);
+              } else {
+                this.logger.warn(`Result key ${resultKey} not found in Redis for job ${jobId}`);
               }
+            } catch (error) {
+              this.logger.warn(`Failed to read result from Redis (${resultKey}) for job ${jobId}`, error as Error);
             }
           }
 
@@ -553,6 +554,34 @@ export class JobsService {
     }
 
     throw new NotFoundException(`Job with ID ${jobId} not found in any queue`);
+  }
+
+  /**
+   * Fetch a job result directly from Redis by its result key.
+   * Skips the BullMQ job lookup entirely — for use when the caller already has
+   * the resultKey (e.g. received via WebSocket job-completed event).
+   *
+   * Allowed key prefixes (validated server-side to prevent arbitrary Redis reads):
+   *   - similarity:result:{requestId}
+   *   - holder-profiles:result:{jobId}
+   */
+  async getResultByKey(key: string): Promise<unknown> {
+    const allowedPrefixes = ['similarity:result:', 'holder-profiles:result:'];
+    const isAllowed = allowedPrefixes.some((prefix) => key.startsWith(prefix));
+    if (!isAllowed) {
+      throw new BadRequestException(`Invalid result key prefix`);
+    }
+
+    const raw = await this.redisClient.get(key);
+    if (!raw) {
+      throw new NotFoundException(`Result not found or expired for key: ${key}`);
+    }
+
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new NotFoundException(`Malformed result for key: ${key}`);
+    }
   }
 
   private getQueueByName(queueName: string) {

@@ -106,8 +106,15 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   );
 
   const hydrateJobResult = useCallback(
-    async (jobId: string): Promise<any | null> => {
+    async (jobId: string, resultKey?: string | null): Promise<any | null> => {
       try {
+        // Fast path: if we already have the resultKey from the WebSocket event,
+        // use the lightweight by-key endpoint (1 Redis read, no BullMQ job lookup).
+        if (resultKey) {
+          const data = await fetcher(`/jobs/result/by-key?key=${encodeURIComponent(resultKey)}`);
+          return data ?? null;
+        }
+        // Slow path: fetch via jobId (2 Redis reads — BullMQ lookup + key resolve).
         const response = await fetcher(`/jobs/${jobId}/result`);
         return response?.result ?? null;
       } catch (fetchError) {
@@ -127,23 +134,29 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     completedJobsRef.current.add(job.id);
 
-    // Similarity jobs store large payloads in Redis behind a pointer key.
+    // Similarity and holder-profiles jobs store large payloads in Redis behind a pointer key.
     // The /jobs/:id status endpoint returns the raw returnvalue (with resultKey),
-    // so we must hydrate via /jobs/:id/result which resolves the pointer.
+    // so we hydrate via the by-key endpoint (1 Redis read, no BullMQ lookup).
     let result = job.result;
     const pointerKey = getResultPointerKey(result);
-    if (job.queue === 'similarity-operations' && pointerKey) {
-      const hydrated = await hydrateJobResult(job.id);
+    if (pointerKey) {
+      const hydrated = await hydrateJobResult(job.id, pointerKey);
       if (hydrated) {
-        const existing = result && typeof result === 'object' ? (result as JobResult) : undefined;
-        result = {
-          success: existing?.success ?? true,
-          timestamp: existing?.timestamp ?? Date.now(),
-          data: hydrated,
-          requestId: existing?.requestId,
-          processingTimeMs: existing?.processingTimeMs,
-          enrichmentJobId: existing?.enrichmentJobId,
-        } as JobResult;
+        if (job.queue === 'analysis-operations') {
+          // Holder-profiles: Redis value IS the full HolderProfilesResult — don't wrap.
+          result = hydrated;
+        } else {
+          // Similarity: wrap into JobResult shape.
+          const existing = result && typeof result === 'object' ? (result as JobResult) : undefined;
+          result = {
+            success: existing?.success ?? true,
+            timestamp: existing?.timestamp ?? Date.now(),
+            data: hydrated,
+            requestId: existing?.requestId,
+            processingTimeMs: existing?.processingTimeMs,
+            enrichmentJobId: existing?.enrichmentJobId,
+          } as JobResult;
+        }
       }
     }
 
@@ -276,33 +289,42 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       const processCompletion = async () => {
         let resolvedResult = data.result;
         const pointerKey = getResultPointerKey(resolvedResult);
-        const requiresHydration =
-          data.queue === 'similarity-operations' && (!resolvedResult || pointerKey !== null);
+        // Hydrate when the result contains a pointer (resultKey).
+        // Works for both similarity-operations and analysis-operations (holder-profiles) jobs.
+        const requiresHydration = pointerKey !== null;
         if (requiresHydration) {
           debugLog('hydrate-job-result', { jobId: data.jobId, pointerKey });
-          const hydrated = await hydrateJobResult(data.jobId);
+          // Pass the resultKey so the fast 1-read path is used (skips BullMQ lookup).
+          const hydrated = await hydrateJobResult(data.jobId, pointerKey);
           if (hydrated) {
-            const existingResult =
-              resolvedResult && typeof resolvedResult === 'object'
-                ? (resolvedResult as JobResult)
-                : undefined;
-            const hydratedResult: JobResult = {
-              success: existingResult?.success ?? true,
-              timestamp: existingResult?.timestamp ?? Date.now(),
-              data: hydrated,
-              requestId: existingResult?.requestId,
-              processingTimeMs: existingResult?.processingTimeMs,
-              enrichmentJobId: existingResult?.enrichmentJobId,
-              analysisScope: existingResult?.analysisScope,
-              triggerSource: existingResult?.triggerSource,
-              historyWindowDays: existingResult?.historyWindowDays ?? null,
-              targetSignatureCount: existingResult?.targetSignatureCount,
-              signaturesConsidered: existingResult?.signaturesConsidered,
-              timeRange: existingResult?.timeRange,
-              followUpJobsQueued: existingResult?.followUpJobsQueued,
-              metadata: existingResult?.metadata,
-            };
-            resolvedResult = hydratedResult;
+            if (data.queue === 'analysis-operations') {
+              // Holder-profiles: the Redis value IS the full HolderProfilesResult (profiles at top level).
+              // The page reads data.result directly as HolderProfilesResult — don't wrap it.
+              resolvedResult = hydrated;
+            } else {
+              // Similarity: wrap into JobResult shape so data.result.data is the similarity payload.
+              const existingResult =
+                resolvedResult && typeof resolvedResult === 'object'
+                  ? (resolvedResult as JobResult)
+                  : undefined;
+              const hydratedResult: JobResult = {
+                success: existingResult?.success ?? true,
+                timestamp: existingResult?.timestamp ?? Date.now(),
+                data: hydrated,
+                requestId: existingResult?.requestId,
+                processingTimeMs: existingResult?.processingTimeMs,
+                enrichmentJobId: existingResult?.enrichmentJobId,
+                analysisScope: existingResult?.analysisScope,
+                triggerSource: existingResult?.triggerSource,
+                historyWindowDays: existingResult?.historyWindowDays ?? null,
+                targetSignatureCount: existingResult?.targetSignatureCount,
+                signaturesConsidered: existingResult?.signaturesConsidered,
+                timeRange: existingResult?.timeRange,
+                followUpJobsQueued: existingResult?.followUpJobsQueued,
+                metadata: existingResult?.metadata,
+              };
+              resolvedResult = hydratedResult;
+            }
             debugLog('hydrate-job-result-success', { jobId: data.jobId });
           } else {
             debugLog('hydrate-job-result-miss', { jobId: data.jobId });
