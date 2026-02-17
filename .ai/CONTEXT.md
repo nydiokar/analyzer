@@ -8,12 +8,13 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🔴 | **CRITICAL: Fix broken incremental fetch - move from 30s Redis TTL to persistent DB storage** | 🔴 L | Incremental fetch WAS implemented (Jan 30, commit e09ff2b) but **DEVIATED from original plan** - stores slots in Redis with 30s TTL instead of persistent DB! After 30s slots expire → full fetch (30k accounts). **Root cause of current RPC issue:** Slots don't persist between jobs. **The Fix:** Migrate from `balance:slot:{address}` (Redis 30s) → `TokenAccountWatermark` table (Prisma persistent). Requires: (1) Prisma model, (2) DB methods, (3) Change balance-cache.service.ts to use DB instead of Redis, (4) Increase TTL to match balance cache (30min-1hr). **Expected impact:** 95%+ RPC reduction that actually PERSISTS. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete |
-| ⚪ | Holder profiles category weighting | 🟡 M | In holder profiles outcome should be influenced by categories and weighted on the supply they hold. ALSO CONFIRM the formula is adequate - test with 9X8VSUD8yhYbHtR3KdKeCvnb7TNfgTKMFufgpCympump profile - user should show picture with the categories |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality |
 
 **Recently Completed:**
+-  **Holder Profiles Outcome Logic Overhaul** (Feb 16-17) - Replaced head-count voting with supply-weighted calculations so large holders define the outcome, not the long tail. Supply-weighted median for hold time, PnL variance weighted by (supplyPercent × dataQuality), diversification weighted by supply held. Added `holdDataConfidence` gate: if <10% of supply has proven exit data, returns "Insufficient data" instead of a misleading verdict, with 0.85x dampener when <50%. Speed scoring aligned to all 8 SPEED_CATEGORY_COLORS buckets (was using 5 with wrong boundaries). Removed PnL variance factor (noise for token outlook) — formula now 85% speed + 15% diversification. Added `freshSupplyPercent` indicator to OutcomeStrip showing % of supply held by wallets with no exit history. System wallets excluded from `holdDataConfidence` and `dataQualityRatio` calculations. **Files:** `outcome-logic.ts`, `OutcomeStrip.tsx`.
+-  **Balance Cache + Similarity Job Fix** (Feb 17) - Fixed similarity jobs failing with "Insufficient valid wallets, got 1" despite having valid wallets. Two bugs in `balance-cache.service.ts`: (1) **Cache miss + DB watermark → broken incremental path**: when Redis expired, code attempted incremental fetch (changedSinceSlot) with no baseline to merge into — `balances[address]` stayed undefined, wallet silently dropped by `filter(addr => balances[addr])` in the processor. Fix: cache miss always goes to full fetch regardless of watermark. (2) **Hardcoded 30s TTL on incremental write in `getBalances()`**: child holder-profile jobs were overwriting the 30-min cached balance with a 30-second TTL, causing it to expire before the similarity job ran. Fix: use `getTtlSeconds()` consistently everywhere. All 5 Redis write paths in `balance-cache.service.ts` now use adaptive TTL (30min / 2hr / 4hr by wallet size). The DB watermark + incremental merge path is intact for the working case (cache hit + slot → delta merge).
+-  **Persistent Watermark Storage** (Feb 16) - Completed the P1 incremental fetch fix. Migrated slot watermarks from `balance:slot:{address}` (Redis 30s TTL) to `TokenAccountWatermark` Prisma table (persistent). Added `getTokenAccountWatermark` / `setTokenAccountWatermark` / `deleteTokenAccountWatermark` to DatabaseService. Increased adaptive cache TTLs (default 5min→30min, medium 15min→2hr, whale 45min→4hr). Incremental fetch (`changedSinceSlot`) now benefits the full cache window, not just 30s. Expected impact: 90%+ RPC reduction for repeat fetches within the TTL window.
 -  **Admin Page Race Condition Fix** (Feb 17) - Fixed intermittent CORS errors on admin page first load where users list would fail to fetch. Root cause: 300ms debounced `fetchUsers` useEffect triggered before JWT headers were ready, causing CORS preflight rejection. Solution: Call `fetchUsers()` immediately on admin verification (alongside other fetch functions) instead of waiting for debounced effect. Debounced effect still handles subsequent updates (search/filter/pagination). Result: Zero CORS errors on initial load, users list loads immediately and reliably.
 -  **React Hooks ESLint Fixes** (Feb 14) - Fixed all 27 react-hooks/exhaustive-deps warnings across 16 frontend files. Critical fixes: added missing dependencies in EChartComponent (onEvents/option), WalletEditForm (performSave), WalletProfileLayout (isAnalyzing/walletAddress), useJobProgress (completedJobs) - preventing stale closure bugs. Cleanup: removed unnecessary 'toast' deps (stable from Sonner), wrapped unstable functions in useCallback/useMemo, suppressed API_BASE_URL warnings (constant), fixed debounce wrapper patterns. Result: Zero ESLint warnings, prevented race conditions and stale data bugs.
 -  **Smart Incremental Balance Cache** (Feb 14) - Fixed wasteful incremental fetches (79 RPC calls → 0 for similarity jobs within 30sec window). Added time-based deduplication: only refresh cache if >30sec old, preventing rapid successive API calls while keeping data fresh. Result: ~70% RPC reduction for holder profiles → similarity flow.
@@ -47,171 +48,22 @@
 
 ##  Current Focus & Priorities
 
+### P1: Helius API Optimization — ✅ COMPLETE (Feb 16-17)
 
-### P1: Helius API Optimization (CRITICAL - High Impact)
-**Goal:** Reduce redundant RPC calls from 29k account fetches to ~10-50 per check (95%+ reduction)
+**What was done:**
+- Slot watermarks migrated from Redis (30s TTL) → `TokenAccountWatermark` Prisma table (persistent, Feb 16 commit `3bb107f`)
+- Balance cache TTLs increased: default 5min→30min, medium 15min→2hr, whale 45min→4hr
+- Fixed broken cache-miss + watermark incremental path that caused similarity jobs to silently drop wallets (Feb 17)
+- Fixed hardcoded 30s TTL overwriting 30-min cached balances in `getBalances()` incremental write (Feb 17)
+- All 5 Redis write paths in `balance-cache.service.ts` now use adaptive `getTtlSeconds()`
 
-**Current Status:** 🟡 **Phase 1 BROKEN** - Implemented on Jan 30 but with fatal design flaw!
+**How it works now:**
+1. First fetch → full Helius call → balance cached (30min-4hr) + slot watermark stored in DB
+2. Repeat fetch within TTL window → incremental `changedSinceSlot` → only changed tokens returned → merged with cached baseline → written back with full TTL
+3. Cache miss (TTL expired) → full fetch regardless of watermark (watermark alone can't reconstruct full balance)
+4. Holder profiles → similarity job chain: balances cached at 30min, similarity hits cache, zero extra RPC calls
 
-<details>
-<parameter name="<b>The Stupid Thing That Happened (Jan 30, 2026)</b></summary>
-
-Someone implemented incremental fetch in commit `e09ff2b` but **DEVIATED from the original plan**:
-
-❌ **Original Plan (Sep 2025):** Store slots in **Prisma database** (persistent, survives restarts)
-❌ **What Was Actually Built:** Store slots in **Redis with 30-second TTL** (`balance:slot:{address}`)
-
-**Why This Is Broken:**
-1. ⏱️ **30-second expiration** - Slot watermarks expire after 30s, forcing full fetch on next request
-2. 🔄 **Job spacing** - Holder profiles/similarity jobs often run >30s apart, slots always expired
-3. 💾 **No persistence** - Server restart = all slots lost, back to full fetches
-4. 📉 **Defeats the purpose** - 95% RPC reduction only lasts 30 seconds!
-
-**What Works (The 90% That's Done):**
-✅ **V2 API integration** - Code correctly passes `changedSinceSlot` to Helius (wallet-balance-service.ts:139)
-✅ **Delta merge logic** - Properly merges changed accounts with cached balances (balance-cache.service.ts:62)
-✅ **Batch support** - Works for both single wallet and batch operations
-✅ **Error handling** - Falls back gracefully if incremental fetch fails
-✅ **Slot tracking** - Captures and stores slot numbers from API responses
-
-</details>
-
-<details>
-<summary><b>The Fix (Replace Redis → Database)</b></summary>
-
-**Step 1: Database Table** - Add Prisma model (replaces Redis keys):
-```prisma
-model TokenAccountWatermark {
-  id              String   @id @default(cuid())
-  ownerPubkey     String
-  filterKey       String   // "program:spl-token" or "mint:{address}"
-  lastSlot        Int
-  updatedAt       DateTime @updatedAt
-  @@unique([ownerPubkey, filterKey])
-  @@index([ownerPubkey])
-}
-```
-
-**Step 2: Database Methods** - Add to DatabaseService:
-```typescript
-async getWatermark(owner: string, filter: string): Promise<number | null> {
-  const record = await this.prisma.tokenAccountWatermark.findUnique({
-    where: { ownerPubkey_filterKey: { ownerPubkey: owner, filterKey: filter } }
-  });
-  return record?.lastSlot ?? null;
-}
-
-async setWatermark(owner: string, filter: string, slot: number): Promise<void> {
-  await this.prisma.tokenAccountWatermark.upsert({
-    where: { ownerPubkey_filterKey: { ownerPubkey: owner, filterKey: filter } },
-    create: { ownerPubkey: owner, filterKey: filter, lastSlot: slot },
-    update: { lastSlot: slot }
-  });
-}
-```
-
-**Step 3: Update BalanceCacheService** - Replace Redis slot storage (lines 35, 54, 128, 198, 229, 264):
-
-REMOVE these lines:
-```typescript
-const slotKey = `balance:slot:${walletAddress}`;
-const cachedSlot = await this.redis.get(slotKey);
-await this.redis.set(slotKey, String(slot), 'EX', 30);
-```
-
-REPLACE with:
-```typescript
-const filterKey = 'program:spl-token'; // or mint-specific
-const cachedSlot = await this.databaseService.getWatermark(walletAddress, filterKey);
-if (newSlot) await this.databaseService.setWatermark(walletAddress, filterKey, newSlot);
-```
-
-**Step 4: OPTIONAL - Keep Redis for Short-Term Caching:**
-- Store slots in BOTH places: Redis (30s for speed) + DB (persistent fallback)
-- Check Redis first (fast), fall back to DB if not found
-- This gives you both speed AND persistence
-
-~~❌ **3. Wire Up Integration** - In helius-api-client.ts `getTokenAccountsByOwner()` (line 1401):~~
-**ALREADY DONE!** The integration exists in wallet-balance-service.ts:139
-```typescript
-if (HELIUS_V2_CONFIG.enableIncremental) {
-  const filterKey = mintPubkey ? `mint:${mintPubkey}` : `program:${programId}`;
-  const watermark = await this.db.getWatermark(ownerPubkey, filterKey);
-  if (watermark) changedSinceSlot = watermark;
-}
-// ... after V2 fetch succeeds ...
-if (HELIUS_V2_CONFIG.enableIncremental && v2.context.slot) {
-  await this.db.setWatermark(ownerPubkey, filterKey, v2.context.slot);
-}
-```
-
-❌ **4. Edge Case Handling**:
-- Stale watermark detection (if slot >7 days old, do full fetch + reset)
-- Error handling (on fetch failure, don't update watermark)
-- Watermark cleanup (delete old entries after wallet deleted)
-
-</details>
-
-<details>
-<summary><b>Implementation Checklist (Est. 2-3 hours)</b></summary>
-
-**Step 1: Database Schema (15 min)**
-- [ ] Add Prisma model to schema.prisma
-- [ ] Run `npx prisma migrate dev --name add-token-account-watermark`
-- [ ] Verify migration applied
-
-**Step 2: Database Service (30 min)**
-- [ ] Add `getWatermark()` method
-- [ ] Add `setWatermark()` method
-- [ ] Add `deleteWatermark()` for cleanup
-- [ ] Add staleness check helper (>7 days = stale)
-
-**Step 3: Helius Client Integration (45 min)**
-- [ ] Add watermark fetch before V2 call (lines 1401-1410)
-- [ ] Add watermark update after successful fetch (lines 1414-1416)
-- [ ] Add staleness check (if >7 days, skip changedSinceSlot)
-- [ ] Add error handling (try/catch watermark ops, log failures)
-
-**Step 4: Testing (30 min)**
-- [ ] Run helius-api-client.v2.spec.ts (should still pass)
-- [ ] Manual test: analyze wallet twice (2nd should use changedSinceSlot)
-- [ ] Check logs for "V2 pagination page 1: X accounts" - should be low on 2nd run
-- [ ] Verify watermark stored in DB after first run
-
-**Step 5: Production Rollout (30 min)**
-- [ ] Set `ENABLE_HELIUS_V2_INCREMENTAL=true` in .env
-- [ ] Monitor RPC call volume in Grafana (should drop 70-95%)
-- [ ] Monitor for errors in logs
-- [ ] If issues: set flag to false, investigate
-
-</details>
-
-<details>
-<summary><b>Expected Impact</b></summary>
-
-**Before (Current State):**
-- Wallet with 30k tokens: 30,000 accounts fetched EVERY time
-- 10 similarity wallets: 300,000 accounts fetched per job
-- Cost: ~$X per 1M RPC calls
-
-**After (With Incremental):**
-- First fetch: 30,000 accounts (same)
-- Subsequent fetches (within 7 days): 10-50 changed accounts (95%+ reduction)
-- 10 similarity wallets: 30,000 (first) + 100-500 (subsequent) = 98%+ reduction
-- Cost savings: ~$Y saved per month
-
-**Real-World Scenario:**
-- Holder profiles job analyzing 10 wallets
-- Without incremental: 79 RPC calls (current issue you're seeing!)
-- With incremental: First run 79 calls → Subsequent runs 5-15 calls (80%+ reduction)
-
-</details>
-
-**Phase 2: Long-term Solution (Future)**
-3. Helius Webhooks for account changes
-4. WebSocket subscriptions for active wallets
-
-Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` to mark progress.
+**Phase 2 (future):** Helius Webhooks / WebSocket subscriptions for active wallets
 
 ---
 
@@ -222,10 +74,16 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
 | 17.1 | 🔧 FIX | Admin page race condition - intermittent user list CORS errors | 🟢 S | `dashboard/src/app/admin/page.tsx` |
+| 17.2 | 🔧 FIX | Balance cache broken path + 30s TTL regression killing similarity jobs | 🟡 M | `src/api/services/balance-cache.service.ts` |
+| 17.3 | 🔧 FIX | Holder profiles outcome logic - supply-weighted, confidence gate, fresh supply indicator | 🟡 M | `outcome-logic.ts`, `OutcomeStrip.tsx` |
 
 **Summary:**
 
 **17.1:** Fixed intermittent CORS errors on admin page first load where users list would fail to fetch. **Root Cause:** 300ms debounced `fetchUsers` useEffect (line 545-553) triggered before JWT headers were ready on initial page load. When admin verification completed, `isAdminVerified` changed from `false` → `true`, triggering the debounced effect. But during the 300ms delay, sometimes the auth headers weren't ready yet, causing the request to fire without `Authorization` header → CORS preflight rejection. When user reloaded, JWT was already in memory → request succeeded. **The Fix:** Call `fetchUsers()` immediately on admin verification (line 626) alongside other fetch functions (`fetchApiKeys`, `fetchRegistrationCodes`, etc.), instead of relying solely on the debounced effect. Auth headers are guaranteed ready at this point. Debounced effect (lines 545-553) still handles subsequent updates (search/filter/pagination changes). **Impact:** Zero CORS errors on initial load, users list loads immediately and reliably. **Files:** `dashboard/src/app/admin/page.tsx` (changed line 626 from comment to direct call).
+
+**17.3:** Overhauled holder profiles outcome logic to be supply-weighted and data-gated. **Supply weighting (Feb 16, `79c38c5`):** Replaced head-count median with supply-weighted median for hold time — a wallet holding 8.9% supply now has 11x more influence than one holding 0.8%. Fixes the issue where expanding from top 10 to top 20 holders (adding small tail wallets) degraded the outcome from "Moderately stable" to "Volatile" despite large conviction holders dominating supply. PnL variance, diversification, and data quality ratio all weighted by supplyPercent. **Formula overhaul (Feb 17, `b3e55d4`):** Speed scoring aligned to all 8 SPEED_CATEGORY_COLORS buckets (was 5 with wrong boundaries). Removed PnL variance factor (noise for token outlook) — formula now 85% speed + 15% diversification. Added `holdDataConfidence` gate: tracks % of supply with proven exit data — if <10% returns "Insufficient data" instead of a misleading verdict, 0.85x dampener applied when <50%. **Fresh supply indicator (`12c932d`):** Added `freshSupplyPercent` to OutcomeStrip tooltip — shows % of supply held by wallets with no exit history (pure holders / bag holders). **System wallet exclusion (`9105793`):** `holdDataConfidence` and `dataQualityRatio` now use trader supply (excluding system wallets) as denominator so system wallets don't dilute the ratios. **Files:** `dashboard/src/components/holder-profiles/v2/utils/outcome-logic.ts`, `dashboard/src/components/holder-profiles/v2/OutcomeStrip.tsx`.
+
+**17.2:** Fixed similarity jobs failing with "Insufficient valid wallets for similarity analysis. Need at least 2 wallets, got 1" despite being given 9 wallets (with 4 filtered as system wallets leaving 5 valid). **Root Cause - Two Bugs introduced by `3bb107f` + `f205ae5` watermark commits:** (1) **Broken incremental path on cache miss** (`getManyBalances`, line ~170): when Redis balance had expired but a DB watermark existed, code pushed address to `incrementalAddresses`. The incremental fetch returned a delta (changedSinceSlot), but the merge at line 211 required `existing && delta` — `existing` was undefined (cache miss), so the wallet balance was never set. Processor then filtered it out at `validWalletsWithBalances = finalWalletsToAnalyze.filter(addr => actualWalletBalances[addr])` → wallet silently dropped. Fix: `else` branch (cache miss) always goes to `missedAddresses` for full fetch — a watermark alone cannot reconstruct a full balance. (2) **Hardcoded 30-second TTL in `getBalances()` incremental write** (line 74 before fix): child holder-profile jobs called `getBalances()` which on cache-hit did an incremental merge then wrote back with `'EX', 30`. This overwrote the parent's 30-min cached balance with a 30-second one. By the time similarity ran (~19 min later), cache was dead → triggered the broken path above. Fix: use `getTtlSeconds(merged)` consistently. **All 5 Redis write paths** in `balance-cache.service.ts` now use adaptive TTL (30min default / 2hr medium / 4hr whale). DB watermark + incremental delta merge path is intact and correct for the normal case (cache hit + slot → changedSinceSlot fetch → merge). **Files:** `src/api/services/balance-cache.service.ts` (2 targeted changes).
 
 ### February 15, 2026
 
