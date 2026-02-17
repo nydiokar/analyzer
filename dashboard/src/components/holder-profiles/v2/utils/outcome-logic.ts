@@ -142,11 +142,11 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
       item.value !== null && Number.isFinite(item.value)
     );
 
-  // What % of total supply has proven exit data?
-  // If 8/10 holders have no exits → holdDataConfidence is low → dampens the verdict
-  const totalSupply = profiles.reduce((sum, p) => sum + p.supplyPercent, 0);
+  // Trader supply excludes system wallets (BURN, LP, etc.) so they don't dilute ratios
+  // An LP holding 40% shouldn't make holdDataConfidence cap at 0.6
+  const traderSupply = profiles.filter((p) => !p.analysisSkipped).reduce((sum, p) => sum + p.supplyPercent, 0);
   const exitBasedSupply = holdTimeData.reduce((sum, item) => sum + item.weight, 0);
-  const holdDataConfidence = totalSupply > 0 ? exitBasedSupply / totalSupply : 0;
+  const holdDataConfidence = traderSupply > 0 ? exitBasedSupply / traderSupply : 0;
 
   // If almost nobody has exited, we can't make a speed claim
   if (holdTimeData.length === 0 || holdDataConfidence < 0.1) {
@@ -179,11 +179,11 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
     return tokenData.reduce((sum, item) => sum + item.count * item.weight, 0) / totalWeight;
   })();
 
-  // Data quality ratio weighted by supply (GOLD + SILVER supply / total supply)
+  // Data quality ratio against trader supply (system wallets are always INSUFFICIENT)
   const highQualitySupply = profiles
     .filter((p) => p.dataQualityTier === 'GOLD' || p.dataQualityTier === 'SILVER')
     .reduce((sum, p) => sum + p.supplyPercent, 0);
-  const dataQualityRatio = totalSupply > 0 ? highQualitySupply / totalSupply : 0;
+  const dataQualityRatio = traderSupply > 0 ? highQualitySupply / traderSupply : 0;
 
   // Fresh supply = token supply % held by trader wallets with no exit history
   // Excludes system wallets (BURN, LP, etc.) — they're not "fresh", just non-traders
