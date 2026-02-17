@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-02-14  **Status:**  Active Development
+**Branch:** `main`  **Last Updated:** 2026-02-17  **Status:**  Active Development
 
 ---
 
@@ -10,11 +10,11 @@
 |:------:|:-----|:-----:|:------|
 | 🔴 | **CRITICAL: Fix broken incremental fetch - move from 30s Redis TTL to persistent DB storage** | 🔴 L | Incremental fetch WAS implemented (Jan 30, commit e09ff2b) but **DEVIATED from original plan** - stores slots in Redis with 30s TTL instead of persistent DB! After 30s slots expire → full fetch (30k accounts). **Root cause of current RPC issue:** Slots don't persist between jobs. **The Fix:** Migrate from `balance:slot:{address}` (Redis 30s) → `TokenAccountWatermark` table (Prisma persistent). Requires: (1) Prisma model, (2) DB methods, (3) Change balance-cache.service.ts to use DB instead of Redis, (4) Increase TTL to match balance cache (30min-1hr). **Expected impact:** 95%+ RPC reduction that actually PERSISTS. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete |
-| ⚪ | In holder profiles outcome should be influenced by categories and weighted on the supply they hold. ALSO CONFIRM the formula is adequate -   9X8VSUD8yhYbHtR3KdKeCvnb7TNfgTKMFufgpCympump - see this profile - user should show picture with the categories;
-| feat | Implemnet feed 
-
+| ⚪ | Holder profiles category weighting | 🟡 M | In holder profiles outcome should be influenced by categories and weighted on the supply they hold. ALSO CONFIRM the formula is adequate - test with 9X8VSUD8yhYbHtR3KdKeCvnb7TNfgTKMFufgpCympump profile - user should show picture with the categories |
+| ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality |
 
 **Recently Completed:**
+-  **Admin Page Race Condition Fix** (Feb 17) - Fixed intermittent CORS errors on admin page first load where users list would fail to fetch. Root cause: 300ms debounced `fetchUsers` useEffect triggered before JWT headers were ready, causing CORS preflight rejection. Solution: Call `fetchUsers()` immediately on admin verification (alongside other fetch functions) instead of waiting for debounced effect. Debounced effect still handles subsequent updates (search/filter/pagination). Result: Zero CORS errors on initial load, users list loads immediately and reliably.
 -  **React Hooks ESLint Fixes** (Feb 14) - Fixed all 27 react-hooks/exhaustive-deps warnings across 16 frontend files. Critical fixes: added missing dependencies in EChartComponent (onEvents/option), WalletEditForm (performSave), WalletProfileLayout (isAnalyzing/walletAddress), useJobProgress (completedJobs) - preventing stale closure bugs. Cleanup: removed unnecessary 'toast' deps (stable from Sonner), wrapped unstable functions in useCallback/useMemo, suppressed API_BASE_URL warnings (constant), fixed debounce wrapper patterns. Result: Zero ESLint warnings, prevented race conditions and stale data bugs.
 -  **Smart Incremental Balance Cache** (Feb 14) - Fixed wasteful incremental fetches (79 RPC calls → 0 for similarity jobs within 30sec window). Added time-based deduplication: only refresh cache if >30sec old, preventing rapid successive API calls while keeping data fresh. Result: ~70% RPC reduction for holder profiles → similarity flow.
 -  **Holder Profiles Optimization Part 2** (Feb 14) - Eliminated redundant system wallet detection (10-20 RPC calls saved) + fixed memory explosion by replacing full balance objects (250KB) with Redis cache keys (50 bytes) - 99.95% memory reduction
@@ -217,7 +217,17 @@ Use `TaskList` to see current status, `TaskGet #N` to see details, `TaskUpdate` 
 
 ##  Recent Activity
 
-### February 15, 2026 (Latest)
+### February 17, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 17.1 | 🔧 FIX | Admin page race condition - intermittent user list CORS errors | 🟢 S | `dashboard/src/app/admin/page.tsx` |
+
+**Summary:**
+
+**17.1:** Fixed intermittent CORS errors on admin page first load where users list would fail to fetch. **Root Cause:** 300ms debounced `fetchUsers` useEffect (line 545-553) triggered before JWT headers were ready on initial page load. When admin verification completed, `isAdminVerified` changed from `false` → `true`, triggering the debounced effect. But during the 300ms delay, sometimes the auth headers weren't ready yet, causing the request to fire without `Authorization` header → CORS preflight rejection. When user reloaded, JWT was already in memory → request succeeded. **The Fix:** Call `fetchUsers()` immediately on admin verification (line 626) alongside other fetch functions (`fetchApiKeys`, `fetchRegistrationCodes`, etc.), instead of relying solely on the debounced effect. Auth headers are guaranteed ready at this point. Debounced effect (lines 545-553) still handles subsequent updates (search/filter/pagination changes). **Impact:** Zero CORS errors on initial load, users list loads immediately and reliably. **Files:** `dashboard/src/app/admin/page.tsx` (changed line 626 from comment to direct call).
+
+### February 15, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|

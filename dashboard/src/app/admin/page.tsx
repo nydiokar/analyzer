@@ -623,7 +623,7 @@ export default function AdminDashboardPage() {
         fetchCodeStats();
         fetchKillSwitch();
         fetchCodeRequirement();
-        // fetchUsers is now handled by the debounced useEffect
+        fetchUsers(); // Initial load - don't wait for debounced effect
       } catch (error) {
         console.error('Admin verification failed:', error);
         router.replace('/');
