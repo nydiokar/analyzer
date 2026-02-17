@@ -71,7 +71,8 @@ export class BalanceCacheService {
             await this.databaseService.setTokenAccountWatermark(walletAddress, filterKey, slotByAddress[walletAddress]);
           }
 
-          await this.redis.set(cacheKey, JSON.stringify(merged), 'EX', 30);
+          const ttlSeconds = this.getTtlSeconds(merged);
+          await this.redis.set(cacheKey, JSON.stringify(merged), 'EX', ttlSeconds);
           return merged;
         } catch (error) {
           this.logger.warn(`Incremental balance fetch failed for ${walletAddress}, using cached value.`, getErrorMessage(error));
@@ -167,17 +168,10 @@ export class BalanceCacheService {
         }
         // If cache is fresh (< threshold), just return it without incremental fetch
       } else {
-        // Redis cache miss - check if we have a watermark from previous fetch
-        if (Number.isFinite(slot)) {
-          // ✅ Have watermark - do INCREMENTAL fetch (not full!)
-          // This handles the case where Redis expired but DB watermark persists
-          incrementalAddresses.push(address);
-          incrementalSlots[address] = slot as number;
-          this.logger.debug(`Cache miss for ${address}, but have watermark slot ${slot} - using incremental fetch`);
-        } else {
-          // No cache AND no watermark - first time fetch, need full data
-          missedAddresses.push(address);
-        }
+        // Redis cache miss - full fetch required since we have no baseline to merge into.
+        // Even if a DB watermark exists, changedSinceSlot only returns changed accounts
+        // and we need the full balance set to build a valid WalletBalance.
+        missedAddresses.push(address);
       }
     });
 
