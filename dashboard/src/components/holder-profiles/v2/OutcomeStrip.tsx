@@ -25,7 +25,21 @@ function getOutcomeTooltip(verdict: string): string {
   return tooltips[verdict] || 'Exit timing and conviction.';
 }
 
-export function OutcomeStrip({ verdict, description, color, holdersCount, compact = false }: OutcomeStripProps) {
+function getFreshSupplyIndicator(freshPercent: number) {
+  if (freshPercent < 3) return null;
+
+  const rounded = Math.round(freshPercent);
+  const color =
+    freshPercent >= 15 ? 'text-amber-500' :
+    freshPercent >= 8 ? 'text-amber-400/80' :
+    'text-muted-foreground';
+
+  return { rounded, color };
+}
+
+export function OutcomeStrip({ verdict, description, color, holdersCount, freshSupplyPercent, compact = false }: OutcomeStripProps) {
+  const freshIndicator = freshSupplyPercent != null ? getFreshSupplyIndicator(freshSupplyPercent) : null;
+
   return (
     <div
       className={cn(
@@ -57,6 +71,11 @@ export function OutcomeStrip({ verdict, description, color, holdersCount, compac
       <div className={cn('font-semibold leading-tight', compact ? 'text-base' : 'text-lg')}>{verdict}</div>
       {!compact && (
         <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+      )}
+      {!compact && freshIndicator && (
+        <p className={cn('text-[11px] font-medium leading-tight', freshIndicator.color)}>
+          {freshIndicator.rounded}% of token supply still holding — no exits yet
+        </p>
       )}
     </div>
   );

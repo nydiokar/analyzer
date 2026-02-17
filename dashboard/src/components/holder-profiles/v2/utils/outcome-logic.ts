@@ -4,6 +4,8 @@ export interface OutcomeVerdict {
   verdict: string;
   description: string;
   color: 'red' | 'yellow' | 'green' | 'blue';
+  /** % of token supply held by wallets with no exit history (includes LP/BURN/fresh). */
+  freshSupplyPercent?: number;
 }
 
 /**
@@ -183,7 +185,15 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
     .reduce((sum, p) => sum + p.supplyPercent, 0);
   const dataQualityRatio = totalSupply > 0 ? highQualitySupply / totalSupply : 0;
 
-  return classifyWeightedOutcome(speedScore, dataQualityRatio, avgTokensHeld, holdDataConfidence);
+  // Fresh supply = token supply % held by trader wallets with no exit history
+  // Excludes system wallets (BURN, LP, etc.) — they're not "fresh", just non-traders
+  const freshSupplyPercent = profiles
+    .filter((p) => !p.analysisSkipped && (p.realizedMedianHoldTimeHours == null || !Number.isFinite(p.realizedMedianHoldTimeHours)))
+    .reduce((sum, p) => sum + p.supplyPercent, 0);
+
+  const result = classifyWeightedOutcome(speedScore, dataQualityRatio, avgTokensHeld, holdDataConfidence);
+  result.freshSupplyPercent = freshSupplyPercent;
+  return result;
 }
 
 export function getWalletOutcome(profile: HolderProfile): OutcomeVerdict {
