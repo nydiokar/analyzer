@@ -18,9 +18,9 @@ interface OutcomeStripProps extends OutcomeVerdict {
 function getOutcomeTooltip(verdict: string): string {
   const tooltips: Record<string, string> = {
     'High churn, likely short-lived': 'Exits in minutes; high churn.',
-    'Mixed behavior, unstable': 'Exit timing mixed; low predictability.',
-    'Still breathing': 'Exits in days; moderate conviction.',
-    'Relatively stable': 'Long holds; low churn.',
+    'Volatile, mixed conviction': 'Exit timing mixed; low predictability.',
+    'Moderately stable': 'Mix of hold durations; some conviction building.',
+    'Stable accumulation': 'Long holds; low churn.',
   };
   return tooltips[verdict] || 'Exit timing and conviction.';
 }

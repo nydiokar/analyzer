@@ -1,5 +1,4 @@
 import type { HolderProfile } from '../../../holder-profiles/types';
-import { getSpeedPrimitive, getConsistencyPrimitive } from './cognitive-primitives';
 
 export interface OutcomeVerdict {
   verdict: string;
@@ -8,21 +7,32 @@ export interface OutcomeVerdict {
 }
 
 /**
- * Weighted outcome classification that emphasizes speed (60-70%) with adjustments
- * for PnL variance, data quality, and portfolio diversification.
+ * 8-bucket speed score aligned with SPEED_CATEGORY_COLORS.
+ * Faster = lower score, slower = higher score (0-10 scale).
+ */
+function getSpeedScoreFromHours(hours: number): number {
+  if (hours <= 1 / 60) return 0.5;    // Sniper (< 1 min)
+  if (hours <= 5 / 60) return 1.5;    // Scalper (< 5 min)
+  if (hours <= 0.5) return 2.5;       // Momentum (< 30 min)
+  if (hours <= 4) return 4.0;         // Intraday (< 4 hours)
+  if (hours <= 24) return 5.5;        // Day Trader (< 24 hours)
+  if (hours <= 168) return 7.0;       // Swing (< 7 days)
+  if (hours <= 720) return 8.5;       // Position (< 30 days)
+  return 9.5;                         // Hodler (30d+)
+}
+
+/**
+ * Weighted outcome classification: speed 85% + diversification 15%.
+ * Data quality and hold-data confidence act as confidence modifiers.
  */
 function classifyWeightedOutcome(
   speedScore: number,
-  pnlVarianceScore: number,
   dataQualityRatio: number,
-  avgTokensHeld: number
+  avgTokensHeld: number,
+  holdDataConfidence: number
 ): OutcomeVerdict {
-  // Speed contributes 65% of the final score
-  const speedWeight = 0.65;
-  // PnL variance contributes 25%
-  const varianceWeight = 0.25;
-  // Diversification contributes 10%
-  const diversificationWeight = 0.1;
+  const speedWeight = 0.85;
+  const diversificationWeight = 0.15;
 
   // Calculate diversification score (more tokens = more stable)
   // 1-3 tokens: low (0.2), 4-10: medium (0.5), 11+: high (1.0)
@@ -33,15 +43,13 @@ function classifyWeightedOutcome(
   // Weighted composite score (0-10 scale)
   const compositeScore =
     speedScore * speedWeight +
-    pnlVarianceScore * varianceWeight +
     diversificationScore * 10 * diversificationWeight;
 
   // Confidence modifier based on data quality
-  // High quality data increases confidence in the verdict
   const confidenceModifier = dataQualityRatio >= 0.7 ? 1.0 : dataQualityRatio >= 0.4 ? 0.8 : 0.6;
-
-  // Adjust thresholds based on confidence
-  const adjustedScore = compositeScore * confidenceModifier;
+  // Further reduce if most profiles have no exit data (hold-based only)
+  const holdConfidenceModifier = holdDataConfidence >= 0.5 ? 1.0 : 0.85;
+  const adjustedScore = compositeScore * confidenceModifier * holdConfidenceModifier;
 
   // Classification thresholds
   if (adjustedScore < 2.5) {
@@ -120,8 +128,9 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
     };
   }
 
-  // Calculate SUPPLY-WEIGHTED median hold time instead of simple median
-  // This ensures large holders define the outcome, not the long tail of small wallets
+  // Speed score uses ONLY realized exits (proven behavior).
+  // Wallets with no exits are not assigned a fake speed — they're excluded from
+  // the speed calculation but tracked as "unproven" via holdDataConfidence.
   const holdTimeData = profiles
     .map((p) => ({
       value: p.realizedMedianHoldTimeHours ?? null,
@@ -131,68 +140,31 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
       item.value !== null && Number.isFinite(item.value)
     );
 
+  // What % of total supply has proven exit data?
+  // If 8/10 holders have no exits → holdDataConfidence is low → dampens the verdict
+  const totalSupply = profiles.reduce((sum, p) => sum + p.supplyPercent, 0);
+  const exitBasedSupply = holdTimeData.reduce((sum, item) => sum + item.weight, 0);
+  const holdDataConfidence = totalSupply > 0 ? exitBasedSupply / totalSupply : 0;
+
+  // If almost nobody has exited, we can't make a speed claim
+  if (holdTimeData.length === 0 || holdDataConfidence < 0.1) {
+    return {
+      verdict: 'Insufficient data',
+      description: 'Most holders have no exit history yet. Too early to judge.',
+      color: 'yellow',
+    };
+  }
+
   const supplyWeightedMedianHoldTime = calculateWeightedMedian(holdTimeData);
 
-  const consistency = getConsistencyPrimitive(profiles);
-
-  // Calculate speed score (0-10 scale based on SUPPLY-WEIGHTED median hold time)
-  // Faster = lower score, slower = higher score
-  const speedScore = (() => {
-    const hours = supplyWeightedMedianHoldTime;
-    // Same thresholds as SPEED_BUCKETS in cognitive-primitives.ts
-    if (hours <= 1 / 60) return 1;      // Instant (< 1 min)
-    if (hours <= 5 / 60) return 1;      // Ultra-fast (< 5 min)
-    if (hours <= 0.5) return 2.5;       // Fast (< 30 min)
-    if (hours <= 6) return 4.5;         // Intraday (< 6 hours)
-    if (hours <= 24) return 7;          // Multi-day (< 24 hours)
-    return 9; // Long-term
-  })();
-
-  // Calculate PnL variance score (0-10 scale) with SUPPLY weighting
-  // Lower variance = more stable = higher score
-  // Note: Known wallets have null PnL, naturally excluded by the filter
-  const pnlData = profiles
-    .map((p) => ({
-      value: p.walletPnlSol ?? null,
-      // Weight by supply held (economic significance) multiplied by data quality
-      weight: p.supplyPercent * getQualityWeight(p.dataQualityTier),
-    }))
-    .filter((item): item is { value: number; weight: number } =>
-      item.value !== null && Number.isFinite(item.value) && item.weight > 0
-    );
-
-  const pnlVarianceScore = (() => {
-    if (pnlData.length < 3) return 5; // Default neutral score
-
-    // Calculate weighted mean
-    const totalWeight = pnlData.reduce((sum, item) => sum + item.weight, 0);
-    if (totalWeight === 0) return 5;
-
-    const weightedMean = pnlData.reduce((sum, item) => sum + item.value * item.weight, 0) / totalWeight;
-
-    // Calculate weighted variance
-    const weightedVariance = pnlData.reduce((sum, item) =>
-      sum + item.weight * Math.pow(item.value - weightedMean, 2), 0
-    ) / totalWeight;
-
-    const stdDev = Math.sqrt(weightedVariance);
-    const coefficientOfVariation = Math.abs(weightedMean) > 0.01 ? stdDev / Math.abs(weightedMean) : stdDev;
-
-    // High CV = high variance = low stability = low score
-    // CV < 0.5: stable (8), 0.5-1.0: moderate (5), 1.0-2.0: volatile (3), >2.0: chaotic (1)
-    if (coefficientOfVariation < 0.5) return 8;
-    if (coefficientOfVariation < 1.0) return 5;
-    if (coefficientOfVariation < 2.0) return 3;
-    return 1;
-  })();
+  // 8-bucket speed score aligned with SPEED_CATEGORY_COLORS
+  const speedScore = getSpeedScoreFromHours(supplyWeightedMedianHoldTime);
 
   // Calculate SUPPLY-weighted average tokens held (diversification indicator)
-  // Weight by supply held so large holders' diversification matters more
   const avgTokensHeld = (() => {
     const tokenData = profiles
       .map((p) => ({
         count: p.currentHoldings?.length ?? 0,
-        // Weight by supply * data quality
         weight: p.supplyPercent * getQualityWeight(p.dataQualityTier),
       }))
       .filter((item) => item.count > 0 && item.weight > 0);
@@ -202,60 +174,28 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
     const totalWeight = tokenData.reduce((sum, item) => sum + item.weight, 0);
     if (totalWeight === 0) return 1;
 
-    const weightedSum = tokenData.reduce((sum, item) => sum + item.count * item.weight, 0);
-
-    return weightedSum / totalWeight;
+    return tokenData.reduce((sum, item) => sum + item.count * item.weight, 0) / totalWeight;
   })();
 
   // Data quality ratio weighted by supply (GOLD + SILVER supply / total supply)
-  // This ensures we care about data quality where the supply sits
-  const totalSupply = profiles.reduce((sum, p) => sum + p.supplyPercent, 0);
   const highQualitySupply = profiles
     .filter((p) => p.dataQualityTier === 'GOLD' || p.dataQualityTier === 'SILVER')
     .reduce((sum, p) => sum + p.supplyPercent, 0);
   const dataQualityRatio = totalSupply > 0 ? highQualitySupply / totalSupply : 0;
 
-  return classifyWeightedOutcome(speedScore, pnlVarianceScore, dataQualityRatio, avgTokensHeld);
+  return classifyWeightedOutcome(speedScore, dataQualityRatio, avgTokensHeld, holdDataConfidence);
 }
 
 export function getWalletOutcome(profile: HolderProfile): OutcomeVerdict {
-  const speed = getSpeedPrimitive([profile]);
+  // Speed from realized exits only — no fake speed from current hold duration
+  const realizedHours = profile.realizedMedianHoldTimeHours;
+  const hasExitData = realizedHours != null && Number.isFinite(realizedHours);
 
-  // Calculate speed score (0-10 scale)
-  const speedScore = (() => {
-    if (['Instant', 'Ultra-fast'].includes(speed.category)) return 1;
-    if (speed.category === 'Fast') return 2.5;
-    if (speed.category === 'Intraday') return 4.5;
-    if (speed.category === 'Multi-day') return 7;
-    return 9; // Long-term
-  })();
+  const speedScore = hasExitData ? getSpeedScoreFromHours(realizedHours) : 5; // Neutral if unproven
+  const holdDataConfidence = hasExitData ? 1.0 : 0.0;
 
-  // For single wallet, use realized vs total PnL ratio to estimate stability
-  // Higher realized ratio = more stable (takes profits/losses rather than holding bags)
-  const pnlVarianceScore = (() => {
-    const total = profile.walletPnlSol;
-    const realized = profile.walletRealizedPnlSol;
-
-    if (total === null || total === undefined || realized === null || realized === undefined) {
-      return 5; // Neutral
-    }
-
-    if (Math.abs(total) < 0.01) return 5; // Very small total, neutral
-
-    const realizedRatio = Math.abs(realized / total);
-    // Most PnL is realized (>0.7): stable (8) - takes profits/losses
-    // Balanced (0.3-0.7): moderate (5)
-    // Most unrealized (<0.3): volatile (3) - holds bags
-    if (realizedRatio > 0.7) return 8;
-    if (realizedRatio > 0.3) return 5;
-    return 3;
-  })();
-
-  // Number of tokens held
   const tokensHeld = profile.currentHoldings?.length ?? 1;
-
-  // Data quality
   const dataQualityRatio = (profile.dataQualityTier === 'GOLD' || profile.dataQualityTier === 'SILVER') ? 1.0 : 0.3;
 
-  return classifyWeightedOutcome(speedScore, pnlVarianceScore, dataQualityRatio, tokensHeld);
+  return classifyWeightedOutcome(speedScore, dataQualityRatio, tokensHeld, holdDataConfidence);
 }
