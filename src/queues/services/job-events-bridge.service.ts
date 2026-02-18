@@ -141,12 +141,17 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
       const job = await this.queueMap.get(queueName)?.getJob(jobId);
       const userId = await this.resolveUserId(job, jobId);
 
-      // Log the full error for debugging
-      this.logger.error(`Job failed: ${jobId}\nFull error:\n${failedReason}`);
-
       // Sanitize error message for user-friendly display
       const sanitizedError = sanitizeErrorMessage(failedReason);
-      this.logger.log(`Sanitized error: ${sanitizedError}`);
+
+      // Lock conflicts are expected when duplicate jobs are submitted — log as warn, not error
+      const isLockConflict = failedReason.includes('already in progress') || failedReason.includes('Cannot acquire lock');
+      if (isLockConflict) {
+        this.logger.warn(`Job deduplicated (lock conflict): ${jobId}`);
+      } else {
+        this.logger.error(`Job failed: ${jobId}\nFull error:\n${failedReason}`);
+        this.logger.log(`Sanitized error: ${sanitizedError}`);
+      }
 
       await this.jobProgressGateway.publishFailedEvent(jobId, queueName, sanitizedError, job?.attemptsMade ?? 0, job?.opts.attempts ?? 0, userId);
       await this.cleanupUserMapping(jobId);

@@ -367,7 +367,12 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
 
     const handleJobFailed = (data: JobFailedData) => {
       incrementDebugCounter(data.jobId, 'failed', { error: data.error });
-      console.error('❌ Job failed (WebSocket):', data.jobId, data.error);
+      const isLockConflict = data.error?.includes('already in progress');
+      if (isLockConflict) {
+        console.warn('⚠️ Job deduplicated (already running):', data.jobId);
+      } else {
+        console.error('❌ Job failed (WebSocket):', data.jobId, data.error);
+      }
       if (data.queue === 'enrichment-operations' && callbacksRef.current.onEnrichmentError) {
         callbacksRef.current.onEnrichmentError?.({ requestId: data.jobId, error: data.error });
       } else {

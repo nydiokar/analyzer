@@ -499,6 +499,16 @@ export default function WalletProfileLayout({
         return; // Job not tracked in this component
       }
 
+      // Lock conflict = duplicate submission, analysis is already running — not an error from user's perspective
+      if (data.error?.includes('already in progress')) {
+        clearJobSubscription(data.jobId);
+        setScopeStates((prev) => ({
+          ...prev,
+          [scope]: { ...prev[scope], jobId: null },
+        }));
+        return;
+      }
+
       clearJobSubscription(data.jobId);
       setScopeStates((prev) => ({
         ...prev,
