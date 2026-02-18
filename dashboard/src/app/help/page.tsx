@@ -138,7 +138,7 @@ export default function HelpPage() {
                   asChild
                 >
                   <Link
-                    href="https://t.me/kKu22uUhG772"
+                    href="https://t.me/sovaintel"
                     target="_blank"
                     rel="noopener noreferrer"
                   >

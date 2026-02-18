@@ -284,7 +284,7 @@ export default function TermsPage() {
                 Questions about these Terms? Reach out to us:
               </p>
               <ul className="list-disc pl-6 space-y-1">
-                <li>Telegram: <Link href="https://t.me/+i8TIMJfk9JQ1OWZk" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">t.me/Sova Intel</Link></li>
+                <li>Telegram: <Link href="https://t.me/sovaintel" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">t.me/sovaintel</Link></li>
                 <li>X/Twitter: <Link href="https://x.com/Sova_intel" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">@Sova_intel</Link></li>
               </ul>
             </CardContent>
