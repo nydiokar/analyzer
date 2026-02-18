@@ -295,6 +295,7 @@ model User {
   Message             Message[]
   passwordResetTokens PasswordResetToken[]
   favoriteWallets     UserFavoriteWallet[]
+  walletHunts         WalletHunt[]
   walletNotes         WalletNote[]
   registrationCode    RegistrationCode?
 
@@ -588,4 +589,33 @@ model TokenAccountWatermark {
   @@unique([ownerPubkey, filterKey])
   @@index([ownerPubkey])
   @@index([updatedAt])
+}
+
+model WalletHunt {
+  id            String   @id @default(cuid())
+  userId        String
+  name          String
+  createdAt     DateTime @default(now())
+  lastVisitedAt DateTime @default(now())
+
+  snapshots     WalletHuntSnapshot[]
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastVisitedAt])
+}
+
+model WalletHuntSnapshot {
+  id         String   @id @default(cuid())
+  huntId     String
+  tokenMint  String
+  sourceType String
+  capturedAt DateTime @default(now())
+  holders    String[]
+  note       String?
+
+  hunt       WalletHunt @relation(fields: [huntId], references: [id], onDelete: Cascade)
+
+  @@unique([huntId, tokenMint, sourceType])
+  @@index([huntId])
 }

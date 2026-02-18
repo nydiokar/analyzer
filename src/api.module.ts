@@ -15,6 +15,7 @@ import { WebSocketModule } from './api/modules/websocket.module'; // Import WebS
 import { HeliusWebhookModule } from './api/integrations/helius-webhook.module';
 import { DiscoverModule } from './api/modules/discover.module';
 import { WalletHudModule } from './api/modules/wallet-hud.module';
+import { WalletHuntModule } from './api/modules/wallet-hunt.module';
 
 
 @Module({
@@ -33,6 +34,7 @@ import { WalletHudModule } from './api/modules/wallet-hud.module';
     HeliusWebhookModule, // Helius webhook integration
     DiscoverModule,
     WalletHudModule, // Wallet HUD (Heads-Up Display) for high-signal metrics
+    WalletHuntModule, // Wallet Hunt for detecting person wallets via token intersection
     // QueueModule, HeliusModule, DatabaseModule are already global from AppModule
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
   ],
