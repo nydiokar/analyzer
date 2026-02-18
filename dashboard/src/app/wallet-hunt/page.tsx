@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { useHuntList, useHuntDetail } from '@/hooks/useWalletHunts';
 import { useFavorites } from '@/hooks/useFavorites';
+import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
 import { useTokenMetadata } from '@/hooks/useTokenMetadata';
 import { fetcher } from '@/lib/fetcher';
 import { getErrorMessage } from '@/lib/error-messages';
@@ -74,6 +75,18 @@ function daysSince(dateStr: string): number {
 
 function truncateMint(mint: string): string {
   return mint.length <= 11 ? mint : `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+}
+
+function sanitizeHuntLabel(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 20) || 'hunt';
+}
+
+function buildHuntNickname(huntName: string, rank: number): string {
+  return `${sanitizeHuntLabel(huntName)}_hunt_${rank}`;
 }
 
 // ── MiniTokenAvatar — overlapping token chips in candidate rows ──
@@ -190,13 +203,14 @@ SnapshotRow.displayName = 'SnapshotRow';
 
 interface CandidateRowProps {
   candidate: HuntCandidate;
+  rank: number;
   totalSnapshots: number;
   isTracked: boolean;
-  onTrack: (addr: string) => void;
+  onTrack: (addr: string, rank: number) => void;
   isTracking: boolean;
 }
 
-const CandidateRow = memo(({ candidate, totalSnapshots, isTracked, onTrack, isTracking }: CandidateRowProps) => {
+const CandidateRow = memo(({ candidate, rank, totalSnapshots, isTracked, onTrack, isTracking }: CandidateRowProps) => {
   const confidencePct = Math.round(candidate.confidence * 100);
 
   return (
@@ -221,7 +235,7 @@ const CandidateRow = memo(({ candidate, totalSnapshots, isTracked, onTrack, isTr
             variant={isTracked ? 'ghost' : 'outline'}
             size="sm"
             className={cn('h-6 px-2', isTracked && 'text-muted-foreground')}
-            onClick={() => onTrack(candidate.walletAddress)}
+            onClick={() => onTrack(candidate.walletAddress, rank)}
             disabled={isTracked || isTracking}
           >
             {isTracking ? <Loader2 className="h-3 w-3 animate-spin" /> : isTracked ? <Check className="h-3 w-3" /> : <UserPlus className="h-3 w-3" />}
@@ -250,7 +264,8 @@ export default function WalletHuntPage() {
   const { hunts, mutate: mutateHunts, isLoading: isLoadingHunts } = useHuntList();
   const [selectedHuntId, setSelectedHuntId] = useState<string | null>(null);
   const { detail, mutate: mutateDetail, isLoading: isLoadingDetail } = useHuntDetail(selectedHuntId);
-  const { favorites, mutate: mutateFavorites } = useFavorites();
+  const { favorites } = useFavorites();
+  const { openFavoriteDialog } = useFavoriteActions();
 
   const [isCreating, setIsCreating] = useState(false);
   const [newHuntName, setNewHuntName] = useState('');
@@ -263,8 +278,6 @@ export default function WalletHuntPage() {
 
   const [deletingHunt, setDeletingHunt] = useState<HuntListItem | null>(null);
   const [removingSnapshotId, setRemovingSnapshotId] = useState<string | null>(null);
-  const [trackingWallet, setTrackingWallet] = useState<string | null>(null);
-  const [sessionTracked, setSessionTracked] = useState<Set<string>>(new Set());
 
   const atHuntLimit = hunts.length >= MAX_HUNTS;
   const snapshots = detail?.snapshots ?? [];
@@ -280,8 +293,8 @@ export default function WalletHuntPage() {
   );
 
   const isWalletTracked = useCallback(
-    (addr: string) => favoriteAddresses.has(addr) || sessionTracked.has(addr),
-    [favoriteAddresses, sessionTracked]
+    (addr: string) => favoriteAddresses.has(addr),
+    [favoriteAddresses]
   );
 
   const showInactivityWarning = detail?.hunt ? daysSince(detail.hunt.lastVisitedAt) > 14 : false;
@@ -374,20 +387,12 @@ export default function WalletHuntPage() {
     }
   }, [selectedHuntId, removingSnapshotId, detail, mutateDetail, mutateHunts]);
 
-  const handleTrackCandidate = useCallback(async (walletAddress: string) => {
-    if (!selectedHuntId || trackingWallet) return;
-    setTrackingWallet(walletAddress);
-    try {
-      await fetcher(`/wallet-hunts/${selectedHuntId}/candidates/${walletAddress}/track`, { method: 'POST' });
-      setSessionTracked((prev) => new Set(prev).add(walletAddress));
-      await mutateFavorites();
-    } catch (err) {
-      const msg = getErrorMessage('hunt-track', err);
-      toast.error(msg.title, { description: msg.description });
-    } finally {
-      setTrackingWallet(null);
-    }
-  }, [selectedHuntId, trackingWallet, mutateFavorites]);
+  const handleTrackCandidate = useCallback((walletAddress: string, rank: number) => {
+    if (!selectedHuntId) return;
+    const huntName = detail?.hunt?.name ?? hunts.find((h) => h.id === selectedHuntId)?.name ?? 'hunt';
+    const nickname = buildHuntNickname(huntName, rank);
+    openFavoriteDialog(walletAddress, nickname);
+  }, [selectedHuntId, detail, hunts, openFavoriteDialog]);
 
   const handleSelectHunt = useCallback((id: string) => setSelectedHuntId(id), []);
   const handleRequestDeleteHunt = useCallback((hunt: HuntListItem) => setDeletingHunt(hunt), []);
@@ -660,14 +665,15 @@ export default function WalletHuntPage() {
                   </div>
                 ) : (
                   <div className="divide-y divide-border/30">
-                    {candidates.map((c) => (
+                    {candidates.map((c, i) => (
                       <CandidateRow
                         key={c.walletAddress}
                         candidate={c}
+                        rank={i + 1}
                         totalSnapshots={snapshots.length}
                         isTracked={isWalletTracked(c.walletAddress)}
                         onTrack={handleTrackCandidate}
-                        isTracking={trackingWallet === c.walletAddress}
+                        isTracking={false}
                       />
                     ))}
                   </div>

@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 
 interface FavoriteModalContextType {
-  openFavoriteDialog: (address: string) => void;
+  openFavoriteDialog: (address: string, initialNickname?: string) => void;
   isFavorite: (address: string) => boolean;
 }
 
@@ -31,6 +31,7 @@ export function FavoriteModalProvider({ children }: { children: ReactNode }) {
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
+  const [initialNickname, setInitialNickname] = useState<string | undefined>(undefined);
 
   const isFavorite = (address: string) => favoriteAddresses.has(address);
 
@@ -78,8 +79,9 @@ export function FavoriteModalProvider({ children }: { children: ReactNode }) {
   };
 
   // Open appropriate modal based on current state
-  const openFavoriteDialog = (address: string) => {
+  const openFavoriteDialog = (address: string, nickname?: string) => {
     setSelectedAddress(address);
+    setInitialNickname(nickname);
     if (favoriteAddresses.has(address)) {
       setShowDeleteConfirm(true);
     } else {
@@ -113,9 +115,11 @@ export function FavoriteModalProvider({ children }: { children: ReactNode }) {
         onClose={() => {
           setShowQuickAddModal(false);
           setSelectedAddress(null);
+          setInitialNickname(undefined);
         }}
         onSave={handleQuickAddSave}
         walletAddress={selectedAddress || ''}
+        initialNickname={initialNickname}
         title="Organize Wallet"
       />
 

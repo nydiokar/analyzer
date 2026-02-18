@@ -13,6 +13,7 @@ interface QuickAddFormProps {
   onClose: () => void;
   onSave: (formData: { walletAddress: string; nickname: string; collections: string[] }) => Promise<void>;
   walletAddress?: string; // Optional - if not provided, user inputs it
+  initialNickname?: string; // Optional - pre-fills the nickname field
   title: string;
 }
 
@@ -22,6 +23,7 @@ const QuickAddForm = React.memo(({
   onClose,
   onSave,
   walletAddress,
+  initialNickname,
   title
 }: QuickAddFormProps) => {
   const [formData, setFormData] = useState({
@@ -43,14 +45,14 @@ const QuickAddForm = React.memo(({
     if (isOpen) {
       setFormData({
         walletAddress: walletAddress || '',
-        nickname: '',
+        nickname: initialNickname || '',
         collections: [],
         newCollection: ''
       });
       setDuplicateWarning(false);
       setAddressError(null);
     }
-  }, [isOpen, walletAddress]);
+  }, [isOpen, walletAddress, initialNickname]);
 
   const handleSave = useCallback(async () => {
     // Validate wallet address if editable
