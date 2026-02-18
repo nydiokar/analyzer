@@ -583,3 +583,41 @@ export interface BatchWalletHudResponse {
   notFound: string[];
   calculatedAt: string;
 }
+
+// ── Wallet Hunt ────────────────────────────────────────────────
+
+export interface HuntListItem {
+  id: string;
+  name: string;
+  snapshotCount: number;
+  createdAt: string;
+  lastVisitedAt: string;
+}
+
+export interface HuntSnapshot {
+  id: string;
+  tokenMint: string;
+  sourceType: string;
+  capturedAt: string;
+  holderCount: number;
+  note?: string;
+}
+
+export interface HuntCandidate {
+  walletAddress: string;
+  appearanceCount: number;
+  confidence: number;
+  tokenMints: string[];
+  sources: string[];
+}
+
+export interface HuntDetail {
+  hunt: { id: string; name: string; createdAt: string; lastVisitedAt: string };
+  snapshots: HuntSnapshot[];
+  candidates: HuntCandidate[];
+}
+
+export interface AddSnapshotResponse {
+  snapshot: HuntSnapshot;
+  candidates: HuntCandidate[];
+}

@@ -76,6 +76,8 @@ export const createCacheKey = {
   search: (query: string) => `/wallets/search?query=${encodeURIComponent(query)}`,
   walletHud: (walletAddress: string) => `/wallets/${walletAddress}/hud`,
   walletHudBatch: (walletAddresses: string[]) => `/wallets/hud/batch:${walletAddresses.join(',')}`,
+  walletHuntList: () => '/wallet-hunts',
+  walletHuntDetail: (id: string) => `/wallet-hunts/${id}`,
 };
 
 // Simplified cache invalidation patterns

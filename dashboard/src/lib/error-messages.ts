@@ -9,7 +9,12 @@ type ErrorContext =
   | "trackers-clear"
   | "trackers-import"
   | "trackers-export"
-  | "batch-analyze";
+  | "batch-analyze"
+  | "hunt-create"
+  | "hunt-delete"
+  | "hunt-add-snapshot"
+  | "hunt-remove-snapshot"
+  | "hunt-track";
 
 export type ErrorMessage = {
   title: string;
@@ -60,6 +65,26 @@ const baseMessages: Record<ErrorContext, ErrorMessage> = {
   "batch-analyze": {
     title: "Unable to queue analysis",
     description: "We couldn't queue the batch analysis. Please try again.",
+  },
+  "hunt-create": {
+    title: "Unable to create hunt",
+    description: "We couldn't create the hunt. Please try again.",
+  },
+  "hunt-delete": {
+    title: "Unable to delete hunt",
+    description: "We couldn't delete the hunt. Please try again.",
+  },
+  "hunt-add-snapshot": {
+    title: "Unable to add snapshot",
+    description: "We couldn't capture the token snapshot. Please try again.",
+  },
+  "hunt-remove-snapshot": {
+    title: "Unable to remove snapshot",
+    description: "We couldn't remove the snapshot. Please try again.",
+  },
+  "hunt-track": {
+    title: "Unable to track wallet",
+    description: "We couldn't add this wallet to your tracked list. Please try again.",
   },
 };
 
