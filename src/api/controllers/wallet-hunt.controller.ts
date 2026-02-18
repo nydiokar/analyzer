@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Req, HttpCode, HttpStatus, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Req, HttpCode, HttpStatus, ForbiddenException, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { User } from '@prisma/client';
 import { WalletHuntService } from '../services/wallet-hunt.service';
@@ -27,6 +27,7 @@ export class WalletHuntController {
   @ApiOperation({ summary: 'Create a new wallet hunt' })
   @ApiResponse({ status: HttpStatus.CREATED, description: 'Hunt created' })
   @HttpCode(HttpStatus.CREATED)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   async createHunt(
     @Body() dto: CreateHuntDto,
     @Req() req: AuthenticatedRequest,
@@ -68,6 +69,7 @@ export class WalletHuntController {
   @ApiParam({ name: 'id', description: 'Hunt ID' })
   @ApiResponse({ status: HttpStatus.CREATED, description: 'Snapshot added with updated candidates' })
   @HttpCode(HttpStatus.CREATED)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   async addSnapshot(
     @Param('id') id: string,
     @Body() dto: AddSnapshotDto,
