@@ -69,10 +69,10 @@ export class WalletHudDto {
   trimmedMeanPnl: number;
 
   @ApiProperty({
-    description: 'Median P/L per token (true center of distribution) in SOL',
-    example: 890.12,
+    description: 'Average transaction value in SOL (total SOL volume / total trades)',
+    example: 2.45,
   })
-  medianPnlPerToken: number;
+  avgTxValueSol: number;
 
   @ApiPropertyOptional({
     description: 'Full behavior category name',

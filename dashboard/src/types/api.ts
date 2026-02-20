@@ -542,7 +542,7 @@ export interface WalletHudDto {
 
   // ===== CORE METRICS (Always visible) =====
   trimmedMeanPnl: number;        // Trimmed mean PNL per token (outliers removed) in SOL
-  medianPnlPerToken: number;     // Median P/L per token (true center of distribution) in SOL
+  avgTxValueSol: number;         // Average transaction value in SOL (total SOL volume / total trades)
   behaviorCategory?: string;     // Full behavior category name (e.g., 'MOMENTUM_TRADER')
   behaviorCode: string;          // Single-letter behavior code (M/F/H/A/I/S/?)
   medianHoldTimeHours?: number;  // Median hold time for completed trades in hours (more precise than category)

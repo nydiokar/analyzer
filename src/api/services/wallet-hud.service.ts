@@ -323,7 +323,8 @@ export class WalletHudService {
 
     // Core metrics with fallbacks
     const trimmedMeanPnl = advancedStats?.trimmedMeanPnlPerToken ?? 0;
-    const medianPnlPerToken = advancedStats?.medianPnlPerToken ?? 0;
+    const riskMetrics = behaviorProfile?.riskMetrics as { averageTransactionValueSol?: number } | null;
+    const avgTxValueSol = riskMetrics?.averageTransactionValueSol ?? 0;
     const winRate = advancedStats?.tokenWinRatePercent
       ? advancedStats.tokenWinRatePercent / 100 // Convert percentage to decimal
       : 0;
@@ -391,7 +392,7 @@ export class WalletHudService {
       walletAddress,
       signalType: 'wallet_behavior_v1',
       trimmedMeanPnl,
-      medianPnlPerToken,
+      avgTxValueSol,
       behaviorCategory,
       behaviorCode,
       medianHoldTimeHours,
