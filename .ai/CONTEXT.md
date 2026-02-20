@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-02-18  **Status:**  Active Development
+**Branch:** `feat/pft-oracle-bot-v2`  **Last Updated:** 2026-02-20  **Status:**  Active Development — Pre-chain testing in progress
 
 ---
 
@@ -8,10 +8,19 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| 🟢 | PFT Oracle Bot v2 — Phase 1 scaffold complete | 🔴 L | `pft-bot_v2/` created with all source files. Full MCP client, analyzer client, scan loop, command parser, formatters, deferred jobs. Zero TS errors. |
+| 🟢 | PFT Oracle Bot v2 — `/profile` state machine rewrite | 🟡 M | `handleProfile` now checks summary first, auto-queues flash analysis on unanalyzed wallets, defers with `type: 'profile'`, fetches HUD post-completion. `WalletHud` type updated with `provenance.dataRange`. Profile formatter shows both P/L signals + data date range. |
+| 🔵 | PFT Oracle Bot v2 — pre-chain surface test | 🟢 S | `npm run test:bot` interactive script. Asks for API key only, runs full pipeline (parse → state machine → API → format) against live analyzer, prints exact bot output. Run this to validate all 3 states before touching MCP. |
+| ⚪ | PFT Oracle Bot v2 — Phase 2: wire MCP + live chain test | 🟡 M | After surface test passes: `.env` with `BOT_SEED`, `npm run dev`, send real messages via PFT, verify on-chain reply flow |
+| ⚪ | PFT Oracle Bot v2 — Phase 3: `/holders` command | 🟡 M | Same state-aware treatment as `/profile`. Decide: sort by HUD data presence? auto-trigger analysis for top unanalyzed holders? |
+| ⚪ | PFT Oracle Bot v2 — Phase 4: deferred jobs (/analyze, /compare) | 🟡 M | Test background job polling, IPFS attachment upload for large results |
+| ⚪ | PFT Oracle Bot v2 — Phase 5: hardening | 🟡 M | Payment validation, refund logic, error handling, crash recovery, rate limiting, balance monitoring |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality |
 
 **Recently Completed:**
+-  **PFT Oracle Bot v2 — `/profile` state machine + surface test** (Feb 20) - Rewrote `handleProfile` as a 5-state flow (unanalyzed → auto-flash, already running → hook in, system wallet → reject, HUD missing → re-queue working, HUD present → reply). `WalletHud` type synced to actual backend DTO (`provenance.dataRange`, `medianPnlPerToken`). Deferred jobs fetch HUD post-completion, not raw job blob. Added `test-bot.ts` interactive script (`npm run test:bot`) to validate full pipeline before wiring MCP.
+-  **PFT Oracle Bot v2 — Phase 1 Scaffold** (Feb 20) - Created `pft-bot_v2/` as a standalone Node.js process (not NestJS module) for the "Sova Intel" bot on the Post Fiat network. Architecture: scan loop polls for inbound PFT messages every 5s → deterministic command parser (`/holders`, `/profile`, `/analyze`, `/compare`) → calls analyzer API (localhost:3001) → pure-function formatters produce text → replies on-chain via `@postfiatorg/pft-chatbot-mcp` MCP subprocess. **No LLM in the loop** — all formatting is deterministic. PFT MCP client wraps all 13 tools (v0.3.0 Zod schemas): `create_wallet`, `scan_messages`, `get_message`, `send_message`, `register_bot`, `search_bots`, `get_bot`, `delete_bot`, `upload_content`, `get_thread`, `check_balance`, `send_pft`, `get_wallet_info`. 4 runtime deps: `@modelcontextprotocol/sdk`, `axios`, `dotenv`, `@postfiatorg/pft-chatbot-mcp` (spawned via npx). **Files:** `pft-bot_v2/package.json`, `tsconfig.json`, `.env.example`, `.gitignore`, `ecosystem.config.cjs`, `src/config.ts`, `src/pft-client.ts`, `src/analyzer.ts`, `src/commands.ts`, `src/scanner.ts`, `src/deferred-jobs.ts`, `src/index.ts`, `src/formatters/holders.ts`, `src/formatters/profile.ts`, `src/formatters/analysis.ts`, `src/formatters/comparison.ts`. Plan docs at `.ai/context/pft-oracle/PLAN_pft-oracle-bot.md` and `PROMPT_scaffold-pft-bot.md`.
 -  **Wallet Hunt UI** (Feb 18) - Full frontend for the Wallet Hunt feature. Three-column layout (`/wallet-hunt`): Hunts list (220px) | Snapshots (420px) | Candidates (flex). Hunt creation via inline input (Enter/Escape). Snapshot rows use `TokenBadge inline size="s"` for full token identity (avatar, name, symbol, market cap, chart link). Candidate rows are 2-line: WalletBadge + confidence bar + track button on row 1; overlapping `MiniTokenAvatar` chips showing exactly which token mints the wallet appeared in on row 2. Optimistic snapshot removal with revert on error. Track button cross-references `useFavorites` + session-local Set to show "tracked" state without re-fetching. Inactivity warning (>14 days) rendered as a plain flex div to avoid shadcn Alert's absolute-icon CSS conflict. **Files:** `dashboard/src/app/wallet-hunt/page.tsx`, `dashboard/src/hooks/useWalletHunts.ts`, `dashboard/src/types/api.ts` (+wallet hunt types), `dashboard/src/lib/swr-config.ts` (+cache keys), `dashboard/src/lib/error-messages.ts` (+5 hunt error contexts), `dashboard/src/components/layout/AppShell.tsx` (+nav item).
 -  **Wallet Hunt Feature** (Feb 18) - Full CRUD feature for cross-token wallet hunting. Users create named "hunts", add token snapshots (top-holder captures from Solana RPC), and the system computes candidate wallets that appear across multiple token snapshots (intersection logic). Candidates can be tracked (saved to favorites). 5-hunt limit per user enforced. Duplicate snapshot (same token+source) rejected with 400. Fixed post-implementation: `ValidationPipe` missing on `POST /wallet-hunts` and `POST /:id/snapshots` causing 500 instead of 400 on bad input. **Files:** `wallet-hunt.controller.ts`, `wallet-hunt.service.ts`, `wallet-hunt.module.ts`, `wallet-hunt.dto.ts`, `prisma/migrations/20260218101209_add_wallet_hunt/`.
 -  **Similarity Job Efficiency — Redis Pointer Pattern + Hydration Shortcut** (Feb 17) - Two issues fixed. (1) Double Redis read on similarity hydration: frontend already receives `resultKey` via WebSocket but was calling `GET /jobs/{jobId}/result` which did 2 Redis reads (BullMQ job lookup + key resolve). Added `GET /jobs/result/by-key?key=...` endpoint that does a single `redis.get(key)` directly, key prefix validated server-side (`similarity:result:` / `holder-profiles:result:` only). Frontend `hydrateJobResult()` now takes optional `resultKey` — uses fast 1-read path when key is already known, falls back to slow path only when not. (2) Holder profiles blasting ~200KB through WebSocket: processor was returning full `HolderProfilesResult` as BullMQ `returnvalue`, flowing through BullMQ Redis → bridge → pub/sub → WebSocket. Now mirrors similarity pointer pattern: stores full result in Redis (`holder-profiles:result:{jobId}`, 15min TTL), returns only `{ success, data: { resultKey }, metadata, processingTimeMs, timestamp }` as returnvalue (~200 bytes). Frontend hydrates via `by-key` endpoint, restores full result before calling `onJobCompleted`. Parent job's child-result reader updated to detect pointer vs inline result, falls back to `holderProfilesCacheService.getWalletResult()` which is already populated by child jobs. `GET /jobs/{jobId}/result` slow path also updated to resolve pointers generically (any queue, not similarity-only). **Files:** `src/api/services/jobs.service.ts`, `src/api/controllers/jobs.controller.ts`, `src/queues/processors/analysis-operations.processor.ts`, `dashboard/src/hooks/useJobProgress.ts`.
@@ -51,6 +60,36 @@
 
 ##  Current Focus & Priorities
 
+### P0: PFT Oracle Bot v2 — IN PROGRESS (Feb 20+)
+
+**What's done:**
+
+Phase 1 — Scaffold:
+- `pft-bot_v2/` created as standalone ESM Node.js process (not NestJS)
+- `pft-client.ts` wraps all 13 `@postfiatorg/pft-chatbot-mcp` MCP tools (v0.3.0)
+- `analyzer.ts` HTTP client for top-holders, HUD batch, summary, PnL, behavior, job queue, similarity
+- `commands.ts` deterministic parser + router for `/holders`, `/profile`, `/analyze`, `/compare`
+- `scanner.ts` scan loop with cursor persistence + dedup
+- `deferred-jobs.ts` background poller for async jobs with file persistence
+- 4 formatters: holders table, profile card, analysis result, comparison result
+- `index.ts` entry point with bot registration + graceful shutdown
+
+Phase 1.5 — `/profile` state machine (pre-Phase 2 correctness pass):
+- **`WalletHud` interface** updated to match actual backend DTO: `provenance.dataRange`, `medianPnlPerToken`, `signalType`, removed phantom `avgTxValue` (that's on behavior endpoint, not HUD)
+- **`handleProfile` rewritten** as 5-state machine: unknown wallet → auto-queue flash → defer; already running → hook into existing job; known system/LP → reject with label; summary ok but HUD missing → queue working → defer; HUD present → immediate reply
+- **Deferred job types** clarified: `'profile'` (auto-triggered) vs `'analysis'` (user-explicit). Both resolve by fetching HUD post-completion — not by parsing raw BullMQ job result
+- **Profile formatter** shows both P/L signals (`medianPnlPerToken` = true median, `trimmedMeanPnl` = outlier-trimmed), data date range from `provenance.dataRange`, no always-on `/analyze` upsell for already-GOLD wallets
+- **`test-bot.ts`** interactive surface test: asks API key only (URL is hardcoded default), runs full pipeline against live API, prints exact bot output per command. `npm run test:bot`
+
+**What's next:**
+1. **Run surface test** (`npm run test:bot`) — validate 3 states: analyzed wallet, unanalyzed wallet, system wallet
+2. **Phase 2 — Wire MCP:** `.env` with real `BOT_SEED`, `npm run dev`, send real PFT messages, verify on-chain reply
+3. **Phase 3 — `/holders`:** Apply same state-aware thinking. Decisions needed: sort by HUD coverage? auto-trigger flash for top unanalyzed holders?
+4. **Phase 4 — Deferred jobs:** Test polling loop, IPFS attachment for large results
+5. **Phase 5 — Hardening:** Payment validation, refund logic, crash recovery, balance monitoring
+
+**Plan docs:** `.ai/context/pft-oracle/PLAN_pft-oracle-bot.md`, `.ai/context/pft-oracle/PROMPT_scaffold-pft-bot.md`
+
 ### P1: Helius API Optimization — ✅ COMPLETE (Feb 16-17)
 
 **What was done:**
@@ -72,7 +111,23 @@
 
 ##  Recent Activity
 
-### February 18, 2026 (Latest)
+### February 20, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 20.1 | 🎯 FEAT | PFT Oracle Bot v2 — Phase 1 scaffold (all source files + MCP client) | 🔴 L | `pft-bot_v2/src/*` (11 files), `package.json`, `tsconfig.json`, `ecosystem.config.cjs` |
+| 20.2 | 🔧 REFACTOR | `/profile` state machine — smart flow for analyzed/unanalyzed/system wallets | 🟡 M | `src/analyzer.ts`, `src/commands.ts`, `src/deferred-jobs.ts`, `src/formatters/profile.ts` |
+| 20.3 | 🧪 FEAT | Interactive surface test script — validates full pipeline before MCP wiring | 🟢 S | `src/test-bot.ts`, `package.json` |
+
+**Summary:**
+
+**20.1:** Created `pft-bot_v2/` — a standalone Node.js bot ("Sova Intel") that runs on the Post Fiat (PFTL) network. Users send commands with PFT payment, the bot calls the analyzer API, formats JSON into text, and replies on-chain. **Architecture:** Spawns `@postfiatorg/pft-chatbot-mcp` (v0.3.0) as an MCP stdio subprocess for all chain I/O (XRPL transactions, IPFS encryption, bot registry). The bot is the application layer on top — deterministic command parsing, analyzer HTTP client, pure-function formatters. No LLM, no database, no changes to analyzer backend. **MCP Client Coverage:** All 13 tools wrapped. **Key design decisions:** (1) MCP subprocess over direct import — `index.d.ts` exports nothing, stdio is the stable contract. (2) Deferred job polling — file persistence for crash recovery. (3) Cursor + dedup Set prevents double-processing on restart.
+
+**20.2:** Rewrote `/profile` as a proper state machine before touching the chain. The original flow was `GET /hud → if null: "go use /analyze"` — broken UX that punted to the user. New flow: (1) `GET /wallets/{addr}/summary` — fast read, tells us wallet state. (2) `status: 'unanalyzed'` → auto-queue flash analysis → defer with `type: 'profile'` → ack. (3) `alreadyRunning` → hook into existing job. (4) `skipped` (LP/system wallet) → reject with label. (5) `status: 'ok'` but HUD null → queue working analysis → defer. (6) HUD present → immediate reply. Deferred jobs for both `'profile'` and `'analysis'` now resolve by fetching HUD post-completion (not parsing raw BullMQ result). `WalletHud` interface updated to match actual backend DTO: added `provenance.dataRange`, `medianPnlPerToken`, `signalType`. Profile formatter shows both P/L signals (median + trimmed mean) and data date range from provenance. **Files:** `src/analyzer.ts` (WalletHud type), `src/commands.ts` (handleProfile rewrite), `src/deferred-jobs.ts` (type + sendResult), `src/formatters/profile.ts` (full rewrite).
+
+**20.3:** Added `src/test-bot.ts` — interactive REPL that simulates the full bot pipeline without MCP or chain. Asks for `ANALYZER_API_KEY` (URL is hardcoded default `localhost:3001/api/v1`). Smoke-tests connectivity, then drops into a command loop: type `/profile <addr>`, `/analyze <addr>`, `/holders <mint>`, or paste a bare address (auto-wraps as `/profile`). Prints parse result, exact bot reply text, any attachments, elapsed time, and registered deferred jobs. Run with `npm run test:bot`. **Files:** `src/test-bot.ts`, `package.json` (+`test:bot` script).
+
+### February 18, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
