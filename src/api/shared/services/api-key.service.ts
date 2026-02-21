@@ -112,32 +112,32 @@ export class ApiKeyService {
       // Find key by prefix first (more efficient than checking all keys)
       const keyRecord = await this.apiKeyDatabaseService.findApiKeyByPrefix(prefix);
       if (!keyRecord) {
-        this.logger.warn(`API key not found for prefix: ${prefix}`);
+        this.logger.error(`[DEBUG] API key not found for prefix: ${prefix}`);
         return { isValid: false };
       }
 
       // Check if key is active and not expired
       if (!keyRecord.isActive) {
-        this.logger.warn(`Inactive API key attempted: ${prefix}***`);
+        this.logger.error(`[DEBUG] Inactive API key attempted: ${prefix}`);
         return { isValid: false };
       }
 
       if (keyRecord.expiresAt && keyRecord.expiresAt < new Date()) {
-        this.logger.warn(`Expired API key attempted: ${prefix}***`);
+        this.logger.error(`[DEBUG] Expired API key attempted: ${prefix}`);
         return { isValid: false };
       }
 
       // Verify the full key hash
       const isValidKey = await this.verifyApiKey(apiKey, keyRecord.keyHash);
       if (!isValidKey) {
-        this.logger.warn(`Invalid API key hash for prefix: ${prefix}***`);
+        this.logger.error(`[DEBUG] Hash mismatch for prefix: ${prefix} — key in DB: ${keyRecord.keyHash.slice(0, 10)}...`);
         return { isValid: false };
       }
 
       // Get user information
       const user = await this.jwtDatabaseService.findActiveUserById(keyRecord.userId);
       if (!user) {
-        this.logger.warn(`API key user not found or inactive: ${keyRecord.userId}`);
+        this.logger.error(`[DEBUG] User not found or inactive: ${keyRecord.userId}`);
         return { isValid: false };
       }
 
@@ -358,8 +358,8 @@ export class ApiKeyService {
   }
 
   private generatePrefix(): string {
-    const environment = this.configService.get<string>('NODE_ENV') === 'production' ? 'live' : 'test';
-    return `ak_${environment}`;
+    const keyId = crypto.randomBytes(6).toString('hex');
+    return `ak_${keyId}`;
   }
 
   private generateSecret(): string {

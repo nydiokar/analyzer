@@ -1,10 +1,34 @@
 import 'reflect-metadata';
 import 'tsconfig-paths/register';
+import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { DatabaseService, prisma } from '../src/core/services/database-service'; // Adjusted path
 import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
 import logger from '../src/core/utils/logger';
+
+// Mirrors ApiKeyService logic without requiring NestJS DI / EventEmitter2
+async function generateProperApiKey(userId: string, description: string): Promise<{ apiKey: string; prefix: string }> {
+  const keyId = crypto.randomBytes(6).toString('hex');
+  const prefix = `ak_${keyId}`;
+  const secret = crypto.randomBytes(32).toString('base64url');
+  const apiKey = `${prefix}_${secret}`;
+  const keyHash = await bcrypt.hash(apiKey, 10);
+
+  await prisma.apiKey.create({
+    data: {
+      prefix,
+      keyHash,
+      userId,
+      description,
+      scopes: JSON.stringify(['read', 'analysis']),
+      isActive: true,
+    },
+  });
+
+  return { apiKey, prefix };
+}
 
 async function confirmOrExit(prompt: string, force?: boolean): Promise<void> {
   if (force) return;
@@ -96,23 +120,27 @@ async function main() {
       async (argv) => {
         console.log('Attempting to create a new user...');
         try {
-          const result = await dbService.createUser(argv.description);
+          // Create user — apiKey field is a legacy column, we'll overwrite it immediately
+          const tempPlaceholder = crypto.randomBytes(16).toString('hex');
+          const user = await prisma.user.create({
+            data: { description: argv.description, isActive: true, apiKey: tempPlaceholder, emailVerified: true },
+          });
 
-          if (result && result.user && result.apiKey) {
-            console.log('---------------------------------------------------');
-            console.log('✅ User Created Successfully!');
-            console.log('---------------------------------------------------');
-            console.log(`User ID:         ${result.user.id}`);
-            console.log(`API Key:         ${result.apiKey} <--- COPY THIS KEY NOW! It will not be shown again.`);
-            console.log(`Description:     ${result.user.description || 'N/A'}`);
-            console.log(`Is Active:       ${result.user.isActive}`);
-            console.log('---------------------------------------------------');
-            console.log('IMPORTANT: Store the API Key securely. This is the only time it will be displayed.');
-            console.log('---------------------------------------------------');
-          } else {
-            console.error('❌ Failed to create user or user/API key was not returned.');
-            if (result) console.error('Result received:', JSON.stringify(result, null, 2));
-          }
+          // Generate a proper ak_test_/ak_live_ prefixed API key via ApiKeyService logic
+          const { apiKey, prefix } = await generateProperApiKey(user.id, argv.description ?? 'PFT Bot');
+
+          console.log('---------------------------------------------------');
+          console.log('✅ User Created Successfully!');
+          console.log('---------------------------------------------------');
+          console.log(`User ID:         ${user.id}`);
+          console.log(`API Key:         ${apiKey} <--- COPY THIS KEY NOW! It will not be shown again.`);
+          console.log(`Prefix stored:   ${prefix}***`);
+          console.log(`Description:     ${user.description || 'N/A'}`);
+          console.log(`Scopes:          read, analysis`);
+          console.log(`Is Active:       ${user.isActive}`);
+          console.log('---------------------------------------------------');
+          console.log('IMPORTANT: Store the API Key securely. This is the only time it will be displayed.');
+          console.log('---------------------------------------------------');
         } catch (error) {
           logger.error('❌ Error during user creation:', getErrorMessage(error));
         }
