@@ -552,6 +552,8 @@ function HolderProfilesContent() {
   const displayedTokenResult = tokenResult
     ?? tokenPartialResult
     ?? (shouldShowLastSuccess ? lastSuccessfulTokenResult : null);
+  const completedTokenResult = tokenResult
+    ?? (shouldShowLastSuccess ? lastSuccessfulTokenResult : null);
   const lastSuccessLabel = lastSuccessfulTokenTimestamp
     ? new Date(lastSuccessfulTokenTimestamp).toLocaleString()
     : 'the previous run';
@@ -564,7 +566,12 @@ function HolderProfilesContent() {
     : null;
 
   const retrySimilarity = useCallback(() => {
-    if (!displayedTokenResult?.profiles?.length) {
+    if (tokenStatus === 'running') {
+      toast.error('Wait for holder profiles to finish before retrying similarity');
+      return;
+    }
+    if (!completedTokenResult?.profiles?.length) {
+      toast.error('No completed holder snapshot available for similarity retry');
       return;
     }
     // Reset state to allow retry
@@ -572,8 +579,13 @@ function HolderProfilesContent() {
     similarityTriggeredRef.current = false;
     setSimilarityResult(null);
     setSimilarityStatus('idle');
-    queueSimilarityAnalysis(displayedTokenResult.profiles.map((profile) => profile.walletAddress));
-  }, [displayedTokenResult, queueSimilarityAnalysis]);
+    const walletAddresses = [...new Set(
+      completedTokenResult.profiles
+        .map((profile) => profile.walletAddress)
+        .filter((address): address is string => Boolean(address))
+    )];
+    queueSimilarityAnalysis(walletAddresses);
+  }, [completedTokenResult, queueSimilarityAnalysis, tokenStatus]);
 
   return (
     <AppShell>

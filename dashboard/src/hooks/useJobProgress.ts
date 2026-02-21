@@ -280,6 +280,10 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobCompleted = (data: JobCompletionData) => {
+      if (!activeJobIdsRef.current.has(data.jobId)) {
+        debugLog('job-completed-ignored-untracked', { jobId: data.jobId, queue: data.queue });
+        return;
+      }
       incrementDebugCounter(data.jobId, 'completed', { dedupSkipped: completedJobsRef.current.has(data.jobId) });
       if (completedJobsRef.current.has(data.jobId)) {
         return; 
@@ -361,11 +365,17 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobProgress = (data: JobProgressData) => {
+      if (!activeJobIdsRef.current.has(data.jobId)) {
+        return;
+      }
       incrementDebugCounter(data.jobId, 'progress', { status: data.status, progress: data.progress });
       callbacksRef.current.onJobProgress?.(data);
     };
 
     const handleJobFailed = (data: JobFailedData) => {
+      if (!activeJobIdsRef.current.has(data.jobId)) {
+        return;
+      }
       incrementDebugCounter(data.jobId, 'failed', { error: data.error });
       const isLockConflict = data.error?.includes('already in progress');
       if (isLockConflict) {
@@ -381,6 +391,9 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobQueueToStart = (data: JobQueueToStartData) => {
+      if (!activeJobIdsRef.current.has(data.jobId)) {
+        return;
+      }
       incrementDebugCounter(data.jobId, 'queueToStart', { queue: data.queue, queueToStartTime: data.queueToStartTime });
       // console.log('🚀 Job started processing (WebSocket):', data.jobId, 'Queue time:', data.queueToStartTime + 'ms');
       callbacksRef.current.onJobQueueToStart?.(data);
