@@ -112,10 +112,10 @@ export function formatHolderTable(
     lines.push(`Trader types: ${dist}`);
   }
 
-  // Not-analyzed note
+  // Not-analyzed note — jobs are auto-queued by the command handler, no extra charge
   const notFoundCount = hudData?.notFound.length ?? 0;
   if (notFoundCount > 0) {
-    lines.push(`\n* ${notFoundCount} wallets not yet analyzed — use /analyze <address> for full profile`);
+    lines.push(`\n* ${notFoundCount} wallets queued for analysis — profiles incoming (no extra charge)`);
   }
 
   return lines.join('\n');

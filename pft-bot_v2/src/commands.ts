@@ -89,7 +89,7 @@ export async function handleCommand(
   try {
     switch (parsed.command) {
       case '/holders':
-        return await handleHolders(parsed.args[0], analyzer);
+        return await handleHolders(parsed.args[0], sender, txHash, analyzer, deferred, threadId);
 
       case '/profile':
         return await handleProfile(parsed.args[0], sender, txHash, analyzer, deferred, threadId);
@@ -110,7 +110,14 @@ export async function handleCommand(
   }
 }
 
-async function handleHolders(mint: string, analyzer: AnalyzerClient): Promise<CommandResult> {
+async function handleHolders(
+  mint: string,
+  sender: string,
+  txHash: string,
+  analyzer: AnalyzerClient,
+  deferred: DeferredJobs,
+  threadId?: string,
+): Promise<CommandResult> {
   // Fetch top holders
   const holders = await analyzer.getTopHolders(mint);
 
@@ -136,6 +143,28 @@ async function handleHolders(mint: string, analyzer: AnalyzerClient): Promise<Co
   let hudData: Awaited<ReturnType<typeof analyzer.getHudBatch>> | null = null;
   if (realWallets.length > 0) {
     hudData = await analyzer.getHudBatch(realWallets.slice(0, 200));
+  }
+
+  // Auto-queue flash analysis for wallets with no HUD data — user already paid
+  if (hudData && hudData.notFound.length > 0) {
+    for (const addr of hudData.notFound) {
+      try {
+        const job = await analyzer.queueDashboardAnalysis(addr, 'flash');
+        if (job.jobId && !job.skipped) {
+          deferred.addJob({
+            jobId: job.jobId,
+            type: 'profile',
+            sender,
+            txHash,
+            threadId,
+            queuedAt: Date.now(),
+            walletAddress: addr,
+          });
+        }
+      } catch {
+        // Non-critical — don't fail the whole response if one queue call fails
+      }
+    }
   }
 
   const text = formatHolderTable(holders, hudData, tokenName, tokenSymbol);

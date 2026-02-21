@@ -97,19 +97,22 @@ Verdict: Moderately stable. Mix of short and medium-term holders.
 ```
 
 **For wallets not yet analyzed (in `notFound`):**
-Show them with "—" for all HUD fields, and add a note:
+The user already paid. Auto-queue a `flash` analysis job for each notFound wallet via `POST /analyses/wallets/dashboard-analysis` with `analysisScope: "flash"`. Store each jobId in the deferred-jobs state machine. Reply immediately with the partial table (showing `—` for unanalyzed rows) and a note that results are incoming:
 ```
-* 3 wallets not yet analyzed. Use /analyze <address> for full profile.
+* 3 wallets queued for analysis — I'll send profiles when ready (no extra charge).
 ```
-
-This is honest — you show what you have, and the user can request more.
+When each job completes, send a follow-up reply on the same thread with the wallet's profile card.
 
 ### Command: `/profile <address>`
 
 **Flow:**
 1. `GET /wallets/{address}/hud` → quick behavioral snapshot
-2. If 404, reply: "Wallet not analyzed yet. Use /analyze <address> to run full analysis."
-3. Format HUD data into profile card
+2. If 404: auto-queue a `working` analysis job via `POST /analyses/wallets/dashboard-analysis`. Store jobId in the deferred-jobs state machine. Reply immediately:
+   ```
+   Wallet not yet analyzed. Queuing full analysis now — I'll send results when ready (no extra charge).
+   ```
+   When the job completes, the deferred-jobs loop sends the full profile card as a follow-up reply on the same thread.
+3. If HUD found: format HUD data into profile card and reply.
 
 **What the user sees:**
 ```
@@ -299,12 +302,14 @@ await pftClient.callTool('send_message', {
 
 ### Handling unanalyzed wallets
 
-When `/holders` returns wallets with no HUD data:
-- Show them in the table with "—" for all metrics
-- Group them separately: "Not yet analyzed: 5 wallets"
-- Suggest: "Reply /analyze <address> for any wallet to get full profile"
+When `/holders` or `/profile` encounters wallets with no HUD data, the bot **auto-queues analysis jobs at no extra charge** using the existing deferred-jobs state machine.
 
-This turns a limitation into an upsell — each unknown wallet is a potential 3000 PFT command.
+- Show the partial table immediately with `—` for unanalyzed rows
+- Auto-queue a `flash` analysis job for each notFound wallet
+- Reply note: "X wallets queued for analysis — profiles incoming (no extra charge)"
+- Deferred-jobs loop polls, then sends each profile as a follow-up reply on the same thread
+
+The user paid once and gets complete results delivered automatically. No back-and-forth, no burning credits on a command that returns nothing.
 
 ---
 
@@ -372,4 +377,4 @@ This turns a limitation into an upsell — each unknown wallet is a potential 30
 - **Free-form questions**: Add LLM with tool calling for users who don't use commands. Requires OpenAI/Anthropic SDK with function definitions.
 - **Conversation memory**: Track per-sender history for multi-turn. Simple Map with TTL.
 - **Throttler bypass**: If bot hits analyzer rate limits, add custom guard in NestJS (~20 lines).
-- **Auto-analysis**: When `/holders` finds unanalyzed wallets, auto-queue analysis and notify when done.
+- **Auto-analysis**: Implemented as core behavior — not a future upgrade.
