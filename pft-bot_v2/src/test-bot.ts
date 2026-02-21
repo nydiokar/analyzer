@@ -76,17 +76,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  console.log(`  Key: ${apiKey.slice(0, 20)}... (${apiKey.length} chars)\n`);
+
   const analyzer = new AnalyzerClient(apiUrl, apiKey);
 
   // Smoke-test connectivity before entering the loop
   process.stdout.write('\nConnecting to analyzer API... ');
   try {
-    // Use a known-bad address to get a fast 404 — just proves the server is up and auth works
-    await analyzer.getWalletSummary('11111111111111111111111111111111').catch(() => {});
+    // 404 = server up and auth passed (unknown address) — anything else is a real failure
+    await analyzer.getWalletSummary('11111111111111111111111111111111').catch((err: unknown) => {
+      const status = (err as any)?.response?.status;
+      if (status !== 404) throw err;
+    });
     console.log('OK\n');
   } catch (err) {
+    const status = (err as any)?.response?.status;
     const msg = err instanceof Error ? err.message : String(err);
-    console.log(`FAILED\n\nCould not reach ${apiUrl}: ${msg}\n`);
+    if (status === 401) {
+      console.log(`FAILED\n\nAPI key rejected (401). Check ANALYZER_API_KEY in your .env\n`);
+    } else {
+      console.log(`FAILED\n\nCould not reach ${apiUrl}: ${msg}\n`);
+    }
     process.exit(1);
   }
 
