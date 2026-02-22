@@ -8,17 +8,18 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🟢 | PFT Oracle Bot v2 — Phase 1 scaffold complete | 🔴 L | `pft-bot_v2/` created with all source files. Full MCP client, analyzer client, scan loop, command parser, formatters, deferred jobs. Zero TS errors. |
-| 🟢 | PFT Oracle Bot v2 — `/profile` state machine rewrite | 🟡 M | `handleProfile` now checks summary first, auto-queues flash analysis on unanalyzed wallets, defers with `type: 'profile'`, fetches HUD post-completion. `WalletHud` type updated with `provenance.dataRange`. Profile formatter shows both P/L signals + data date range. |
-| 🔵 | PFT Oracle Bot v2 — pre-chain surface test | 🟢 S | `npm run test:bot` interactive script. Asks for API key only, runs full pipeline (parse → state machine → API → format) against live analyzer, prints exact bot output. Run this to validate all 3 states before touching MCP. |
-| ⚪ | PFT Oracle Bot v2 — Phase 2: wire MCP + live chain test | 🟡 M | After surface test passes: `.env` with `BOT_SEED`, `npm run dev`, send real messages via PFT, verify on-chain reply flow |
-| ⚪ | PFT Oracle Bot v2 — Phase 3: `/holders` command | 🟡 M | Same state-aware treatment as `/profile`. Decide: sort by HUD data presence? auto-trigger analysis for top unanalyzed holders? |
-| ⚪ | PFT Oracle Bot v2 — Phase 4: deferred jobs (/analyze, /compare) | 🟡 M | Test background job polling, IPFS attachment upload for large results |
+| ✅ | PFT Oracle Bot v2 — Phase 1 scaffold complete | 🔴 L | `pft-bot_v2/` created with all source files. Full MCP client, analyzer client, scan loop, command parser, formatters, deferred jobs. Zero TS errors. |
+| ✅ | PFT Oracle Bot v2 — `/profile` + `/holders` working | 🟡 M | Both commands tested and working. Test bot waits for job completion, shows full results. Formatters use only real backend data (no heuristics). HUD synced with main (`avgTxValueSol`). |
+| ✅ | PFT Oracle Bot v2 — Test bot validation | 🟢 S | `npm run test:bot` working. Waits for job completion, formats results correctly for profile/holders. |
+| ✅ | PFT Oracle Bot v2 — Phase 2: wire MCP + live chain test | 🟡 M | Bot registered on PFT marketplace, successfully processes commands and posts on-chain replies. **KNOWN ISSUE:** Message deduplication needs refinement - bot reprocesses old messages on restart despite cursor/hash persistence. |
+| ⚪ | PFT Oracle Bot v2 — Phase 3: `/analyze` and `/compare` commands | 🟡 M | Test deferred jobs for explicit analysis requests and similarity comparisons |
+| ⚪ | PFT Oracle Bot v2 — Phase 4: IPFS attachments | 🟢 S | Test IPFS attachment upload for large results (comparison markdown files) |
 | ⚪ | PFT Oracle Bot v2 — Phase 5: hardening | 🟡 M | Payment validation, refund logic, error handling, crash recovery, rate limiting, balance monitoring |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality |
 
 **Recently Completed:**
+-  **PFT Oracle Bot v2 — Live Chain Registration & Testing** (Feb 22) - Successfully registered "Sova Intel" bot on Post Fiat testnet marketplace. Created wallet (`rEMrwTNtpjgoPgRZ1nTLS6oak5RpU4oQaL`, seed: `sEd7SuxpCYTQJ1Seb6N1tmbVTxahBdY`), installed dependencies, registered bot via MCP. Fixed critical amount parsing bug: MCP returns `amount_drops` not `amount_pft` (1 PFT = 1,000,000 drops). Bot successfully processed test payments, called analyzer API, and posted formatted wallet profiles on-chain. Added persistent hash storage (last 100 tx hashes saved to cursor file) + bot address filtering to skip own replies. **Remaining issue:** Cursor advancement not preventing reprocessing of old messages on restart - bot sees same 4 messages repeatedly. Root cause unclear: either MCP's `scan_messages` with `since_ledger` is inclusive, or wallet address filtering isn't working (`getWalletInfo().address` returns undefined). **Files:** `pft-bot_v2/.env`, `pft-bot_v2/src/scanner.ts`, `pft-bot_v2/create-wallet.ts`.
 -  **PFT Oracle Bot v2 — Test Bot Job Completion + Formatter Refinement + HUD Update** (Feb 22) - Fixed test bot to wait for job completion and show final results instead of exiting after queuing. Added `waitForJobCompletion()` helper that polls every 2s (10min max), detects new jobs, formats results based on job type. Refined both formatters to eliminate all made-up heuristics and provide clear context: (1) **Holders formatter** now shows full wallet addresses (no truncation), full token metadata (name/symbol/mint), token-specific holdings ("Token Bag" column from `tokenHoldingValueSol`), clear "Overall PnL" label (wallet-wide realized), actual wallet exit time (not category typical), data quality medals (🥇🥈🥉) + cycle count, supply % by trader type, removed made-up star flag (winRate>0.65 heuristic). (2) **Profile formatter** clarified PnL is "(realized)", hold time is "(median across positions)", better section headers ("Performance (Overall)", "Trading Behavior"). Updated `WalletHud` interface after main merge: removed `medianPnlPerToken`, added `avgTxValueSol` (average transaction value in SOL). Profile formatter now shows "PnL (avg)" (trimmedMeanPnl) and "Avg Tx Size" (avgTxValueSol) instead of dual PnL metrics. Both formatters now only use real backend data - `isWhale`/`isBot` from HUD, all other fields directly from API responses. **Files:** `pft-bot_v2/src/test-bot.ts`, `pft-bot_v2/src/formatters/holders.ts`, `pft-bot_v2/src/formatters/profile.ts`, `pft-bot_v2/src/analyzer.ts`, `pft-bot_v2/src/test-formatters.ts`.
 -  **PFT Oracle Bot v2 — `/profile` state machine + surface test** (Feb 20) - Rewrote `handleProfile` as a 5-state flow (unanalyzed → auto-flash, already running → hook in, system wallet → reject, HUD missing → re-queue working, HUD present → reply). `WalletHud` type synced to actual backend DTO (`provenance.dataRange`, `medianPnlPerToken`). Deferred jobs fetch HUD post-completion, not raw job blob. Added `test-bot.ts` interactive script (`npm run test:bot`) to validate full pipeline before wiring MCP.
 -  **PFT Oracle Bot v2 — Phase 1 Scaffold** (Feb 20) - Created `pft-bot_v2/` as a standalone Node.js process (not NestJS module) for the "Sova Intel" bot on the Post Fiat network. Architecture: scan loop polls for inbound PFT messages every 5s → deterministic command parser (`/holders`, `/profile`, `/analyze`, `/compare`) → calls analyzer API (localhost:3001) → pure-function formatters produce text → replies on-chain via `@postfiatorg/pft-chatbot-mcp` MCP subprocess. **No LLM in the loop** — all formatting is deterministic. PFT MCP client wraps all 13 tools (v0.3.0 Zod schemas): `create_wallet`, `scan_messages`, `get_message`, `send_message`, `register_bot`, `search_bots`, `get_bot`, `delete_bot`, `upload_content`, `get_thread`, `check_balance`, `send_pft`, `get_wallet_info`. 4 runtime deps: `@modelcontextprotocol/sdk`, `axios`, `dotenv`, `@postfiatorg/pft-chatbot-mcp` (spawned via npx). **Files:** `pft-bot_v2/package.json`, `tsconfig.json`, `.env.example`, `.gitignore`, `ecosystem.config.cjs`, `src/config.ts`, `src/pft-client.ts`, `src/analyzer.ts`, `src/commands.ts`, `src/scanner.ts`, `src/deferred-jobs.ts`, `src/index.ts`, `src/formatters/holders.ts`, `src/formatters/profile.ts`, `src/formatters/analysis.ts`, `src/formatters/comparison.ts`. Plan docs at `.ai/context/pft-oracle/PLAN_pft-oracle-bot.md` and `PROMPT_scaffold-pft-bot.md`.
@@ -82,12 +83,30 @@ Phase 1.5 — `/profile` state machine (pre-Phase 2 correctness pass):
 - **Profile formatter** shows both P/L signals (`medianPnlPerToken` = true median, `trimmedMeanPnl` = outlier-trimmed), data date range from `provenance.dataRange`, no always-on `/analyze` upsell for already-GOLD wallets
 - **`test-bot.ts`** interactive surface test: asks API key only (URL is hardcoded default), runs full pipeline against live API, prints exact bot output per command. `npm run test:bot`
 
+**What's done (Phase 1 - Pre-chain validation):**
+- ✅ `/profile` command: full state machine (unanalyzed → auto-queue, system wallet → reject, HUD present → instant reply)
+- ✅ `/holders` command: full wallet addresses, token metadata, data quality indicators, supply % by type
+- ✅ Test bot: waits for job completion, shows final formatted results
+- ✅ Formatters: all real backend data, no made-up heuristics, clear labels
+- ✅ HUD schema: synced with main (`avgTxValueSol` replaces `medianPnlPerToken`)
+
 **What's next:**
-1. **Run surface test** (`npm run test:bot`) — validate 3 states: analyzed wallet, unanalyzed wallet, system wallet
-2. **Phase 2 — Wire MCP:** `.env` with real `BOT_SEED`, `npm run dev`, send real PFT messages, verify on-chain reply
-3. **Phase 3 — `/holders`:** Apply same state-aware thinking. Decisions needed: sort by HUD coverage? auto-trigger flash for top unanalyzed holders?
-4. **Phase 4 — Deferred jobs:** Test polling loop, IPFS attachment for large results
-5. **Phase 5 — Hardening:** Payment validation, refund logic, crash recovery, balance monitoring
+1. **Phase 2 — Wire MCP + Live Chain Test** ⬅️ **NEXT**
+   - Create `.env` with `BOT_SEED` (real wallet seed phrase)
+   - `npm run dev` to start bot
+   - Send real PFT messages to bot's wallet
+   - Verify on-chain replies appear correctly
+   - Test deferred job flow (profile job completes → bot sends result on-chain)
+
+2. **Phase 3 — `/analyze` and `/compare` commands**
+   - Test explicit analysis requests with different scopes (flash/working/deep)
+   - Test similarity comparisons with 2+ wallets
+
+3. **Phase 4 — IPFS Attachments**
+   - Test large result uploads (comparison markdown files)
+
+4. **Phase 5 — Hardening**
+   - Payment validation, refund logic, error handling, crash recovery, rate limiting, balance monitoring
 
 **Plan docs:** `.ai/context/pft-oracle/PLAN_pft-oracle-bot.md`, `.ai/context/pft-oracle/PROMPT_scaffold-pft-bot.md`
 

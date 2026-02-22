@@ -13,6 +13,7 @@ export class Scanner {
   private processedHashes = new Set<string>();
   private running = false;
   private maxHashSetSize = 1000;
+  private botAddress: string | undefined;
 
   constructor(
     private pft: PFTClient,
@@ -24,6 +25,16 @@ export class Scanner {
 
   async start(): Promise<void> {
     this.running = true;
+
+    // Get bot's own wallet address for filtering out our replies
+    try {
+      const walletInfo = await this.pft.getWalletInfo();
+      this.botAddress = walletInfo.wallet_address || walletInfo.address;
+      console.log(`[SCAN] Bot address: ${this.botAddress}`);
+    } catch (err) {
+      console.error('[SCAN] Failed to get wallet address:', err);
+    }
+
     console.log(`[SCAN] Starting scan loop (interval: ${config.SCAN_INTERVAL_MS}ms, cursor: ${this.cursor ?? 'none'})`);
 
     while (this.running) {
@@ -57,17 +68,19 @@ export class Scanner {
 
       try {
         await this.processMessage(msg.tx_hash);
+        this.processedHashes.add(msg.tx_hash);
       } catch (err) {
         console.error(`[SCAN] Error processing ${msg.tx_hash}:`, err instanceof Error ? err.message : err);
+        // Don't add to processedHashes on error - will retry next scan
       }
 
-      this.processedHashes.add(msg.tx_hash);
       if (this.processedHashes.size > this.maxHashSetSize) {
         const first = this.processedHashes.values().next().value;
         if (first) this.processedHashes.delete(first);
       }
     }
 
+    // ALWAYS advance cursor after processing a batch, even if some messages failed
     this.cursor = scan.next_cursor;
     this.saveCursor(this.cursor);
   }
@@ -75,7 +88,10 @@ export class Scanner {
   private async processMessage(txHash: string): Promise<void> {
     const decrypted = await this.pft.getMessage({ tx_hash: txHash });
 
-    const amountPft = parseFloat(decrypted.amount_pft ?? '0');
+    // Convert drops to PFT (1 PFT = 1,000,000 drops)
+    const amountPft = decrypted.amount_pft
+      ? parseFloat(decrypted.amount_pft)
+      : parseFloat(decrypted.amount_drops) / 1_000_000;
 
     // Ignore dust/spam
     if (amountPft < MIN_PAYMENT) {
@@ -130,14 +146,28 @@ export class Scanner {
   private saveCursor(cursor: number): void {
     const dir = path.dirname(config.CURSOR_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(config.CURSOR_FILE, JSON.stringify({ cursor, updatedAt: Date.now() }));
+
+    // Save cursor + recent processed hashes for deduplication across restarts
+    const recentHashes = Array.from(this.processedHashes).slice(-100); // Keep last 100
+    fs.writeFileSync(config.CURSOR_FILE, JSON.stringify({
+      cursor,
+      processedHashes: recentHashes,
+      updatedAt: Date.now()
+    }));
   }
 
   private loadCursor(): number | undefined {
     try {
       const raw = fs.readFileSync(config.CURSOR_FILE, 'utf-8');
-      const data = JSON.parse(raw) as { cursor: number };
+      const data = JSON.parse(raw) as { cursor: number; processedHashes?: string[] };
       console.log(`[SCAN] Loaded cursor: ${data.cursor}`);
+
+      // Restore processed hashes for deduplication
+      if (data.processedHashes) {
+        data.processedHashes.forEach(hash => this.processedHashes.add(hash));
+        console.log(`[SCAN] Restored ${data.processedHashes.length} processed hashes`);
+      }
+
       return data.cursor;
     } catch {
       return undefined;
