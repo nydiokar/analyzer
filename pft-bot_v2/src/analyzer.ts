@@ -28,9 +28,9 @@ export interface TopHoldersResponse {
 export interface WalletHud {
   walletAddress: string;
   signalType: string;
-  // PnL metrics — both are per-token figures
+  // PnL & Transaction metrics
   trimmedMeanPnl: number;       // outlier-trimmed mean P/L per token (in SOL)
-  medianPnlPerToken: number;    // median P/L per token (true center, in SOL)
+  avgTxValueSol: number;        // average transaction value in SOL (total SOL volume / total trades)
   // Behavior
   behaviorCategory?: string;    // e.g. 'MOMENTUM_TRADER', 'DAY_TRADER'
   behaviorCode: string;         // single-letter: M/D/S/R/W/P/H/A/B/L/?

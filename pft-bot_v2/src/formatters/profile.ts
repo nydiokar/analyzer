@@ -19,11 +19,8 @@ export function formatWalletProfile(address: string, hud: WalletHud | null): str
   lines.push('');
 
   // ── Performance (Overall) ────────────────────────────────────────────
-  // trimmedMeanPnl = outlier-trimmed mean P/L per token (removes top/bottom outliers)
-  // medianPnlPerToken = true median (unaffected by single huge wins/losses)
-  // Show both so the user can sense the distribution spread
-  lines.push(`PnL (median):      ${formatSol(hud.medianPnlPerToken)} per token (realized)`);
-  lines.push(`PnL (trimmed avg): ${formatSol(hud.trimmedMeanPnl)} per token (realized)`);
+  lines.push(`PnL (trimmed):         ${formatSol(hud.trimmedMeanPnl)} per token (realized)`);
+  lines.push(`Avg Tx Size:       ${formatSol(hud.avgTxValueSol)} SOL`);
   lines.push(`Win Rate:          ${Math.round(hud.winRate * 100)}%`);
   lines.push('');
 

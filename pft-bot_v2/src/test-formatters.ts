@@ -44,7 +44,7 @@ const hudFixture: WalletHud = {
   walletAddress: WALLET_ADDR,
   signalType: 'BEHAVIORAL',
   trimmedMeanPnl: 0.04,
-  medianPnlPerToken: -0.02,
+  avgTxValueSol: 2.45,
   behaviorCategory: 'SWING_TRADER',
   behaviorCode: 'W',
   medianHoldTimeHours: 93.6,   // 3.9d
