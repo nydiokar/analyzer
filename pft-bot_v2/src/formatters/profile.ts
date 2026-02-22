@@ -18,19 +18,19 @@ export function formatWalletProfile(address: string, hud: WalletHud | null): str
   lines.push(`WALLET: ${short}`);
   lines.push('');
 
-  // ── PnL ──────────────────────────────────────────────────────────────
+  // ── Performance (Overall) ────────────────────────────────────────────
   // trimmedMeanPnl = outlier-trimmed mean P/L per token (removes top/bottom outliers)
   // medianPnlPerToken = true median (unaffected by single huge wins/losses)
   // Show both so the user can sense the distribution spread
-  lines.push(`PnL (median):      ${formatSol(hud.medianPnlPerToken)} per token`);
-  lines.push(`PnL (trimmed avg): ${formatSol(hud.trimmedMeanPnl)} per token`);
+  lines.push(`PnL (median):      ${formatSol(hud.medianPnlPerToken)} per token (realized)`);
+  lines.push(`PnL (trimmed avg): ${formatSol(hud.trimmedMeanPnl)} per token (realized)`);
   lines.push(`Win Rate:          ${Math.round(hud.winRate * 100)}%`);
   lines.push('');
 
-  // ── Behavior ─────────────────────────────────────────────────────────
-  lines.push(`Style:    ${formatStyle(hud.behaviorCategory, hud.behaviorCode)}`);
-  lines.push(`Holding:  ${formatHoldTime(hud.medianHoldTimeHours)} median exit`);
-  lines.push(`Activity: ${hud.avgTradesPerDay.toFixed(1)} trades/day | ${hud.uniqueTokensPerDay.toFixed(1)} tokens/day`);
+  // ── Trading Behavior ─────────────────────────────────────────────────
+  lines.push(`Style:       ${formatStyle(hud.behaviorCategory, hud.behaviorCode)}`);
+  lines.push(`Hold Time:   ${formatHoldTime(hud.medianHoldTimeHours)} (median across positions)`);
+  lines.push(`Activity:    ${hud.avgTradesPerDay.toFixed(1)} trades/day | ${hud.uniqueTokensPerDay.toFixed(1)} tokens/day`);
   lines.push('');
 
   // ── Portfolio ─────────────────────────────────────────────────────────
