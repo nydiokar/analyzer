@@ -1,7 +1,6 @@
 import { COMMAND_PRICES, HELP_TEXT } from './config.js';
 import type { AnalyzerClient } from './analyzer.js';
 import type { DeferredJobs } from './deferred-jobs.js';
-import { formatHolderTable } from './formatters/holders.js';
 import { formatWalletProfile } from './formatters/profile.js';
 
 const SOLANA_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -118,10 +117,7 @@ async function handleHolders(
   deferred: DeferredJobs,
   threadId?: string,
 ): Promise<CommandResult> {
-  // Fetch top holders
-  const holders = await analyzer.getTopHolders(mint);
-
-  // Try to get token info for display name
+  // Fetch optional token display name — non-critical
   let tokenName: string | undefined;
   let tokenSymbol: string | undefined;
   try {
@@ -131,44 +127,32 @@ async function handleHolders(
       tokenSymbol = infos[0].symbol;
     }
   } catch {
-    // Non-critical, continue without token name
+    // continue without token name
   }
 
-  // Filter real wallets (no knownType) with valid ownerAccount
-  const realWallets = holders.holders
-    .filter(h => !h.knownType && h.ownerAccount)
-    .map(h => h.ownerAccount!);
+  // Queue a single holder-profiles job that handles staleness/freshness
+  // internally — syncs + analyzes each wallet, streams results, completes as one unit.
+  const job = await analyzer.queueHolderProfilesAnalysis(mint, 10);
 
-  // Batch HUD lookup for real wallets
-  let hudData: Awaited<ReturnType<typeof analyzer.getHudBatch>> | null = null;
-  if (realWallets.length > 0) {
-    hudData = await analyzer.getHudBatch(realWallets.slice(0, 200));
-  }
+  const displayToken = tokenName && tokenSymbol
+    ? `${tokenName} (${tokenSymbol})`
+    : `${mint.slice(0, 6)}..${mint.slice(-4)}`;
 
-  // Auto-queue flash analysis for wallets with no HUD data — user already paid
-  if (hudData && hudData.notFound.length > 0) {
-    for (const addr of hudData.notFound) {
-      try {
-        const job = await analyzer.queueDashboardAnalysis(addr, 'flash');
-        if (job.jobId && !job.skipped) {
-          deferred.addJob({
-            jobId: job.jobId,
-            type: 'profile',
-            sender,
-            txHash,
-            threadId,
-            queuedAt: Date.now(),
-            walletAddress: addr,
-          });
-        }
-      } catch {
-        // Non-critical — don't fail the whole response if one queue call fails
-      }
-    }
-  }
+  deferred.addJob({
+    jobId: job.jobId,
+    type: 'holders',
+    sender,
+    txHash,
+    threadId,
+    queuedAt: Date.now(),
+    tokenMint: mint,
+    tokenName,
+    tokenSymbol,
+  });
 
-  const text = formatHolderTable(holders, hudData, tokenName, tokenSymbol);
-  return { text };
+  return {
+    text: `Analyzing top ${job.topN} holders of ${displayToken}.\nEstimated: ${job.estimatedProcessingTime}. I'll send the full report when ready.`,
+  };
 }
 
 async function handleProfile(
@@ -181,82 +165,42 @@ async function handleProfile(
 ): Promise<CommandResult> {
   const short = `${address.slice(0, 4)}..${address.slice(-4)}`;
 
-  // Step 1: check summary — single fast DB read that tells us the wallet's state
-  const summary = await analyzer.getWalletSummary(address);
-
-  if (summary.status === 'unanalyzed') {
-    // Wallet has never been analyzed — auto-queue a flash analysis
-    const job = await analyzer.queueDashboardAnalysis(address, 'flash');
-
-    if (job.skipped && job.skipReason) {
-      // Known system wallet (LP, burn, exchange, etc.)
-      const isLp = job.skipReason.includes('LP') || job.skipReason.includes('lp');
-      const label = isLp ? 'liquidity pool' : 'system wallet';
-      return { text: `${short} is a known ${label} — behavioral analysis is not available for this address.` };
-    }
-
-    if (job.alreadyRunning && job.jobId) {
-      // Analysis already queued by someone else — hook into the existing job
-      deferred.addJob({
-        jobId: job.jobId,
-        type: 'profile',
-        sender,
-        txHash,
-        threadId,
-        queuedAt: Date.now(),
-        walletAddress: address,
-      });
-      return { text: `${short} is being analyzed now. I'll send the profile when it's ready.` };
-    }
-
-    if (!job.jobId) {
-      return { text: `${short} hasn't been analyzed and analysis couldn't be queued. Please try again.` };
-    }
-
-    // Fresh job queued — register deferred and ack immediately
-    deferred.addJob({
-      jobId: job.jobId,
-      type: 'profile',
-      sender,
-      txHash,
-      threadId,
-      queuedAt: Date.now(),
-      walletAddress: address,
-    });
-    return {
-      text: `${short} hasn't been analyzed yet. Running flash analysis now — I'll send the profile when ready (${job.estimatedProcessingTime}).`,
-    };
-  }
-
-  // Step 2: wallet has data — fetch HUD (should be in Redis cache)
+  // Step 1: try HUD — fast Redis read, cache-backed
   const hud = await analyzer.getWalletHud(address);
 
-  if (!hud) {
-    // summary says 'ok' but HUD is missing — analysis ran but produced incomplete data
-    // Queue a working analysis to rebuild it
-    const job = await analyzer.queueDashboardAnalysis(address, 'working');
-
-    if (job.skipped || !job.jobId) {
-      // Shouldn't normally happen, but handle gracefully
-      return { text: `${short} has partial data that couldn't be loaded. Please try again shortly.` };
-    }
-
-    deferred.addJob({
-      jobId: job.jobId,
-      type: 'profile',
-      sender,
-      txHash,
-      threadId,
-      queuedAt: Date.now(),
-      walletAddress: address,
-    });
-    return {
-      text: `${short} has data but the profile couldn't be loaded. Re-running analysis — I'll send the profile when ready.`,
-    };
+  if (hud) {
+    // Happy path — data is fresh, respond immediately
+    return { text: formatWalletProfile(address, hud) };
   }
 
-  // Happy path — we have everything, respond immediately
-  return { text: formatWalletProfile(address, hud) };
+  // Step 2: no HUD — queue a dashboard analysis
+  // The queue endpoint handles system-wallet detection, deduplication, and lock management
+  const job = await analyzer.queueDashboardAnalysis(address, 'flash');
+
+  if (job.skipped && job.skipReason) {
+    const isLp = job.skipReason.toLowerCase().includes('lp') || job.skipReason.toLowerCase().includes('liquidity');
+    const label = isLp ? 'liquidity pool' : 'system wallet';
+    return { text: `${short} is a known ${label} — behavioral analysis is not available for this address.` };
+  }
+
+  if (!job.jobId) {
+    return { text: `${short} analysis couldn't be queued. Please try again.` };
+  }
+
+  deferred.addJob({
+    jobId: job.jobId,
+    type: 'profile',
+    sender,
+    txHash,
+    threadId,
+    queuedAt: Date.now(),
+    walletAddress: address,
+  });
+
+  const alreadyRunning = job.alreadyRunning ? ' (already in progress)' : '';
+  return {
+    text: `${short} hasn't been analyzed yet. Running flash analysis${alreadyRunning} — I'll send the profile when ready (${job.estimatedProcessingTime}).`,
+  };
 }
 
 async function handleAnalyze(

@@ -150,6 +150,53 @@ export interface AnalysisJobResponse {
   alreadyRunning?: boolean;
 }
 
+export interface HolderProfilesJobResponse {
+  jobId: string;
+  requestId: string;
+  status: 'queued';
+  queueName: string;
+  tokenMint: string;
+  topN: number;
+  estimatedProcessingTime: string;
+  monitoringUrl: string;
+}
+
+// Shape stored in Redis under holder-profiles:result:{jobId}
+// Resolved automatically by GET /jobs/{jobId}/result via the pointer pattern.
+export interface HolderProfile {
+  walletAddress: string;
+  rank: number;
+  supplyPercent: number;
+  tokenHoldingValueSol?: number | null;
+  knownType?: string;
+  knownLabel?: string;
+  analysisSkipped?: boolean;
+  medianHoldTimeHours: number | null;
+  avgHoldTimeHours: number | null;
+  behaviorType: string | null;
+  exitPattern: string | null;
+  dataQualityTier: string;
+  completedCycleCount: number;
+  confidence: number;
+  walletPnlSol?: number | null;
+  walletRealizedPnlSol?: number | null;
+  solBalance?: number | null;
+}
+
+export interface HolderProfilesResult {
+  mode: 'token' | 'wallet';
+  tokenMint?: string;
+  profiles: HolderProfile[];
+  metadata: {
+    totalHoldersRequested: number;
+    totalHoldersAnalyzed: number;
+    totalProcessingTimeMs: number;
+    avgProcessingTimePerWalletMs: number;
+    failedHolders?: number;
+  };
+  success: boolean;
+}
+
 export interface SimilarityJobResponse {
   jobId: string;
   requestId: string;
@@ -228,6 +275,14 @@ export class AnalyzerClient {
     const { data } = await this.http.post<AnalysisJobResponse>('/analyses/wallets/dashboard-analysis', {
       walletAddress: address,
       analysisScope: scope || 'working',
+    });
+    return data;
+  }
+
+  async queueHolderProfilesAnalysis(tokenMint: string, topN = 10): Promise<HolderProfilesJobResponse> {
+    const { data } = await this.http.post<HolderProfilesJobResponse>('/analyses/holder-profiles', {
+      tokenMint,
+      topN,
     });
     return data;
   }

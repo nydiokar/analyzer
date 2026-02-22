@@ -1,4 +1,4 @@
-import type { TopHoldersResponse, BatchHudResponse, WalletHud } from '../analyzer.js';
+import type { TopHoldersResponse, BatchHudResponse, WalletHud, HolderProfilesResult, HolderProfile } from '../analyzer.js';
 
 const BEHAVIOR_LABELS: Record<string, string> = {
   'SNIPER': 'Sniper',
@@ -152,5 +152,95 @@ function formatFlags(hud?: WalletHud): string {
   if (hud.winRate > 0.65 && (hud.dataQualityTier === 'GOLD' || hud.dataQualityTier === 'SILVER')) {
     flags.push('\u2B50');
   }
+  return flags.join(' ');
+}
+
+// ── Holder-profiles job result formatter ─────────────────────────────────────
+// Used by DeferredJobs when a POST /analyses/holder-profiles job completes.
+// Works from HolderProfilesResult (the full job payload resolved from Redis).
+
+export function formatHolderProfilesResult(
+  result: HolderProfilesResult,
+  tokenName?: string,
+  tokenSymbol?: string,
+): string {
+  const lines: string[] = [];
+
+  const mint = result.tokenMint ?? '?';
+  const title = tokenName && tokenSymbol
+    ? `TOKEN: ${tokenName} (${tokenSymbol})`
+    : `TOKEN: ${mint.slice(0, 6)}..${mint.slice(-4)}`;
+  lines.push(title);
+
+  // Separate system vs real profiles
+  const systemProfiles = result.profiles.filter(p => p.analysisSkipped && p.knownType);
+  const realProfiles = result.profiles.filter(p => !p.analysisSkipped || !p.knownType);
+
+  const analyzedCount = realProfiles.filter(p => p.behaviorType !== null).length;
+  lines.push(`Analyzed ${analyzedCount} of ${realProfiles.length} wallets`);
+  lines.push('');
+
+  // System accounts summary
+  if (systemProfiles.length > 0) {
+    const parts = systemProfiles.map(p => {
+      const pct = `${p.supplyPercent.toFixed(1)}%`;
+      const label = p.knownLabel ?? p.knownType ?? 'System';
+      return `${label} ${pct}`.trim();
+    });
+    lines.push(`System: ${parts.join(' | ')}`);
+    lines.push('');
+  }
+
+  // Table header
+  lines.push('#  Wallet       Supply  PnL          Style        Hold    Flags');
+  lines.push('—'.repeat(68));
+
+  for (const profile of realProfiles.slice(0, 10)) {
+    const addr = profile.walletAddress;
+    const shortAddr = `${addr.slice(0, 4)}..${addr.slice(-4)}`;
+    const rank = String(profile.rank).padEnd(2);
+    const supplyStr = `${profile.supplyPercent.toFixed(1)}%`.padEnd(7);
+    const pnl = formatPnl(profile.walletPnlSol ?? undefined).padEnd(12);
+    const style = formatBehavior(profile.behaviorType ?? undefined, undefined).padEnd(12);
+    const hold = formatHoldTime(profile.medianHoldTimeHours ?? undefined).padEnd(7);
+    const flags = formatProfileFlags(profile);
+
+    lines.push(`${rank} ${shortAddr}  ${supplyStr} ${pnl} ${style} ${hold} ${flags}`);
+  }
+
+  if (realProfiles.length > 10) {
+    lines.push(`   ... and ${realProfiles.length - 10} more holders`);
+  }
+
+  lines.push('');
+
+  // Distribution summary
+  if (analyzedCount > 0) {
+    const counts: Record<string, number> = {};
+    for (const p of realProfiles) {
+      if (!p.behaviorType) continue;
+      const label = formatBehavior(p.behaviorType, undefined);
+      counts[label] = (counts[label] ?? 0) + 1;
+    }
+    const dist = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${v}`)
+      .join(' | ');
+    lines.push(`Trader types: ${dist}`);
+  }
+
+  const { totalHoldersAnalyzed, totalHoldersRequested, totalProcessingTimeMs } = result.metadata;
+  if (totalHoldersAnalyzed < totalHoldersRequested) {
+    const skipped = totalHoldersRequested - totalHoldersAnalyzed;
+    lines.push(`\n* ${skipped} holders skipped (system wallets or insufficient data)`);
+  }
+  lines.push(`\n[${(totalProcessingTimeMs / 1000).toFixed(1)}s total]`);
+
+  return lines.join('\n');
+}
+
+function formatProfileFlags(p: HolderProfile): string {
+  const flags: string[] = [];
+  if (p.solBalance && p.solBalance > 1000) flags.push('\u{1F40B}');
   return flags.join(' ');
 }
