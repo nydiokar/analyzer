@@ -1433,8 +1433,32 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             // Inline result (should not happen with pointer pattern, kept for safety)
             walletResult = resultData as unknown as HolderProfilesResult;
           } else {
-            // Pointer pattern: child job returned { resultKey } — fetch from wallet cache
-            walletResult = await this.holderProfilesCacheService.getWalletResult(wallet);
+            // Pointer pattern: child job returned { data: { resultKey } }.
+            // Resolve child payload directly first, then fall back to wallet cache.
+            const pointerData = resultData && typeof resultData['data'] === 'object'
+              ? (resultData['data'] as Record<string, unknown>)
+              : undefined;
+            const pointerKey = typeof pointerData?.resultKey === 'string'
+              ? pointerData.resultKey
+              : null;
+
+            if (pointerKey && pointerKey.startsWith('holder-profiles:result:')) {
+              try {
+                const raw = await this.redisClient.get(pointerKey);
+                if (raw) {
+                  const parsed = JSON.parse(raw) as HolderProfilesResult;
+                  if (parsed && Array.isArray(parsed.profiles)) {
+                    walletResult = parsed;
+                  }
+                }
+              } catch (error) {
+                this.logger.warn(`Failed to resolve child holder profile pointer for ${wallet}: ${getErrorMessage(error)}`);
+              }
+            }
+
+            if (!walletResult) {
+              walletResult = await this.holderProfilesCacheService.getWalletResult(wallet);
+            }
           }
 
           if (walletResult && walletResult.profiles.length > 0) {
@@ -1668,6 +1692,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         timestamp: Date.now(),
         processingTimeMs,
       };
+      // Ensure parent token-mode aggregator can read wallet-mode child result from Tier-1 key.
+      await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
       await job.updateProgress(100);
       return result;
     }

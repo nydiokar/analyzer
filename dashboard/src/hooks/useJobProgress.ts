@@ -62,6 +62,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
   const jobSocketDebug = process.env.NEXT_PUBLIC_JOB_SOCKET_DEBUG === 'true';
   const debugStatsRef = useRef<Map<string, DebugJobStats>>(new Map());
   const activeJobIdsRef = useRef<Set<string>>(new Set());
+  const normalizeJobId = useCallback((jobId: string | number | undefined | null): string => String(jobId ?? ''), []);
 
   const callbacksRef = useRef(callbacks);
   useEffect(() => {
@@ -280,11 +281,16 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobCompleted = (data: JobCompletionData) => {
-      incrementDebugCounter(data.jobId, 'completed', { dedupSkipped: completedJobsRef.current.has(data.jobId) });
-      if (completedJobsRef.current.has(data.jobId)) {
+      const normalizedJobId = normalizeJobId(data.jobId as unknown as string);
+      if (!normalizedJobId || !activeJobIdsRef.current.has(normalizedJobId)) {
+        debugLog('job-completed-ignored-untracked', { jobId: data.jobId, normalizedJobId, queue: data.queue });
+        return;
+      }
+      incrementDebugCounter(normalizedJobId, 'completed', { dedupSkipped: completedJobsRef.current.has(normalizedJobId) });
+      if (completedJobsRef.current.has(normalizedJobId)) {
         return; 
       }
-      completedJobsRef.current.add(data.jobId);
+      completedJobsRef.current.add(normalizedJobId);
 
       const processCompletion = async () => {
         let resolvedResult = data.result;
@@ -295,7 +301,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         if (requiresHydration) {
           debugLog('hydrate-job-result', { jobId: data.jobId, pointerKey });
           // Pass the resultKey so the fast 1-read path is used (skips BullMQ lookup).
-          const hydrated = await hydrateJobResult(data.jobId, pointerKey);
+        const hydrated = await hydrateJobResult(normalizedJobId, pointerKey);
           if (hydrated) {
             if (data.queue === 'analysis-operations') {
               // Holder-profiles: the Redis value IS the full HolderProfilesResult (profiles at top level).
@@ -325,11 +331,11 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
               };
               resolvedResult = hydratedResult;
             }
-            debugLog('hydrate-job-result-success', { jobId: data.jobId });
-          } else {
-            debugLog('hydrate-job-result-miss', { jobId: data.jobId });
-          }
+          debugLog('hydrate-job-result-success', { jobId: normalizedJobId });
+        } else {
+          debugLog('hydrate-job-result-miss', { jobId: normalizedJobId });
         }
+      }
 
         if (data.queue === 'similarity-operations' && !resolvedResult) {
           console.warn(
@@ -361,12 +367,20 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobProgress = (data: JobProgressData) => {
-      incrementDebugCounter(data.jobId, 'progress', { status: data.status, progress: data.progress });
+      const normalizedJobId = normalizeJobId(data.jobId as unknown as string);
+      if (!normalizedJobId || !activeJobIdsRef.current.has(normalizedJobId)) {
+        return;
+      }
+      incrementDebugCounter(normalizedJobId, 'progress', { status: data.status, progress: data.progress });
       callbacksRef.current.onJobProgress?.(data);
     };
 
     const handleJobFailed = (data: JobFailedData) => {
-      incrementDebugCounter(data.jobId, 'failed', { error: data.error });
+      const normalizedJobId = normalizeJobId(data.jobId as unknown as string);
+      if (!normalizedJobId || !activeJobIdsRef.current.has(normalizedJobId)) {
+        return;
+      }
+      incrementDebugCounter(normalizedJobId, 'failed', { error: data.error });
       const isLockConflict = data.error?.includes('already in progress');
       if (isLockConflict) {
         console.warn('⚠️ Job deduplicated (already running):', data.jobId);
@@ -381,7 +395,11 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     };
 
     const handleJobQueueToStart = (data: JobQueueToStartData) => {
-      incrementDebugCounter(data.jobId, 'queueToStart', { queue: data.queue, queueToStartTime: data.queueToStartTime });
+      const normalizedJobId = normalizeJobId(data.jobId as unknown as string);
+      if (!normalizedJobId || !activeJobIdsRef.current.has(normalizedJobId)) {
+        return;
+      }
+      incrementDebugCounter(normalizedJobId, 'queueToStart', { queue: data.queue, queueToStartTime: data.queueToStartTime });
       // console.log('🚀 Job started processing (WebSocket):', data.jobId, 'Queue time:', data.queueToStartTime + 'ms');
       callbacksRef.current.onJobQueueToStart?.(data);
     };
@@ -437,10 +455,14 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       });
       newSocket.disconnect();
     };
-  }, [debugLog, incrementDebugCounter, hydrateJobResult]);
+  }, [debugLog, incrementDebugCounter, hydrateJobResult, normalizeJobId]);
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {
+    const normalizedJobId = normalizeJobId(jobId);
+    if (!normalizedJobId) {
+      return;
+    }
     // Track active job for debugging/monitoring purposes
     //
     // IMPORTANT: No per-job WebSocket subscription is needed because the backend uses
@@ -451,11 +473,11 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     // for these events - they were legacy code from an old per-job subscription system.
     // The room-based system is simpler and prevents race conditions where jobs complete
     // before the frontend can register individual subscriptions.
-    activeJobIdsRef.current.add(jobId);
-    incrementDebugCounter(jobId, 'subscribe', { socketConnected: !!socket?.connected });
+    activeJobIdsRef.current.add(normalizedJobId);
+    incrementDebugCounter(normalizedJobId, 'subscribe', { socketConnected: !!socket?.connected });
 
-    console.log(`📋 Tracking job: ${jobId} (auto-broadcast via user room)`);
-    debugLog('job-track', { jobId, roomBased: true });
+    console.log(`📋 Tracking job: ${normalizedJobId} (auto-broadcast via user room)`);
+    debugLog('job-track', { jobId: normalizedJobId, roomBased: true });
 
     // If WebSocket is not connected, poll via HTTP as fallback
     if (!socket?.connected) {
@@ -463,7 +485,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       incrementDebugCounter(jobId, 'httpFallbacks', { socketConnected: false });
 
       try {
-        const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
+        const job: JobStatusResponseDto = await fetcher(`/jobs/${normalizedJobId}`);
         if (job) {
           if (job.status === 'completed') {
             handleJobCompletedFromHttp(job);
@@ -471,15 +493,15 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
             handleJobFailedFromHttp(job);
           } else {
             // Job is still running but no WebSocket - user needs to refresh or check connection
-            console.warn(`Job ${jobId} is ${job.status} but WebSocket is disconnected. Updates won't be received.`);
+            console.warn(`Job ${normalizedJobId} is ${job.status} but WebSocket is disconnected. Updates won't be received.`);
           }
         }
       } catch (error: unknown) {
         const apiError = error as ApiError;
         if (apiError.status === 404) {
-          console.warn(`Job ${jobId} not found - may have already completed or never existed`);
+          console.warn(`Job ${normalizedJobId} not found - may have already completed or never existed`);
         } else if (apiError.status !== 404) {
-          console.error(`Error polling job status for ${jobId}:`, error);
+          console.error(`Error polling job status for ${normalizedJobId}:`, error);
           toast({
             title: 'Could not get job status',
             description: 'Network error: Unable to connect to the server. Please check your connection.',
@@ -488,21 +510,25 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         }
       }
     }
-  }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp, incrementDebugCounter, debugLog]);
+  }, [socket, handleJobCompletedFromHttp, handleJobFailedFromHttp, incrementDebugCounter, debugLog, normalizeJobId]);
 
   const unsubscribeFromJob = useCallback((jobId: string) => {
+    const normalizedJobId = normalizeJobId(jobId);
+    if (!normalizedJobId) {
+      return;
+    }
     // Remove from active tracking
     //
     // NOTE: Like subscribe, this does NOT emit any WebSocket events. Previously emitted
     // 'unsubscribe-from-job' which had no backend handler. The room-based system means
     // we simply stop tracking this jobId locally - the server continues broadcasting
     // all events to the user room, but we ignore events for jobs not in activeJobIdsRef.
-    activeJobIdsRef.current.delete(jobId);
-    incrementDebugCounter(jobId, 'unsubscribe');
+    activeJobIdsRef.current.delete(normalizedJobId);
+    incrementDebugCounter(normalizedJobId, 'unsubscribe');
 
-    console.log(`📋 Stopped tracking job: ${jobId}`);
-    debugLog('job-untrack', { jobId, roomBased: true });
-  }, [incrementDebugCounter, debugLog]);
+    console.log(`📋 Stopped tracking job: ${normalizedJobId}`);
+    debugLog('job-untrack', { jobId: normalizedJobId, roomBased: true });
+  }, [incrementDebugCounter, debugLog, normalizeJobId]);
 
   const cleanup = useCallback(() => {
     if (socket) {

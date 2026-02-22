@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
  *
  * 6 Core Metrics:
  * - Trimmed Mean PNL
- * - Median P/L per Token
+ * - Avg Tx Value (SOL)
  * - Behavior Code (single letter)
  * - Unique Tokens/Day
  * - Win Rate
@@ -110,6 +110,24 @@ function formatNumber(value: number): string {
 }
 
 /**
+ * Format SOL amounts for compact display (avg tx values are typically small)
+ * Examples: 0.05, 0.5, 2.4, 12.3, 150, 1.2K
+ */
+function formatSol(value: number): string {
+  const absValue = Math.abs(value);
+  if (absValue >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  if (absValue >= 100) {
+    return `${value.toFixed(0)}`;
+  }
+  if (absValue >= 1) {
+    return `${value.toFixed(1)}`;
+  }
+  return `${value.toFixed(2)}`;
+}
+
+/**
  * Format percentages from decimal (0.68 -> 68%)
  */
 function formatPercent(decimal: number): string {
@@ -201,7 +219,7 @@ export interface WalletHudOverlayProps {
 
 /**
  * Inline Display - Compact single-line format
- * Example: 🥇 M  +1.2K / 890  68% WR  12.5 T/D  🤖
+ * Example: 🥇 M  +1.2K | 2.4 SOL/tx  68% WR  12.5 T/D  🤖
  * Note: T/D = Unique Tokens per Day (not Trades per Day)
  */
 const InlineDisplay = memo(function InlineDisplay({
@@ -266,10 +284,10 @@ const InlineDisplay = memo(function InlineDisplay({
           {formatPnl(data.trimmedMeanPnl)}
         </span>
 
-        <span className="text-muted-foreground">/</span>
+        <span className="text-muted-foreground">|</span>
 
-        {/* Median PNL */}
-        <span className="text-foreground">{formatNumber(data.medianPnlPerToken)}</span>
+        {/* Avg Tx Value */}
+        <span className="text-foreground">{formatSol(data.avgTxValueSol)} SOL/tx</span>
 
         {/* Win Rate */}
         <span className="text-muted-foreground">{formatPercent(data.winRate)} WR</span>
@@ -347,8 +365,8 @@ const TooltipDisplay = memo(function TooltipDisplay({
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Median P/L:</span>
-          <span className="font-medium">{formatNumber(data.medianPnlPerToken)} SOL</span>
+          <span className="text-muted-foreground">Avg Tx Value:</span>
+          <span className="font-medium">{formatSol(data.avgTxValueSol)} SOL</span>
         </div>
         {data.medianHoldTimeHours !== undefined && (
           <div className="flex justify-between">
@@ -435,10 +453,10 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
         <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Trimmed Mean PNL</div>
       </div>
 
-      {/* Median PNL */}
+      {/* Avg Tx Value */}
       <div className="text-center">
-        <div className="text-2xl font-bold">{formatNumber(data.medianPnlPerToken)}</div>
-        <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Median P/L</div>
+        <div className="text-2xl font-bold">{formatSol(data.avgTxValueSol)}</div>
+        <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Avg Tx (SOL)</div>
       </div>
 
       {/* Win Rate */}
