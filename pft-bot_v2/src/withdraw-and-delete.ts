@@ -82,10 +82,17 @@ async function withdrawAndDelete(): Promise<void> {
     console.log(`  Drops: ${newBalance.native_balance.drops}`);
 
     // Step 7: Delete bot
-    console.log('\n[DELETE] Press Enter to delete the bot registration, or Ctrl+C to keep it...');
-    await new Promise<void>((resolve) => {
-      process.stdin.once('data', () => resolve());
+    console.log('\n[DELETE] To confirm bot deletion, type "Agree" and press Enter, or Ctrl+C to cancel:');
+    const deleteConfirmation = await new Promise<string>((resolve) => {
+      process.stdin.once('data', (data) => {
+        resolve(data.toString().trim());
+      });
     });
+
+    if (deleteConfirmation !== 'Agree') {
+      console.log('[DELETE] Confirmation not received. Bot registration was NOT deleted.');
+      return;
+    }
 
     console.log('[DELETE] Deleting bot registration...');
     await pft.deleteBot(walletInfo.wallet_address);
