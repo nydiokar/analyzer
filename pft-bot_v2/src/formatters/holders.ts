@@ -205,7 +205,7 @@ export function formatHolderProfilesResult(
 
     lines.push(`#${profile.rank} ${addr}`);
     lines.push(`  Supply: ${supplyStr}  |  Bag: ${tokenBag}  |  PnL: ${pnl}`);
-    lines.push(`  Style: ${style}  |  Hold: ${hold}  |  Quality: ${quality}`);
+    lines.push(`  Style: ${style}  |  Avg exit: ${hold}  |  Quality: ${quality}`);
     lines.push('');
   }
 
