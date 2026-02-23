@@ -173,7 +173,12 @@ export class PFTClient {
     if (!content?.[0]?.text) {
       throw new Error(`Empty response from MCP tool: ${name}`);
     }
-    return JSON.parse(content[0].text) as T;
+    const text = content[0].text;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new Error(`MCP tool ${name} returned non-JSON: ${text}`);
+    }
   }
 
   // ---- 1. create_wallet ----
