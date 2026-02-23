@@ -41,10 +41,16 @@ export class DeferredJobs {
 
   async loadPending(): Promise<void> {
     try {
+      if (!fs.existsSync(config.PENDING_JOBS_FILE)) {
+        this.pending = [];
+        return;
+      }
+
       const raw = fs.readFileSync(config.PENDING_JOBS_FILE, 'utf-8');
       this.pending = JSON.parse(raw) as PendingJob[];
-      console.log(`[JOBS] Loaded ${this.pending.length} pending jobs`);
-    } catch {
+      console.log(`[JOBS] Loaded ${this.pending.length} pending job(s)`);
+    } catch (err) {
+      console.error(`[JOBS] Failed to load pending jobs:`, err);
       this.pending = [];
     }
   }
@@ -184,9 +190,15 @@ export class DeferredJobs {
   }
 
   private savePending(): void {
-    const dir = path.dirname(config.PENDING_JOBS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(config.PENDING_JOBS_FILE, JSON.stringify(this.pending, null, 2));
+    try {
+      const dir = path.dirname(config.PENDING_JOBS_FILE);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(config.PENDING_JOBS_FILE, JSON.stringify(this.pending, null, 2));
+    } catch (err) {
+      console.error(`[JOBS] Failed to save pending jobs:`, err);
+    }
   }
 
   private sleep(ms: number): Promise<void> {
