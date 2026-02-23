@@ -98,19 +98,29 @@ export interface SearchBotsResult {
 
 // --- check_balance ---
 export interface BalanceInfo {
-  address: string;
-  pft_balance: string;
-  xrp_balance: string;
-  trust_lines?: unknown[];
+  wallet_address: string;
+  native_balance: {
+    pft: string;
+    drops: string;
+  };
+  pft_trust_line?: {
+    active: boolean;
+  };
+  all_trust_lines?: unknown[];
+  chain_rpc?: string;
+  keystone_grpc?: string;
 }
 
 // --- get_wallet_info ---
 export interface WalletInfo {
-  address: string;
+  wallet_address: string;
   public_key: string;
   encryption_key?: string;
-  trust_line_status?: string;
-  rpc_endpoints?: string[];
+  pft_trust_line?: {
+    active: boolean;
+  };
+  chain_rpc?: string;
+  keystone_grpc?: string;
 }
 
 // --- create_wallet ---

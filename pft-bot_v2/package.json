@@ -8,7 +8,8 @@
     "start": "node dist/index.js",
     "build": "tsc",
     "test:formatters": "tsx src/test-formatters.ts",
-    "test:bot": "tsx src/test-bot.ts"
+    "test:bot": "tsx src/test-bot.ts",
+    "withdraw": "tsx src/withdraw-and-delete.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
