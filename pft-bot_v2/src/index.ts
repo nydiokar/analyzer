@@ -14,14 +14,14 @@ async function main(): Promise<void> {
   // 2. Register bot (idempotent — updates if already registered)
   await pft.registerBot({
     name: 'Sova Intel',
-    description: 'Solana wallet intelligence. Analyze token holders, profile wallets, compare trading behavior.',
-    capabilities: ['text-generation'],
+    description: 'Solana wallet intelligence powered by on-chain behavioral analysis. Uncover who\'s holding your token, how individual wallets trade, and how traders stack up against each other.\n\nWhat I can do:\n- Holder profiles — scan a token\'s top holders and classify their trading behavior\n- Wallet profile — quick behavioral fingerprint of any Solana wallet\n- Deep analysis — comprehensive breakdown of a wallet\'s on-chain history and patterns\n- Comparison — put two wallets head-to-head to contrast their behavior',
+    capabilities: ['wallet-analysis'],
     icon_emoji: '\u{1F989}',
     commands: [
-      { command: '/holders', description: 'Top holders with behavioral profiles', example: '/holders <token_mint>', min_cost_drops: '1000000000' },
-      { command: '/profile', description: 'Quick wallet behavioral profile', example: '/profile <wallet_address>', min_cost_drops: '500000000' },
-      { command: '/analyze', description: 'Deep analysis (2-15 min)', example: '/analyze <wallet_address>', min_cost_drops: '3000000000' },
-      { command: '/compare', description: 'Compare wallet behavior', example: '/compare <addr1> <addr2>', min_cost_drops: '3000000000' },
+      { command: '/holders', description: 'Top holders with behavioral profiles', example: '/holders <token_mint>', min_cost_drops: '500000000' },
+      { command: '/profile', description: 'Quick wallet behavioral profile', example: '/profile <wallet_address>', min_cost_drops: '100000000' },
+      { command: '/analyze', description: 'Deep analysis (2-15 min)', example: '/analyze <wallet_address>', min_cost_drops: '1000000000' },
+      { command: '/compare', description: 'Compare wallet behavior', example: '/compare <addr1> <addr2>', min_cost_drops: '1000000000' },
     ],
   });
 
