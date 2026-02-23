@@ -194,39 +194,24 @@ export function formatHolderProfilesResult(
     lines.push('');
   }
 
-  // Intro: explain what we're showing
-  lines.push('Holder profiles — wallet stats + token holdings:');
-  lines.push('');
-
-  // Table header with clearer labels
-  lines.push('#  Wallet                                        Supply  Token Bag    Overall PnL  Style            Exit (avg)  Quality');
-  lines.push('—'.repeat(125));
-
   for (const profile of realProfiles.slice(0, 10)) {
     const addr = profile.walletAddress;
-    const rank = String(profile.rank).padEnd(2);
-    const supplyStr = `${profile.supplyPercent.toFixed(1)}%`.padEnd(7);
-
-    // Token-specific holdings
-    const tokenBag = formatTokenBag(profile.tokenHoldingValueSol ?? undefined).padEnd(12);
-
-    // Overall wallet PnL (not this token)
-    const pnl = formatPnlWithContext(profile.walletRealizedPnlSol ?? profile.walletPnlSol ?? undefined).padEnd(12);
-
-    // Style label only (no time in parentheses)
-    const style = formatBehavior(profile.behaviorType ?? undefined, undefined).padEnd(16);
-
-    // This wallet's actual median hold time
-    const hold = formatHoldTime(profile.medianHoldTimeHours ?? undefined).padEnd(11);
-
-    // Data quality tier
+    const supplyStr = `${profile.supplyPercent.toFixed(1)}%`;
+    const tokenBag = formatTokenBag(profile.tokenHoldingValueSol ?? undefined);
+    const pnl = formatPnlWithContext(profile.walletRealizedPnlSol ?? profile.walletPnlSol ?? undefined);
+    const style = formatBehavior(profile.behaviorType ?? undefined, undefined);
+    const hold = formatHoldTime(profile.medianHoldTimeHours ?? undefined);
     const quality = formatDataQuality(profile.dataQualityTier, profile.completedCycleCount);
 
-    lines.push(`${rank} ${addr}  ${supplyStr} ${tokenBag} ${pnl} ${style} ${hold} ${quality}`);
+    lines.push(`#${profile.rank} ${addr}`);
+    lines.push(`  Supply: ${supplyStr}  |  Bag: ${tokenBag}  |  PnL: ${pnl}`);
+    lines.push(`  Style: ${style}  |  Hold: ${hold}  |  Quality: ${quality}`);
+    lines.push('');
   }
 
   if (realProfiles.length > 10) {
-    lines.push(`   ... and ${realProfiles.length - 10} more holders`);
+    lines.push(`... and ${realProfiles.length - 10} more holders`);
+    lines.push('');
   }
 
   lines.push('');
