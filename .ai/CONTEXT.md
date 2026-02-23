@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/pft-oracle-bot-v2`  **Last Updated:** 2026-02-20  **Status:**  Active Development — Pre-chain testing in progress
+**Branch:** `feat/pft-oracle-bot-v2`  **Last Updated:** 2026-02-23  **Status:**  Active Development — `/compare` formatter complete, live-tested
 
 ---
 
@@ -12,6 +12,7 @@
 | ✅ | PFT Oracle Bot v2 — `/profile` + `/holders` working | 🟡 M | Both commands tested and working. Test bot waits for job completion, shows full results. Formatters use only real backend data (no heuristics). HUD synced with main (`avgTxValueSol`). |
 | ✅ | PFT Oracle Bot v2 — Test bot validation | 🟢 S | `npm run test:bot` working. Waits for job completion, formats results correctly for profile/holders. |
 | ✅ | PFT Oracle Bot v2 — Phase 2: wire MCP + live chain test | 🟡 M | Bot registered on PFT marketplace, successfully processes commands and posts on-chain replies. **KNOWN ISSUE:** Message deduplication needs refinement - bot reprocesses old messages on restart despite cursor/hash persistence. |
+| ✅ | PFT Oracle Bot v2 — `/compare` formatter overhaul | 🟡 M | Rewrote `comparison.ts`: real `CombinedSimilarityResult` shape, progress bar + behavioral/capital split, Jaccard + coverage % in context, no editorial verdicts. Queued-ack time overridden to ~45 sec. Tested live against real wallets. |
 | ⚪ | PFT Oracle Bot v2 — Phase 3: `/analyze` and `/compare` commands | 🟡 M | Test deferred jobs for explicit analysis requests and similarity comparisons |
 | ⚪ | PFT Oracle Bot v2 — Phase 4: IPFS attachments | 🟢 S | Test IPFS attachment upload for large results (comparison markdown files) |
 | ⚪ | PFT Oracle Bot v2 — Phase 5: hardening | 🟡 M | Payment validation, refund logic, error handling, crash recovery, rate limiting, balance monitoring |
@@ -19,6 +20,7 @@
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality |
 
 **Recently Completed:**
+-  **PFT Oracle Bot v2 — `/compare` formatter overhaul** (Feb 23) - Rewrote `pft-bot_v2/src/formatters/comparison.ts` from scratch to handle the real `CombinedSimilarityResult` shape (`pairwiseSimilarities`, `binaryScore`, `capitalScore`, `sharedTokens`, `capitalAllocation`, `binaryUniqueTokenCount*`). Chat message now shows a per-pair card: progress bar + overall %, behavioral/capital split, shared token count with Jaccard % and per-wallet coverage (e.g. "285 tokens (52% of A · 59% of B · Jaccard 38%)"), top 5 token names inline. Queued-ack overrides `estimatedProcessingTime` with `~45 sec` (API was returning "9 minutes"). Report (`comparison.md`) has clean metadata table, wallet list with token counts, per-pair section with full addresses + metrics table, shared tokens filtered to ≥0.1% capital weight (capped at 50 rows). Context section replaces verdict: shows raw facts only — shared count, % of universe, Jaccard, per-wallet coverage, capital alignment signal. No editorial judgements. Test fixture updated to real shape. Live-tested against `F4CB..1k1Q` ↔ `GPsd..UXPU`: 285 shared tokens / 729 universe / 58% overall. **Files:** `pft-bot_v2/src/formatters/comparison.ts`, `pft-bot_v2/src/commands.ts`, `pft-bot_v2/src/test-formatters.ts`.
 -  **PFT Oracle Bot v2 — Live Chain Registration & Testing** (Feb 22) - Successfully registered "Sova Intel" bot on Post Fiat testnet marketplace. Created wallet (`rEMrwTNtpjgoPgRZ1nTLS6oak5RpU4oQaL`, seed: `sEd7SuxpCYTQJ1Seb6N1tmbVTxahBdY`), installed dependencies, registered bot via MCP. Fixed critical amount parsing bug: MCP returns `amount_drops` not `amount_pft` (1 PFT = 1,000,000 drops). Bot successfully processed test payments, called analyzer API, and posted formatted wallet profiles on-chain. Added persistent hash storage (last 100 tx hashes saved to cursor file) + bot address filtering to skip own replies. **Remaining issue:** Cursor advancement not preventing reprocessing of old messages on restart - bot sees same 4 messages repeatedly. Root cause unclear: either MCP's `scan_messages` with `since_ledger` is inclusive, or wallet address filtering isn't working (`getWalletInfo().address` returns undefined). **Files:** `pft-bot_v2/.env`, `pft-bot_v2/src/scanner.ts`, `pft-bot_v2/create-wallet.ts`.
 -  **PFT Oracle Bot v2 — Test Bot Job Completion + Formatter Refinement + HUD Update** (Feb 22) - Fixed test bot to wait for job completion and show final results instead of exiting after queuing. Added `waitForJobCompletion()` helper that polls every 2s (10min max), detects new jobs, formats results based on job type. Refined both formatters to eliminate all made-up heuristics and provide clear context: (1) **Holders formatter** now shows full wallet addresses (no truncation), full token metadata (name/symbol/mint), token-specific holdings ("Token Bag" column from `tokenHoldingValueSol`), clear "Overall PnL" label (wallet-wide realized), actual wallet exit time (not category typical), data quality medals (🥇🥈🥉) + cycle count, supply % by trader type, removed made-up star flag (winRate>0.65 heuristic). (2) **Profile formatter** clarified PnL is "(realized)", hold time is "(median across positions)", better section headers ("Performance (Overall)", "Trading Behavior"). Updated `WalletHud` interface after main merge: removed `medianPnlPerToken`, added `avgTxValueSol` (average transaction value in SOL). Profile formatter now shows "PnL (avg)" (trimmedMeanPnl) and "Avg Tx Size" (avgTxValueSol) instead of dual PnL metrics. Both formatters now only use real backend data - `isWhale`/`isBot` from HUD, all other fields directly from API responses. **Files:** `pft-bot_v2/src/test-bot.ts`, `pft-bot_v2/src/formatters/holders.ts`, `pft-bot_v2/src/formatters/profile.ts`, `pft-bot_v2/src/analyzer.ts`, `pft-bot_v2/src/test-formatters.ts`.
 -  **PFT Oracle Bot v2 — `/profile` state machine + surface test** (Feb 20) - Rewrote `handleProfile` as a 5-state flow (unanalyzed → auto-flash, already running → hook in, system wallet → reject, HUD missing → re-queue working, HUD present → reply). `WalletHud` type synced to actual backend DTO (`provenance.dataRange`, `medianPnlPerToken`). Deferred jobs fetch HUD post-completion, not raw job blob. Added `test-bot.ts` interactive script (`npm run test:bot`) to validate full pipeline before wiring MCP.
@@ -131,7 +133,13 @@ Phase 1.5 — `/profile` state machine (pre-Phase 2 correctness pass):
 
 ##  Recent Activity
 
-### February 20, 2026 (Latest)
+### February 23, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 23.1 | 🔧 REFACTOR | `/compare` formatter overhaul — real API shape, Jaccard context, no verdicts | 🟡 M | `pft-bot_v2/src/formatters/comparison.ts`, `src/commands.ts`, `src/test-formatters.ts` |
+
+### February 20, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|

@@ -269,6 +269,6 @@ async function handleCompare(
   });
 
   return {
-    text: `Similarity analysis queued for ${result.walletCount} wallets.\nEstimated time: ${result.estimatedProcessingTime}.\nI'll send the results when ready.`,
+    text: `Similarity analysis queued for ${result.walletCount} wallets.\nEstimated time: ~45 sec. I'll send the results when ready.`,
   };
 }

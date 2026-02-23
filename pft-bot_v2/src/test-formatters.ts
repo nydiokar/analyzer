@@ -111,13 +111,25 @@ const holderProfilesFixture: HolderProfilesResult = {
 };
 
 const similarityFixture = {
-  pairs: [
+  pairwiseSimilarities: [
     {
-      wallet1: 'Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7',
-      wallet2: '94kNnCEvewxq2yzhbCK3jfL4CQ4z4br3MNcwn4MCrt8p',
-      score: 0.82,
+      walletA: 'Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7',
+      walletB: '94kNnCEvewxq2yzhbCK3jfL4CQ4z4br3MNcwn4MCrt8p',
+      binaryScore: 0.78,
+      capitalScore: 0.85,
+      sharedTokens: [
+        { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', name: 'Wrapped SOL' },
+        { mint: '3QsVBTqry3d2iqyttSWpy2H8jsKweHUoCNcesypzpump' },
+      ],
+      capitalAllocation: {
+        'So11111111111111111111111111111111111111112': { weightA: 0.45, weightB: 0.38 },
+        '3QsVBTqry3d2iqyttSWpy2H8jsKweHUoCNcesypzpump': { weightA: 0.12, weightB: 0.21 },
+      },
+      binarySharedTokenCount: 2,
+      capitalSharedTokenCount: 2,
     },
   ],
+  summary: { walletCount: 2, uniqueTokensTotal: 47 },
 };
 
 const analysisFixture = {
@@ -298,6 +310,7 @@ test('contains wallet count header', () => {
 
 test('contains similarity percentage', () => {
   const { summary } = formatComparison(ADDRS, similarityFixture);
+  // overall = 0.78*0.4 + 0.85*0.6 = 0.312 + 0.51 = 0.822 → 82%
   assert.ok(summary.includes('82%'), `summary: ${summary}`);
 });
 
@@ -306,17 +319,23 @@ test('contains High similarity label', () => {
   assert.ok(summary.includes('High'), `summary: ${summary}`);
 });
 
-test('verdict detects high similarity', () => {
-  const { summary } = formatComparison(ADDRS, similarityFixture);
-  assert.ok(summary.includes('High similarity detected'), `summary: ${summary}`);
+test('verdict contains jaccard or coverage data', () => {
+  const { report } = formatComparison(ADDRS, similarityFixture);
+  assert.ok(report?.includes('Jaccard') || report?.includes('portfolio'), `report: ${report}`);
 });
 
-test('low similarity verdict says independent', () => {
+test('low similarity shows context section', () => {
   const lowFixture = {
-    pairs: [{ wallet1: ADDRS[0], wallet2: ADDRS[1], score: 0.15 }],
+    pairwiseSimilarities: [{
+      walletA: ADDRS[0], walletB: ADDRS[1],
+      binaryScore: 0.10, capitalScore: 0.10,
+      sharedTokens: [], capitalAllocation: {},
+      binarySharedTokenCount: 0, binaryUniqueTokenCountA: 0, binaryUniqueTokenCountB: 0,
+      capitalSharedTokenCount: 0, capitalUniqueTokenCountA: 0, capitalUniqueTokenCountB: 0,
+    }],
   };
-  const { summary } = formatComparison(ADDRS, lowFixture);
-  assert.ok(summary.includes('No strong similarity'), `summary: ${summary}`);
+  const { report } = formatComparison(ADDRS, lowFixture);
+  assert.ok(report?.includes('Context'), `report: ${report}`);
 });
 
 test('null result returns graceful fallback', () => {
@@ -326,7 +345,7 @@ test('null result returns graceful fallback', () => {
 
 test('report is a markdown string', () => {
   const { report } = formatComparison(ADDRS, similarityFixture);
-  assert.ok(report?.startsWith('# Similarity'), `report: ${report}`);
+  assert.ok(report?.startsWith('# Wallet Similarity'), `report: ${report}`);
 });
 
 // ── Tests: formatAnalysisResult ───────────────────────────────────────────────
