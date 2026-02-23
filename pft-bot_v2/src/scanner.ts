@@ -13,7 +13,6 @@ export class Scanner {
   private processedHashes = new Set<string>();
   private running = false;
   private maxHashSetSize = 1000;
-  private botAddress: string | undefined;
 
   constructor(
     private pft: PFTClient,
@@ -25,15 +24,6 @@ export class Scanner {
 
   async start(): Promise<void> {
     this.running = true;
-
-    // Get bot's own wallet address for filtering out our replies
-    try {
-      const walletInfo = await this.pft.getWalletInfo();
-      this.botAddress = walletInfo.address;
-      console.log(`[SCAN] Bot address: ${this.botAddress}`);
-    } catch (err) {
-      console.error('[SCAN] Failed to get wallet address:', err);
-    }
 
     console.log(`[SCAN] Starting scan loop (interval: ${config.SCAN_INTERVAL_MS}ms, cursor: ${this.cursor ?? 'none'})`);
 

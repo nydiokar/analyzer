@@ -18,10 +18,10 @@ async function main(): Promise<void> {
     capabilities: ['wallet-analysis'],
     icon_emoji: '\u{1F989}',
     commands: [
-      { command: '/holders', description: 'Top holders with behavioral profiles', example: '/holders <token_mint>', min_cost_drops: '500000000' },
-      { command: '/profile', description: 'Quick wallet behavioral profile', example: '/profile <wallet_address>', min_cost_drops: '100000000' },
-      { command: '/analyze', description: 'Deep analysis (2-15 min)', example: '/analyze <wallet_address>', min_cost_drops: '1000000000' },
-      { command: '/compare', description: 'Compare wallet behavior', example: '/compare <addr1> <addr2>', min_cost_drops: '1000000000' },
+      { command: '/holders', description: 'Top holders with behavioral profiles', example: '/holders <token_mint>', min_cost_drops: '5000000' },
+      { command: '/profile', description: 'Quick wallet behavioral profile', example: '/profile <wallet_address>', min_cost_drops: '5000000' },
+      { command: '/analyze', description: 'Deep analysis (2-15 min)', example: '/analyze <wallet_address>', min_cost_drops: '20000000' },
+      { command: '/compare', description: 'Compare wallet behavior', example: '/compare <addr1> <addr2>', min_cost_drops: '300000000' },
     ],
   });
 

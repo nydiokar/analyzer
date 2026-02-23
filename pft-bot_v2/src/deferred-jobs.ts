@@ -84,7 +84,14 @@ export class DeferredJobs {
       try {
         if (Date.now() - job.queuedAt > config.JOB_TIMEOUT_MS) {
           console.log(`[JOBS] Job ${job.jobId} timed out`);
-          await this.sendTimeout(job);
+          try {
+            await this.sendTimeout(job);
+          } catch (err) {
+            console.error(
+              `[JOBS] Failed to send timeout notice for ${job.jobId}:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
           completed.push(job.jobId);
           continue;
         }
