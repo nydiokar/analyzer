@@ -29,7 +29,7 @@ export class Scanner {
     // Get bot's own wallet address for filtering out our replies
     try {
       const walletInfo = await this.pft.getWalletInfo();
-      this.botAddress = walletInfo.wallet_address || walletInfo.address;
+      this.botAddress = walletInfo.address;
       console.log(`[SCAN] Bot address: ${this.botAddress}`);
     } catch (err) {
       console.error('[SCAN] Failed to get wallet address:', err);
@@ -54,13 +54,18 @@ export class Scanner {
 
   private async tick(): Promise<void> {
     const scan = await this.pft.scanMessages({
-      since_ledger: this.cursor,
       direction: 'inbound',
+      limit: 100,
     });
 
     if (scan.count === 0) return;
 
-    console.log(`[SCAN] Received ${scan.count} messages`);
+    const ledgers = scan.messages.map(m => m.ledger_index);
+    const newMessages = scan.messages.filter(m => !this.processedHashes.has(m.tx_hash) && m.direction === 'inbound');
+
+    if (newMessages.length > 0) {
+      console.log(`[SCAN] Found ${newMessages.length} new message(s) (ledgers ${Math.min(...ledgers)}-${Math.max(...ledgers)})`);
+    }
 
     for (const msg of scan.messages) {
       if (this.processedHashes.has(msg.tx_hash)) continue;
@@ -71,7 +76,6 @@ export class Scanner {
         this.processedHashes.add(msg.tx_hash);
       } catch (err) {
         console.error(`[SCAN] Error processing ${msg.tx_hash}:`, err instanceof Error ? err.message : err);
-        // Don't add to processedHashes on error - will retry next scan
       }
 
       if (this.processedHashes.size > this.maxHashSetSize) {
@@ -80,9 +84,14 @@ export class Scanner {
       }
     }
 
-    // ALWAYS advance cursor after processing a batch, even if some messages failed
-    this.cursor = scan.next_cursor;
-    this.saveCursor(this.cursor);
+    // Advance cursor to highest ledger + 1
+    const maxLedger = Math.max(...ledgers);
+    const newCursor = maxLedger + 1;
+
+    if (newCursor !== this.cursor) {
+      this.cursor = newCursor;
+      this.saveCursor(this.cursor);
+    }
   }
 
   private async processMessage(txHash: string): Promise<void> {
@@ -144,32 +153,40 @@ export class Scanner {
   // --- Cursor persistence ---
 
   private saveCursor(cursor: number): void {
-    const dir = path.dirname(config.CURSOR_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    try {
+      const dir = path.dirname(config.CURSOR_FILE);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
 
-    // Save cursor + recent processed hashes for deduplication across restarts
-    const recentHashes = Array.from(this.processedHashes).slice(-100); // Keep last 100
-    fs.writeFileSync(config.CURSOR_FILE, JSON.stringify({
-      cursor,
-      processedHashes: recentHashes,
-      updatedAt: Date.now()
-    }));
+      const recentHashes = Array.from(this.processedHashes).slice(-100);
+      fs.writeFileSync(config.CURSOR_FILE, JSON.stringify({
+        cursor,
+        processedHashes: recentHashes,
+        updatedAt: Date.now()
+      }, null, 2));
+    } catch (err) {
+      console.error(`[SCAN] Failed to save cursor:`, err);
+    }
   }
 
   private loadCursor(): number | undefined {
     try {
+      if (!fs.existsSync(config.CURSOR_FILE)) {
+        return undefined;
+      }
+
       const raw = fs.readFileSync(config.CURSOR_FILE, 'utf-8');
       const data = JSON.parse(raw) as { cursor: number; processedHashes?: string[] };
-      console.log(`[SCAN] Loaded cursor: ${data.cursor}`);
 
-      // Restore processed hashes for deduplication
       if (data.processedHashes) {
         data.processedHashes.forEach(hash => this.processedHashes.add(hash));
-        console.log(`[SCAN] Restored ${data.processedHashes.length} processed hashes`);
+        console.log(`[SCAN] Loaded cursor: ${data.cursor}, restored ${data.processedHashes.length} hashes`);
       }
 
       return data.cursor;
-    } catch {
+    } catch (err) {
+      console.error(`[SCAN] Failed to load cursor:`, err);
       return undefined;
     }
   }
