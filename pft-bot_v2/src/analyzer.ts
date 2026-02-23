@@ -271,11 +271,16 @@ export class AnalyzerClient {
   async queueDashboardAnalysis(
     address: string,
     scope?: 'flash' | 'working' | 'deep',
+    opts?: { queueWorkingAfter?: boolean; queueDeepAfter?: boolean; forceRefresh?: boolean },
   ): Promise<AnalysisJobResponse> {
-    const { data } = await this.http.post<AnalysisJobResponse>('/analyses/wallets/dashboard-analysis', {
+    const body: Record<string, unknown> = {
       walletAddress: address,
-      analysisScope: scope || 'working',
-    });
+      analysisScope: scope || 'deep',
+    };
+    if (opts?.queueWorkingAfter !== undefined) body.queueWorkingAfter = opts.queueWorkingAfter;
+    if (opts?.queueDeepAfter !== undefined) body.queueDeepAfter = opts.queueDeepAfter;
+    if (opts?.forceRefresh !== undefined) body.forceRefresh = opts.forceRefresh;
+    const { data } = await this.http.post<AnalysisJobResponse>('/analyses/wallets/dashboard-analysis', body);
     return data;
   }
 

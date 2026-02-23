@@ -33,11 +33,7 @@ export function parseCommand(message: string): ParsedCommand {
 
     case '/analyze': {
       if (args.length < 1) return { command: '/analyze', args: [], raw: trimmed };
-      // Check for optional scope keyword after address
-      const scope = parts[2]?.toLowerCase();
-      const validScopes = ['flash', 'working', 'deep'];
-      const scopeArg = validScopes.includes(scope ?? '') ? scope! : 'working';
-      return { command: '/analyze', args: [args[0], scopeArg], raw: trimmed };
+      return { command: '/analyze', args: [args[0]], raw: trimmed };
     }
 
     case '/compare':
@@ -72,7 +68,7 @@ export async function handleCommand(
     const examples: Record<string, string> = {
       '/holders': '/holders <token_mint_address>',
       '/profile': '/profile <wallet_address>',
-      '/analyze': '/analyze <wallet_address> [flash|working|deep]',
+      '/analyze': '/analyze <wallet_address>',
       '/compare': '/compare <address1> <address2> [address3...]',
     };
     return {
@@ -94,7 +90,7 @@ export async function handleCommand(
         return await handleProfile(parsed.args[0], sender, txHash, analyzer, deferred, threadId);
 
       case '/analyze':
-        return await handleAnalyze(parsed.args[0], parsed.args[1] as 'flash' | 'working' | 'deep', sender, txHash, analyzer, deferred, threadId);
+        return await handleAnalyze(parsed.args[0], sender, txHash, analyzer, deferred, threadId);
 
       case '/compare':
         return await handleCompare(parsed.args, sender, txHash, analyzer, deferred, threadId);
@@ -169,13 +165,15 @@ async function handleProfile(
   const hud = await analyzer.getWalletHud(address);
 
   if (hud) {
-    // Happy path — data is fresh, respond immediately
+    // Happy path — data exists, respond immediately
     return { text: formatWalletProfile(address, hud) };
   }
 
-  // Step 2: no HUD — queue a dashboard analysis
-  // The queue endpoint handles system-wallet detection, deduplication, and lock management
-  const job = await analyzer.queueDashboardAnalysis(address, 'flash');
+  // Step 2: no HUD — queue a single deep analysis, no follow-up chain
+  const job = await analyzer.queueDashboardAnalysis(address, 'deep', {
+    queueWorkingAfter: false,
+    queueDeepAfter: false,
+  });
 
   if (job.skipped && job.skipReason) {
     const isLp = job.skipReason.toLowerCase().includes('lp') || job.skipReason.toLowerCase().includes('liquidity');
@@ -199,33 +197,41 @@ async function handleProfile(
 
   const alreadyRunning = job.alreadyRunning ? ' (already in progress)' : '';
   return {
-    text: `${short} hasn't been analyzed yet. Running flash analysis${alreadyRunning} — I'll send the profile when ready (${job.estimatedProcessingTime}).`,
+    text: `${short} hasn't been analyzed yet. Running analysis${alreadyRunning} — I'll send the profile when ready (${job.estimatedProcessingTime}).`,
   };
 }
 
 async function handleAnalyze(
   address: string,
-  scope: 'flash' | 'working' | 'deep',
   sender: string,
   txHash: string,
   analyzer: AnalyzerClient,
   deferred: DeferredJobs,
   threadId?: string,
 ): Promise<CommandResult> {
-  const result = await analyzer.queueDashboardAnalysis(address, scope);
+  const short = `${address.slice(0, 4)}..${address.slice(-4)}`;
 
-  if (result.skipped) {
-    const reason = result.skipReason === 'known-LP'
-      ? 'This is a known liquidity pool address — analysis is not available.'
-      : `Analysis was skipped: ${result.skipReason || 'recently analyzed'}. Use /profile to see existing data.`;
-    return { text: reason };
+  // Always run a fresh deep analysis — no follow-up chain, forceRefresh bypasses freshness checks
+  const result = await analyzer.queueDashboardAnalysis(address, 'deep', {
+    queueWorkingAfter: false,
+    queueDeepAfter: false,
+    forceRefresh: true,
+  });
+
+  if (result.skipped && result.skipReason) {
+    // Only skip for known system/LP wallets — forceRefresh prevents freshness skips
+    const isLp = result.skipReason.toLowerCase().includes('lp') || result.skipReason.toLowerCase().includes('liquidity');
+    const label = isLp ? 'liquidity pool' : 'system wallet';
+    return { text: `${short} is a known ${label} — behavioral analysis is not available for this address.` };
   }
 
   if (!result.jobId) {
+    // Shouldn't happen with forceRefresh, but if it does fetch existing HUD
+    const hud = await analyzer.getWalletHud(address);
+    if (hud) return { text: formatWalletProfile(address, hud) };
     return { text: 'Analysis could not be queued. Please try again later.' };
   }
 
-  // Track the job for follow-up
   deferred.addJob({
     jobId: result.jobId,
     type: 'analysis',
@@ -238,7 +244,7 @@ async function handleAnalyze(
 
   const running = result.alreadyRunning ? ' (already in progress)' : '';
   return {
-    text: `Analysis queued for ${address.slice(0, 4)}..${address.slice(-4)}${running}.\nEstimated time: ${result.estimatedProcessingTime}.\nI'll send the results when ready.`,
+    text: `Deep analysis queued for ${short}${running}.\nEstimated: ${result.estimatedProcessingTime}. I'll send the results when ready.`,
   };
 }
 

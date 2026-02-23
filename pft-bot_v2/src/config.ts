@@ -36,8 +36,8 @@ export const COMMAND_PRICES: Record<string, number> = {
 export const HELP_TEXT = `Available commands:
 
 /holders <mint>    — Top holders with behavioral profiles (${COMMAND_PRICES['/holders']} PFT)
-/profile <address> — Quick wallet profile (${COMMAND_PRICES['/profile']} PFT)
-/analyze <address> — Deep analysis, 2-15 min (${COMMAND_PRICES['/analyze']} PFT)
+/profile <address> — Wallet profile, instant if analyzed (${COMMAND_PRICES['/profile']} PFT)
+/analyze <address> — Force fresh deep analysis (${COMMAND_PRICES['/analyze']} PFT)
 /compare <a1> <a2> — Compare wallets (${COMMAND_PRICES['/compare']} PFT)
 
 Send a command with the required PFT amount to get results.`;

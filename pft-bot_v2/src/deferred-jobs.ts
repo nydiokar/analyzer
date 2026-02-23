@@ -176,11 +176,9 @@ export class DeferredJobs {
         ? `token ${job.tokenMint.slice(0, 6)}..${job.tokenMint.slice(-4)}`
         : 'your wallets';
     const timeoutMin = Math.round(config.JOB_TIMEOUT_MS / 60000);
-    const hint = job.type === 'profile'
-      ? `\n\nThe wallet may have a lot of history. Try /analyze ${job.walletAddress} deep for a full run.`
-      : job.type === 'holders'
-        ? `\n\nTry again — the token may have many unanalyzed holders.`
-        : `\n\nTry again or use /analyze <address> flash for a faster result.`;
+    const hint = job.type === 'holders'
+      ? `\n\nTry again — the token may have many unanalyzed holders.`
+      : `\n\nTry again with /analyze ${job.walletAddress ?? '<address>'} to force a fresh run.`;
     await this.pft.sendMessage({
       recipient: job.sender,
       message: `Analysis for ${addr} timed out after ${timeoutMin} minutes.${hint}`,
