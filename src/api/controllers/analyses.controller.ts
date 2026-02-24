@@ -20,6 +20,7 @@ import { getKnownWallet } from '../../config/known-wallets';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 import { getErrorMessage } from 'core/utils/error-utils';
+import { RequireCredits } from '../shared/decorators/require-credits.decorator';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -143,6 +144,7 @@ export class AnalysesController {
   }
 
   @Post('/similarity/queue')
+  @RequireCredits(100)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: 'Queue a similarity analysis job',
@@ -274,6 +276,7 @@ export class AnalysesController {
   }
 
   @Post('/wallets/dashboard-analysis')
+  @RequireCredits(10)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ 
     summary: 'Queue dashboard wallet analysis job',

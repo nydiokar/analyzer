@@ -1,4 +1,4 @@
-import { Controller, Get, Req, InternalServerErrorException, Logger, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Query, Req, InternalServerErrorException, Logger, UseGuards, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { DatabaseService } from '../services/database.service'; // Assuming this path is correct
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
@@ -108,7 +108,10 @@ export class TestController {
    */
   @Get('credits')
   @RequireCredits(5)
-  async testCredits(@Req() req: Request & { user?: any }) {
+  async testCredits(@Req() req: Request & { user?: any }, @Query('fail') fail?: string) {
+    if (fail === 'true') {
+      throw new InternalServerErrorException('Simulated failure — credits should NOT be deducted');
+    }
     const userId = req.user?.id;
     return {
       message: 'Success! This endpoint costs 5 credits.',

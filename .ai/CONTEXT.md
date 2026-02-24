@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-24  **Status:** PAY-1a/1b/1c done (schema + service + guard) → Ready for testing → PAY-1d next (decorate endpoints)
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-24  **Status:** PAY-1a/1b/1c/1d done (schema + service + guard + endpoint decoration) → Verified with 402 → PAY-2a next (CreditPack + PaymentIntent schema)
 
 ---
 
@@ -12,8 +12,8 @@
 | ⚪ | **[PAY-0] Create treasury wallet** | 🟢 S | New dedicated Phantom/Solflare wallet. Add pubkey to `.env` as `TREASURY_WALLET_ADDRESS`. Blocks all payment work. |
 | ✅ | **[PAY-1a] Prisma: CreditBalance + CreditTransaction models** | 🟢 S | Both models added to `schema.prisma`. User gets `creditBalance`/`creditTransactions` relations. Run `npx prisma migrate dev --name credit-ledger` to apply. Branch: `feat/credit-ledger-foundation`. |
 | ✅ | **[PAY-1b] CreditsModule + CreditsService** | 🟡 M | `getBalance`, `deduct` (atomic, throws 402 on short balance), `topUp`, `grantSignupBonus` (non-fatal, called from AuthService.register). `@Global()` module wired into AppModule. Branch: `feat/credit-ledger-foundation`. |
-| ✅ | **[PAY-1c] @RequireCredits decorator + CreditGuard** | 🟡 M | Decorator sets metadata (`@RequireCredits(N)`), `CreditGuard` checks balance before, `CreditInterceptor` deducts after success. Failed requests don't charge. Returns HTTP 402 on insufficient credits. Test endpoint at `GET /api/v1/test-auth/credits`. **Ready for testing.** |
-| ⚪ | **[PAY-1d] Decorate endpoints** | 🟢 S | Add `@RequireCredits(N)` to behavior-analysis(5), similarity(100+), dashboard jobs (10/25/50). Signup bonus already wired in PAY-1b. |
+| ✅ | **[PAY-1c] @RequireCredits decorator + CreditGuard** | 🟡 M | Decorator sets metadata (`@RequireCredits(N)`), `CreditGuard` checks balance before, `CreditInterceptor` deducts after success. Failed requests don't charge. Returns HTTP 402 on insufficient credits. Test endpoint at `GET /api/v1/test-auth/credits`. |
+| ✅ | **[PAY-1d] Decorate endpoints** | 🟢 S | `@RequireCredits(5)` on `GET /wallets/:addr/behavior-analysis`, `@RequireCredits(100)` on `POST /analyses/similarity/queue`, `@RequireCredits(10)` on `POST /analyses/wallets/dashboard-analysis`. Verified: 402 `{"error":"insufficient_credits","balance":0,"required":5}` returned on 0-balance requests. |
 | ⚪ | **[PAY-2a] Prisma: CreditPack + PaymentIntent models** | 🟢 S | Add to schema, migrate. Seed 3 default packs (Starter $15/1k, Builder $120/10k, Pro $900/100k). |
 | ⚪ | **[PAY-2b] PaymentModule — checkout + status endpoints** | 🟡 M | `POST /payments/checkout` (creates intent, returns QR), `GET /payments/:id/status` (poll target), `GET /payments/packs`, `GET /users/me/credits`. Add `@solana/pay`, `@solana/web3.js`, `qrcode`. |
 | ⚪ | **[PAY-2c] Payment confirmation worker (BullMQ)** | 🟡 M | Repeating job per pending intent. `findReference()` against Helius RPC, verify USDC mint + amount, mark confirmed, call `creditsService.topUp()`, emit WebSocket event, expire after 30min. |
@@ -23,6 +23,7 @@
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
 **Recently Completed:**
+-  **[PAY-1d] Decorate production endpoints** (Feb 24, branch `feat/credit-ledger-foundation`) — `@RequireCredits(5)` on behavior-analysis, `@RequireCredits(100)` on similarity/queue, `@RequireCredits(10)` on dashboard-analysis. Verified with 402 on 0-balance user.
 -  **[PAY-1c] @RequireCredits decorator + guard + interceptor** (Feb 24, branch `feat/credit-ledger-foundation`) — Created `@RequireCredits(N)` decorator for marking endpoints with credit cost. `CreditGuard` (pre-check) verifies user has sufficient balance before handler executes, throws HTTP 402 `{error,balance,required}` if insufficient. `CreditInterceptor` (post-deduct) deducts credits AFTER successful response (async, non-blocking). Failed requests do NOT consume credits. Both registered globally in `app.module.ts`. Test endpoint added: `GET /api/v1/test-auth/credits` (costs 5 credits). **Files:** `src/api/shared/decorators/require-credits.decorator.ts`, `src/api/shared/guards/credit.guard.ts`, `src/api/shared/interceptors/credit.interceptor.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/controllers/test.controller.ts`. **Test plan:** `.ai/context/monetization/PAY-1c-TEST-PLAN.md`. **Ready for testing.**
 -  **[PAY-1a/1b] Credit ledger foundation** (Feb 24, branch `feat/credit-ledger-foundation`) — `CreditBalance` + `CreditTransaction` models added to `schema.prisma` (append-only ledger, never mutate balance directly). `CreditsService` implements atomic `topUp`/`deduct` via Prisma `$transaction` — deduct throws HTTP 402 `{error,balance,required}` on short balance. `CreditsModule` is `@Global`. `grantSignupBonus(userId)` wired into `AuthService.register()` (non-fatal). Migration applied: `20260224002042_credit_ledger`. **Files:** `prisma/schema.prisma`, `src/api/services/credits.service.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/modules/auth.module.ts`, `src/api/shared/services/auth.service.ts`.
 -  **PFT Oracle Bot v2 — Phase 4: IPFS attachments** (Feb 23) - Tested `upload_content` MCP tool for large comparison markdown files. Bot now attaches IPFS-hosted reports when reply text exceeds on-chain size limits.
@@ -56,9 +57,10 @@ Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 **Progress:**
 - ✅ `[PAY-1a]` Schema: `CreditBalance` + `CreditTransaction` models — migration applied (`20260224002042_credit_ledger`)
 - ✅ `[PAY-1b]` `CreditsService` + `CreditsModule` + signup bonus wired
-- ✅ `[PAY-1c]` `@RequireCredits` decorator + `CreditGuard` + `CreditInterceptor` — **ready for testing** ← **WE ARE HERE**
+- ✅ `[PAY-1c]` `@RequireCredits` decorator + `CreditGuard` + `CreditInterceptor`
+- ✅ `[PAY-1d]` Decorate endpoints — behavior-analysis(5), similarity(100), dashboard(10) — **verified with 402**
 - ⚪ `[PAY-0]` Treasury wallet — create dedicated Phantom/Solflare wallet, add `TREASURY_WALLET_ADDRESS` to `.env`
-- ⚪ `[PAY-1d]` Decorate endpoints with credit costs ← **next after testing**
+- ⚪ `[PAY-2a]` Schema: `CreditPack` + `PaymentIntent` models ← **next**
 - ⚪ `[PAY-2a→2c]` Solana Pay checkout + BullMQ confirmation worker
 - ⚪ `[PAY-3]` X402 protocol layer (agent/bot autonomous payments)
 - ⚪ `[PAY-4]` Credits dashboard UI
@@ -101,10 +103,13 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 |:--:|:-:|:------|:-----:|:-----------|
 | 24.1 | 🎯 FEAT | Credit ledger foundation — Prisma models + CreditsService + signup bonus wired | 🟡 M | `prisma/schema.prisma`, `src/api/services/credits.service.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/modules/auth.module.ts`, `src/api/shared/services/auth.service.ts` |
 | 24.2 | 🎯 FEAT | @RequireCredits decorator + CreditGuard + CreditInterceptor (PAY-1c) | 🟡 M | `src/api/shared/decorators/require-credits.decorator.ts`, `src/api/shared/guards/credit.guard.ts`, `src/api/shared/interceptors/credit.interceptor.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/controllers/test.controller.ts` |
+| 24.3 | 🎯 FEAT | Decorate production endpoints with credit costs (PAY-1d) | 🟢 S | `src/api/controllers/wallets.controller.ts`, `src/api/controllers/analyses.controller.ts` |
 
 **Summary:**
 
 **24.1:** Implemented PAY-1a and PAY-1b on branch `feat/credit-ledger-foundation`. Added `CreditBalance` (one-to-one per user, running total) and `CreditTransaction` (append-only ledger, indexed on `userId+createdAt`) to `schema.prisma`. `User` gains `creditBalance` / `creditTransactions` relations. `CreditsService` provides: `getBalance` (returns 0 if no row), `topUp` (upsert balance + append tx in single Prisma `$transaction`), `deduct` (reads balance inside tx → throws HTTP 402 `{error,balance,required}` if short → decrements + appends tx), `grantSignupBonus` (calls topUp with `FREE_CREDITS_ON_SIGNUP` env var, default 100, swallows errors), `getRecentTransactions`. `CreditsModule` is `@Global()` — injectable everywhere without re-importing. Injected `CreditsService` into `AuthService`; `grantSignupBonus(user.id)` called immediately after user creation. Migration applied: `20260224002042_credit_ledger`. TypeScript compiles clean.
+
+**24.3:** Implemented PAY-1d — applied `@RequireCredits(N)` to production endpoints: `GET /wallets/:addr/behavior-analysis` (5 credits, `wallets.controller.ts`), `POST /analyses/similarity/queue` (100 credits, `analyses.controller.ts`), `POST /analyses/wallets/dashboard-analysis` (10 credits, `analyses.controller.ts`). Dashboard scope tiers (flash=10/working=25/deep=50) deferred — scope is a runtime body param, static decorator applies flash cost as baseline. Verified end-to-end: set balance to 0 via Prisma, hit both `/test-auth/credits` and `/wallets/.../behavior-analysis` — both returned HTTP 402 `{"error":"insufficient_credits","balance":0,"required":5}`. Guard reads live DB balance; decorator metadata drives the `required` field correctly.
 
 **24.2:** Implemented PAY-1c — credit gating infrastructure. Created `@RequireCredits(N)` decorator (sets metadata). `CreditGuard` (global, registered in `app.module.ts`) runs BEFORE handler: reads metadata → checks user auth → fetches balance → throws HTTP 402 `{error:"insufficient_credits",balance:N,required:N}` if short → stores `creditCost` on request object if sufficient. `CreditInterceptor` (global) runs AFTER handler: reads `creditCost` from request → on success, calls `creditsService.deduct()` asynchronously (non-blocking) → on error, does nothing (failed requests don't consume credits). Both use existing `CreditsService` atomic operations. Test endpoint added: `GET /api/v1/test-auth/credits` requires 5 credits, returns success message. Test plan documented at `.ai/context/monetization/PAY-1c-TEST-PLAN.md`. TypeScript compiles clean. **Ready for testing before PAY-1d.**
 
