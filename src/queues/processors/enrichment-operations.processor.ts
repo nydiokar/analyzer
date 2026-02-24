@@ -31,8 +31,8 @@ export class EnrichmentOperationsProcessor {
       config.workerOptions
     );
 
-    this.worker.on('completed', (job) => {
-      this.logger.log(` ✅ Job ${job.id} completed successfully`);
+    this.worker.on('completed', (_job) => {
+      // BullMQ completion; no INFO logging needed
     });
 
     this.worker.on('failed', (job, err) => {
@@ -49,7 +49,7 @@ export class EnrichmentOperationsProcessor {
   private async processJob(job: Job): Promise<any> {
     const jobName = job.name;
     
-    this.logger.log(`Processing ${jobName} job ${job.id}`);
+    this.logger.debug(`Processing ${jobName} job ${job.id}`);
     
     switch (jobName) {
       case 'enrich-token-balances':
@@ -112,7 +112,7 @@ export class EnrichmentOperationsProcessor {
 
       // If no new tokens were actually fetched, we can short-circuit the expensive cache write.
       if (summary.newTokensFetched === 0) {
-        this.logger.log(`Skipping cache write for request ${requestId} as no new token metadata was fetched.`);
+        this.logger.debug(`Skipping cache write for request ${requestId} as no new token metadata was fetched.`);
 
         this.logger.log(`Parallel enrichment completed for requestId: ${requestId} (no-op).`);
         return { enrichedBalances };
@@ -282,9 +282,9 @@ export class EnrichmentOperationsProcessor {
     const isDashboardAnalysis = jobData?.enrichmentContext === 'dashboard-analysis';
 
     if (isDashboardAnalysis) {
-      this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} mapped tokens (dashboard analysis context)`);
+      this.logger.debug(`🔄 Starting enrichment for ${uniqueTokens.length} mapped tokens (dashboard analysis context)`);
     } else {
-      this.logger.log(`🔄 Starting enrichment for ${uniqueTokens.length} unique tokens`);
+      this.logger.debug(`🔄 Starting enrichment for ${uniqueTokens.length} unique tokens`);
     }
 
     // 🚨 GUARDRAIL: Protect against whale wallets with 10k+ shitcoins
@@ -352,9 +352,9 @@ export class EnrichmentOperationsProcessor {
     }
     
     if (isDashboardAnalysis) {
-      this.logger.log(`Processing ${meaningfulTokens.length} mapped tokens for dashboard analysis (all tokens included)`);
+      this.logger.debug(`Processing ${meaningfulTokens.length} mapped tokens for dashboard analysis (all tokens included)`);
     } else {
-      this.logger.log(`Filtered to ${meaningfulTokens.length} meaningful tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as likely account addresses or zero balances)`);
+      this.logger.debug(`Filtered to ${meaningfulTokens.length} meaningful tokens (${uniqueTokens.length - meaningfulTokens.length} filtered out as likely account addresses or zero balances)`);
     }
     
     // STEP 1: Centralized staleness plan from TokenInfoService
@@ -364,15 +364,15 @@ export class EnrichmentOperationsProcessor {
     const staleTokens = enrichmentPlan.staleTokens;
 
     if (isDashboardAnalysis) {
-      this.logger.log(`Found ${enrichmentPlan.existingTokens.length} existing mapped tokens, need to fetch ${tokensToFetch.length} new/stale mapped tokens`);
+      this.logger.debug(`Found ${enrichmentPlan.existingTokens.length} existing mapped tokens, need to fetch ${tokensToFetch.length} new/stale mapped tokens`);
     } else {
-      this.logger.log(`Found ${enrichmentPlan.existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
+      this.logger.debug(`Found ${enrichmentPlan.existingTokens.length} existing tokens, need to fetch ${tokensToFetch.length} new/stale tokens`);
     }
     
     if (isDashboardAnalysis) {
-      this.logger.log(`Breakdown: ${newTokens.length} new mapped tokens, ${staleTokens.length} stale mapped tokens`);
+      this.logger.debug(`Breakdown: ${newTokens.length} new mapped tokens, ${staleTokens.length} stale mapped tokens`);
     } else {
-      this.logger.log(`Breakdown: ${newTokens.length} new tokens, ${staleTokens.length} stale tokens`);
+      this.logger.debug(`Breakdown: ${newTokens.length} new tokens, ${staleTokens.length} stale tokens`);
     }
     
     let newTokensFetched = 0;
@@ -400,7 +400,7 @@ export class EnrichmentOperationsProcessor {
       // BullMQ handles progress - bridge picks it up automatically
       await job.updateProgress(progress);
 
-      this.logger.log(`Enriched batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(tokensToFetch.length / batchSize)} (${processedTokens}/${tokensToFetch.length} tokens)`);
+      this.logger.debug(`Enriched batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(tokensToFetch.length / batchSize)} (${processedTokens}/${tokensToFetch.length} tokens)`);
       
     } catch (error) {
       if (error instanceof Error && error.message.includes('cancelled')) {
@@ -499,7 +499,7 @@ export class EnrichmentOperationsProcessor {
       }
     }
     
-    this.logger.log(`Background enrichment completed for ${tokenAddresses.length} tokens`);
+    this.logger.debug(`Background enrichment completed for ${tokenAddresses.length} tokens`);
   }
 
 
@@ -541,7 +541,7 @@ export class EnrichmentOperationsProcessor {
    * Shutdown the worker gracefully
    */
   async shutdown(): Promise<void> {
-    this.logger.log('Shutting down EnrichmentOperationsProcessor worker...');
+    this.logger.debug('Shutting down EnrichmentOperationsProcessor worker...');
     await this.worker.close();
   }
 } 

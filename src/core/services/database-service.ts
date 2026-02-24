@@ -245,7 +245,6 @@ export class DatabaseService {
                     ...safeStats,
                 },
             });
-            this.logger.info(`Mapping activity log saved with ID: ${logEntry.id} for wallet ${walletAddress}`);
             return logEntry;
         } catch (error) {
             // Enhanced error logging with field analysis
@@ -676,7 +675,7 @@ export class DatabaseService {
                     description: description,
                 },
             });
-            this.logger.info('User created with ID: ' + user.id);
+            this.logger.debug('User created with ID: ' + user.id);
             return { user, apiKey: plaintextApiKey }; 
         } catch (error) {
             this.logger.error('Error creating user', { error });
@@ -725,7 +724,7 @@ export class DatabaseService {
         this.logger.trace('Fetching all users.');
         try {
             const users = await this.prismaClient.user.findMany();
-            this.logger.info(`Retrieved ${users.length} users.`);
+            this.logger.debug(`Retrieved ${users.length} users.`);
             return users;
         } catch (error) {
             this.logger.error('Error fetching users', { error });
@@ -847,7 +846,7 @@ export class DatabaseService {
                 where: { id: userId, isActive: false }, // Only update if currently inactive
                 data: { isActive: true },
             });
-            this.logger.info(`User ${userId} activated successfully.`);
+            this.logger.debug(`User ${userId} activated successfully.`);
             return user;
         } catch (error: any) {
             // Prisma throws P2025 if record to update is not found
@@ -872,7 +871,7 @@ export class DatabaseService {
                 where: { id: userId, isActive: true }, // Only update if currently active
                 data: { isActive: false },
             });
-            this.logger.info(`User ${userId} deactivated successfully.`);
+            this.logger.debug(`User ${userId} deactivated successfully.`);
             return user;
         } catch (error: any) {
              // Prisma throws P2025 if record to update is not found
@@ -931,7 +930,7 @@ export class DatabaseService {
                     where: { id: userId },
                 });
 
-                this.logger.info(`User ${userId} and all related data deleted successfully.`);
+                this.logger.debug(`User ${userId} and all related data deleted successfully.`);
                 return deletedUser;
             });
         } catch (error: any) {
@@ -958,7 +957,7 @@ export class DatabaseService {
                 where: { id: userId },
                 data: { isDemo: isDemo },
             });
-            this.logger.info(`User ${userId} demo status updated to ${user.isDemo}.`);
+            this.logger.debug(`User ${userId} demo status updated to ${user.isDemo}.`);
             return user;
         } catch (error: any) {
             if (error.code === 'P2025') {
@@ -1094,7 +1093,7 @@ export class DatabaseService {
                     walletAddress: walletAddress,
                 },
             });
-            this.logger.info(`Wallet ${walletAddress} added to favorites for user ${userId}`);
+            this.logger.debug(`Wallet ${walletAddress} added to favorites for user ${userId}`);
             return favorite;
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -1128,7 +1127,7 @@ export class DatabaseService {
                     },
                 },
             });
-            this.logger.info(`Wallet ${walletAddress} removed from favorites for user ${userId}`);
+            this.logger.debug(`Wallet ${walletAddress} removed from favorites for user ${userId}`);
             return favorite;
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
@@ -1153,7 +1152,7 @@ export class DatabaseService {
             const result = await this.prismaClient.userFavoriteWallet.deleteMany({
                 where: { userId },
             });
-            this.logger.info(`Cleared ${result.count} favorite wallets for user ${userId}`);
+            this.logger.debug(`Cleared ${result.count} favorite wallets for user ${userId}`);
             return result.count;
         } catch (error) {
             this.logger.error(`Error clearing favorite wallets for user ${userId}:`, { error });
@@ -1217,7 +1216,7 @@ export class DatabaseService {
                 where: { userId_walletAddress: { userId, walletAddress } },
                 data: updateData,
             });
-            this.logger.info(`Favorite wallet ${walletAddress} updated for user ${userId}`);
+            this.logger.debug(`Favorite wallet ${walletAddress} updated for user ${userId}`);
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
                 throw new NotFoundException('Favorite wallet not found');
@@ -2083,7 +2082,6 @@ export class DatabaseService {
                     ...restOfData, // Spread the input data, excluding timestamp
                 }
             });
-            this.logger.info(`Created AnalysisRun with ID: ${newRun.id}`);
             return newRun;
         } catch (error) {
             this.logger.error('Error creating AnalysisRun', { error, data });
@@ -2139,7 +2137,7 @@ export class DatabaseService {
                 data: dataToSave,
                 // skipDuplicates: true, // Removed: Type 'true' is not assignable to type 'never'.
             });
-            this.logger.info(`AnalysisResult save complete. Attempted: ${results.length}, Added: ${result.count}.`);
+            this.logger.debug(`AnalysisResult save complete. Attempted: ${results.length}, Added: ${result.count}.`);
             return result;
         } catch (error) {
             if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -2316,7 +2314,7 @@ export class DatabaseService {
                 take: take,
             });
 
-            this.logger.info(`Found ${data.length} AnalysisResult records for ${walletAddress} on page ${page} (total: ${total}).`);
+            this.logger.debug(`Found ${data.length} AnalysisResult records for ${walletAddress} on page ${page} (total: ${total}).`);
             return { data, total };
         } catch (error) {
             this.logger.error(`Error fetching paginated AnalysisResults for ${walletAddress}`, { error });
@@ -2549,7 +2547,6 @@ export class DatabaseService {
                 this.logger.debug(`Processed batch ${Math.ceil((i + batchSize) / batchSize)} of ${Math.ceil(results.length / batchSize)} (${totalProcessed}/${results.length} records)`);
             }
             
-            this.logger.info(`Successfully batch upserted ${totalProcessed} AnalysisResult records.`);
         } catch (error) {
             this.logger.error(`Error during batch upsert of AnalysisResult records:`, { error, totalProcessed });
             throw error;
@@ -2965,7 +2962,7 @@ export class DatabaseService {
                 await this.prismaClient.$transaction(operations);
 
                 if (attempt > 1) {
-                    this.logger.info(`Successfully upserted ${data.length} token info records after ${attempt} attempts.`);
+                    this.logger.debug(`Successfully upserted ${data.length} token info records after ${attempt} attempts.`);
                 } else {
                     this.logger.debug(`Successfully upserted ${data.length} token info records.`);
                 }

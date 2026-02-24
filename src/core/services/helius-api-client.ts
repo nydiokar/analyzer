@@ -104,10 +104,7 @@ export class HeliusApiClient {
     // Set global rate limit interval to the most restrictive (highest) value to ensure all instances respect the same limit
     if (HeliusApiClient.globalMinRequestIntervalMs === 0 || this.minRequestIntervalMs > HeliusApiClient.globalMinRequestIntervalMs) {
       HeliusApiClient.globalMinRequestIntervalMs = this.minRequestIntervalMs;
-      logger.info(`Updated global rate limit interval to ${HeliusApiClient.globalMinRequestIntervalMs}ms (from instance with ${targetRps} RPS)`);
     }
-    
-    logger.info(`Initializing HeliusApiClient: Target RPS=${targetRps}, Min Request Interval=${this.minRequestIntervalMs}ms, Global Interval=${HeliusApiClient.globalMinRequestIntervalMs}ms`);
 
     this.api = axios.create({
       baseURL: this.baseUrl,
@@ -899,7 +896,7 @@ export class HeliusApiClient {
 
       const phase1Duration = Date.now() - telemetry.startTime;
       logger.debug(`Finished Phase 1. Total signatures retrieved via RPC: ${allRpcSignaturesInfo.length}`);
-      logger.info(`Phase 1 Telemetry: Pages=${telemetry.pageCount}, Credits=${telemetry.creditUsage}, Duration=${phase1Duration}ms, Signatures=${telemetry.totalSignaturesFetched}`);
+      logger.debug(`Phase 1 Telemetry: Pages=${telemetry.pageCount}, Credits=${telemetry.creditUsage}, Duration=${phase1Duration}ms, Signatures=${telemetry.totalSignaturesFetched}`);
 
     } catch (rpcError) {
        if (!this.isRetryableError(rpcError)) {
@@ -1168,7 +1165,7 @@ export class HeliusApiClient {
         }
     });
     
-    logger.info(`Filtered combined transactions down to ${relevantFiltered.length} involving the target address (kept: ${keptCount}, filtered: ${filteredCount}).`);
+    logger.debug(`Filtered combined transactions down to ${relevantFiltered.length} involving the target address (kept: ${keptCount}, filtered: ${filteredCount}).`);
     
     // Log warning if filtering is very aggressive (more than 50% filtered)
     if (filteredTransactions.length > 0 && (filteredCount / filteredTransactions.length) > 0.5) {
@@ -1921,9 +1918,9 @@ export class HeliusApiClient {
     const { type = 'SWAP', ...timeFilters } = options;
     const hasTimeFilters = Object.keys(timeFilters).length > 0;
 
-    logger.info(`Fetching all transactions for mint ${mintAddress} (max: ${maxTransactions}, type: ${type})`);
+    logger.debug(`Fetching all transactions for mint ${mintAddress} (max: ${maxTransactions}, type: ${type})`);
     if (hasTimeFilters) {
-      logger.info(`Time filters: ${JSON.stringify(timeFilters)}`);
+      logger.debug(`Time filters: ${JSON.stringify(timeFilters)}`);
     }
 
     // If we have time filters, fetch in one batch since time filters should limit results

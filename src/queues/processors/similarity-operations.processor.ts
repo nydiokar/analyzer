@@ -64,8 +64,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       config.workerOptions
     );
 
-    this.worker.on('completed', (job) => {
-      this.logger.log(`Job ${job.id} completed successfully`);
+    this.worker.on('completed', (_job) => {
+      // BullMQ completion; no INFO logging needed
     });
 
     this.worker.on('failed', (job, err) => {
@@ -136,14 +136,14 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       // 🔍 SYSTEM WALLET DETECTION: Use centralized service for all wallets
       // The service handles 3-tier caching (memory → Redis → database) and RPC detection
       // Thresholds: 15k tokens = LARGE (process with warning), 70k+ tokens = SYSTEM (skip)
-      this.logger.log(`Running system wallet detection for ${walletAddresses.length} wallets...`);
+      this.logger.debug(`Running system wallet detection for ${walletAddresses.length} wallets...`);
 
       const detectionResult = await this.detectSystemWalletsEarly(walletAddresses);
       const validWallets = detectionResult.validWallets;
       const invalidWallets = detectionResult.systemWallets;
       const tokenCounts = detectionResult.tokenCounts; // this is not used, it was meant for smart "classification" of whales but keep it for now
 
-      this.logger.log(`System wallet detection complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (system wallets)`);
+      this.logger.debug(`System wallet detection complete: ${validWallets.length} valid, ${invalidWallets.length} invalid (system wallets)`);
 
       // If we don't have enough valid wallets, fail early
       if (validWallets.length < 2) {
@@ -157,7 +157,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       }) : [];
       
       // ⚡ STEP 1: START BOTH OPERATIONS IN PARALLEL (NO BLOCKING)
-      this.logger.log('🚀 Starting sync and balance fetch in TRUE PARALLEL...');
+      this.logger.debug('🚀 Starting sync and balance fetch in TRUE PARALLEL...');
       
       // Start sync immediately (if needed) - DON'T await yet
       const syncPromise = syncRequired 
@@ -174,7 +174,6 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       // BullMQ handles progress - bridge picks it up automatically
       
       // ⚡ STEP 2: WAIT FOR BOTH TO COMPLETE
-      this.logger.log('⏳ Waiting for BOTH sync and balance fetch to complete...');
       const [syncResult, balanceResult] = await Promise.allSettled([syncPromise, balancePromise]);
       
       // Handle results
@@ -193,7 +192,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
           const fallbackBalances = await this.balanceCacheService.getManyBalances(validWallets, tokenCounts);
 
           if (Object.keys(fallbackBalances).length >= 2) {
-            this.logger.log(`✅ Recovered ${Object.keys(fallbackBalances).length} valid wallets after balance fetch error`);
+            this.logger.log(`Recovered ${Object.keys(fallbackBalances).length} valid wallets after balance fetch error`);
             actualWalletBalances = fallbackBalances;
           } else {
             throw new Error(`Balance fetch failed and insufficient valid wallets recovered: ${balanceResult.reason}`);
@@ -204,19 +203,19 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       } else {
         actualWalletBalances = balanceResult.value;
       }
-      this.logger.log(`✅ PARALLEL COMPLETION: Sync done, balances for ${Object.keys(actualWalletBalances).length} wallets fetched`);
+      this.logger.debug(`✅ PARALLEL COMPLETION: Sync done, balances for ${Object.keys(actualWalletBalances).length} wallets fetched`);
 
       // Use all wallets for analysis (system wallet detection removed as it was ineffective)
       const finalWalletsToAnalyze = validWallets;
 
       // STEP 3: Start enrichment job with pre-fetched balances (fire-and-forget) - ONLY for valid wallets
       if (enrichMetadata && process.env.DISABLE_ENRICHMENT !== 'true') {
-        this.logger.log(`Triggering background enrichment job for request: ${requestId}.`);
+        this.logger.debug(`Triggering background enrichment job for request: ${requestId}.`);
         try {
           const enrichmentLockKey = `enrich:scheduled:${requestId}`;
           const lockSet = await this.redisClient.set(enrichmentLockKey, job.id as string, 'EX', 15 * 60, 'NX');
           if (!lockSet) {
-            this.logger.log(`Enrichment already scheduled for request: ${requestId}. Skipping duplicate.`);
+            this.logger.debug(`Enrichment already scheduled for request: ${requestId}. Skipping duplicate.`);
           } else {
           // Use all wallet balances for enrichment
           // Tokens are already filtered at source (>1000 balance threshold in WalletBalanceService)
@@ -236,7 +235,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
             userId: job.data.userId,
             walletAddresses: finalWalletsToAnalyze,
           });
-          this.logger.log(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
+          this.logger.debug(`Background enrichment job queued: ${enrichmentJob?.id} for request: ${requestId}.`);
           // DON'T wait for enrichment - keep it truly parallel!
           }
         } catch (error) {
@@ -252,13 +251,13 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
 
       // STEP 3.5: Use only valid wallets that have balances for similarity calculation
       const validWalletsWithBalances = finalWalletsToAnalyze.filter(address => actualWalletBalances[address]);
-      this.logger.log(`Using valid wallets for similarity calculation: ${validWalletsWithBalances.length} wallets`);
+      this.logger.debug(`Using valid wallets for similarity calculation: ${validWalletsWithBalances.length} wallets`);
       if (validWalletsWithBalances.length < 2) {
         throw new Error(`Insufficient valid wallets for similarity analysis. Need at least 2 wallets, got ${validWalletsWithBalances.length}.`);
       }
 
       // STEP 4: FINAL ANALYSIS (The service now uses the pre-fetched balances)
-      this.logger.log('Starting final similarity calculation...');
+      this.logger.debug('Starting final similarity calculation...');
       
       // Convert the balances object to a Map as expected by the service
       const balancesMap = new Map<string, WalletBalance>();
@@ -281,7 +280,6 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       this.checkTimeout(startTime, timeoutMs, 'Final analysis');
 
       // STEP 5: PREPARE RESULTS (The result from the service is now complete)
-      this.logger.log('Similarity analysis completed successfully.');
 
       await job.updateProgress(100);
       // BullMQ handles progress - bridge picks it up automatically
@@ -366,11 +364,11 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
    */
   private async _orchestrateDeepSync(walletAddresses: string[], job: Job): Promise<void> {
     if (walletAddresses.length === 0) {
-      this.logger.log('No wallets need sync - skipping deep sync operation.');
+      this.logger.debug('No wallets need sync - skipping deep sync operation.');
       return;
     }
     
-    this.logger.log(`Orchestrating deep sync for ${walletAddresses.length} wallets with concurrency limit of ${PROCESSING_CONFIG.WALLET_SYNC_CONCURRENCY}...`);
+    this.logger.debug(`Orchestrating deep sync for ${walletAddresses.length} wallets with concurrency limit of ${PROCESSING_CONFIG.WALLET_SYNC_CONCURRENCY}...`);
     // This part of the flow will account for up to 55% of the progress bar (5% to 60%).
     const progressStep = 55 / walletAddresses.length;
     let currentProgress = 5;
@@ -475,7 +473,6 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     systemWallets: string[];
     tokenCounts: Record<string, number>;
   }> {
-    this.logger.log(`🔍 System wallet detection: Using SystemWalletDetectionService (thresholds: 15k LARGE, 70k SYSTEM)`);
 
     const excludedByRegistry = new Map<string, string>();
     const knownAllowed: string[] = [];
@@ -524,7 +521,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       this.logger.log(`⚠️ Processing ${largeWallets.length} large wallet(s) (15k-70k tokens)`);
     }
 
-    this.logger.log(`System wallet detection complete: ${validWallets.length} valid wallets, ${filtered.size + excludedByRegistry.size} wallets filtered`);
+    this.logger.debug(`System wallet detection complete: ${validWallets.length} valid wallets, ${filtered.size + excludedByRegistry.size} wallets filtered`);
     if (Object.keys(tokenCounts).length > 0) {
       this.logger.debug(`Token counts extracted for ${Object.keys(tokenCounts).length} wallets (will guide balance fetching)`);
     }
@@ -540,7 +537,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
    * Shutdown the worker gracefully
    */
   async shutdown(): Promise<void> {
-    this.logger.log('Shutting down SimilarityOperationsProcessor worker...');
+    this.logger.debug('Shutting down SimilarityOperationsProcessor worker...');
     await this.worker.close();
   }
 
