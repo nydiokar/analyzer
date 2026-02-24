@@ -161,24 +161,23 @@ async function handleProfile(
 ): Promise<CommandResult> {
   const short = `${address.slice(0, 4)}..${address.slice(-4)}`;
 
-  // Step 1: try HUD — fast Redis read, cache-backed
-  const hud = await analyzer.getWalletHud(address);
-
-  if (hud) {
-    // Happy path — data exists, respond immediately
-    return { text: formatWalletProfile(address, hud) };
-  }
-
-  // Step 2: no HUD — queue a single deep analysis, no follow-up chain
-  const job = await analyzer.queueDashboardAnalysis(address, 'deep', {
+  // Let the backend decide freshness — flash scope with no forceRefresh means the API
+  // skips the job if data is already fresh, or queues it if missing/stale.
+  // This way staleness policy lives in one place (the backend), not duplicated per consumer.
+  const job = await analyzer.queueDashboardAnalysis(address, 'flash', {
     queueWorkingAfter: false,
     queueDeepAfter: false,
   });
 
   if (job.skipped && job.skipReason) {
-    const isLp = job.skipReason.toLowerCase().includes('lp') || job.skipReason.toLowerCase().includes('liquidity');
-    const label = isLp ? 'liquidity pool' : 'system wallet';
-    return { text: `${short} is a known ${label} — behavioral analysis is not available for this address.` };
+    if (job.skipReason.startsWith('known-')) {
+      const isLp = job.skipReason.includes('lp') || job.skipReason.includes('liquidity');
+      const label = isLp ? 'liquidity pool' : 'system wallet';
+      return { text: `${short} is a known ${label} — behavioral analysis is not available for this address.` };
+    }
+    // fresh-within-*: backend says data is current — return cached HUD immediately
+    const hud = await analyzer.getWalletHud(address);
+    return { text: formatWalletProfile(address, hud) };
   }
 
   if (!job.jobId) {
@@ -197,7 +196,7 @@ async function handleProfile(
 
   const alreadyRunning = job.alreadyRunning ? ' (already in progress)' : '';
   return {
-    text: `${short} hasn't been analyzed yet. Running analysis${alreadyRunning} — I'll send the profile when ready (${job.estimatedProcessingTime}).`,
+    text: `Running flash analysis for ${short}${alreadyRunning} — I'll send the profile when ready (${job.estimatedProcessingTime}).`,
   };
 }
 
@@ -220,7 +219,7 @@ async function handleAnalyze(
 
   if (result.skipped && result.skipReason) {
     // Only skip for known system/LP wallets — forceRefresh prevents freshness skips
-    const isLp = result.skipReason.toLowerCase().includes('lp') || result.skipReason.toLowerCase().includes('liquidity');
+    const isLp = result.skipReason.includes('lp') || result.skipReason.includes('liquidity');
     const label = isLp ? 'liquidity pool' : 'system wallet';
     return { text: `${short} is a known ${label} — behavioral analysis is not available for this address.` };
   }
