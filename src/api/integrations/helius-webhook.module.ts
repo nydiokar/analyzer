@@ -3,7 +3,9 @@ import { HeliusWebhookController } from '../controllers/helius-webhook.controlle
 
 @Module({
   imports: [
-    // No imports needed - HeliusModule, QueueModule, and ConfigModule are all global from AppModule
+    // PaymentConfirmationService is exported from the global QueueModule — no import needed.
+    // CreditsService is exported from the global CreditsModule — no import needed.
+    // JobProgressGateway is exported from the global QueueModule — no import needed.
   ],
   controllers: [HeliusWebhookController],
   providers: [],
