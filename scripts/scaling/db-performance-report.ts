@@ -142,7 +142,8 @@ async function main(): Promise<void> {
     topRunErrors,
     signaturesCorrelation,
     signaturesBuckets,
-    queueWaitSignal,
+    queueWaitStats,
+    queueWaitByScope,
     failureTimeline,
     recurringSlowWallets,
   ] = await Promise.all([
@@ -277,11 +278,41 @@ async function main(): Promise<void> {
       ORDER BY ord
     `,
     prisma.$queryRaw<Array<Row>>`
+      WITH waits AS (
+        SELECT
+          (substring(notes from '"queueWaitMs":([0-9]+)'))::double precision AS wait_ms
+        FROM "AnalysisRun"
+        WHERE "runTimestamp" >= NOW() - (${days} * INTERVAL '1 day')
+          AND "serviceInvoked" LIKE 'DashboardAnalysis.%'
+          AND notes LIKE '%"queueWaitMs":%'
+      )
       SELECT
-        COUNT(*)::bigint AS notes_with_queue_wait_keyword
-      FROM "AnalysisRun"
-      WHERE "runTimestamp" >= NOW() - (${days} * INTERVAL '1 day')
-        AND notes ILIKE '%queue%wait%'
+        COUNT(*)::bigint AS samples,
+        ROUND(AVG(wait_ms)::numeric, 2) AS avg_wait_ms,
+        ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY wait_ms)::numeric, 2) AS p50_wait_ms,
+        ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY wait_ms)::numeric, 2) AS p95_wait_ms,
+        ROUND(MAX(wait_ms)::numeric, 2) AS max_wait_ms
+      FROM waits
+    `,
+    prisma.$queryRaw<Array<Row>>`
+      WITH waits AS (
+        SELECT
+          "serviceInvoked" AS service,
+          (substring(notes from '"queueWaitMs":([0-9]+)'))::double precision AS wait_ms
+        FROM "AnalysisRun"
+        WHERE "runTimestamp" >= NOW() - (${days} * INTERVAL '1 day')
+          AND "serviceInvoked" LIKE 'DashboardAnalysis.%'
+          AND notes LIKE '%"queueWaitMs":%'
+      )
+      SELECT
+        service,
+        COUNT(*)::bigint AS runs,
+        ROUND(AVG(wait_ms)::numeric, 2) AS avg_wait_ms,
+        ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY wait_ms)::numeric, 2) AS p95_wait_ms,
+        ROUND(MAX(wait_ms)::numeric, 2) AS max_wait_ms
+      FROM waits
+      GROUP BY service
+      ORDER BY p95_wait_ms DESC NULLS LAST, runs DESC
     `,
     prisma.$queryRaw<Array<Row>>`
       SELECT
@@ -328,7 +359,7 @@ async function main(): Promise<void> {
 
   const overview = runOverview[0] || {};
   const corrRow = signaturesCorrelation[0] || {};
-  const queueSignal = queueWaitSignal[0] || {};
+  const queueWait = queueWaitStats[0] || {};
 
   console.log('');
   console.log('1) AnalysisRun Overview');
@@ -429,14 +460,32 @@ async function main(): Promise<void> {
   );
 
   console.log('');
-  console.log('8) Queue-Wait Visibility Check');
+  console.log('8) Queue Wait (Dashboard Jobs)');
   printTable(
-    ['signal', 'value'],
+    ['metric', 'value'],
     [
-      ['AnalysisRun notes containing "queue wait"', intFmt(queueSignal.notes_with_queue_wait_keyword)],
-      ['Conclusion', 'Queue wait is not reliably stored in DB (use logs/Redis/BullMQ for exact wait).'],
+      ['sampled runs', intFmt(queueWait.samples)],
+      ['avg wait', msFmt(queueWait.avg_wait_ms)],
+      ['p50 wait', msFmt(queueWait.p50_wait_ms)],
+      ['p95 wait', msFmt(queueWait.p95_wait_ms)],
+      ['max wait', msFmt(queueWait.max_wait_ms)],
     ]
   );
+
+  if ((num(queueWait.samples) ?? 0) > 0) {
+    printTable(
+      ['service', 'runs', 'avg wait', 'p95 wait', 'max wait'],
+      queueWaitByScope.map((row) => [
+        String(row.service ?? '-'),
+        intFmt(row.runs),
+        msFmt(row.avg_wait_ms),
+        msFmt(row.p95_wait_ms),
+        msFmt(row.max_wait_ms),
+      ])
+    );
+  } else {
+    console.log('Queue wait metrics are not present yet for this lookback window.');
+  }
 
   console.log('');
   console.log('9) Failure Timeline (hour buckets)');
