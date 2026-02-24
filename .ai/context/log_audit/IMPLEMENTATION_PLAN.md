@@ -374,3 +374,43 @@ No Datadog, no external APM. Uses the already-existing `TelegramAlertsService`.
 - Run `scripts/validate-log-shape.ts` against the log file
 - All assertions pass = golden contract confirmed
 - Wire into CI: `extract-log-statements.ts --validate` fails on any unregistered INFO call
+
+---
+
+## Signal check after Phase 1
+
+### holder-profiles job
+**Coverage:** INFO shows job entry (`Starting token holder orchestration`), completion with counts (`N analyzed, M skipped, F failed in Xms`), and one PnL outcome per wallet (`[PnlAnalysis] Analysis completed...`). An operator can confirm what ran, for which token, and the aggregate success/fail rate.
+
+**Gap — wallet sync failure is silent at INFO.** If `syncWalletData` throws inside the per-wallet holder-profile job (e.g., `WrongSize`, network error), BullMQ marks that job as failed. The orchestrator's completion log shows `1 failed` in the failed count. However there is no INFO line that says *which* wallet failed and *why*. The failure reason only appears at ERROR level (BullMQ job failure handler) or DEBUG. An operator will see the `failedCount=1` in the orchestration completion log but must dig into ERROR logs to find the wallet address. This is acceptable — the count is visible, and ERROR already fires on failure.
+
+**Gap — behavior analysis is invisible at INFO.** Behavior analysis (`analyzeBehaviorForWalletHolderProfile`) runs inside the per-wallet job but emits no INFO-level completion. The processor's `Behavior analysis completed for ${walletAddress}` (L354) fires only for dedicated behavior-job types, not for the holder-profile code path. After Phase 1, behavior completion inside holder-profile jobs is DEBUG-only. An operator cannot confirm behavior ran from INFO alone. **Recommendation:** promote the `analyzeWalletProfile` call's surrounding context in the holder-profile path to a brief INFO log, OR accept that the orchestration completion count is sufficient.
+
+### dashboard analysis
+**Coverage:** INFO shows entry (`Starting dashboard analysis [scope=..., trigger=...]`), PnL outcome per scope, SmartFetch completion per scope, and job completion with timing and follow-up queue (`completed in Xms. Follow-ups queued: ...`). Full lifecycle is visible.
+
+**No gaps identified.** If the job fails, it does so before the completion log fires, so the absence of the completion line is itself the signal.
+
+### similarity
+**Coverage:** INFO shows job entry (`Starting ADVANCED similarity analysis for N wallets`), `Deep sync completed: N/M wallets successful`, enrichment job queued (KEEP for `DISABLE_ENRICHMENT` env flag), error recovery line for balance fetch failure, job completion with timing. An operator can confirm what ran, how many wallets synced, and timing.
+
+**Gap — enrichment job queued with no confirmation at INFO.** The `Background enrichment job queued: ${id}` line was downgraded to DEBUG. An operator can no longer confirm from INFO that enrichment was triggered. However, `enrichment-operations.processor.ts:101` (KEEP: `Processing parallel enrichment for N wallets, requestId: X`) fires when enrichment actually starts, so the outcome is observable once enrichment begins.
+
+### enrichment
+**Coverage:** INFO shows job entry with wallet count and requestId, completion with timing or no-op outcome, cancellation event, and large wallet detection. Sufficient for operator visibility.
+
+### Failure mode check
+| Scenario | INFO visible? |
+|---|---|
+| Wallet sync fails mid holder-profiles job | failedCount in orchestration completion log — wallet identity only at ERROR |
+| Entire holder-profiles job fails after 15/20 wallets | Orchestration completion fires with `failedCount=5` — visible |
+| Enrichment skipped (cached — all tokens fresh) | Yes: `All tokens already have recent metadata, no API calls needed` (KEEP) |
+| Enrichment skipped (DISABLE_ENRICHMENT env) | Yes: `Enrichment disabled by DISABLE_ENRICHMENT` (KEEP) |
+| Behavior analysis completion (holder-profile path) | **Not visible** — behavior is an internal step of the per-wallet job; no KEEP line covers this path |
+| Dashboard analysis failure | Absence of completion log at INFO signals failure; ERROR fires in the catch block |
+| Similarity deep sync partial failure | Yes: `Deep sync completed: N/M wallets` shows success rate |
+
+### Lines to consider promoting or adding
+1. **Behavior analysis in holder-profile path:** The per-wallet holder job runs behavior analysis but there is no INFO boundary for it. Low priority since the token-level completion aggregates success/fail counts.
+2. **Enrichment job queued (similarity path):** Downgraded to DEBUG. Consider keeping at INFO so enrichment kick-off is traceable without needing enrichment processor's own entry log. Currently covered by enrichment processor's KEEP entry log — acceptable as-is.
+3. **No over-retention detected:** All 27 KEEP lines fire at meaningful lifecycle boundaries. None were identified as firing too frequently or adding no value.

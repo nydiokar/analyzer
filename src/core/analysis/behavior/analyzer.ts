@@ -1509,7 +1509,7 @@ export class BehaviorAnalyzer {
     }
 
     if (scamFilteringEnabled) {
-      this.logger.info(`Scam token filtering: Processed ${totalTokensProcessed} tokens, filtered out ${scamTokensFiltered} scam tokens (${((scamTokensFiltered / totalTokensProcessed) * 100).toFixed(1)}%)`);
+      this.logger.debug(`Scam token filtering: Processed ${totalTokensProcessed} tokens, filtered out ${scamTokensFiltered} scam tokens (${((scamTokensFiltered / totalTokensProcessed) * 100).toFixed(1)}%)`);
     }
 
     metrics.tokenPreferences.mostTradedTokens = Object.entries(filteredTokenData)

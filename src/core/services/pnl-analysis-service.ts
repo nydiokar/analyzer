@@ -61,10 +61,8 @@ export class PnlAnalysisService {
         // For now, we'll keep the manual instantiation for the core service
         if (this.heliusApiClient) {
             this.walletBalanceService = new WalletBalanceService(this.heliusApiClient, this.databaseService, this.tokenInfoService);
-            logger.info('PnlAnalysisService instantiated with HeliusApiClient and TokenInfoService. WalletBalanceService active.');
         } else {
             this.walletBalanceService = null;
-            logger.info('PnlAnalysisService instantiated without HeliusApiClient. WalletBalanceService inactive.');
         }
     }
 
@@ -120,7 +118,7 @@ export class PnlAnalysisService {
         // Layer 1: Check static registry (O(1), no I/O, instant)
         const knownEntry = getKnownWallet(walletAddress);
         if (knownEntry && SKIP_PNL_CALCULATION.has(knownEntry.type)) {
-            logger.info(`[PnlAnalysis] Skipping PnL for registry wallet ${walletAddress} (${knownEntry.type})`);
+            logger.debug(`[PnlAnalysis] Skipping PnL for registry wallet ${walletAddress} (${knownEntry.type})`);
             return this.createStubResult({ analysisSkipped: true, skipReason: 'registry' });
         }
 
@@ -129,7 +127,7 @@ export class PnlAnalysisService {
         try {
             const wallet = await this.databaseService.getWallet(walletAddress);
             if (wallet?.knownType && SKIP_PNL_CALCULATION.has(wallet.knownType as KnownWalletType)) {
-                logger.info(`[PnlAnalysis] Skipping PnL for detected system wallet ${walletAddress} (${wallet.knownType})`);
+                logger.debug(`[PnlAnalysis] Skipping PnL for detected system wallet ${walletAddress} (${wallet.knownType})`);
                 return this.createStubResult({ analysisSkipped: true, skipReason: 'dynamic_detection' });
             }
         } catch (error) {
@@ -195,7 +193,7 @@ export class PnlAnalysisService {
                         fetchedAt: balancesFetchedAt,
                     };
                     
-                    logger.info(`[PnlAnalysis] Retrieved stored balance data for ${walletAddress}. SOL: ${solBalance}, Tokens: ${tokenBalances.length}`);
+                    logger.debug(`[PnlAnalysis] Retrieved stored balance data for ${walletAddress}. SOL: ${solBalance}, Tokens: ${tokenBalances.length}`);
                 } else {
                     logger.debug(`[PnlAnalysis] No stored balance data found for ${walletAddress}`);
                 }
@@ -208,7 +206,7 @@ export class PnlAnalysisService {
                 currentWalletBalance = options.preFetchedBalances.get(walletAddress);
                 if (currentWalletBalance) {
                     balancesFetchedAt = currentWalletBalance.fetchedAt;
-                    logger.info(`[PnlAnalysis] Using pre-fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, FetchedAt: ${balancesFetchedAt}`);
+                    logger.debug(`[PnlAnalysis] Using pre-fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, FetchedAt: ${balancesFetchedAt}`);
                 }
             } else if (this.walletBalanceService) {
                 try {
@@ -217,7 +215,7 @@ export class PnlAnalysisService {
                     currentWalletBalance = walletBalancesMap.get(walletAddress);
                     if (currentWalletBalance) {
                         balancesFetchedAt = currentWalletBalance.fetchedAt;
-                        logger.info(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, Tokens: ${currentWalletBalance.tokenBalances.length}, FetchedAt: ${balancesFetchedAt}`);
+                        logger.debug(`[PnlAnalysis] Successfully fetched wallet state for ${walletAddress}. SOL: ${currentWalletBalance.solBalance}, Tokens: ${currentWalletBalance.tokenBalances.length}, FetchedAt: ${balancesFetchedAt}`);
                     }
                 } catch (balanceError: any) {
                     logger.warn(`[PnlAnalysis] Failed to fetch wallet state for ${walletAddress}. Proceeding without live balances. Error: ${balanceError.message || balanceError}`);
@@ -669,7 +667,7 @@ export class PnlAnalysisService {
                             create: pnlSummaryDataForDb,
                             update: pnlSummaryDataForDb,
                         });
-                        logger.info(`[PnlAnalysis] Upserted WalletPnlSummary (no advanced stats) for ${walletAddress}.`);
+                        logger.debug(`[PnlAnalysis] Upserted WalletPnlSummary (no advanced stats) for ${walletAddress}.`);
                     }
                     
                     // Update the analyzed timestamp range for the wallet
@@ -747,7 +745,7 @@ export class PnlAnalysisService {
                         signaturesConsidered: swapInputs.length,
                     },
                 });
-                logger.info(`[PnlAnalysis] Successfully marked AnalysisRun ${runId} as COMPLETED.`);
+                logger.debug(`[PnlAnalysis] Successfully marked AnalysisRun ${runId} as COMPLETED.`);
             }
 
             // Add meaningful summary log

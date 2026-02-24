@@ -38,7 +38,6 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
     this.redis = redisClient;
-    this.logger.log('TokenInfoService initialized with price caching (30s TTL) and onchain metadata enrichment');
   }
 
   /**
@@ -111,7 +110,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       if (supply !== null && supply !== undefined) {
         // Cache WITHOUT TTL (supply is immutable for most tokens)
         await this.redis.set(cacheKey, supply.toString());
-        this.logger.log(`[Token Supply] Fetched and cached ${tokenMint}: ${supply} (permanent cache)`);
+        this.logger.debug(`[Token Supply] Fetched and cached ${tokenMint}: ${supply} (permanent cache)`);
         return supply;
       }
 
@@ -390,7 +389,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     const enrichmentPlan = plan ?? await this.getTokenEnrichmentPlan(tokenAddresses);
     const needsEnrichment = enrichmentPlan.needsEnrichment;
     if (needsEnrichment.length === 0) {
-      this.logger.log('All tokens already have recent metadata');
+      this.logger.debug('All tokens already have recent metadata');
       return;
     }
 
@@ -398,7 +397,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     const needsOnchainData = enrichmentPlan.needsOnchainData;
     const needsPriceData = enrichmentPlan.needsPriceData;
 
-    this.logger.log(`Enriching ${needsEnrichment.length} tokens (onchain: ${needsOnchainData.length}, prices: ${needsPriceData.length})`);
+    this.logger.debug(`Enriching ${needsEnrichment.length} tokens (onchain: ${needsOnchainData.length}, prices: ${needsPriceData.length})`);
 
     // ═══════════════════════════════════════════════════════════
     // STAGE 1: Helius DAS API (FAST - WAIT FOR THIS)
@@ -434,7 +433,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
         // CHANGED: Now waits for DexScreener to complete before returning
         // This ensures downstream code (like P/L calculation) uses fresh prices
         await this.priceProvider.fetchAndSaveTokenInfo(needsPriceData);
-        this.logger.log(`DexScreener Stage complete: ${needsPriceData.length} tokens processed with fresh prices`);
+        this.logger.debug(`DexScreener Stage complete: ${needsPriceData.length} tokens processed with fresh prices`);
       } catch (err) {
         this.logger.error(`Stage 2 (DexScreener) failed: ${getErrorMessage(err)}`);
       } finally {
@@ -459,7 +458,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     }
 
     const duration = Date.now() - startTime;
-    this.logger.log(`Token enrichment INITIATED in ${duration}ms - Frontend has onchain data, DexScreener updating in background`);
+    this.logger.debug(`Token enrichment INITIATED in ${duration}ms - Frontend has onchain data, DexScreener updating in background`);
 
     // Log success status
     await this.db.logActivity(userId, 'trigger_token_enrichment', {
@@ -511,7 +510,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
 
     // Use DatabaseService method for batched operation
     await this.db.saveOnchainMetadataBatch(newTokens, existingTokenUpdates);
-    this.logger.log(`Batch saved ${newTokens.length} new + ${existingTokenUpdates.length} updated tokens`);
+    this.logger.debug(`Batch saved ${newTokens.length} new + ${existingTokenUpdates.length} updated tokens`);
   }
 
   /**
@@ -573,11 +572,11 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       return;
     }
 
-    this.logger.log(`Upserting ${data.length} token info records.`);
+    this.logger.debug(`Upserting ${data.length} token info records.`);
 
     try {
       await this.db.upsertManyTokenInfo(data);
-      this.logger.log(`Successfully upserted ${data.length} token info records.`);
+      this.logger.debug(`Successfully upserted ${data.length} token info records.`);
     } catch (error) {
       this.logger.error(`Error during bulk upsert of token info: ${getErrorMessage(error)}`);
     }

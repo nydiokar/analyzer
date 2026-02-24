@@ -82,7 +82,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       this.logger.error(`Worker error in AnalysisOperationsProcessor: ${getErrorMessage(err)}`);
     });
 
-    this.logger.log('AnalysisOperationsProcessor has been initialized');
+    this.logger.debug('AnalysisOperationsProcessor has been initialized');
   }
 
   private async processJob(job: Job): Promise<any> {
@@ -146,7 +146,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     try {
       await job.updateProgress(5);
-      this.logger.log(`Starting PnL analysis for ${walletAddress}`);
+      this.logger.debug(`Starting PnL analysis for ${walletAddress}`);
 
       // 🚨 EARLY DETECTION: Skip expensive operations for system wallets
       this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
@@ -279,7 +279,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     try {
       await job.updateProgress(5);
-      this.logger.log(`Starting behavior analysis for ${walletAddress}`);
+      this.logger.debug(`Starting behavior analysis for ${walletAddress}`);
 
       // 🚨 EARLY DETECTION: Skip expensive operations for system wallets
       this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
@@ -574,7 +574,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           const cachedSol = await this.tokenInfoService.getCachedSolPrice();
           if (cachedSol && cachedSol > 0) {
             solPriceUsd = cachedSol;
-            this.logger.log(`Using cached SOL price fallback for PNL analysis: $${solPriceUsd}`);
+            this.logger.debug(`Using cached SOL price fallback for PNL analysis: $${solPriceUsd}`);
           } else {
             this.logger.warn('No cached SOL price available; unrealized PNL/SOL conversions will be skipped.');
           }
@@ -860,7 +860,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       delay: 0,
     });
 
-    this.logger.log(
+    this.logger.debug(
       `Queued follow-up ${params.scope} analysis job ${job.id} for wallet ${params.walletAddress} (parent=${params.parentRequestId})`,
     );
 
@@ -1165,7 +1165,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       });
 
         if (knownWalletProfiles.length > 0) {
-          this.logger.log(`Skipped analysis for ${knownWalletProfiles.length} known wallets (${tokenMint})`);
+          this.logger.debug(`Skipped analysis for ${knownWalletProfiles.length} known wallets (${tokenMint})`);
         }
 
         for (const [address, holder] of externalTaggedWallets) {
@@ -1331,7 +1331,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         );
 
       if (readyWallets.length > 0) {
-        this.logger.log(`Streaming ${readyWallets.length} cached holder profiles immediately`);
+        this.logger.debug(`Streaming ${readyWallets.length} cached holder profiles immediately`);
         const solPriceUsd = await this.getSolPriceUsd();
         for (const wallet of readyWallets) {
           const snapshot = snapshots.get(wallet);
@@ -1354,10 +1354,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // ✅ BATCH FETCH BALANCES: Reduces RPC calls by caching all balances at once
       // Parent fetches once for all wallets → child jobs hit cache instead of fetching individually
       if (walletsNeedingJobs.length > 0) {
-        this.logger.log(`🚀 Batch fetching balances for ${walletsNeedingJobs.length} stale wallets to reduce RPC calls...`);
+        this.logger.debug(`🚀 Batch fetching balances for ${walletsNeedingJobs.length} stale wallets to reduce RPC calls...`);
         try {
           await this.balanceCacheService.getManyBalances(walletsNeedingJobs);
-          this.logger.log(`✅ Batch balance fetch complete - all balances now cached for child jobs`);
+          this.logger.debug(`✅ Batch balance fetch complete - all balances now cached for child jobs`);
         } catch (error) {
           this.logger.warn(`⚠️ Batch balance fetch failed, jobs will fetch individually: ${getErrorMessage(error)}`);
           // Continue - jobs will fetch individually as fallback
@@ -1371,7 +1371,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // Priority calculation: Smaller topN = higher priority (lower number)
       // Examples: topN=5 → priority=1, topN=10 → priority=2, topN=20 → priority=4
       const jobPriority = Math.max(1, Math.min(5, Math.ceil(topN / 5)));
-      this.logger.log(`Using priority ${jobPriority} for topN=${topN} (lower=higher priority)`);
+      this.logger.debug(`Using priority ${jobPriority} for topN=${topN} (lower=higher priority)`);
 
       for (const wallet of walletsNeedingJobs) {
         const metadata = holderMetadataByWallet.get(wallet);
@@ -1407,8 +1407,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
 
       if (childJobIds.length > 0) {
-        this.logger.log(`Queueing ${childJobIds.length} wallet analysis jobs for token ${tokenMint}`);
-        this.logger.log(`Waiting for ${childJobIds.length} wallet jobs to complete (80% threshold)...`);
+        this.logger.debug(`Queueing ${childJobIds.length} wallet analysis jobs for token ${tokenMint}`);
         const batchProcessor = new BatchProcessor();
         const queue = this.analysisQueueService.getQueue();
 
@@ -1604,7 +1603,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     await this.holderProfilesCacheService.cacheWalletResult(walletAddress, result);
     await job.updateProgress(100);
-    this.logger.log(`⏭️ Skipped holder profile for ${walletAddress} (${knownType})`);
+    this.logger.debug(`⏭️ Skipped holder profile for ${walletAddress} (${knownType})`);
     return result;
   }
 
@@ -1617,7 +1616,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     startTime: number,
     timeoutMs: number,
   ): Promise<HolderProfilesResult> {
-    this.logger.log(`Starting holder profile analysis for wallet ${walletAddress}`);
+    this.logger.debug(`Starting holder profile analysis for wallet ${walletAddress}`);
 
       const holderContext = job.data._holderContext;
       const inferredRank = holderContext?.rank ?? 1;
@@ -1660,7 +1659,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // Try Tier 1 cache (Redis) first
     const cached = await this.holderProfilesCacheService.getWalletResult(walletAddress);
       if (cached) {
-        this.logger.log(`Returning cached holder profile for wallet ${walletAddress}`);
+        this.logger.debug(`Returning cached holder profile for wallet ${walletAddress}`);
         const solPriceUsd = await this.getSolPriceUsd();
         const hydratedProfiles = await Promise.all(
           cached.profiles.map((profile) => this.hydrateWalletFinancials(profile, solPriceUsd)),
@@ -1726,7 +1725,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     // Sync wallet if needed
     if (needsSync) {
-      this.logger.log(`Syncing wallet ${walletAddress} for holder profile analysis (status: ${walletStatus})`);
+      this.logger.debug(`Syncing wallet ${walletAddress} for holder profile analysis (status: ${walletStatus})`);
       const syncOptions: SyncOptions = {
         limit: 100,
         fetchAll: true,
@@ -1736,7 +1735,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         smartFetch: true,
       };
       await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-      this.logger.log(`Wallet sync completed for ${walletAddress}`);
+      this.logger.debug(`Wallet sync completed for ${walletAddress}`);
     } else {
       this.logger.debug(`Wallet ${walletAddress} is up-to-date, skipping sync`);
     }
@@ -1816,7 +1815,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     // No need to manually publish here to avoid duplicate events
     // await this.jobProgressGateway.publishCompletedEvent(job.id!, 'analysis-operations', result, processingTimeMs);
 
-    this.logger.log(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
+    this.logger.debug(`Holder profile analysis for wallet ${walletAddress} completed in ${processingTimeMs}ms`);
 
     return result;
   }
@@ -2552,7 +2551,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
    * Shutdown the worker gracefully
    */
   async shutdown(): Promise<void> {
-    this.logger.log('Shutting down AnalysisOperationsProcessor worker...');
+    this.logger.debug('Shutting down AnalysisOperationsProcessor worker...');
     await this.worker.close();
   }
 

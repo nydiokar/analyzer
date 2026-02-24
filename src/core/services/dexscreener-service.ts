@@ -78,11 +78,11 @@ export class DexscreenerService {
         
         
         if (skippedCount > 0) {
-            logger.info(`Pre-filtered ${skippedCount} tokens likely not in DexScreener (${((skippedCount/tokenAddresses.length)*100).toFixed(1)}% reduction)`);
+            logger.debug(`Pre-filtered ${skippedCount} tokens likely not in DexScreener (${((skippedCount/tokenAddresses.length)*100).toFixed(1)}% reduction)`);
         }
 
         if (filteredTokens.length === 0) {
-            logger.info('All tokens were pre-filtered as unlikely to be in DexScreener');
+            logger.debug('All tokens were pre-filtered as unlikely to be in DexScreener');
             return;
         }
 
@@ -123,7 +123,7 @@ export class DexscreenerService {
             // Log progress summary every batch
             if (i % (maxConcurrentRequests * 5) === 0) { // Every 5 batches
                 const progress = ((i + maxConcurrentRequests) / chunks.length * 100).toFixed(1);
-                logger.info(`DexScreener progress: ${progress}% (${processedCount}/${tokenAddresses.length} tokens)`);
+                logger.debug(`DexScreener progress: ${progress}% (${processedCount}/${tokenAddresses.length} tokens)`);
             }
             
             // Wait between batches (not between individual chunks)
@@ -424,7 +424,7 @@ export class DexscreenerService {
             })
             : tokenAddresses;
         
-        logger.info(`Pre-filter: After scam filter - ${validTokens.length} tokens remain (${tokenAddresses.length - validTokens.length} filtered as scam)`);
+        logger.debug(`Pre-filter: After scam filter - ${validTokens.length} tokens remain (${tokenAddresses.length - validTokens.length} filtered as scam)`);
         
         // FILTER 2: Prioritize tokens by wallet activity (if enabled)
         if (METADATA_FETCHING_CONFIG.filtering.enableActivityPrioritization) {

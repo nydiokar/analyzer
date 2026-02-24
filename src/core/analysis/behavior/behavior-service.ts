@@ -180,11 +180,10 @@ export class BehaviorService {
           }
           // ✅ REMOVED: Success logging to reduce spam - only log failures
         } else {
-          logger.info(`Skipping WalletBehaviorProfile upsert for ${walletAddress} because a specific timeRange was provided.`);
+          logger.debug(`Skipping WalletBehaviorProfile upsert for ${walletAddress} because a specific timeRange was provided.`);
         }
       }
 
-      logger.info(`Completed behavior analysis for ${walletAddress}`);
       return metrics;
 
     } catch (error) {

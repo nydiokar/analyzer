@@ -25,7 +25,7 @@ export class SimilarityApiService {
         dto: SimilarityAnalysisRequestDto, 
         balancesMap: Map<string, WalletBalance>
     ): Promise<CombinedSimilarityResult> {
-        this.logger.log(`Received request to run comprehensive similarity analysis for ${dto.walletAddresses.length} wallets.`);
+        this.logger.debug(`Received request to run comprehensive similarity analysis for ${dto.walletAddresses.length} wallets.`);
 
         if (!dto.walletAddresses || dto.walletAddresses.length < 2) {
             throw new BadRequestException('At least two wallet addresses are required for similarity analysis.');
