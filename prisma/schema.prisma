@@ -298,6 +298,8 @@ model User {
   walletHunts         WalletHunt[]
   walletNotes         WalletNote[]
   registrationCode    RegistrationCode?
+  creditBalance       CreditBalance?
+  creditTransactions  CreditTransaction[]
 
   @@index([lastBulkImportAt])
 }
@@ -618,4 +620,35 @@ model WalletHuntSnapshot {
 
   @@unique([huntId, tokenMint, sourceType])
   @@index([huntId])
+}
+
+// ---------------------------------------------------------------------------
+// Credit ledger — append-only design
+// Never mutate CreditBalance.credits directly; always go through
+// CreditsService.topUp() / CreditsService.deduct() which wrap both writes
+// in a Prisma transaction to ensure the audit trail is complete.
+// ---------------------------------------------------------------------------
+
+model CreditBalance {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  credits   Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreditTransaction {
+  id           String   @id @default(cuid())
+  userId       String
+  /// Positive = credit added, negative = credit spent
+  delta        Int
+  /// e.g. "purchase" | "signup_bonus" | "endpoint:/wallets/.../behavior-analysis"
+  reason       String
+  /// Payment intent ID, job ID, or any external reference
+  refId        String?
+  balanceAfter Int
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

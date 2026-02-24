@@ -31,6 +31,7 @@ import { CsrfGuard } from '../shared/guards/csrf.guard';
 import { AdvancedThrottlerGuard } from '../shared/guards/advanced-throttler.guard';
 import { AdminGuard } from '../shared/guards/admin.guard';
 import { EmailWebhookController } from '../controllers/email-webhook.controller';
+import { CreditsService } from '../services/credits.service';
 
 @Global()
 @Module({
@@ -88,6 +89,7 @@ import { EmailWebhookController } from '../controllers/email-webhook.controller'
     EmailEventService,
     RegistrationCodeService,
     AuthService,
+    CreditsService,
     JwtStrategy,
     // CompositeAuthGuard is registered as APP_GUARD in AppModule, not here (but needs to be available for injection)
     CsrfGuard,

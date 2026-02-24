@@ -13,6 +13,7 @@ import { CompositeAuthGuard } from './api/shared/guards/composite-auth.guard';
 import { AdminGuard } from './api/shared/guards/admin.guard';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { MetricsModule } from './api/modules/metrics.module';
+import { CreditsModule } from './api/modules/credits.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { MetricsModule } from './api/modules/metrics.module';
     HeliusModule, // Import HeliusModule (it's @Global, so its providers are available everywhere)
     AuthModule, // Import AuthModule for JWT and composite authentication
     QueueModule, // Add queue module for BullMQ integration
+    CreditsModule, // Credit ledger — global, provides CreditsService everywhere
     ApiModule,
     UsersModule,
   ],
