@@ -6,18 +6,18 @@ This project uses NestJS modules and providers with the default singleton scope.
 
 - App root: `src/app.module.ts` imports core feature and infrastructure modules and sets global guards.
 - Config: `ConfigModule.forRoot({ isGlobal: true })` makes `ConfigService` available app‑wide.
-- Global modules: `DatabaseModule`, `HeliusModule` export shared providers for use anywhere.
+- Global modules: `DatabaseModule`, `HeliusModule`, `AuthModule`, `CreditsModule`, `MetricsModule`, `QueueModule` export shared providers for use anywhere.
 - Queues: `QueueModule` wires BullMQ queues, processors, Redis token, and monitoring services.
 
 ## Root Modules
 
 - AppModule
-  - imports: `ThrottlerModule`, `ConfigModule`, `DatabaseModule` (Global), `HeliusModule` (Global), `QueueModule`, `ApiModule`, `UsersModule`
-  - providers (global guards): `APP_GUARD => ApiKeyAuthGuard`, `APP_GUARD => ThrottlerGuard`
+  - imports: `SentryModule`, `MetricsModule`, `ScheduleModule`, `ThrottlerModule`, `ConfigModule`, `DatabaseModule` (Global), `HeliusModule` (Global), `AuthModule` (Global), `CreditsModule` (Global), `QueueModule`, `ApiModule`, `UsersModule`
+  - providers (global guards): `APP_GUARD => CompositeAuthGuard`, `APP_GUARD => ThrottlerGuard`, `APP_GUARD => AdminGuard`, `APP_GUARD => CreditGuard`
+  - interceptors: `APP_INTERCEPTOR => CreditInterceptor`
 
  - ApiModule
-  - imports: `DatabaseModule`, `WalletsModule`, `AnalysesModule`, `UsersModule`, `DexscreenerModule`, `TokenInfoModule`, `HealthModule`, `JobsModule`, `WebSocketModule`, `HeliusWebhookModule`  
-    <!-- removed: `QueueModule` (global via AppModule) -->
+  - imports: `DatabaseModule`, `WalletsModule`, `AnalysesModule`, `UsersModule`, `DexscreenerModule`, `TokenInfoModule`, `HealthModule`, `JobsModule`, `WebSocketModule`, `HeliusWebhookModule`, `AdminModule`, `DiscoverModule`, `WalletHudModule`, `WalletHuntModule`, `PaymentModule`, `AuthModule`
   - controllers: `TestController`
 
 ## Global Modules (shared singletons)
@@ -34,6 +34,17 @@ This project uses NestJS modules and providers with the default singleton scope.
   - class providers: `WalletClassificationService`
   - exports: `HeliusApiClient`, `HeliusSyncService`, `SmartFetchService`, `WalletClassificationService`
 
+- AuthModule (`@Global`)
+  - imports: `ConfigModule`, `DatabaseModule`, `JwtModule`
+  - providers/exports: `AuthService`, `JwtStrategy`, `ApiKeyStrategy`, `ApiKeyService`, `RegistrationCodeService`, `CsrfService`, `EmailService`, `SecurityLoggerService`
+
+- CreditsModule (`@Global`)
+  - imports: `DatabaseModule`
+  - providers/exports: `CreditsService` (atomic topUp/deduct, append-only ledger)
+
+- MetricsModule (`@Global`)
+  - provides/exports: Prometheus metrics client
+
 ## Feature Modules
 
 - UsersModule
@@ -49,6 +60,11 @@ This project uses NestJS modules and providers with the default singleton scope.
   - imports: `ConfigModule`, `DatabaseModule`, `PnlAnalysisModule`, `BehaviorModule`, `SimilarityModule`, `QueueModule`, `JobsModule`
   - controllers: `AnalysesController`
   - providers: `EnrichmentStrategyService`, `MintParticipantsService`
+
+- AdminModule
+  - imports: `DatabaseModule`, `AuthModule`
+  - controllers: `AdminController`
+  - uses: `ApiKeyService`, `RegistrationCodeService` from AuthModule
 
 - TokenInfoModule
   - imports: `DatabaseModule`, `DexscreenerModule`, `HeliusModule`
@@ -84,10 +100,28 @@ This project uses NestJS modules and providers with the default singleton scope.
   - imports: `TerminusModule`, `DatabaseModule`, `QueueModule`
   - controllers: `HealthController`
 
- - HeliusWebhookModule
-  - imports: <!-- none (uses globals) -->  
-    <!-- removed: `ConfigModule`, `QueueModule` (provided globally) -->
+- HeliusWebhookModule
+  - imports: (uses globals)
   - controllers: `HeliusWebhookController`
+
+- DiscoverModule
+  - imports: `DatabaseModule`
+  - controllers: `DiscoverController` (@Public endpoints)
+
+- WalletHudModule
+  - imports: `DatabaseModule`
+  - controllers: `WalletHudController` (@Public endpoints)
+  - providers: `WalletHudService`
+
+- WalletHuntModule
+  - imports: `DatabaseModule`, `ThrottlerModule`
+  - controllers: `WalletHuntController`
+  - providers: `WalletHuntService`, `WalletHuntValidationService`
+
+- PaymentModule
+  - imports: `DatabaseModule`, `CreditsModule`
+  - controllers: `PaymentController`, `UserCreditsController`
+  - providers: `PaymentService`
 
 - WebSocketModule
   - imports: `RedisModule`
@@ -99,12 +133,12 @@ This project uses NestJS modules and providers with the default singleton scope.
   - provider token: `REDIS_CLIENT` (IoRedis client) via `redisProvider`
   - exports: `REDIS_CLIENT`
 
-- QueueModule
-  - imports: `ConfigModule`, `RedisModule`, `BullModule.forRootAsync(ConfigService)`, `BullModule.registerQueue(...)`, and feature modules providing services
-  - queue services: `WalletOperationsQueue`, `AnalysisOperationsQueue`, `SimilarityOperationsQueue`, `EnrichmentOperationsQueue`, `MintParticipantsJobsQueue`
-  - processors (Nest providers that own BullMQ Workers): `WalletOperationsProcessor`, `AnalysisOperationsProcessor`, `SimilarityOperationsProcessor`, `EnrichmentOperationsProcessor`
-  - core queue services: `RedisLockService`, `AlertingService`, `DeadLetterQueueService`, `QueueHealthService`, `JobEventsBridgeService`, `TelegramAlertsService`
-  - exports: queue services, core queue services, processors
+- QueueModule (`@Global`)
+  - imports: `ConfigModule`, `RedisModule`, `BullModule.forRootAsync(ConfigService)`, `HolderProfilesCacheModule`, `WalletHudModule`
+  - queue services: `DashboardAnalysisQueue`, `PnlAnalysisQueue`, `BehaviorAnalysisQueue`, `SimilarityAnalysisQueue`, `HolderProfilesQueue`, `PaymentReconciliationQueue`
+  - processors: `DashboardAnalysisProcessor`, `PnlAnalysisProcessor`, `BehaviorAnalysisProcessor`, `SimilarityAnalysisProcessor`, `HolderProfilesCacheProcessor`, `PaymentReconciliationProcessor`
+  - core services: `RedisLockService`, `AlertingService`, `DeadLetterQueueService`, `QueueHealthService`, `JobPayloadCacheService`, `SystemWalletDetectionService`, `PaymentConfirmationService`
+  - exports: all of above
 
 ## DI Tokens and Factories
 
@@ -157,8 +191,28 @@ This project uses NestJS modules and providers with the default singleton scope.
   - provided by: `TokenPerformanceModule`
 
 - JobsService
-  - injects: `WalletOperationsQueue`, `AnalysisOperationsQueue`, `SimilarityOperationsQueue`, `EnrichmentOperationsQueue`, `RedisLockService`, `DatabaseService`
+  - injects: queues (DashboardAnalysisQueue, etc), `RedisLockService`, `DatabaseService`
   - provided by: `JobsModule`
+
+- CreditsService
+  - injects: `DatabaseService`
+  - provided by: `CreditsModule`
+  - notes: atomic topUp/deduct via Prisma $transaction; append-only ledger
+
+- PaymentService
+  - injects: `DatabaseService`, `CreditsService`
+  - provided by: `PaymentModule`
+  - notes: Solana Pay checkout, QR generation via qrcode library
+
+- PaymentConfirmationService
+  - injects: `DatabaseService`, `HeliusApiClient`, `CreditsService`, `JobProgressGateway`
+  - provided by: `QueueModule`
+  - notes: Helius webhook handler; verifies USDC payment + tops up credits
+
+- PaymentReconciliationProcessor
+  - injects: `DatabaseService`, `HeliusApiClient`, `CreditsService`
+  - provided by: `QueueModule`
+  - notes: BullMQ processor; runs @Cron('*/5 * * * *') to reconcile pending intents
 
 - RedisLockService
   - injects: `REDIS_CLIENT`
@@ -169,10 +223,25 @@ This project uses NestJS modules and providers with the default singleton scope.
   - provided by: `WebSocketModule`
 
 - Processors (BullMQ Workers)
-  - WalletOperationsProcessor: injects `RedisLockService`, `HeliusSyncService`, `DatabaseService`, `HeliusApiClient`
-  - AnalysisOperationsProcessor: injects `RedisLockService`, `PnlAnalysisService`, `BehaviorService`, `DatabaseService`, `HeliusSyncService`, `EnrichmentOperationsQueue`, `HeliusApiClient`, `JobProgressGateway`, `TokenInfoService`, `TelegramAlertsService`
-  - SimilarityOperationsProcessor: injects `RedisLockService`, `SimilarityApiService`, `DatabaseService`, `HeliusApiClient`, `TokenInfoService`, `HeliusSyncService`, `PnlAnalysisService`, `BehaviorService`, `EnrichmentOperationsQueue`, `BalanceCacheService`, `JobProgressGateway`
-  - EnrichmentOperationsProcessor: injects `RedisLockService`, `TokenInfoService`, `DexscreenerService`, `BalanceCacheService`, `JobProgressGateway`
+  - DashboardAnalysisProcessor: injects `RedisLockService`, `PnlAnalysisService`, `BehaviorService`, `DatabaseService`, `HeliusSyncService`, `JobProgressGateway`
+  - SimilarityAnalysisProcessor: injects `RedisLockService`, `SimilarityApiService`, `DatabaseService`, `HeliusApiClient`, `TokenInfoService`, `HeliusSyncService`, `BalanceCacheService`, `JobProgressGateway`
+  - HolderProfilesCacheProcessor: injects `DatabaseService`, `HeliusApiClient`, `WalletHudService`, `JobProgressGateway`
+  - PaymentReconciliationProcessor: injects `DatabaseService`, `HeliusApiClient`, `CreditsService`
+
+- AuthService
+  - injects: `DatabaseService`, `JwtService`, `ConfigService`
+  - provided by: `AuthModule`
+  - notes: register, login, JWT refresh, email verification, password reset
+
+- ApiKeyService
+  - injects: `DatabaseService`, `ConfigService`
+  - provided by: `AuthModule`
+  - notes: create, list, revoke, update, delete API keys
+
+- RegistrationCodeService
+  - injects: `DatabaseService`, `ConfigService` (for Redis)
+  - provided by: `AuthModule`
+  - notes: code CRUD + kill-switch + requirement toggle (Redis-backed)
 
 ## Controllers and Injected Providers (high‑level)
 
@@ -180,7 +249,7 @@ This project uses NestJS modules and providers with the default singleton scope.
   - injects: `DatabaseService`, `BehaviorService`, `TokenPerformanceService`, `PnlOverviewService`, `TokenInfoService`, `WalletClassificationService`, `SmartFetchService`, `DexscreenerService`
 
 - AnalysesController
-  - injects: `DatabaseService`, `SimilarityOperationsQueue`, `EnrichmentOperationsQueue`, `AnalysisOperationsQueue`, `EnrichmentStrategyService`, `RedisLockService`
+  - injects: `DatabaseService`, queues, `EnrichmentStrategyService`, `RedisLockService`
 
 - JobsController
   - injects: `JobsService`, `DeadLetterQueueService`
@@ -192,20 +261,45 @@ This project uses NestJS modules and providers with the default singleton scope.
   - injects: `HealthCheckService`, `HttpHealthIndicator`, `DatabaseService`, `QueueHealthService`
 
 - HeliusWebhookController
-  - injects: `ConfigService`, `MintParticipantsJobsQueue`  
-    <!-- removed: `AlertingService` (not injected) -->
+  - injects: `ConfigService`, queues
 
-## Guards and Pipes
+- AdminController
+  - injects: `ApiKeyService`, `RegistrationCodeService`, `DatabaseService`
 
-- ApiKeyAuthGuard (global)
-  - injects: `DatabaseService`, `Reflector`, `ConfigService`
-  - registered as `APP_GUARD` in `AppModule`
+- AuthController
+  - injects: `AuthService`, `AdminGuard`, `ConfigService`, `CsrfService`, `SecurityLoggerService`, `EmailService`, `RegistrationCodeService`
 
-- ThrottlerGuard (global)
-  - registered as `APP_GUARD` in `AppModule`
+- PaymentController
+  - injects: `PaymentService`, `CreditsService`
 
-- SolanaAddressPipe
-  - `@Injectable()` pipe used in routes; no injected deps
+- UserCreditsController
+  - injects: `CreditsService`
+
+- DiscoverController (public)
+  - injects: `DatabaseService`
+
+- WalletHudController (public)
+  - injects: `WalletHudService`
+
+- WalletHuntController
+  - injects: `WalletHuntService`, `DatabaseService`
+
+## Guards, Interceptors, and Decorators
+
+### Global Guards (in order)
+- CompositeAuthGuard: routes JWT/API Key; allows `@Public()` decorator
+- ThrottlerGuard: rate limiting (200 req/min default)
+- AdminGuard: checks `User.isAdmin` flag for `@AdminOnly()` endpoints
+- CreditGuard: pre-checks balance for `@RequireCredits(N)` endpoints; throws HTTP 402 if insufficient
+
+### Global Interceptors
+- CreditInterceptor: post-deducts credits on successful response (async, non-blocking)
+
+### Custom Decorators
+- `@Public()`: skip auth
+- `@AdminOnly()`: require admin privileges
+- `@RequireCredits(N)`: check/deduct credits
+- `@AllowUnverifiedEmail()`: allow unverified email for specific auth routes
 
 ## Notes on Manual Instantiation
 
@@ -220,7 +314,7 @@ This project uses NestJS modules and providers with the default singleton scope.
 ## Lifetimes and Scope
 
 - All providers listed are singletons by default (no `scope` specified).
-- `ConfigModule` is global; `DatabaseModule` and `HeliusModule` are global and export their providers to all other modules.
+- `ConfigModule` is global; `DatabaseModule`, `HeliusModule`, `AuthModule`, `CreditsModule`, `MetricsModule` are global and export their providers to all other modules.
 
 ---
 
@@ -237,8 +331,13 @@ graph TD
   %% Root
   AppModule --> ConfigModule
   AppModule --> ThrottlerModule
+  AppModule --> ScheduleModule
+  AppModule --> SentryModule
   AppModule --> DatabaseModule
   AppModule --> HeliusModule
+  AppModule --> AuthModule
+  AppModule --> CreditsModule
+  AppModule --> MetricsModule
   AppModule --> QueueModule
   AppModule --> ApiModule
   AppModule --> UsersModule
@@ -253,8 +352,12 @@ graph TD
   ApiModule --> HealthModule
   ApiModule --> JobsModule
   ApiModule --> WebSocketModule
-  %% removed: ApiModule --> QueueModule (global)
   ApiModule --> HeliusWebhookModule
+  ApiModule --> AdminModule
+  ApiModule --> DiscoverModule
+  ApiModule --> WalletHudModule
+  ApiModule --> WalletHuntModule
+  ApiModule --> PaymentModule
 
   %% Wallets
   WalletsModule --> DatabaseModule
@@ -296,6 +399,24 @@ graph TD
   TokenInfoModule --> DexscreenerModule
   TokenInfoModule --> HeliusModule
 
+  %% Admin
+  AdminModule --> DatabaseModule
+  AdminModule --> AuthModule
+
+  %% Discover
+  DiscoverModule --> DatabaseModule
+
+  %% Wallet HUD
+  WalletHudModule --> DatabaseModule
+
+  %% Wallet Hunt
+  WalletHuntModule --> DatabaseModule
+  WalletHuntModule --> ThrottlerModule
+
+  %% Payment
+  PaymentModule --> DatabaseModule
+  PaymentModule --> CreditsModule
+
   %% WebSocket / Queue Infra
   WebSocketModule --> RedisModule
   QueueModule --> ConfigModule
@@ -309,6 +430,8 @@ graph TD
   QueueModule --> DexscreenerModule
   QueueModule --> WebSocketModule
   QueueModule --> BalanceCacheModule
+  QueueModule --> HolderProfilesCacheModule
+  QueueModule --> WalletHudModule
 ```
 
 ### Core Providers and Dependencies
@@ -327,6 +450,16 @@ graph LR
     HSync[HeliusSyncService]
   end
 
+  subgraph AuthModule
+    AuthS[AuthService]
+    ApiKeyS[ApiKeyService]
+    RegCodeS[RegistrationCodeService]
+  end
+
+  subgraph CreditsModule
+    CredS[CreditsService]
+  end
+
   Cfg[ConfigService]
   Http[HttpService]
 
@@ -337,6 +470,17 @@ graph LR
   HSync --> DB
   HSync --> HClient
   HSync --> SFetch
+
+  %% Auth
+  AuthS --> DB
+  AuthS --> Cfg
+  ApiKeyS --> DB
+  ApiKeyS --> Cfg
+  RegCodeS --> DB
+  RegCodeS --> Cfg
+
+  %% Credits
+  CredS --> DB
 
   %% Dexscreener
   subgraph DexscreenerModule
@@ -387,6 +531,13 @@ graph LR
   BCache --> DB
   BCache --> HClient
 
+  %% Payments
+  subgraph PaymentModule
+    PayS[PaymentService]
+  end
+  PayS --> DB
+  PayS --> CredS
+
   %% WebSocket / Redis
   subgraph RedisModule
     REDIS[REDIS_CLIENT]
@@ -398,12 +549,15 @@ graph LR
 
   %% Guards
   subgraph Guards
-    Guard[ApiKeyAuthGuard]
+    Guard[CompositeAuthGuard]
+    CreditG[CreditGuard]
     Refl[Reflector]
   end
   Guard --> DB
   Guard --> Cfg
   Guard --> Refl
+  CreditG --> DB
+  CreditG --> CredS
 ```
 
 ### Controllers and Injected Services
@@ -420,9 +574,8 @@ graph LR
   WCtrl --> DEX
 
   ACtrl[AnalysesController] --> DB
-  ACtrl --> SimQ[SimilarityOperationsQueue]
-  ACtrl --> EnrichQ[EnrichmentOperationsQueue]
-  ACtrl --> AnalQ[AnalysisOperationsQueue]
+  ACtrl --> SimilarityQ[SimilarityAnalysisQueue]
+  ACtrl --> DashboardQ[DashboardAnalysisQueue]
   ACtrl --> EStrat[EnrichmentStrategyService]
 
   JCtrl[JobsController] --> JSvc[JobsService]
@@ -435,8 +588,24 @@ graph LR
   HCtrl --> QHS[QueueHealthService]
 
   Webhook[HeliusWebhookController] --> Cfg
-  Webhook --> MPQ[MintParticipantsJobsQueue]
-  Webhook --> Alert[AlertingService]
+  Webhook --> PaymentRecQ[PaymentReconciliationQueue]
+
+  AdminCtrl[AdminController] --> DB
+  AdminCtrl --> ApiKeyS
+  AdminCtrl --> RegCodeS
+
+  AuthCtrl[AuthController] --> AuthS
+  AuthCtrl --> RegCodeS
+  AuthCtrl --> CsrfS[CsrfService]
+
+  PayCtrl[PaymentController] --> PayS
+  PayCtrl --> CredS
+
+  DiscCtrl[DiscoverController] --> DB
+
+  HudCtrl[WalletHudController] --> HudS[WalletHudService]
+
+  HuntCtrl[WalletHuntController] --> HuntS[WalletHuntService]
 ```
 
 ### Queues, Processors, and Tokens
@@ -448,54 +617,58 @@ graph LR
     Alert[AlertingService]
     DLQ[DeadLetterQueueService]
     QHS[QueueHealthService]
-    JBridge[JobEventsBridgeService]
-    TAlerts[TelegramAlertsService]
-    WOQ[WalletOperationsQueue]
-    AOQ[AnalysisOperationsQueue]
-    SOQ[SimilarityOperationsQueue]
-    EOQ[EnrichmentOperationsQueue]
-    MPQ[MintParticipantsJobsQueue]
-    WOP[WalletOperationsProcessor]
-    AOP[AnalysisOperationsProcessor]
-    SOP[SimilarityOperationsProcessor]
-    EOP[EnrichmentOperationsProcessor]
+    JobCache[JobPayloadCacheService]
+    SysWallet[SystemWalletDetectionService]
+    PaymentConfirm[PaymentConfirmationService]
+
+    DashQ[DashboardAnalysisQueue]
+    PnlQ[PnlAnalysisQueue]
+    BehQ[BehaviorAnalysisQueue]
+    SimilQ[SimilarityAnalysisQueue]
+    HolderQ[HolderProfilesQueue]
+    PaymentRecQ[PaymentReconciliationQueue]
+
+    DashP[DashboardAnalysisProcessor]
+    PnlP[PnlAnalysisProcessor]
+    BehP[BehaviorAnalysisProcessor]
+    SimilP[SimilarityAnalysisProcessor]
+    HolderP[HolderProfilesCacheProcessor]
+    PaymentRecP[PaymentReconciliationProcessor]
   end
 
   REDIS --> RLock
   REDIS --> JGW
 
   %% Processor injections
-  WOP --> RLock
-  WOP --> HSync
-  WOP --> DB
-  WOP --> HClient
+  DashP --> RLock
+  DashP --> PnlA
+  DashP --> Beh
+  DashP --> DB
+  DashP --> HSync
+  DashP --> JGW
 
-  AOP --> RLock
-  AOP --> PnlA
-  AOP --> Beh
-  AOP --> DB
-  AOP --> HSync
-  AOP --> EOQ
-  AOP --> HClient
-  AOP --> JGW
-  AOP --> TInfo
-  AOP --> TAlerts
+  SimilP --> RLock
+  SimilP --> SimAPI
+  SimilP --> DB
+  SimilP --> HClient
+  SimilP --> TInfo
+  SimilP --> HSync
+  SimilP --> BCache
+  SimilP --> JGW
 
-  SOP --> RLock
-  SOP --> SimAPI
-  SOP --> DB
-  SOP --> HClient
-  SOP --> TInfo
-  SOP --> HSync
-  SOP --> PnlA
-  SOP --> Beh
-  SOP --> EOQ
-  SOP --> BCache
-  SOP --> JGW
+  HolderP --> RLock
+  HolderP --> DB
+  HolderP --> HClient
+  HolderP --> HudS
+  HolderP --> JGW
 
-  EOP --> RLock
-  EOP --> TInfo
-  EOP --> DEX
-  EOP --> BCache
-  EOP --> JGW
+  PaymentRecP --> RLock
+  PaymentRecP --> DB
+  PaymentRecP --> HClient
+  PaymentRecP --> CredS
 ```
+
+---
+
+**Last Updated**: 2026-02-24
+**All modules and providers current through PAY-1/PAY-2 complete**
