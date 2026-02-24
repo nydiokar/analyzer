@@ -30,7 +30,7 @@ export class BehaviorService {
     // Layer 1: Check registry (O(1), no I/O)
     const knownEntry = getKnownWallet(walletAddress);
     if (knownEntry && SKIP_BEHAVIOR_ANALYSIS.has(knownEntry.type)) {
-      this.logger.log(`Skipping behavior analysis for registry wallet ${walletAddress} (${knownEntry.type})`);
+      this.logger.debug(`Skipping behavior analysis for registry wallet ${walletAddress} (${knownEntry.type})`);
       return null;
     }
 
@@ -40,7 +40,7 @@ export class BehaviorService {
     try {
       wallet = await this.nestDatabaseService.getWallet(walletAddress);
       if (wallet?.knownType && SKIP_BEHAVIOR_ANALYSIS.has(wallet.knownType as KnownWalletType)) {
-        this.logger.log(`Skipping behavior analysis for detected system wallet ${walletAddress} (${wallet.knownType})`);
+        this.logger.debug(`Skipping behavior analysis for detected system wallet ${walletAddress} (${wallet.knownType})`);
         return null;
       }
     } catch (error) {
@@ -70,21 +70,21 @@ export class BehaviorService {
             // If profile was computed AFTER the last sync, it's fresh!
             if (profileUpdatedAt >= walletLastSyncAt) {
               const ageMinutes = Math.round((Date.now() - profileUpdatedAt) / 1000 / 60);
-              this.logger.log(
-                `✅ Behavior Cache HIT: ${walletAddress} (${ageMinutes}min old, fresh)`
+              this.logger.debug(
+                `Behavior Cache HIT: ${walletAddress} (${ageMinutes}min old, fresh)`
               );
               return this.convertProfileToMetrics(cachedProfile);
             } else {
               const syncAgo = Math.round((Date.now() - walletLastSyncAt) / 1000 / 60);
-              this.logger.log(
-                `🔄 Behavior Cache STALE: ${walletAddress} - wallet synced ${syncAgo}min ago, re-analyzing`
+              this.logger.debug(
+                `Behavior Cache STALE: ${walletAddress} - wallet synced ${syncAgo}min ago, re-analyzing`
               );
             }
           } else {
             // No sync timestamp - use 1 hour TTL fallback
             const cacheAgeMs = Date.now() - cachedProfile.updatedAt.getTime();
             if (cacheAgeMs < 60 * 60 * 1000) {
-              this.logger.log(`✅ Behavior Cache HIT: ${walletAddress} (TTL fallback, ${Math.round(cacheAgeMs/1000/60)}min old)`);
+              this.logger.debug(`Behavior Cache HIT: ${walletAddress} (TTL fallback, ${Math.round(cacheAgeMs/1000/60)}min old)`);
               return this.convertProfileToMetrics(cachedProfile);
             }
           }

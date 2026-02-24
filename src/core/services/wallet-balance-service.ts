@@ -65,7 +65,7 @@ export class WalletBalanceService {
       return new Map();
     }
 
-    logger.info(`Fetching RAW wallet balances for ${walletAddresses.length} addresses. Commitment: ${commitment || 'default'}`);
+    logger.debug(`Fetching RAW wallet balances for ${walletAddresses.length} addresses. Commitment: ${commitment || 'default'}`);
 
     // Initialize WalletBalance for all requested addresses to ensure all are present in the map  
     const walletBalances = new Map<string, WalletBalance>();
@@ -309,7 +309,7 @@ export class WalletBalanceService {
       }
     }
 
-    logger.info(`Successfully processed RAW wallet balance fetching for ${walletAddresses.length} addresses (no metadata).`);
+    logger.debug(`Successfully processed RAW wallet balance fetching for ${walletAddresses.length} addresses (no metadata).`);
     return walletBalances;
   }
 
@@ -378,7 +378,7 @@ export class WalletBalanceService {
       return walletBalances;
     }
 
-    logger.info(`Enriching ${uniqueMints.length} unique tokens with metadata`);
+    logger.debug(`Enriching ${uniqueMints.length} unique tokens with metadata`);
     
     const tokenInfos = await this.tokenInfoService.findMany(uniqueMints);
     const tokenInfoMap = new Map(tokenInfos.map(info => [info.tokenAddress, info]));
@@ -403,7 +403,7 @@ export class WalletBalanceService {
       });
     }
 
-    logger.info(`Successfully enriched wallet balances with metadata for ${enrichedBalances.size} wallets`);
+    logger.debug(`Successfully enriched wallet balances with metadata for ${enrichedBalances.size} wallets`);
     return enrichedBalances;
   }
 

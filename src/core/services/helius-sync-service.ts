@@ -69,7 +69,6 @@ export class HeliusSyncService {
         }
         this.heliusClient = heliusApiClient; // Use the provided instance
         this.smartFetchService = smartFetchService || new SmartFetchService();
-        logger.info('HeliusSyncService instantiated with provided HeliusApiClient and SmartFetchService.');
     }
 
     /**
@@ -110,7 +109,7 @@ export class HeliusSyncService {
         // Ensure wallet exists in the DB before starting sync operations
         try {
             await this.databaseService.ensureWalletExists(walletAddress);
-            logger.info(`[Sync] Wallet entry ensured for ${walletAddress}. Proceeding with sync.`);
+            logger.debug(`[Sync] Wallet entry ensured for ${walletAddress}. Proceeding with sync.`);
         } catch (error) {
             logger.error(`[Sync] CRITICAL: Could not ensure wallet entry for ${walletAddress}. Aborting sync.`, { error });
             // Depending on desired behavior, you might re-throw or just return to stop sync for this wallet.
@@ -231,7 +230,7 @@ export class HeliusSyncService {
                }
            );
            newerTransactionsFetchedCount = newerTransactionsFetchedCount || newerTransactions.length;
-           logger.info(`[Sync] SmartFetch Phase 1 (Newer): ✅ Completed processing ${newerTransactionsFetchedCount} newer transactions for ${walletAddress}.`);
+           logger.debug(`[Sync] SmartFetch Phase 1 (Newer): ✅ Completed processing ${newerTransactionsFetchedCount} newer transactions for ${walletAddress}.`);
            options.onProgress?.(50, 'Newer transactions processed...');
         } catch (fetchError) {
            if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
@@ -284,7 +283,7 @@ export class HeliusSyncService {
                         );
                         totalOlderProcessedCount = totalOlderProcessedCount || olderTransactions.length;
                         const finalTotalCount = walletTransactionCounters.get(walletAddress) || 0;
-                        logger.info(`[Sync] SmartFetch Phase 2 (Older): ✅ Completed processing ${totalOlderProcessedCount} older transactions for ${walletAddress}. Total: ${finalTotalCount} transactions.`);
+                        logger.debug(`[Sync] SmartFetch Phase 2 (Older): ✅ Completed processing ${totalOlderProcessedCount} older transactions for ${walletAddress}. Total: ${finalTotalCount} transactions.`);
                         options.onProgress?.(95, 'Older transactions processed...');
                     } catch (fetchError) {
                         if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
@@ -394,7 +393,7 @@ export class HeliusSyncService {
             );
             totalStandardProcessedCount = totalStandardProcessedCount || transactions.length;
             const finalStandardCount = walletTransactionCounters.get(walletAddress) || 0;
-            logger.info(`[Sync] Standard Fetch: ✅ Completed processing ${totalStandardProcessedCount} transactions for ${walletAddress}.`);
+            logger.debug(`[Sync] Standard Fetch: ✅ Completed processing ${totalStandardProcessedCount} transactions for ${walletAddress}.`);
             options.onProgress?.(90, 'Transactions processed...');
         } catch (fetchError) {
             if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {

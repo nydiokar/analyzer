@@ -84,10 +84,10 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
     this.redis = redisClient;
 
     this.redis.on('error', (err) => this.logger.error(`Redis connection error (holder profiles cache): ${err.message}`));
-    this.redis.on('connect', () => this.logger.log('Redis connected for holder profiles cache'));
-    this.redis.on('ready', () => this.logger.log('Redis ready for holder profiles cache operations'));
+    this.redis.on('connect', () => this.logger.debug('Redis connected for holder profiles cache'));
+    this.redis.on('ready', () => this.logger.debug('Redis ready for holder profiles cache operations'));
     this.redis.on('close', () => this.logger.warn('Redis connection closed for holder profiles cache'));
-    this.redis.on('reconnecting', () => this.logger.log('Redis reconnecting for holder profiles cache...'));
+    this.redis.on('reconnecting', () => this.logger.debug('Redis reconnecting for holder profiles cache...'));
   }
 
   async getTokenResult(tokenMint: string, topN: number): Promise<HolderProfilesResult | null> {
@@ -154,7 +154,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
       const walletKey = `holder-profiles:wallet:${walletAddress}`;
       const walletDeleted = await this.redis.del(walletKey);
       if (walletDeleted > 0) {
-        this.logger.log(`Invalidated wallet holder profile cache for ${walletAddress}`);
+        this.logger.debug(`Invalidated wallet holder profile cache for ${walletAddress}`);
       }
 
       const luaScript = `
@@ -198,7 +198,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
 
       const duration = Date.now() - startTime;
       if (deleted > 0) {
-        this.logger.log(`Invalidated ${deleted} token holder profile cache(s) for wallet ${walletAddress} (${duration}ms)`);
+        this.logger.debug(`Invalidated ${deleted} token holder profile cache(s) for wallet ${walletAddress} (${duration}ms)`);
       } else {
         this.logger.debug(`Wallet ${walletAddress} not found in cached token holder profiles (${duration}ms)`);
       }
@@ -214,7 +214,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
       const keys = await this.redis.keys(`holder-profiles:token:${tokenMint}:*`);
       if (keys.length > 0) {
         await this.redis.del(...keys);
-        this.logger.log(`Invalidated ${keys.length} holder profile cache(s) for token ${tokenMint}`);
+        this.logger.debug(`Invalidated ${keys.length} holder profile cache(s) for token ${tokenMint}`);
       }
     } catch (error) {
       this.logger.error(`Error invalidating cache for token ${tokenMint}: ${getErrorMessage(error)}`);
@@ -226,7 +226,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
       const keys = await this.redis.keys('holder-profiles:*');
       if (keys.length > 0) {
         await this.redis.del(...keys);
-        this.logger.log(`Cleared ${keys.length} holder profile cache entries`);
+        this.logger.debug(`Cleared ${keys.length} holder profile cache entries`);
       }
     } catch (error) {
       this.logger.error(`Error clearing holder profile caches: ${getErrorMessage(error)}`);
@@ -449,7 +449,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
       this.metrics.tier2.misses++; // Complete miss - no wallets cached
     }
 
-    this.logger.log(
+    this.logger.debug(
       `Snapshot check for ${tokenMint}: ${readyWallets.length} fresh, ${staleWallets.length} stale`,
     );
 
@@ -482,7 +482,7 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
 
     if (latestSnapshot && this.isSnapshotFresh(latestSnapshot, walletRecord)) {
       this.metrics.tier2.hits++; // Track hit
-      this.logger.log(`Serving cached holder snapshot for wallet ${walletAddress}`);
+      this.logger.debug(`Serving cached holder snapshot for wallet ${walletAddress}`);
       if (!this.isHolderProfile(latestSnapshot.profile)) {
         throw new Error(`Invalid HolderProfile structure in snapshot for wallet ${walletAddress}`);
       }
@@ -585,7 +585,6 @@ export class HolderProfilesCacheService implements OnModuleDestroy {
       topHolders: { hits: 0, misses: 0 },
       lastReset: new Date(),
     };
-    this.logger.log('Cache metrics reset');
   }
 
   /**

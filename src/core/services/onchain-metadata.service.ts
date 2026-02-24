@@ -213,7 +213,7 @@ export class OnchainMetadataService {
   async fetchBasicMetadataBatch(mints: string[]): Promise<BasicTokenMetadata[]> {
     if (!mints || mints.length === 0) return [];
 
-    logger.info(`Fetching basic metadata for ${mints.length} tokens via DAS API`);
+    logger.debug(`Fetching basic metadata for ${mints.length} tokens via DAS API`);
 
     try {
       // Call Helius DAS API
@@ -231,7 +231,7 @@ export class OnchainMetadataService {
         metadataUri: asset.content?.json_uri || null,
       }));
 
-      logger.info(`Successfully fetched basic metadata for ${results.length}/${mints.length} tokens`);
+      logger.debug(`Successfully fetched basic metadata for ${results.length}/${mints.length} tokens`);
       return results;
     } catch (error) {
       logger.error(`Failed to fetch basic metadata from DAS: ${getErrorMessage(error)}`);
