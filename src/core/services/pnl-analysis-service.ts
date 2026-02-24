@@ -248,6 +248,7 @@ export class PnlAnalysisService {
                 swapInputs = await this.databaseService.getSwapAnalysisInputs(walletAddress, timeRange);
                 if (swapInputs.length === 0) {
                     logger.warn(`[PnlAnalysis] No swap analysis input records found for ${walletAddress}${timeRange ? ' in time range' : ''}.`);
+                    analysisRunStatus = 'COMPLETED';
                     if (runId) {
                         await prisma.analysisRun.update({
                             where: { id: runId },
@@ -353,6 +354,18 @@ export class PnlAnalysisService {
 
             if (!swapAnalysisResultsFromAnalyzer || swapAnalysisResultsFromAnalyzer.length === 0) {
                 logger.warn(`[PnlAnalysis] No results from SwapAnalyzer for wallet ${walletAddress}. Returning empty summary.`);
+                analysisRunStatus = 'COMPLETED';
+                if (runId) {
+                    await prisma.analysisRun.update({
+                        where: { id: runId },
+                        data: {
+                            status: 'COMPLETED',
+                            errorMessage: null,
+                            durationMs: Date.now() - startTimeMs,
+                            signaturesConsidered: processedSignaturesCount,
+                        },
+                    });
+                }
                 return { results: [], totalSignaturesProcessed: 0, totalVolume: 0, totalFees: 0, realizedPnl: 0, unrealizedPnl: 0, netPnl: 0, stablecoinNetFlow: 0, overallFirstTimestamp: overallFirstTimestamp ||0, overallLastTimestamp: overallLastTimestamp ||0, averageSwapSize: 0, profitableTokensCount: 0, unprofitableTokensCount: 0, totalExecutedSwapsCount: 0, averageRealizedPnlPerExecutedSwap: 0, realizedPnlToTotalVolumeRatio: 0, advancedStats: undefined, runId: isViewOnlyMode ? undefined : runId, currentSolBalance: currentWalletBalance?.solBalance, balancesFetchedAt: balancesFetchedAt };
             }
 
