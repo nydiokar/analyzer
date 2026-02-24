@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-02-23  **Status:** PFT bot complete → Payment infrastructure (Solana Pay + X402) is next priority
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-24  **Status:** PAY-1a/1b done (schema + CreditsService) → PAY-1c next (@RequireCredits guard)
 
 ---
 
@@ -10,10 +10,10 @@
 |:------:|:-----|:-----:|:------|
 | ✅ | PFT Oracle Bot v2 — All phases complete (scaffold → IPFS) | 🔴 L | Phases 1-4 done. Bot live on PFT marketplace. `/profile`, `/holders`, `/analyze`, `/compare` + IPFS attachments all working. Phase 5 (hardening) is next when revisiting. |
 | ⚪ | **[PAY-0] Create treasury wallet** | 🟢 S | New dedicated Phantom/Solflare wallet. Add pubkey to `.env` as `TREASURY_WALLET_ADDRESS`. Blocks all payment work. |
-| ⚪ | **[PAY-1a] Prisma: CreditBalance + CreditTransaction models** | 🟢 S | Add both models to `schema.prisma`, run `prisma migrate dev`. Ledger pattern — never update balance directly, always append tx + update atomically. |
-| ⚪ | **[PAY-1b] CreditsModule + CreditsService** | 🟡 M | `getBalance` (Redis→DB), `deduct`, `topUp`, `grantSignupBonus`. New module at `src/api/modules/credits.module.ts`. |
+| ✅ | **[PAY-1a] Prisma: CreditBalance + CreditTransaction models** | 🟢 S | Both models added to `schema.prisma`. User gets `creditBalance`/`creditTransactions` relations. Run `npx prisma migrate dev --name credit-ledger` to apply. Branch: `feat/credit-ledger-foundation`. |
+| ✅ | **[PAY-1b] CreditsModule + CreditsService** | 🟡 M | `getBalance`, `deduct` (atomic, throws 402 on short balance), `topUp`, `grantSignupBonus` (non-fatal, called from AuthService.register). `@Global()` module wired into AppModule. Branch: `feat/credit-ledger-foundation`. |
 | ⚪ | **[PAY-1c] @RequireCredits decorator + CreditGuard** | 🟡 M | Decorator sets metadata, guard checks balance before + deducts after success. Failed requests don't charge. Returns HTTP 402 on insufficient credits. |
-| ⚪ | **[PAY-1d] Wire signup bonus + decorate endpoints** | 🟢 S | Call `grantSignupBonus(userId)` in auth flow (100 free credits). Add `@RequireCredits(N)` to behavior-analysis(5), similarity(100+), dashboard jobs (10/25/50). |
+| ⚪ | **[PAY-1d] Decorate endpoints** | 🟢 S | Add `@RequireCredits(N)` to behavior-analysis(5), similarity(100+), dashboard jobs (10/25/50). Signup bonus already wired in PAY-1b. |
 | ⚪ | **[PAY-2a] Prisma: CreditPack + PaymentIntent models** | 🟢 S | Add to schema, migrate. Seed 3 default packs (Starter $15/1k, Builder $120/10k, Pro $900/100k). |
 | ⚪ | **[PAY-2b] PaymentModule — checkout + status endpoints** | 🟡 M | `POST /payments/checkout` (creates intent, returns QR), `GET /payments/:id/status` (poll target), `GET /payments/packs`, `GET /users/me/credits`. Add `@solana/pay`, `@solana/web3.js`, `qrcode`. |
 | ⚪ | **[PAY-2c] Payment confirmation worker (BullMQ)** | 🟡 M | Repeating job per pending intent. `findReference()` against Helius RPC, verify USDC mint + amount, mark confirmed, call `creditsService.topUp()`, emit WebSocket event, expire after 30min. |
@@ -23,6 +23,7 @@
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
 **Recently Completed:**
+-  **[PAY-1a/1b] Credit ledger foundation** (Feb 24, branch `feat/credit-ledger-foundation`) — `CreditBalance` + `CreditTransaction` models added to `schema.prisma` (append-only ledger, never mutate balance directly). `CreditsService` implements atomic `topUp`/`deduct` via Prisma `$transaction` — deduct throws HTTP 402 `{error,balance,required}` on short balance. `CreditsModule` is `@Global`. `grantSignupBonus(userId)` wired into `AuthService.register()` (non-fatal). **Pending:** stop server → run `npx prisma migrate dev --name credit-ledger`. **Files:** `prisma/schema.prisma`, `src/api/services/credits.service.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/modules/auth.module.ts`, `src/api/shared/services/auth.service.ts`.
 -  **PFT Oracle Bot v2 — Phase 4: IPFS attachments** (Feb 23) - Tested `upload_content` MCP tool for large comparison markdown files. Bot now attaches IPFS-hosted reports when reply text exceeds on-chain size limits.
 -  **PFT Oracle Bot v2 — Phase 3: `/analyze` and `/compare` commands** (Feb 23) - Explicit `/analyze` deferred jobs working across flash/working/deep scopes. `/compare` fully tested end-to-end with real wallets.
 -  **PFT Oracle Bot v2 — `/compare` formatter overhaul** (Feb 23) - Rewrote `pft-bot_v2/src/formatters/comparison.ts` from scratch to handle the real `CombinedSimilarityResult` shape (`pairwiseSimilarities`, `binaryScore`, `capitalScore`, `sharedTokens`, `capitalAllocation`, `binaryUniqueTokenCount*`). Chat message now shows a per-pair card: progress bar + overall %, behavioral/capital split, shared token count with Jaccard % and per-wallet coverage (e.g. "285 tokens (52% of A · 59% of B · Jaccard 38%)"), top 5 token names inline. Queued-ack overrides `estimatedProcessingTime` with `~45 sec` (API was returning "9 minutes"). Report (`comparison.md`) has clean metadata table, wallet list with token counts, per-pair section with full addresses + metrics table, shared tokens filtered to ≥0.1% capital weight (capped at 50 rows). Context section replaces verdict: shows raw facts only — shared count, % of universe, Jaccard, per-wallet coverage, capital alignment signal. No editorial judgements. Test fixture updated to real shape. Live-tested against `F4CB..1k1Q` ↔ `GPsd..UXPU`: 285 shared tokens / 729 universe / 58% overall. **Files:** `pft-bot_v2/src/formatters/comparison.ts`, `pft-bot_v2/src/commands.ts`, `pft-bot_v2/src/test-formatters.ts`.
@@ -46,21 +47,23 @@
 
 ##  Current Focus & Priorities
 
-### P0: Payment Infrastructure — NEXT UP (Feb 23+)
+### P0: Payment Infrastructure — IN PROGRESS (Feb 24)
 
 Solana-native credit system. No Stripe. USDC only. Modular: humans pay via Solana Pay QR, agents pay via X402.
 Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 
-**Unblocked order:**
-1. `[PAY-0]` Create treasury wallet → add to `.env` ← **START HERE**
-2. `[PAY-1a→1d]` Credit system (DB models + guard + signup bonus) — validates without any real payment
-3. `[PAY-2a→2c]` Solana Pay checkout — humans buy credit packs with USDC via QR
-4. `[PAY-3]` X402 layer — agents/bots pay per-request autonomously
-5. `[PAY-4]` Credits dashboard UI — fully self-service
+**Progress:**
+- ✅ `[PAY-1a]` Schema: `CreditBalance` + `CreditTransaction` models — **awaiting migration** (stop server → `npx prisma migrate dev --name credit-ledger`)
+- ✅ `[PAY-1b]` `CreditsService` + `CreditsModule` + signup bonus wired
+- ⚪ `[PAY-0]` Treasury wallet — create dedicated Phantom/Solflare wallet, add `TREASURY_WALLET_ADDRESS` to `.env`
+- ⚪ `[PAY-1c]` `@RequireCredits` decorator + `CreditGuard` ← **next**
+- ⚪ `[PAY-1d]` Decorate endpoints with credit costs
+- ⚪ `[PAY-2a→2c]` Solana Pay checkout + BullMQ confirmation worker
+- ⚪ `[PAY-3]` X402 protocol layer (agent/bot autonomous payments)
+- ⚪ `[PAY-4]` Credits dashboard UI
 
-**Open questions before starting:**
-- Treasury wallet created? (hard blocker)
-- Free credits on signup: 100?
+**Open questions:**
+- Treasury wallet created? (needed before PAY-2)
 - Pack pricing confirmed: $15 / $120 / $900?
 - Credits expiry: no expiry recommended
 
@@ -91,7 +94,17 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 ##  Recent Activity
 
-### February 23, 2026 (Latest)
+### February 24, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 24.1 | 🎯 FEAT | Credit ledger foundation — Prisma models + CreditsService + signup bonus wired | 🟡 M | `prisma/schema.prisma`, `src/api/services/credits.service.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/modules/auth.module.ts`, `src/api/shared/services/auth.service.ts` |
+
+**Summary:**
+
+**24.1:** Implemented PAY-1a and PAY-1b on branch `feat/credit-ledger-foundation`. Added `CreditBalance` (one-to-one per user, running total) and `CreditTransaction` (append-only ledger, indexed on `userId+createdAt`) to `schema.prisma`. `User` gains `creditBalance` / `creditTransactions` relations. `CreditsService` provides: `getBalance` (returns 0 if no row), `topUp` (upsert balance + append tx in single Prisma `$transaction`), `deduct` (reads balance inside tx → throws HTTP 402 `{error,balance,required}` if short → decrements + appends tx), `grantSignupBonus` (calls topUp with `FREE_CREDITS_ON_SIGNUP` env var, default 100, swallows errors), `getRecentTransactions`. `CreditsModule` is `@Global()` — injectable everywhere without re-importing. Injected `CreditsService` into `AuthService`; `grantSignupBonus(user.id)` called immediately after user creation. TypeScript compiles clean. **Pending action:** stop running server, then run `npx prisma migrate dev --name credit-ledger`.
+
+### February 23, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
@@ -203,7 +216,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-23  **Branch:** `main`
+**Last Updated:** 2026-02-24  **Branch:** `feat/credit-ledger-foundation`
 
 
 
