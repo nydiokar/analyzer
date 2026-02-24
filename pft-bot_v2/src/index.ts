@@ -25,19 +25,37 @@ async function main(): Promise<void> {
     ],
   });
 
-  // 3. Init analyzer client
+  // 3. Start liveness ping loop (keeps bot visible in registry search)
+  if (config.PING_INTERVAL_MS > 0) {
+    const pingLoop = async (): Promise<void> => {
+      while (true) {
+        await new Promise(resolve => setTimeout(resolve, config.PING_INTERVAL_MS));
+        try {
+          const { agent_id, last_ping_at } = await pft.ping();
+          console.log(`[PING] OK — agent_id=${agent_id} last_ping_at=${last_ping_at}`);
+        } catch (err) {
+          console.error('[PING] Ping failed:', err instanceof Error ? err.message : err);
+        }
+      }
+    };
+    pingLoop().catch(err => {
+      console.error('[PING] Fatal ping loop error:', err);
+    });
+  }
+
+  // 4. Init analyzer client
   const analyzer = new AnalyzerClient(config.ANALYZER_API_URL, config.ANALYZER_API_KEY);
 
-  // 4. Init deferred jobs (loads pending from file)
+  // 5. Init deferred jobs (loads pending from file)
   const deferred = new DeferredJobs(pft, analyzer);
   await deferred.loadPending();
 
-  // 5. Start deferred job polling in background
+  // 6. Start deferred job polling in background
   deferred.startPolling().catch(err => {
     console.error('[JOBS] Fatal polling error:', err);
   });
 
-  // 6. Start scan loop (blocks until stopped)
+  // 7. Start scan loop (blocks until stopped)
   const scanner = new Scanner(pft, analyzer, deferred);
 
   // Graceful shutdown

@@ -22,6 +22,9 @@ export const config = {
   JOB_POLL_INTERVAL_MS: parseInt(optional('JOB_POLL_INTERVAL_MS', '15000'), 10),
   JOB_TIMEOUT_MS: parseInt(optional('JOB_TIMEOUT_MS', '600000'), 10),
 
+  // Liveness ping interval in ms. Set to 0 to disable.
+  PING_INTERVAL_MS: parseInt(optional('PING_INTERVAL_MS', '900000'), 10),
+
   CURSOR_FILE: optional('CURSOR_FILE', './data/cursor.json'),
   PENDING_JOBS_FILE: optional('PENDING_JOBS_FILE', './data/pending-jobs.json'),
 } as const;
