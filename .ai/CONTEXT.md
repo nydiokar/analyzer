@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-02-23  **Status:** PFT bot complete → Payment infrastructure (Solana Pay + X402) is next priority
+**Branch:** `main`  **Last Updated:** 2026-02-24  **Status:** PFT bot complete → Payment infrastructure (Solana Pay + X402) is next priority
 
 ---
 
@@ -23,6 +23,7 @@
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
 **Recently Completed:**
+-  **Log Level Refactor — Phase 1** (Feb 24) - Audited 94 INFO-level log calls across 16 backend files. Applied verdicts: 13 REMOVE, 54 → DEBUG, 27 KEEP. INFO output for a 20-wallet holder-profiles job reduced from 900+ lines to ~22. Phase 2 (structured events + CI schema enforcement) designed and documented at `.ai/context/log_audit/IMPLEMENTATION_PLAN.md` — not yet implemented.
 -  **PFT Oracle Bot v2 — Phase 4: IPFS attachments** (Feb 23) - Tested `upload_content` MCP tool for large comparison markdown files. Bot now attaches IPFS-hosted reports when reply text exceeds on-chain size limits.
 -  **PFT Oracle Bot v2 — Phase 3: `/analyze` and `/compare` commands** (Feb 23) - Explicit `/analyze` deferred jobs working across flash/working/deep scopes. `/compare` fully tested end-to-end with real wallets.
 -  **PFT Oracle Bot v2 — `/compare` formatter overhaul** (Feb 23) - Rewrote `pft-bot_v2/src/formatters/comparison.ts` from scratch to handle the real `CombinedSimilarityResult` shape (`pairwiseSimilarities`, `binaryScore`, `capitalScore`, `sharedTokens`, `capitalAllocation`, `binaryUniqueTokenCount*`). Chat message now shows a per-pair card: progress bar + overall %, behavioral/capital split, shared token count with Jaccard % and per-wallet coverage (e.g. "285 tokens (52% of A · 59% of B · Jaccard 38%)"), top 5 token names inline. Queued-ack overrides `estimatedProcessingTime` with `~45 sec` (API was returning "9 minutes"). Report (`comparison.md`) has clean metadata table, wallet list with token counts, per-pair section with full addresses + metrics table, shared tokens filtered to ≥0.1% capital weight (capped at 50 rows). Context section replaces verdict: shows raw facts only — shared count, % of universe, Jaccard, per-wallet coverage, capital alignment signal. No editorial judgements. Test fixture updated to real shape. Live-tested against `F4CB..1k1Q` ↔ `GPsd..UXPU`: 285 shared tokens / 729 universe / 58% overall. **Files:** `pft-bot_v2/src/formatters/comparison.ts`, `pft-bot_v2/src/commands.ts`, `pft-bot_v2/src/test-formatters.ts`.
@@ -91,7 +92,15 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 ##  Recent Activity
 
-### February 23, 2026 (Latest)
+### February 24, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 24.1 | 🔧 REFACTOR | Log level refactor Phase 1 — INFO noise 900+ → ~22 lines per job | 🔴 L | 16 `src/` files across processors + core services |
+
+**24.1:** Full audit of 94 INFO-level log calls. Verdict categories: 13 REMOVE (BullMQ worker events, instantiation logs, DB record ID bookkeeping), 54 → DEBUG (per-wallet sub-steps, internal filter stats, cache management, phase telemetry), 27 KEEP (job entry/exit boundaries, PnL outcomes, sync completion, error recovery). Files touched: `analysis-operations.processor.ts`, `enrichment-operations.processor.ts`, `similarity-operations.processor.ts`, `database-service.ts`, `helius-sync-service.ts`, `helius-api-client.ts`, `pnl-analysis-service.ts`, `wallet-balance-service.ts`, `behavior.service.ts` (API + core), `analyzer.ts` (behavior), `similarity.service.ts`, `token-info.service.ts`, `holder-profiles-cache.service.ts`, `dexscreener-service.ts`, `onchain-metadata.service.ts`. Signal check written to `IMPLEMENTATION_PLAN.md` — one noted gap: behavior analysis inside the holder-profile per-wallet path has no INFO boundary (low impact; orchestration completion count covers it). Phase 2 design (structured event keys + CI allowlist) documented but not implemented.
+
+### February 23, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
