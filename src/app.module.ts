@@ -8,9 +8,11 @@ import { DatabaseModule } from './api/modules/database.module'; // Import the gl
 import { UsersModule } from './api/modules/users.module';
 import { AuthModule } from './api/modules/auth.module'; // Import the new AuthModule
 import { QueueModule } from './queues/queue.module'; // Add BullMQ queue integration
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { CompositeAuthGuard } from './api/shared/guards/composite-auth.guard';
 import { AdminGuard } from './api/shared/guards/admin.guard';
+import { CreditGuard } from './api/shared/guards/credit.guard';
+import { CreditInterceptor } from './api/shared/interceptors/credit.interceptor';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { MetricsModule } from './api/modules/metrics.module';
 import { CreditsModule } from './api/modules/credits.module';
@@ -47,6 +49,14 @@ import { CreditsModule } from './api/modules/credits.module';
     {
       provide: APP_GUARD,
       useClass: AdminGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CreditGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: CreditInterceptor,
     },
   ],
 })
