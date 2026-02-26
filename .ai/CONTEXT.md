@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-26  **Status:** PAY-2c verified E2E (webhook + reconciliation + credits) → PAY-3 next (X402 protocol layer)
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-26  **Status:** PAY-4 frontend complete + verified E2E → PAY-4b (checkout page UX upgrade) next, then PAY-3 (X402)
 
 ---
 
@@ -18,9 +18,12 @@
 | ✅ | **[PAY-2b] PaymentModule — checkout + status endpoints** | 🟡 M | `POST /payments/checkout` (creates intent, returns QR), `GET /payments/:id/status`, `GET /payments/packs`, `GET /users/me/credits`. `@solana/pay`, `@solana/web3.js`, `qrcode` installed. Verified end-to-end. |
 | ✅ | **[PAY-2c] Payment confirmation — webhook + reconciliation** | 🟡 M | `POST /integrations/helius/payment-webhook` — verifies `HELIUS_PAYMENT_WEBHOOK_SECRET`, finds pending intent by reference pubkey in accountData, validates USDC mint + amount, calls `creditsService.topUp()`, marks intent `confirmed`, emits `payment:confirmed` WS event. `PaymentReconciliationProcessor` — BullMQ worker on `payment-reconciliation` queue, `upsertJobScheduler` runs every 5min, scans pending intents >2min old, calls `findReference()` once per intent, expires stale ones. Idempotent via `updateMany where status=pending`. **Bug fixed (Feb 26):** Helius sends `tokenAmount` as human float (e.g. `15`), not raw base units — removed erroneous `/1e6` division. **Verified E2E (Feb 26):** Real $15 USDC payment → webhook fired → intent confirmed → 1000 credits landed. **Files:** `src/api/services/payment-confirmation.service.ts`, `src/api/controllers/helius-webhook.controller.ts` (+handler), `src/queues/processors/payment-reconciliation.processor.ts`, `src/queues/queue.module.ts`, `dashboard/src/app/pay-test/page.tsx` (test page). |
 | ⚪ | **[PAY-3] X402 protocol layer (agent/bot payments)** | 🔴 L | Extend CreditGuard: on 402 with no `X-Payment` header → return x402 payload. With header → verify on-chain tx → allow through → deduct. `pnpm add x402`. Enables autonomous agent consumption. |
-| ⚪ | **[PAY-4] Credits dashboard UI** | 🟡 M | `/dashboard/credits` page: balance display, "Buy Credits" button → QR modal, transaction ledger, low-balance WebSocket notification. Admin: manual credit grant tool. |
+| ✅ | **[PAY-4] Credits dashboard UI** | 🟡 M | `/dashboard/credits` page live. Balance display, transaction ledger (delta/reason from real backend shape), Buy Credits modal (pack grid → QR → confirmed stages), `payment:confirmed` WS listener, status polling every 3s, SWR revalidation on confirmation, 402 handling in BehavioralPatternsTab + SimilarityLab, Credits nav item + live balance chip in AppShell. **Verified E2E Feb 26:** real $15 USDC → 1000 credits → Payment Confirmed modal → ledger updated. **Files:** `dashboard/src/app/dashboard/credits/page.tsx`, `dashboard/src/components/credits/CreditPurchaseModal.tsx`, `dashboard/src/hooks/useCredits.ts`, `dashboard/src/hooks/useCreditPacks.ts`, `dashboard/src/types/api.ts` (+payment types), `dashboard/src/lib/swr-config.ts` (+cache keys). |
+| ⚪ | **[PAY-4b] Checkout page UX upgrade** | 🟡 M | Replace `CreditPurchaseModal` with a dedicated `/checkout?packId=xxx` page (Helius-style). Left column: order summary (pack name, credits, price, what you get). Right column: QR code + Solana Pay URL + expiry. Expiry handled gracefully — show "Session expired" state with "Start over" CTA back to `/dashboard/credits` instead of silent modal reset. Better mobile layout. See `.ai/context/monetization/PAY-4b-DESIGN.md` for reference. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
+
+REMOVE AUTODOC from deps! 
 
 **Recently Completed:**
 -  **[PAY-2a/2b] Solana Pay checkout + schema** (Feb 24, branch `feat/credit-ledger-foundation`) — `CreditPack` + `PaymentIntent` models, migration applied, 3 packs seeded (Starter $15/1k, Builder $120/10k, Pro $900/100k). `PaymentService` generates Solana Pay URL + base64 QR via `@solana/pay` + `qrcode`. `PaymentController` exposes `GET /payments/packs`, `POST /payments/checkout`, `GET /payments/:id/status`, `GET /users/me/credits`. Verified: checkout returns valid Solana Pay URL targeting treasury wallet + valid QR PNG. Status polls correctly. **Files:** `prisma/schema.prisma`, `prisma/seed.ts`, `src/api/services/payment.service.ts`, `src/api/controllers/payment.controller.ts`, `src/api/modules/payment.module.ts`, `src/api.module.ts`.
@@ -64,8 +67,9 @@ Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 - ✅ `[PAY-2a]` Schema: `CreditPack` + `PaymentIntent` models — migration `20260224122500_payment_packs`, 3 packs seeded
 - ✅ `[PAY-2b]` `PaymentService` + `PaymentController` + `PaymentModule` — checkout QR, status poll, packs list, credits balance — **verified end-to-end**
 - ✅ `[PAY-2c]` Webhook confirmation + reconciliation fallback — **verified E2E Feb 26** (real $15 USDC → 1000 credits confirmed)
+- ✅ `[PAY-4]` Credits dashboard UI — `/dashboard/credits` page, purchase modal, WS confirmation, 402 handling — **verified E2E Feb 26**
+- ⚪ `[PAY-4b]` Checkout page UX upgrade — dedicated `/checkout` page (Helius-style), graceful expiry handling
 - ⚪ `[PAY-3]` X402 protocol layer (agent/bot autonomous payments)
-- ⚪ `[PAY-4]` Credits dashboard UI
 
 **Open questions:**
 - Treasury wallet created? (needed before PAY-2)
@@ -105,12 +109,18 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 |:--:|:-:|:------|:-----:|:-----------|
 | 26.1 | 🐛 FIX | PAY-2c bug: Helius tokenAmount is human float not raw base units — remove /1e6 | 🟢 S | `src/api/services/payment-confirmation.service.ts` |
 | 26.2 | 🧪 TEST | PAY-2c E2E verified: real $15 USDC → webhook → 1000 credits confirmed | 🟢 S | `dashboard/src/app/pay-test/page.tsx` |
+| 26.3 | 🎯 FEAT | PAY-4: Credits dashboard page + purchase modal + WS + 402 handling | 🟡 M | `dashboard/src/app/dashboard/credits/page.tsx`, `dashboard/src/components/credits/CreditPurchaseModal.tsx`, `dashboard/src/hooks/useCredits.ts`, `dashboard/src/hooks/useCreditPacks.ts`, `dashboard/src/components/layout/AppShell.tsx`, `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx`, `dashboard/src/app/similarity-lab/page.tsx` |
+| 26.4 | 🐛 FIX | PAY-4 type audit: align CreditTransaction/PaymentStatus/CreditPack to real backend contracts | 🟢 S | `dashboard/src/types/api.ts`, `dashboard/src/hooks/useCreditPacks.ts`, `dashboard/src/components/credits/CreditPurchaseModal.tsx` |
 
 **Summary:**
 
 **26.1:** Fixed amount validation bug in `PaymentConfirmationService.tryConfirmByAccounts`. Helius Enhanced Transaction format sends `tokenTransfers[].tokenAmount` as a human-readable float (e.g. `15` for $15 USDC), not raw base units. The code was dividing by `1e6`, turning `15` into `0.000015` which always failed the `>= intent.amountUsdc` check. Removed the division — compare directly.
 
 **26.2:** Full E2E test with real mainnet USDC payment. Helius webhook fired → reference pubkey matched pending intent → amount validated → `confirmIntent` ran → credits topped up → `payment:confirmed` WS event emitted. Status endpoint confirmed `phase: confirmed` with `txSignature`. Credit balance: 0 → 1000. Reconciliation fallback also triggered on the pre-fix pending intent. Test page at `dashboard/src/app/pay-test/page.tsx`.
+
+**26.3:** Implemented PAY-4 frontend payment flow. `/dashboard/credits` page: balance card, credit costs reference, transaction ledger with `delta`-signed amounts and `reason`-derived labels. `CreditPurchaseModal`: 3-stage flow (pack grid → QR → confirmed). Polls `GET /payments/:id/status` every 3s via SWR `refreshInterval`. Separate Socket.IO listener for `payment:confirmed` WS event (faster confirmation path). Expiry countdown timer — hits zero → silently returns to pack selection. SWR `mutate` on credits cache key after confirmation. 402 handling: `BehavioralPatternsTab` shows contextual "Insufficient credits" EmptyState with Buy Credits button + suppresses retry on 402. `similarity-lab` shows Sonner toast with required/balance + "Buy Credits" action. Credits nav item (auth-only) + live balance chip in AppShell header. All hooks null-keyed when unauthenticated. **Verified E2E:** $15 USDC → Payment Confirmed modal → +1,000 in ledger. Known UX limitation: expiry returns to packs silently with no explanation — tracked as PAY-4b.
+
+**26.4:** Post-implementation type audit against actual backend contracts. `CreditTransaction`: backend sends `delta`/`reason`/`refId`/`balanceAfter` — not `amount`/`type` (no enum). `PaymentStatus`: no `credits` field, no `failed` status (only `pending/confirmed/expired`), real fields are `status/phase/message/confirmedAt/txSignature`. `CreditPack`: removed invented `description` field. `ExpiryCountdown`: fixed interval recreation bug (removed `secondsLeft` from `useEffect` deps, use `useRef` for callback). `useCreditPacks`: auth-gated (endpoint requires JWT). `tsc --noEmit` clean.
 
 ### February 24, 2026
 
@@ -241,7 +251,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-26  **Branch:** `feat/credit-ledger-foundation`
+**Last Updated:** 2026-02-26 (evening)  **Branch:** `feat/credit-ledger-foundation`
 
 
 
