@@ -1,0 +1,55 @@
+# ── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+dashboard/node_modules/
+pft-bot_v2/node_modules/
+.pnpm-store/
+
+# ── Build outputs ────────────────────────────────────────────────────────────
+dist/
+build/
+.next/
+coverage/
+.nyc_output/
+test-output/
+e2e/reports/
+**/*.tsbuildinfo
+**/*.map
+
+# ── Lock files ───────────────────────────────────────────────────────────────
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# ── Data & runtime output ────────────────────────────────────────────────────
+data/
+logs/
+logs.json
+reports/
+backups/
+analyses/
+analysis_sessions/
+analysis_reports/
+debug_output/
+active_alerts/
+all_alerts/
+alerts.json
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# ── AI / LLM artifacts ───────────────────────────────────────────────────────
+llms.txt
+llms-full.txt
+seo-prompts/
+.cache/
+
+# ── AI context: runtime noise (keep .ai/ docs indexed, exclude logs) ─────────
+.ai/context/sig_buyers/logs/
+.ai/context/**/*.audit.json
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+.git/
+.DS_Store
+*.audit.json
+cline_docs/

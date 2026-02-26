@@ -5,7 +5,6 @@ node_modules/
 dist/
 cline_docs/
 .cache/
-.vscode/
 tests/
 .idea/
 .DS_Store

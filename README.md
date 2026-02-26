@@ -380,6 +380,6 @@ Proprietary — Sova Intel, 2026
 
 ---
 
-**Version**: 0.18.0+
+**Version**: 1.1.0+
 **Status**: Production (PAY-1/2 complete, X402 pending)
 **Last Updated**: 2026-02-24
