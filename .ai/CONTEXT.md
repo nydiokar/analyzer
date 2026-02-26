@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-02-24  **Status:** PFT bot complete → Payment infrastructure (Solana Pay + X402) is next priority
+**Branch:** `main`  **Last Updated:** 2026-02-26  **Status:** PFT bot complete → Payment infrastructure (Solana Pay + X402) is next priority
 
 ---
 
@@ -92,7 +92,25 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 ##  Recent Activity
 
-### February 24, 2026 (Latest)
+### February 26, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 26.1 | 📊 INVESTIGATION | PostgreSQL growth attribution (day-level + table-level + wallet pressure points) | 🟡 M | DB internals (`pg_class`, `pg_stat_user_tables`), container `analyzer-postgres`, `.ai/CONTEXT.md` |
+
+**26.1:** Investigated sustained DB growth (~1 GB/day observed operationally) directly in production PostgreSQL (`sova_analyzer`) via read-only SQL from `analyzer-postgres` container. Current DB size: **13 GB** (`13967906483` bytes). Largest tables by total relation size: `SwapAnalysisInput` **9194 MB**, `HeliusTransactionCache` **2105 MB**, `TokenLot` **1136 MB**, `AnalysisResult` **638 MB**.  
+14-day estimated growth share (from day-level row ingest × current per-row relation footprint):  
+- `SwapAnalysisInput`: **~60.9%** (**404.7 MB/day** avg)  
+- `HeliusTransactionCache`: **~21.3%** (**141.7 MB/day** avg)  
+- `TokenLot`: **~11.3%** (**75.5 MB/day** avg)  
+- `AnalysisResult`: **~6.5%** (**43.0 MB/day** avg)  
+Key anomaly day: **2026-02-12** (simultaneous surge across all large tables; est. ~1.57 GB from these 4 tables alone).  
+Main storage inflation pressure is not vacuum bloat on the top ingest tables: `SwapAnalysisInput` dead tuples are near-zero (`0.01%`), `HeliusTransactionCache` dead tuples `0`. Growth is primarily new inserts.  
+Critical index pressure: `SwapAnalysisInput_signature_mint_direction_amount_key` is **~3791 MB** alone (largest single index in DB), indicating high duplicate-prevention/index amplification cost on heavy ingest path.  
+Wallet concentration remains meaningful: top wallets in last 14 days contribute tens of thousands of rows each (`SwapAnalysisInput` top wallet `45047` rows; `TokenLot` top wallet `16437`; `AnalysisResult` top wallet `12645` updated rows).
+Playbook for future sessions: `.ai/context/db_op/DB_GROWTH_PLAYBOOK_2026-02-26.md`
+
+### February 24, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
@@ -139,6 +157,37 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 ##  Architecture Decisions
 
 ALWAYS run scripts with "npx ts-node -r tsconfig-paths/register" 
+
+### DB Growth Investigation Protocol
+*Decided: 2026-02-26*
+
+For future sessions investigating DB growth, run this sequence first (read-only):
+
+1. Verify runtime + DB target:
+   - `pm2 status`
+   - `docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}'`
+   - Expect active container: `analyzer-postgres` and DB `sova_analyzer`.
+2. Baseline size:
+   - `docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c "SELECT pg_size_pretty(pg_database_size('sova_analyzer')), pg_database_size('sova_analyzer');"`
+3. Top table footprint:
+   - Query `pg_total_relation_size`, `pg_relation_size`, `pg_indexes_size`, toast size from `pg_class`.
+4. Day-level growth attribution:
+   - Group by day on:
+     - `SwapAnalysisInput.timestamp` (epoch int)
+     - `HeliusTransactionCache.fetchedAt` (fallback to `timestamp`)
+     - `TokenLot.createdAt`
+     - `AnalysisResult.updatedAt`
+   - Compute rows/day and estimated MB/day.
+5. Separate true growth vs bloat:
+   - `pg_stat_user_tables`: `n_live_tup`, `n_dead_tup`, autovacuum timestamps.
+6. Identify index amplification:
+   - `pg_index` + `pg_relation_size(index)` on top tables.
+7. Identify workload concentration:
+   - Top wallets by row counts (14d) for `SwapAnalysisInput`, `TokenLot`, `AnalysisResult`.
+
+Interpretation rule used in this session:
+- If dead tuples are low on biggest tables, growth is ingest-driven, not vacuum lag.
+- If one index is multi-GB and tied to high-ingest table, index strategy is a primary pressure point.
 
 ### Lock Scope Independence
 *Decided: 2026-01-13*
@@ -212,9 +261,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-23  **Branch:** `main`
-
-
+**Last Updated:** 2026-02-26  **Branch:** `main`
 
 
 
