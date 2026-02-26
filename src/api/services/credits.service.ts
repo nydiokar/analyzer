@@ -200,6 +200,37 @@ export class CreditsService {
   }
 
   /**
+   * Record an x402 on-chain payment in the ledger WITHOUT touching the credit
+   * balance. Used when an agent pays real USDC — no credit deduction is needed,
+   * but the ledger must reflect what happened for auditing/analytics.
+   *
+   * Writes a CreditTransaction with delta = -creditCost and balanceAfter = current balance.
+   * The CreditBalance row is NOT modified.
+   */
+  async recordX402Payment(
+    userId: string,
+    creditCost: number,
+    txSignature: string,
+  ): Promise<void> {
+    const current = await prisma.creditBalance.findUnique({ where: { userId } });
+    const currentCredits = current?.credits ?? 0;
+
+    await prisma.creditTransaction.create({
+      data: {
+        userId,
+        delta: -creditCost,
+        reason: 'x402_payment',
+        refId: txSignature,
+        balanceAfter: currentCredits,
+      },
+    });
+
+    this.logger.log(
+      `x402 ledger: user=${userId} -${creditCost} (x402_payment) tx=${txSignature} balance_unchanged=${currentCredits}`,
+    );
+  }
+
+  /**
    * Fetch the N most recent transactions for a user (for display in the UI).
    */
   async getRecentTransactions(

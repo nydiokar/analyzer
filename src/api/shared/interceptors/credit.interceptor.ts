@@ -13,6 +13,7 @@ import { User } from '@prisma/client';
 interface AuthenticatedRequest extends Request {
   user?: User;
   creditCost?: number; // Set by CreditGuard
+  x402Paid?: boolean; // Set by CreditGuard when agent paid via X402
 }
 
 /**
@@ -38,6 +39,11 @@ export class CreditInterceptor implements NestInterceptor {
 
     // If no credit cost or no user, just pass through
     if (!creditCost || !user) {
+      return next.handle();
+    }
+
+    // x402 agent already paid on-chain — skip deduction
+    if (request.x402Paid) {
       return next.handle();
     }
 

@@ -1,22 +1,19 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { CreditsService } from '../services/credits.service';
-import { CreditGuard } from '../shared/guards/credit.guard';
-import { CreditInterceptor } from '../shared/interceptors/credit.interceptor';
+import { X402VerificationService } from '../services/x402-verification.service';
+import { RedisModule } from '../../queues/config/redis.module';
 
 /**
- * CreditsModule — global so any module can inject CreditsService without
- * importing this module explicitly.
+ * CreditsModule — global, provides services to the entire app.
  *
- * Provides:
- * - CreditsService (balance queries, atomic topUp/deduct, signup bonus)
- * - CreditGuard (pre-request balance check)
- * - CreditInterceptor (post-success credit deduction)
+ * Guards and interceptors (CreditGuard, CreditInterceptor) are registered
+ * as APP_GUARD / APP_INTERCEPTOR in AppModule — not here.
  */
 @Global()
 @Module({
-  imports: [ConfigModule],
-  providers: [CreditsService, CreditGuard, CreditInterceptor],
-  exports: [CreditsService, CreditGuard, CreditInterceptor],
+  imports: [ConfigModule, RedisModule],
+  providers: [CreditsService, X402VerificationService],
+  exports: [CreditsService, X402VerificationService],
 })
 export class CreditsModule {}
