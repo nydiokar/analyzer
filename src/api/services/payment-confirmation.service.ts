@@ -53,8 +53,7 @@ export class PaymentConfirmationService {
     // intent.amountUsdc is stored as human float (e.g. 15.0 for $15).
     const usdcTransfer = tokenTransfers.find((t) => {
       if (t.mint !== this.usdcMint || typeof t.tokenAmount !== 'number') return false;
-      const humanAmount = (t.tokenAmount as number) / 1e6;
-      return humanAmount >= intent.amountUsdc;
+      return (t.tokenAmount as number) >= intent.amountUsdc;
     });
 
     if (!usdcTransfer) {

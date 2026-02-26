@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-24  **Status:** PAY-1a/1b/1c/1d done (schema + service + guard + endpoint decoration) → Verified with 402 → PAY-2a next (CreditPack + PaymentIntent schema)
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-26  **Status:** PAY-2c verified E2E (webhook + reconciliation + credits) → PAY-3 next (X402 protocol layer)
 
 ---
 
@@ -9,14 +9,14 @@
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
 | ✅ | PFT Oracle Bot v2 — All phases complete (scaffold → IPFS) | 🔴 L | Phases 1-4 done. Bot live on PFT marketplace. `/profile`, `/holders`, `/analyze`, `/compare` + IPFS attachments all working. Phase 5 (hardening) is next when revisiting. |
-| ⚪ | **[PAY-0] Create treasury wallet** | 🟢 S | New dedicated Phantom/Solflare wallet. Add pubkey to `.env` as `TREASURY_WALLET_ADDRESS`. Blocks all payment work. |
+| ✅ | **[PAY-0] Create treasury wallet** | 🟢 S | New dedicated Phantom/Solflare wallet. Add pubkey to `.env` as `TREASURY_WALLET_ADDRESS`. Blocks all payment work. |
 | ✅ | **[PAY-1a] Prisma: CreditBalance + CreditTransaction models** | 🟢 S | Both models added to `schema.prisma`. User gets `creditBalance`/`creditTransactions` relations. Run `npx prisma migrate dev --name credit-ledger` to apply. Branch: `feat/credit-ledger-foundation`. |
 | ✅ | **[PAY-1b] CreditsModule + CreditsService** | 🟡 M | `getBalance`, `deduct` (atomic, throws 402 on short balance), `topUp`, `grantSignupBonus` (non-fatal, called from AuthService.register). `@Global()` module wired into AppModule. Branch: `feat/credit-ledger-foundation`. |
 | ✅ | **[PAY-1c] @RequireCredits decorator + CreditGuard** | 🟡 M | Decorator sets metadata (`@RequireCredits(N)`), `CreditGuard` checks balance before, `CreditInterceptor` deducts after success. Failed requests don't charge. Returns HTTP 402 on insufficient credits. Test endpoint at `GET /api/v1/test-auth/credits`. |
 | ✅ | **[PAY-1d] Decorate endpoints** | 🟢 S | `@RequireCredits(5)` on `GET /wallets/:addr/behavior-analysis`, `@RequireCredits(100)` on `POST /analyses/similarity/queue`, `@RequireCredits(10)` on `POST /analyses/wallets/dashboard-analysis`. Verified: 402 `{"error":"insufficient_credits","balance":0,"required":5}` returned on 0-balance requests. |
 | ✅ | **[PAY-2a] Prisma: CreditPack + PaymentIntent models** | 🟢 S | Both models added. Migration `20260224122500_payment_packs` applied. 3 packs seeded via `pnpm seed`. |
 | ✅ | **[PAY-2b] PaymentModule — checkout + status endpoints** | 🟡 M | `POST /payments/checkout` (creates intent, returns QR), `GET /payments/:id/status`, `GET /payments/packs`, `GET /users/me/credits`. `@solana/pay`, `@solana/web3.js`, `qrcode` installed. Verified end-to-end. |
-| ✅ | **[PAY-2c] Payment confirmation — webhook + reconciliation** | 🟡 M | `POST /integrations/helius/payment-webhook` — verifies `HELIUS_PAYMENT_WEBHOOK_SECRET`, finds pending intent by reference pubkey in accountData, validates USDC mint + amount, calls `creditsService.topUp()`, marks intent `confirmed`, emits `payment:confirmed` WS event. `PaymentReconciliationProcessor` — BullMQ worker on `payment-reconciliation` queue, `upsertJobScheduler` runs every 5min, scans pending intents >2min old, calls `findReference()` once per intent, expires stale ones. Idempotent via `updateMany where status=pending`. **Files:** `src/api/services/payment-confirmation.service.ts`, `src/api/controllers/helius-webhook.controller.ts` (+handler), `src/queues/processors/payment-reconciliation.processor.ts`, `src/queues/queue.module.ts` (+PaymentConfirmationService+PaymentReconciliationProcessor). |
+| ✅ | **[PAY-2c] Payment confirmation — webhook + reconciliation** | 🟡 M | `POST /integrations/helius/payment-webhook` — verifies `HELIUS_PAYMENT_WEBHOOK_SECRET`, finds pending intent by reference pubkey in accountData, validates USDC mint + amount, calls `creditsService.topUp()`, marks intent `confirmed`, emits `payment:confirmed` WS event. `PaymentReconciliationProcessor` — BullMQ worker on `payment-reconciliation` queue, `upsertJobScheduler` runs every 5min, scans pending intents >2min old, calls `findReference()` once per intent, expires stale ones. Idempotent via `updateMany where status=pending`. **Bug fixed (Feb 26):** Helius sends `tokenAmount` as human float (e.g. `15`), not raw base units — removed erroneous `/1e6` division. **Verified E2E (Feb 26):** Real $15 USDC payment → webhook fired → intent confirmed → 1000 credits landed. **Files:** `src/api/services/payment-confirmation.service.ts`, `src/api/controllers/helius-webhook.controller.ts` (+handler), `src/queues/processors/payment-reconciliation.processor.ts`, `src/queues/queue.module.ts`, `dashboard/src/app/pay-test/page.tsx` (test page). |
 | ⚪ | **[PAY-3] X402 protocol layer (agent/bot payments)** | 🔴 L | Extend CreditGuard: on 402 with no `X-Payment` header → return x402 payload. With header → verify on-chain tx → allow through → deduct. `pnpm add x402`. Enables autonomous agent consumption. |
 | ⚪ | **[PAY-4] Credits dashboard UI** | 🟡 M | `/dashboard/credits` page: balance display, "Buy Credits" button → QR modal, transaction ledger, low-balance WebSocket notification. Admin: manual credit grant tool. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
@@ -63,7 +63,7 @@ Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 - ⚪ `[PAY-0]` Treasury wallet — create dedicated Phantom/Solflare wallet, add `TREASURY_WALLET_ADDRESS` to `.env`
 - ✅ `[PAY-2a]` Schema: `CreditPack` + `PaymentIntent` models — migration `20260224122500_payment_packs`, 3 packs seeded
 - ✅ `[PAY-2b]` `PaymentService` + `PaymentController` + `PaymentModule` — checkout QR, status poll, packs list, credits balance — **verified end-to-end**
-- ✅ `[PAY-2c]` Webhook confirmation + reconciliation fallback — webhook handler + BullMQ reconciler
+- ✅ `[PAY-2c]` Webhook confirmation + reconciliation fallback — **verified E2E Feb 26** (real $15 USDC → 1000 credits confirmed)
 - ⚪ `[PAY-3]` X402 protocol layer (agent/bot autonomous payments)
 - ⚪ `[PAY-4]` Credits dashboard UI
 
@@ -99,7 +99,20 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 ##  Recent Activity
 
-### February 24, 2026 (Latest)
+### February 26, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 26.1 | 🐛 FIX | PAY-2c bug: Helius tokenAmount is human float not raw base units — remove /1e6 | 🟢 S | `src/api/services/payment-confirmation.service.ts` |
+| 26.2 | 🧪 TEST | PAY-2c E2E verified: real $15 USDC → webhook → 1000 credits confirmed | 🟢 S | `dashboard/src/app/pay-test/page.tsx` |
+
+**Summary:**
+
+**26.1:** Fixed amount validation bug in `PaymentConfirmationService.tryConfirmByAccounts`. Helius Enhanced Transaction format sends `tokenTransfers[].tokenAmount` as a human-readable float (e.g. `15` for $15 USDC), not raw base units. The code was dividing by `1e6`, turning `15` into `0.000015` which always failed the `>= intent.amountUsdc` check. Removed the division — compare directly.
+
+**26.2:** Full E2E test with real mainnet USDC payment. Helius webhook fired → reference pubkey matched pending intent → amount validated → `confirmIntent` ran → credits topped up → `payment:confirmed` WS event emitted. Status endpoint confirmed `phase: confirmed` with `txSignature`. Credit balance: 0 → 1000. Reconciliation fallback also triggered on the pre-fix pending intent. Test page at `dashboard/src/app/pay-test/page.tsx`.
+
+### February 24, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
@@ -228,7 +241,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-24  **Branch:** `feat/credit-ledger-foundation`
+**Last Updated:** 2026-02-26  **Branch:** `feat/credit-ledger-foundation`
 
 
 
