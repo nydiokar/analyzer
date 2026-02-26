@@ -78,6 +78,9 @@ export const createCacheKey = {
   walletHudBatch: (walletAddresses: string[]) => `/wallets/hud/batch:${walletAddresses.join(',')}`,
   walletHuntList: () => '/wallet-hunts',
   walletHuntDetail: (id: string) => `/wallet-hunts/${id}`,
+  credits: () => '/users/me/credits',
+  creditPacks: () => '/payments/packs',
+  paymentStatus: (intentId: string) => `/payments/${intentId}/status`,
 };
 
 // Simplified cache invalidation patterns

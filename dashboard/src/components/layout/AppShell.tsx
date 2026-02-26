@@ -13,9 +13,10 @@ import { AppCacheProvider } from '@/lib/cache-provider';
 import { useProactiveRefresh } from '@/hooks/useProactiveRefresh';
 import { useAuth } from '@/hooks/useAuth';
 import { useUIStore } from '@/store/ui-store';
+import { useCredits } from '@/hooks/useCredits';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Star, Menu, Send } from 'lucide-react';
+import { Star, Menu, Send, Coins } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -49,6 +50,7 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
+  const { balance } = useCredits();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Use global UI store for auth modal (can be triggered from anywhere)
@@ -70,6 +72,7 @@ export function AppShell({ children }: AppShellProps) {
     { href: '/tools/holder-profiles', label: 'Holder Profiles' },
     { href: '/tools/top-holders', label: 'Top Holders' },
     { href: '/wallet-hunt', label: 'Wallet Hunt' },
+    ...(isAuthenticated ? [{ href: '/dashboard/credits', label: 'Credits' }] : []),
   ];
 
   const isActiveRoute = (href: string) => {
@@ -175,6 +178,18 @@ export function AppShell({ children }: AppShellProps) {
                 >
                   <Star className="h-4 w-4" />
                 </Button>
+
+                {/* Credit balance chip — visible when authenticated */}
+                {isAuthenticated && balance !== null && (
+                  <Link
+                    href="/dashboard/credits"
+                    className="hidden sm:flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-foreground hover:border-blue-500 transition-colors"
+                    title="Your credit balance"
+                  >
+                    <Coins className="h-3.5 w-3.5 text-blue-400" />
+                    {balance.toLocaleString()}
+                  </Link>
+                )}
 
                 {/* Profile Menu or Auth Buttons */}
                 {isAuthenticated ? (

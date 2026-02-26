@@ -621,3 +621,50 @@ export interface AddSnapshotResponse {
   snapshot: HuntSnapshot;
   candidates: HuntCandidate[];
 }
+
+// ─── Payment / Credits ────────────────────────────────────────────────────────
+
+export interface CreditPack {
+  id: string;
+  name: string;
+  priceUsdc: number;
+  credits: number;
+}
+
+/** Returned by POST /payments/checkout */
+export interface CheckoutResponse {
+  id: string;
+  solanaPayUrl: string;
+  qrCodeDataUrl: string;
+  expiresAt: string;
+  amountUsdc: number;
+  credits: number;
+}
+
+/** Returned by GET /payments/:id/status */
+export interface PaymentStatus {
+  status: 'pending' | 'confirmed' | 'expired';
+  phase: 'waiting' | 'confirmed' | 'expired';
+  message: string;
+  confirmedAt?: string;
+  txSignature?: string;
+}
+
+/** Single row from the append-only credit ledger */
+export interface CreditTransaction {
+  id: string;
+  /** Positive = credits added, negative = credits spent */
+  delta: number;
+  /** Free-text reason, e.g. "purchase", "signup_bonus", "endpoint:/wallets/.../behavior-analysis" */
+  reason: string;
+  refId: string | null;
+  balanceAfter: number;
+  createdAt: string;
+}
+
+/** Returned by GET /users/me/credits */
+export interface CreditsBalance {
+  balance: number;
+  updatedAt: string;
+  transactions: CreditTransaction[];
+}

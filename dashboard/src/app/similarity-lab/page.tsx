@@ -21,6 +21,7 @@ import { PageTitle } from '@/components/shared/PageTitle';
 import { useFavorites } from '@/hooks/useFavorites';
 import { BulkTrackModal } from '@/components/shared/BulkTrackModal';
 import { useSimilarityLabTrackersFlow } from '@/hooks/similarity-lab/useSimilarityLabTrackersFlow';
+import { CreditPurchaseModal } from '@/components/credits/CreditPurchaseModal';
 
 
 // Removed TopProgressBar - progress now handled inline
@@ -104,6 +105,7 @@ export default function AnalysisLabPage() {
   });
   const [syncMessage, setSyncMessage] = useState('');
   const [, setError] = useState<string | null>(null);
+  const [buyModalOpen, setBuyModalOpen] = useState(false);
 
   // Job tracking for analysis
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
@@ -535,6 +537,22 @@ export default function AnalysisLabPage() {
       
     } catch (error: any) {
       console.error('Error submitting job:', error);
+
+      if (error?.status === 402) {
+        const balance = error?.payload?.balance ?? 0;
+        const required = error?.payload?.required ?? 100;
+        setSyncMessage('Insufficient credits');
+        setJobStatuses({ analysis: 'idle', enrichment: 'idle' });
+        toast.error('Insufficient credits', {
+          description: `Similarity analysis requires ${required} credits. You have ${balance}.`,
+          action: {
+            label: 'Buy Credits',
+            onClick: () => setBuyModalOpen(true),
+          },
+        });
+        return;
+      }
+
       const errorMessage = error?.payload?.message || error.message || 'Failed to submit job.';
       setSyncMessage(errorMessage);
       setError(errorMessage);
@@ -741,6 +759,9 @@ export default function AnalysisLabPage() {
           defaultCollectionName={defaultCollectionName}
           defaultNicknamePrefix={defaultNicknamePrefix}
         />
+
+        {/* Credit purchase modal — opened when 402 is returned on job queue */}
+        <CreditPurchaseModal open={buyModalOpen} onOpenChange={setBuyModalOpen} />
 
         {/* Analysis Progress Indicator - Modern Pulsing Animation */}
         {jobStatuses.analysis === 'running' && (
