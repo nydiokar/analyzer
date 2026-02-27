@@ -144,7 +144,7 @@ export class AnalysesController {
   }
 
   @Post('/similarity/queue')
-  @RequireCredits(100)
+  @RequireCredits(20)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: 'Queue a similarity analysis job',
@@ -276,7 +276,7 @@ export class AnalysesController {
   }
 
   @Post('/wallets/dashboard-analysis')
-  @RequireCredits(10)
+  @RequireCredits(5)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ 
     summary: 'Queue dashboard wallet analysis job',
@@ -522,6 +522,7 @@ export class AnalysesController {
   }
 
   @Post('/holder-profiles')
+  @RequireCredits(20)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: 'Queue holder profiles analysis job',
@@ -623,6 +624,7 @@ export class AnalysesController {
   }
 
   @Post('/holder-profiles/wallet')
+  @RequireCredits(5)
   @Throttle({ default: { limit: 50, ttl: 60000 } })
   @ApiOperation({
     summary: 'Analyze holder profile for a single wallet',

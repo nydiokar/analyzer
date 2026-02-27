@@ -44,7 +44,6 @@ import { UpdateNoteDto } from '../shared/dto/update-note.dto';
 import { WalletSearchQueryDto } from '../shared/dto/wallet-search-query.dto';
 import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../shared/dto/wallet-search-result.dto';
 import { getErrorMessage } from 'core/utils/error-utils';
-import { RequireCredits } from '../shared/decorators/require-credits.decorator';
 @ApiTags('Wallets')
 @Controller('wallets')
 export class WalletsController {
@@ -425,7 +424,6 @@ export class WalletsController {
   }
 
   @Get(':walletAddress/behavior-analysis')
-  @RequireCredits(5)
   @ApiOperation({
     summary: 'Get detailed behavior analysis for a Solana wallet.',
     description:

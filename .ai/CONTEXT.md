@@ -19,17 +19,19 @@
 | ✅ | **[PAY-3] X402 protocol layer (agent/bot payments)** | 🔴 L | Implemented + E2E verified Feb 27. Agents pay per-request via real on-chain USDC — no API key needed. Wallet-identified (`<pubkey>@x402.agent`). Replay protection via Redis SET NX. Fixed: ATA vs raw wallet address comparison in `X402VerificationService.extractUsdcTransfer`. See `.ai/context/monetization/PAY-3-X402-DECISIONS.md`. |
 | ✅ | **[PAY-4] Credits dashboard UI** | 🟡 M | `/dashboard/credits` page live. Balance display, transaction ledger (delta/reason from real backend shape), Buy Credits modal (pack grid → QR → confirmed stages), `payment:confirmed` WS listener, status polling every 3s, SWR revalidation on confirmation, 402 handling in BehavioralPatternsTab + SimilarityLab, Credits nav item + live balance chip in AppShell. **Verified E2E Feb 26:** real $15 USDC → 1000 credits → Payment Confirmed modal → ledger updated. **Files:** `dashboard/src/app/dashboard/credits/page.tsx`, `dashboard/src/components/credits/CreditPurchaseModal.tsx`, `dashboard/src/hooks/useCredits.ts`, `dashboard/src/hooks/useCreditPacks.ts`, `dashboard/src/types/api.ts` (+payment types), `dashboard/src/lib/swr-config.ts` (+cache keys). |
 | ✅ | **[PAY-4b] Checkout page UX upgrade** | 🟡 M | Dedicated `/dashboard/credits/checkout/[packId]` route. Two-column layout: left = order summary (pack name, price, "what you get" breakdown per operation type), right = QR code + copy Solana Pay URL + expiry countdown + all terminal states (loading/qr/confirmed/expired/error). `ExpiryCountdown` extracted to shared component. `CreditPurchaseModal` kept (still used as fallback) but no longer primary flow. Credits page restructured: two-column (balance+costs+CTA left, full transaction history right), pack grid below the fold with "Top Up" scroll-to. "Most Popular" highlight on middle pack. `Top Holders` removed from nav. `Credits` removed from nav (accessible via balance chip + UserMenu). UserMenu gains live Credits balance entry. **tsc clean.** |
-| ⚪ | **[PAY-5a] Pricing discovery endpoint** `GET /api/ai/pricing` | 🟢 S | Returns a machine-readable map of `{endpoint, credits, usdEquivalent, description}` for all `@RequireCredits` endpoints. Required for any external agent to self-onboard without reading source. No auth required. |
+| ✅ | **[PAY-6a] Map every endpoint to cost + gating decision** | 🟢 S | **AUDIT COMPLETE (Feb 27).** Full audit of all controllers. 3 gated endpoints reviewed, 2 ungated expensive endpoints identified, compound operations verified no-double-charge, frontend similarity coupling documented. See `.ai/context/monetization/PAY-6-PRICING-AUDIT.md`. |
+| ✅ | **[PAY-6d] Verify compound operation charging** | 🟢 S | **VERIFIED (Feb 27).** dashboard-analysis with `queueWorkingAfter` does NOT double-charge (internal job-to-job, CreditGuard doesn't fire). holder-profiles child wallet jobs do NOT double-charge. Frontend similarity auto-fire IS a separate charge — to be decoupled (opt-in button). |
+| ⚪ | **[PAY-6b] Tune credit costs on existing gated endpoints** | 🟢 S | Decided: `behavior-analysis` → remove gate (pure DB read). `dashboard-analysis` → 10→5cr. `similarity/queue` → 100→20cr. 1-line changes per endpoint. |
+| ⚪ | **[PAY-6c] Gate currently-free expensive endpoints** | 🟢 S | Decided: `holder-profiles` → add @RequireCredits(20). `holder-profiles/wallet` → add @RequireCredits(5) or remove endpoint. `pnl-overview` stays free (pure DB read, NOT Helius as previously assumed). |
+| ⚪ | **[PAY-6e] Update credits page UI to reflect final pricing** | 🟢 S | Update `OPERATION_COSTS` constant + checkout OrderSummary + pack card breakdowns. |
+| ⚪ | **[PAY-5a] Pricing discovery endpoint** `GET /intel/pricing` | 🟡 M | New `IntelController` at `/api/v1/intel/`. Public, no auth. Returns machine-readable map: `endpoints[]` (path, method, credits, usdEquivalent, description, category) + `packs[]` + `x402` config. Config-driven (not reflection). |
+| ⚪ | **[PAY-7] Intel API layer** | 🔴 L | New public API product: `GET /intel/wallet/:addr` (5cr, combined summary+HUD+behavior+PnL), `GET /intel/wallet/:addr/tokens` (3cr), `POST /intel/token/:mint/holders` (35cr, bundled profiles+similarity), `GET /intel/wallet/:addr/hud` (1cr), `POST /intel/wallets/batch-hud` (5cr). See `.ai/context/monetization/PAY-6-PRICING-AUDIT.md` §2+§5. |
+| ⚪ | **[PAY-7a] Frontend: decouple similarity from holder-profiles** | 🟢 S | Remove auto-fire in `holder-profiles/page.tsx` (line ~240). Replace with opt-in "Run Similarity (20cr)" button after profiles complete. |
+| ⚪ | **[PAY-7b] Frontend: graceful 0-balance auto-trigger** | 🟡 M | In `WalletProfileLayout.tsx` auto-trigger: if credits < 5, show last known data (even stale) + staleness badge + "Refresh Analysis (5cr)" button + "Buy Credits" CTA. Never block the page. |
 | ⚪ | **[PAY-5b] Agent usage stats** | 🟡 M | Admin query surface + dashboard widget showing x402 revenue: per-wallet breakdown, total agent payments, credits consumed vs human credits. Query from `CreditTransaction WHERE reason = 'x402_payment'`. |
 | ⚪ | **[PAY-5c] `X-Payment-Receipt` response header** | 🟢 S | After successful x402 payment, return confirmed tx signature in `X-Payment-Receipt` header so agent can record it for their own accounting. 2-line change in `CreditGuard`. |
-| ⚪ | **[PAY-5d] Blocked wallet E2E test** | 🟢 S | Verify `isActive=false` on an agent user row returns HTTP 403. Manual DB flip + script check. The kill switch was designed in but never exercised. |
-| ⚪ | **[PAY-5e] Agent SDK / integration guide** | 🟡 M | Docs + minimal code example showing how an external agent negotiates the x402 handshake: discovery → build tx → attach header → handle replay. Reference implementation in `x402-agent-test.ts`. |
-| ⚪ | **[PAY-6] Credit pricing audit + endpoint gating review** | 🟡 M | Full review of which endpoints consume credits, at what cost, and whether the gating makes sense for real usage patterns. See detailed sub-tasks below. |
-| ⚪ | **[PAY-6a] Map every endpoint to cost + gating decision** | 🟢 S | Audit all controllers for `@RequireCredits`. Document current state vs proposed. Key questions: (1) is this a standalone user action or part of a larger operation already charged elsewhere? (2) does this hit Helius/heavy compute or just read pre-computed DB data? (3) does gating this kill UX at the free tier? Affected: `behavior-analysis`(5cr), `dashboard-analysis`(10cr), `similarity/queue`(100cr), `holder-profiles`(free), `pnl-overview`(free), `hud`(free), `token-performance`(free). |
-| ⚪ | **[PAY-6b] Tune credit costs on existing gated endpoints** | 🟢 S | Based on PAY-6a findings, update `@RequireCredits(N)` values. Current concern: `behavior-analysis` at 5cr is a pure DB read (cheap to serve) — may be too high for adoption. `similarity/queue` at 100cr may be too high for product stage. Changes are 1-line each per endpoint. |
-| ⚪ | **[PAY-6c] Gate currently-free expensive endpoints** | 🟡 M | `POST /analyses/holder-profiles` analyzes up to 50 wallets with Helius calls per wallet — currently free, real cost. `POST /analyses/holder-profiles/wallet` single-wallet variant — lighter but still compute. `GET /wallets/:addr/pnl-overview` hits Helius. Decide whether to gate these and at what cost, considering UX impact vs cost exposure. |
-| ⚪ | **[PAY-6d] Verify compound operation charging** | 🟢 S | Some operations trigger follow-up jobs internally (e.g. `dashboard-analysis` with `queueWorkingAfter=true` queues a second deeper analysis). Verify the user is not double-charged for the same logical action, and that sub-operations spawned server-side don't re-trigger `CreditGuard`. |
-| ⚪ | **[PAY-6e] Update credits page UI to reflect final pricing** | 🟢 S | The "Cost per operation" reference table in `/dashboard/credits` is hardcoded (3 rows). After PAY-6b/6c settle the real costs, update the table + the `OPERATION_COSTS` constant in the credits page + checkout `OrderSummary` breakdown to match. |
+| ⚪ | **[PAY-5d] Blocked wallet E2E test** | 🟢 S | Verify `isActive=false` on an agent user row returns HTTP 403. Manual DB flip + script check. |
+| ⚪ | **[PAY-5e] Agent SDK / integration guide** | 🟡 M | Docs + minimal code example showing x402 handshake: discovery → build tx → attach header → handle replay. Reference implementation in `x402-agent-test.ts`. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
@@ -60,22 +62,24 @@ Solana-native credit system. No Stripe. USDC only. Modular: humans pay via Solan
 Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 
 **Progress:**
-- ✅ `[PAY-1a]` Schema: `CreditBalance` + `CreditTransaction` models — migration applied (`20260224002042_credit_ledger`)
-- ✅ `[PAY-1b]` `CreditsService` + `CreditsModule` + signup bonus wired
-- ✅ `[PAY-1c]` `@RequireCredits` decorator + `CreditGuard` + `CreditInterceptor`
-- ✅ `[PAY-1d]` Decorate endpoints — behavior-analysis(5), similarity(100), dashboard(10) — **verified with 402**
-- ⚪ `[PAY-0]` Treasury wallet — create dedicated Phantom/Solflare wallet, add `TREASURY_WALLET_ADDRESS` to `.env`
-- ✅ `[PAY-2a]` Schema: `CreditPack` + `PaymentIntent` models — migration `20260224122500_payment_packs`, 3 packs seeded
-- ✅ `[PAY-2b]` `PaymentService` + `PaymentController` + `PaymentModule` — checkout QR, status poll, packs list, credits balance — **verified end-to-end**
-- ✅ `[PAY-2c]` Webhook confirmation + reconciliation fallback — **verified E2E Feb 26** (real $15 USDC → 1000 credits confirmed)
-- ✅ `[PAY-4]` Credits dashboard UI — `/dashboard/credits` page, purchase modal, WS confirmation, 402 handling — **verified E2E Feb 26**
-- ⚪ `[PAY-4b]` Checkout page UX upgrade — dedicated `/checkout` page (Helius-style), graceful expiry handling
-- ✅ `[PAY-3]` X402 protocol layer — **verified E2E Feb 27** (real mainnet USDC → 200 response → replay rejected)
+- ✅ `[PAY-1a–1d]` Credit system foundation — schema, service, guard, interceptor, decorator — all verified
+- ✅ `[PAY-2a–2c]` Solana Pay checkout + webhook confirmation — **E2E verified** (real $15 USDC → 1000 credits)
+- ✅ `[PAY-3]` X402 protocol layer — **E2E verified** (real mainnet USDC → 200 → replay rejected)
+- ✅ `[PAY-4/4b]` Credits dashboard + checkout page UX — complete
+- ✅ `[PAY-6a/6d]` **Pricing audit complete (Feb 27)** — all endpoints traced, compound ops verified, strategy decided
+- ⚪ `[PAY-6b]` Tune credit costs — behavior(remove), dashboard(10→5), similarity(100→20)
+- ⚪ `[PAY-6c]` Gate holder-profiles(20cr), holder-profiles/wallet(5cr)
+- ⚪ `[PAY-5a]` `GET /intel/pricing` — public pricing discovery endpoint
+- ⚪ `[PAY-6e]` Update credits page UI with final pricing
+- ⚪ `[PAY-7]` Intel API layer — new `/api/v1/intel/` controller (public API product)
+- ⚪ `[PAY-7a]` Decouple similarity from holder-profiles (frontend opt-in button)
+- ⚪ `[PAY-7b]` Graceful 0-balance auto-trigger (stale data + CTA)
 
-**Open questions:**
-- Treasury wallet created? (needed before PAY-2)
-- Pack pricing confirmed: $15 / $120 / $900?
-- Credits expiry: no expiry recommended
+**Key decisions (Feb 27):**
+- **Two-tier API:** Internal endpoints (dashboard) = free reads + paid compute. Public Intel endpoints (devs/LLMs) = aggregated, all credit-gated.
+- **Pricing:** dashboard-analysis=5cr, holder-profiles=20cr, similarity=20cr. Reads free on dashboard. Intel: wallet=5cr, tokens=3cr, holders+similarity=35cr, hud=1cr.
+- **X402:** Unchanged. USDC_PER_CREDIT=0.015. Works with Intel endpoints.
+- **Full plan:** `.ai/context/monetization/PAY-6-PRICING-AUDIT.md`
 
 ### P1: PFT Oracle Bot v2 — ✅ COMPLETE (Phases 1-4, Feb 20-23)
 
@@ -111,6 +115,7 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 | 27.1 | 🎯 FEAT | PAY-4b: dedicated checkout route + credits page restructure | 🟡 M | `dashboard/src/app/dashboard/credits/page.tsx`, `dashboard/src/app/dashboard/credits/checkout/[packId]/page.tsx` (new), `dashboard/src/components/credits/ExpiryCountdown.tsx` (new), `dashboard/src/components/credits/CreditPurchaseModal.tsx`, `dashboard/src/components/layout/AppShell.tsx`, `dashboard/src/components/auth/UserMenu.tsx` |
 | 27.2 | 🔧 REFACTOR | Credits page UX: two-column layout, pack grid below fold, scroll-to CTA | 🟢 S | `dashboard/src/app/dashboard/credits/page.tsx` |
 | 27.3 | 🐛 FIX | Checkout bugs: double `!packsLoading`, `!!pack` boolean dep, missing `setCheckout(null)` on retry, `React` import, `$¢` notation | 🟢 S | `dashboard/src/app/dashboard/credits/checkout/[packId]/page.tsx`, `dashboard/src/app/dashboard/credits/page.tsx` |
+| 27.4 | 📋 DECISION | PAY-6a/6d audit complete + API pricing & strategy document | 🟡 M | `.ai/context/monetization/PAY-6-PRICING-AUDIT.md` (new) |
 
 **Summary:**
 
@@ -119,6 +124,8 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 **27.2:** Restructured `/dashboard/credits` page. Above the fold: fixed 320px left column (balance hero at 6xl, cost-per-operation reference, "Top Up Credits" scroll-to button) + fluid right column (full transaction history). Below the fold: full-width pack grid with proper pack cards showing price, credits, per-credit cost, "what you get" breakdown (N× per operation type), "Most Popular" badge on middle pack. Each pack "Select" CTA → navigates to that pack's checkout. `PackCard` and `OPERATION_COSTS` constant shared between reference table and pack cards (single source of truth). Empty transaction state uses `Receipt` icon instead of `Loader2`.
 
 **27.3:** Bug sweep after flow audit. Fixed: (1) `!packsLoading && !packsLoading` typo in redirect guard — second condition was dead; (2) `!!pack` boolean in useEffect deps — unstable derived value, replaced with `pack?.id`; (3) missing `setCheckout(null)` before retry POST — old checkout object could leak into WS effect; (4) `React.ReactNode` used without React import; (5) `$1.5¢` contradictory currency notation — removed `$` prefix, display as `1.5¢ per credit`; (6) `OrderSummary` had unused `checkout` prop — removed; (7) `<img>` ESLint warnings on QR elements — suppressed with targeted `eslint-disable-next-line` comments (data: URI, next/image cannot optimize).
+
+**27.4:** Full pricing audit (PAY-6a + PAY-6d). Traced every endpoint through controllers → processors → Helius calls. Key findings: (1) `behavior-analysis` at 5cr is pure DB read — remove gate. (2) `holder-profiles` at 0cr triggers up to 50 Helius RPCs — must gate at 20cr. (3) `dashboard-analysis` at 10cr auto-triggers on wallet page visit — reduce to 5cr. (4) `similarity/queue` at 100cr is CPU-only (no Helius if wallets synced) — reduce to 20cr. (5) Compound ops verified: no double-charging on internal job chains. (6) Frontend auto-fires similarity after holder-profiles — must decouple to opt-in. **Strategic decision:** Two-tier API architecture. Internal endpoints (dashboard) = free reads, paid compute triggers only. Public Intel endpoints (developers/LLMs/agents) = new `/api/v1/intel/` controller with aggregated high-value responses, all credit-gated. Full plan: `.ai/context/monetization/PAY-6-PRICING-AUDIT.md`.
 
 ### February 26, 2026
 
