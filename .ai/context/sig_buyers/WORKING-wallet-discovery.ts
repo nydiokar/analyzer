@@ -68,11 +68,11 @@ async function discoverSignificantWallets() {
 
   const config = {
     // The token mint address to analyze
-    mintAddress: '8gvJcLMhML92garNgYiWzbapW4DaJunRAA56GkUEpump',
+    mintAddress: '7opAGer4hk78N7VtYjk2bVif6SzvPkBm8PzQAvzspump',
 
     // Time range (Unix timestamps in seconds)
-    startTime: 1771919160,  // 2026-01-26T07:37:00.000Z
-    endTime: 1771919460,    // 2026-01-26T08:13:00.000Z
+    startTime: 1772148000,  // 2026-01-26T07:37:00.000Z
+    endTime: 1772149500,    // 2026-01-26T08:13:00.000Z
 
     // Minimum SOL spent to be considered "significant"
     minSolSpent: 0.7,
@@ -307,7 +307,7 @@ async function fetchTransactionsForMintInTimeWindow(
     if (times.length > 0) {
       const minT = Math.min(...times);
       const maxT = Math.max(...times);
-      console.log(`   Page ${page}: ${signatures.length} sigs in range (${new Date(minT * 1000).toISOString().slice(11, 19)} - ${new Date(maxT * 1000).toISOString().slice(11, 19)})`);
+      console.log(`   Page ${page}: ${signatures.length} sigs in range (${new Date(minT * 1000).toISOString()} - ${new Date(maxT * 1000).toISOString()})`);
     }
 
     before = sigs[sigs.length - 1].signature;
@@ -318,7 +318,7 @@ async function fetchTransactionsForMintInTimeWindow(
       break;
     }
 
-    if (page > 100) break; // Safety limit
+    if (page > 500) break; // Safety limit
   }
 
   console.log(`✅ Collected ${allSignatures.length} signatures\n`);
