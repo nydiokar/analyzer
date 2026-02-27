@@ -196,7 +196,7 @@ async function handleProfile(
 
   const alreadyRunning = job.alreadyRunning ? ' (already in progress)' : '';
   return {
-    text: `Running flash analysis for ${short}${alreadyRunning} — I'll send the profile when ready (${job.estimatedProcessingTime}).`,
+    text: `Running flash analysis for ${short}${alreadyRunning} — I'll send the profile when ready (~10 sec).`,
   };
 }
 
