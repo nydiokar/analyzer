@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-27  **Status:** PAY-3 (X402) E2E verified → PAY-4b + PAY-5a–5e next
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-27  **Status:** PAY-4b complete → PAY-5a–5e next
 
 ---
 
@@ -8,7 +8,6 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| ✅ | PFT Oracle Bot v2 — All phases complete (scaffold → IPFS) | 🔴 L | Phases 1-4 done. Bot live on PFT marketplace. `/profile`, `/holders`, `/analyze`, `/compare` + IPFS attachments all working. Phase 5 (hardening) is next when revisiting. |
 | ✅ | **[PAY-0] Create treasury wallet** | 🟢 S | New dedicated Phantom/Solflare wallet. Add pubkey to `.env` as `TREASURY_WALLET_ADDRESS`. Blocks all payment work. |
 | ✅ | **[PAY-1a] Prisma: CreditBalance + CreditTransaction models** | 🟢 S | Both models added to `schema.prisma`. User gets `creditBalance`/`creditTransactions` relations. Run `npx prisma migrate dev --name credit-ledger` to apply. Branch: `feat/credit-ledger-foundation`. |
 | ✅ | **[PAY-1b] CreditsModule + CreditsService** | 🟡 M | `getBalance`, `deduct` (atomic, throws 402 on short balance), `topUp`, `grantSignupBonus` (non-fatal, called from AuthService.register). `@Global()` module wired into AppModule. Branch: `feat/credit-ledger-foundation`. |
@@ -19,12 +18,18 @@
 | ✅ | **[PAY-2c] Payment confirmation — webhook + reconciliation** | 🟡 M | `POST /integrations/helius/payment-webhook` — verifies `HELIUS_PAYMENT_WEBHOOK_SECRET`, finds pending intent by reference pubkey in accountData, validates USDC mint + amount, calls `creditsService.topUp()`, marks intent `confirmed`, emits `payment:confirmed` WS event. `PaymentReconciliationProcessor` — BullMQ worker on `payment-reconciliation` queue, `upsertJobScheduler` runs every 5min, scans pending intents >2min old, calls `findReference()` once per intent, expires stale ones. Idempotent via `updateMany where status=pending`. **Bug fixed (Feb 26):** Helius sends `tokenAmount` as human float (e.g. `15`), not raw base units — removed erroneous `/1e6` division. **Verified E2E (Feb 26):** Real $15 USDC payment → webhook fired → intent confirmed → 1000 credits landed. **Files:** `src/api/services/payment-confirmation.service.ts`, `src/api/controllers/helius-webhook.controller.ts` (+handler), `src/queues/processors/payment-reconciliation.processor.ts`, `src/queues/queue.module.ts`, `dashboard/src/app/pay-test/page.tsx` (test page). |
 | ✅ | **[PAY-3] X402 protocol layer (agent/bot payments)** | 🔴 L | Implemented + E2E verified Feb 27. Agents pay per-request via real on-chain USDC — no API key needed. Wallet-identified (`<pubkey>@x402.agent`). Replay protection via Redis SET NX. Fixed: ATA vs raw wallet address comparison in `X402VerificationService.extractUsdcTransfer`. See `.ai/context/monetization/PAY-3-X402-DECISIONS.md`. |
 | ✅ | **[PAY-4] Credits dashboard UI** | 🟡 M | `/dashboard/credits` page live. Balance display, transaction ledger (delta/reason from real backend shape), Buy Credits modal (pack grid → QR → confirmed stages), `payment:confirmed` WS listener, status polling every 3s, SWR revalidation on confirmation, 402 handling in BehavioralPatternsTab + SimilarityLab, Credits nav item + live balance chip in AppShell. **Verified E2E Feb 26:** real $15 USDC → 1000 credits → Payment Confirmed modal → ledger updated. **Files:** `dashboard/src/app/dashboard/credits/page.tsx`, `dashboard/src/components/credits/CreditPurchaseModal.tsx`, `dashboard/src/hooks/useCredits.ts`, `dashboard/src/hooks/useCreditPacks.ts`, `dashboard/src/types/api.ts` (+payment types), `dashboard/src/lib/swr-config.ts` (+cache keys). |
-| ⚪ | **[PAY-4b] Checkout page UX upgrade** | 🟡 M | Replace `CreditPurchaseModal` with a dedicated `/checkout?packId=xxx` page (Helius-style). Left column: order summary (pack name, credits, price, what you get). Right column: QR code + Solana Pay URL + expiry. Expiry handled gracefully — show "Session expired" state with "Start over" CTA back to `/dashboard/credits` instead of silent modal reset. Better mobile layout. See `.ai/context/monetization/PAY-4b-DESIGN.md` for reference. |
+| ✅ | **[PAY-4b] Checkout page UX upgrade** | 🟡 M | Dedicated `/dashboard/credits/checkout/[packId]` route. Two-column layout: left = order summary (pack name, price, "what you get" breakdown per operation type), right = QR code + copy Solana Pay URL + expiry countdown + all terminal states (loading/qr/confirmed/expired/error). `ExpiryCountdown` extracted to shared component. `CreditPurchaseModal` kept (still used as fallback) but no longer primary flow. Credits page restructured: two-column (balance+costs+CTA left, full transaction history right), pack grid below the fold with "Top Up" scroll-to. "Most Popular" highlight on middle pack. `Top Holders` removed from nav. `Credits` removed from nav (accessible via balance chip + UserMenu). UserMenu gains live Credits balance entry. **tsc clean.** |
 | ⚪ | **[PAY-5a] Pricing discovery endpoint** `GET /api/ai/pricing` | 🟢 S | Returns a machine-readable map of `{endpoint, credits, usdEquivalent, description}` for all `@RequireCredits` endpoints. Required for any external agent to self-onboard without reading source. No auth required. |
 | ⚪ | **[PAY-5b] Agent usage stats** | 🟡 M | Admin query surface + dashboard widget showing x402 revenue: per-wallet breakdown, total agent payments, credits consumed vs human credits. Query from `CreditTransaction WHERE reason = 'x402_payment'`. |
 | ⚪ | **[PAY-5c] `X-Payment-Receipt` response header** | 🟢 S | After successful x402 payment, return confirmed tx signature in `X-Payment-Receipt` header so agent can record it for their own accounting. 2-line change in `CreditGuard`. |
 | ⚪ | **[PAY-5d] Blocked wallet E2E test** | 🟢 S | Verify `isActive=false` on an agent user row returns HTTP 403. Manual DB flip + script check. The kill switch was designed in but never exercised. |
 | ⚪ | **[PAY-5e] Agent SDK / integration guide** | 🟡 M | Docs + minimal code example showing how an external agent negotiates the x402 handshake: discovery → build tx → attach header → handle replay. Reference implementation in `x402-agent-test.ts`. |
+| ⚪ | **[PAY-6] Credit pricing audit + endpoint gating review** | 🟡 M | Full review of which endpoints consume credits, at what cost, and whether the gating makes sense for real usage patterns. See detailed sub-tasks below. |
+| ⚪ | **[PAY-6a] Map every endpoint to cost + gating decision** | 🟢 S | Audit all controllers for `@RequireCredits`. Document current state vs proposed. Key questions: (1) is this a standalone user action or part of a larger operation already charged elsewhere? (2) does this hit Helius/heavy compute or just read pre-computed DB data? (3) does gating this kill UX at the free tier? Affected: `behavior-analysis`(5cr), `dashboard-analysis`(10cr), `similarity/queue`(100cr), `holder-profiles`(free), `pnl-overview`(free), `hud`(free), `token-performance`(free). |
+| ⚪ | **[PAY-6b] Tune credit costs on existing gated endpoints** | 🟢 S | Based on PAY-6a findings, update `@RequireCredits(N)` values. Current concern: `behavior-analysis` at 5cr is a pure DB read (cheap to serve) — may be too high for adoption. `similarity/queue` at 100cr may be too high for product stage. Changes are 1-line each per endpoint. |
+| ⚪ | **[PAY-6c] Gate currently-free expensive endpoints** | 🟡 M | `POST /analyses/holder-profiles` analyzes up to 50 wallets with Helius calls per wallet — currently free, real cost. `POST /analyses/holder-profiles/wallet` single-wallet variant — lighter but still compute. `GET /wallets/:addr/pnl-overview` hits Helius. Decide whether to gate these and at what cost, considering UX impact vs cost exposure. |
+| ⚪ | **[PAY-6d] Verify compound operation charging** | 🟢 S | Some operations trigger follow-up jobs internally (e.g. `dashboard-analysis` with `queueWorkingAfter=true` queues a second deeper analysis). Verify the user is not double-charged for the same logical action, and that sub-operations spawned server-side don't re-trigger `CreditGuard`. |
+| ⚪ | **[PAY-6e] Update credits page UI to reflect final pricing** | 🟢 S | The "Cost per operation" reference table in `/dashboard/credits` is hardcoded (3 rows). After PAY-6b/6c settle the real costs, update the table + the `OPERATION_COSTS` constant in the credits page + checkout `OrderSummary` breakdown to match. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
@@ -99,7 +104,23 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 ##  Recent Activity
 
-### February 26, 2026 (Latest)
+### February 27, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 27.1 | 🎯 FEAT | PAY-4b: dedicated checkout route + credits page restructure | 🟡 M | `dashboard/src/app/dashboard/credits/page.tsx`, `dashboard/src/app/dashboard/credits/checkout/[packId]/page.tsx` (new), `dashboard/src/components/credits/ExpiryCountdown.tsx` (new), `dashboard/src/components/credits/CreditPurchaseModal.tsx`, `dashboard/src/components/layout/AppShell.tsx`, `dashboard/src/components/auth/UserMenu.tsx` |
+| 27.2 | 🔧 REFACTOR | Credits page UX: two-column layout, pack grid below fold, scroll-to CTA | 🟢 S | `dashboard/src/app/dashboard/credits/page.tsx` |
+| 27.3 | 🐛 FIX | Checkout bugs: double `!packsLoading`, `!!pack` boolean dep, missing `setCheckout(null)` on retry, `React` import, `$¢` notation | 🟢 S | `dashboard/src/app/dashboard/credits/checkout/[packId]/page.tsx`, `dashboard/src/app/dashboard/credits/page.tsx` |
+
+**Summary:**
+
+**27.1:** Implemented PAY-4b. New route `dashboard/credits/checkout/[packId]` — two-column page (order summary + payment). Payment column has 5 states: `loading` (creating intent), `qr` (QR code + copy URL + countdown + polling + WS), `confirmed` (success + "View Balance"), `expired` (explicit "Session Expired" + retry CTA), `error` (failed POST + retry). `ExpiryCountdown` extracted from `CreditPurchaseModal` to `components/credits/ExpiryCountdown.tsx` — shared by both, gains `prominent` prop for page vs modal display. `CreditPurchaseModal` updated to import it. AppShell: `Credits` and `Top Holders` removed from nav bar. Balance chip updated title. UserMenu: `Credits · {N}` entry added with live balance between Account and Settings. `tsc --noEmit` clean throughout.
+
+**27.2:** Restructured `/dashboard/credits` page. Above the fold: fixed 320px left column (balance hero at 6xl, cost-per-operation reference, "Top Up Credits" scroll-to button) + fluid right column (full transaction history). Below the fold: full-width pack grid with proper pack cards showing price, credits, per-credit cost, "what you get" breakdown (N× per operation type), "Most Popular" badge on middle pack. Each pack "Select" CTA → navigates to that pack's checkout. `PackCard` and `OPERATION_COSTS` constant shared between reference table and pack cards (single source of truth). Empty transaction state uses `Receipt` icon instead of `Loader2`.
+
+**27.3:** Bug sweep after flow audit. Fixed: (1) `!packsLoading && !packsLoading` typo in redirect guard — second condition was dead; (2) `!!pack` boolean in useEffect deps — unstable derived value, replaced with `pack?.id`; (3) missing `setCheckout(null)` before retry POST — old checkout object could leak into WS effect; (4) `React.ReactNode` used without React import; (5) `$1.5¢` contradictory currency notation — removed `$` prefix, display as `1.5¢ per credit`; (6) `OrderSummary` had unused `checkout` prop — removed; (7) `<img>` ESLint warnings on QR elements — suppressed with targeted `eslint-disable-next-line` comments (data: URI, next/image cannot optimize).
+
+### February 26, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|

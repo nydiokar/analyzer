@@ -18,6 +18,7 @@ import { useAuthStore } from '@/store/auth-store';
 import type { CheckoutResponse, PaymentStatus, CreditPack } from '@/types/api';
 import { useSWRConfig } from 'swr';
 import { Loader2, CheckCircle2, ChevronLeft } from 'lucide-react';
+import { ExpiryCountdown } from '@/components/credits/ExpiryCountdown';
 
 interface CreditPurchaseModalProps {
   open: boolean;
@@ -201,6 +202,7 @@ export function CreditPurchaseModal({ open, onOpenChange }: CreditPurchaseModalP
         {stage === 'qr' && checkout && (
           <div className="flex flex-col items-center gap-4 pt-2">
             <div className="rounded-lg bg-white p-3 shadow-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element -- src is a data: URI, next/image cannot optimize it */}
               <img
                 src={checkout.qrCodeDataUrl}
                 alt="Solana Pay QR code"
@@ -250,43 +252,3 @@ export function CreditPurchaseModal({ open, onOpenChange }: CreditPurchaseModalP
   );
 }
 
-// ── Expiry countdown ──────────────────────────────────────────────────────────
-
-function ExpiryCountdown({ expiresAt, onExpired }: { expiresAt: string; onExpired: () => void }) {
-  const [secondsLeft, setSecondsLeft] = useState(() =>
-    Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000))
-  );
-  const onExpiredRef = React.useRef(onExpired);
-  useEffect(() => { onExpiredRef.current = onExpired; }, [onExpired]);
-
-  useEffect(() => {
-    if (secondsLeft <= 0) {
-      onExpiredRef.current();
-      return;
-    }
-    const id = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          clearInterval(id);
-          onExpiredRef.current();
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expiresAt]); // only restart if the expiry timestamp changes
-
-  const mins = Math.floor(secondsLeft / 60);
-  const secs = secondsLeft % 60;
-
-  return (
-    <p className="text-xs text-muted-foreground">
-      Expires in{' '}
-      <span className={secondsLeft < 60 ? 'text-orange-400 font-mono' : 'font-mono'}>
-        {mins}:{String(secs).padStart(2, '0')}
-      </span>
-    </p>
-  );
-}

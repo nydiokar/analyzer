@@ -1,19 +1,31 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
-import { CreditPurchaseModal } from '@/components/credits/CreditPurchaseModal';
 import { useCredits } from '@/hooks/useCredits';
 import { useAuth } from '@/hooks/useAuth';
+import { useCreditPacks } from '@/hooks/useCreditPacks';
 import { useUIStore } from '@/store/ui-store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
-import { Wallet, ShoppingCart, ArrowUpCircle, ArrowDownCircle, Gift, Loader2 } from 'lucide-react';
-import type { CreditTransaction } from '@/types/api';
+import {
+  Wallet,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  Gift,
+  ShoppingCart,
+  Coins,
+  Receipt,
+  Zap,
+  Activity,
+  Check,
+} from 'lucide-react';
+import type { CreditTransaction, CreditPack } from '@/types/api';
 
-/** Map backend `reason` prefix to display config */
+// ── helpers ────────────────────────────────────────────────────────────────────
+
 function getTxConfig(tx: CreditTransaction): { label: string; icon: React.ReactNode; color: string } {
   if (tx.delta > 0) {
     if (tx.reason === 'signup_bonus') {
@@ -25,14 +37,93 @@ function getTxConfig(tx: CreditTransaction): { label: string; icon: React.ReactN
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
+
+// ── pack card ──────────────────────────────────────────────────────────────────
+
+const OPERATION_COSTS = [
+  { label: 'Behavior Analyses', cost: 5 },
+  { label: 'Dashboard Analyses', cost: 10 },
+  { label: 'Similarity Analyses', cost: 100 },
+] as const;
+
+function PackCard({
+  pack,
+  highlight,
+  onSelect,
+}: {
+  pack: CreditPack;
+  highlight: boolean;
+  onSelect: () => void;
+}) {
+  const centsPerCredit = (pack.priceUsdc / pack.credits * 100).toFixed(2);
+
+  return (
+    <div className={`relative rounded-xl border bg-card p-6 flex flex-col gap-5 transition-colors ${
+      highlight
+        ? 'border-blue-500 shadow-[0_0_0_1px_theme(colors.blue.500)]'
+        : 'border-border hover:border-border/80'
+    }`}>
+      {highlight && (
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-semibold px-3 py-0.5 rounded-full">
+          Most Popular
+        </span>
+      )}
+
+      {/* Name + price */}
+      <div>
+        <p className="font-semibold text-foreground text-lg">{pack.name}</p>
+        <div className="flex items-baseline gap-1.5 mt-2">
+          <span className="text-4xl font-bold text-foreground">${pack.priceUsdc}</span>
+          <span className="text-sm text-muted-foreground">USDC</span>
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          {pack.credits.toLocaleString()} credits · {centsPerCredit}¢ each
+        </p>
+      </div>
+
+      {/* What you get */}
+      <ul className="space-y-2 flex-1">
+        {OPERATION_COSTS.map(({ label, cost }) => (
+          <li key={label} className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+            <span>
+              <span className="font-semibold text-foreground">
+                {Math.floor(pack.credits / cost).toLocaleString()}×
+              </span>
+              {' '}{label}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <Button
+        onClick={onSelect}
+        className={`w-full gap-2 ${highlight ? 'bg-blue-600 hover:bg-blue-700 text-white' : ''}`}
+        variant={highlight ? 'default' : 'outline'}
+      >
+        <ShoppingCart className="h-4 w-4" />
+        Select {pack.name}
+      </Button>
+    </div>
+  );
+}
+
+// ── page ───────────────────────────────────────────────────────────────────────
 
 export default function CreditsPage() {
   const { isAuthenticated } = useAuth();
   const { setShowAuthModal } = useUIStore();
   const { balance, transactions, isLoading } = useCredits();
-  const [modalOpen, setModalOpen] = useState(false);
+  const { packs, isLoading: packsLoading } = useCreditPacks();
+  const router = useRouter();
+  const packsRef = useRef<HTMLDivElement>(null);
 
   if (!isAuthenticated) {
     return (
@@ -49,103 +140,158 @@ export default function CreditsPage() {
     );
   }
 
+  const handleScrollToPacks = () => {
+    packsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleSelectPack = (pack: CreditPack) => {
+    router.push(`/dashboard/credits/checkout/${pack.id}`);
+  };
+
+  // Highlight the middle pack (best value) — index 1 of 3
+  const highlightIndex = packs.length === 3 ? 1 : -1;
+
   return (
     <AppShell>
-      <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
-        {/* Balance card */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Wallet className="h-4 w-4" />
-              Credit Balance
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-end justify-between">
-            <div>
-              {isLoading ? (
-                <Skeleton className="h-12 w-32" />
-              ) : (
-                <p className="text-5xl font-bold tabular-nums">
-                  {balance?.toLocaleString() ?? '—'}
-                </p>
-              )}
-              <p className="text-sm text-muted-foreground mt-1">credits available</p>
-            </div>
+      <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-8">
+
+        {/* Page header */}
+        <div className="flex items-center gap-2">
+          <Coins className="h-5 w-5 text-blue-400" />
+          <h1 className="text-xl font-semibold">Credits</h1>
+        </div>
+
+        {/* ── Top section: balance + history ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5 items-start">
+
+          {/* Left column */}
+          <div className="space-y-4">
+
+            {/* Balance */}
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Available Balance
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-1">
+                {isLoading ? (
+                  <Skeleton className="h-14 w-36" />
+                ) : (
+                  <p className="text-6xl font-bold tabular-nums leading-none">
+                    {balance?.toLocaleString() ?? '—'}
+                  </p>
+                )}
+                <p className="text-sm text-muted-foreground mt-2">credits</p>
+              </CardContent>
+            </Card>
+
+            {/* Cost per operation — reference */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Zap className="h-3.5 w-3.5" />
+                  Cost per operation
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2.5 text-sm">
+                {OPERATION_COSTS.map(({ label, cost }) => (
+                  <div key={label} className="flex items-center justify-between">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="font-mono text-foreground">{cost} cr</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            {/* Top-up CTA — scrolls to packs, doesn't navigate */}
             <Button
-              onClick={() => setModalOpen(true)}
-              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={handleScrollToPacks}
+              className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
             >
               <ShoppingCart className="h-4 w-4" />
-              Buy Credits
+              Top Up Credits
             </Button>
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Credit costs reference */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Credit Costs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Behavior Analysis</span>
-                <Badge variant="outline">5 credits</Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Dashboard Analysis</span>
-                <Badge variant="outline">10 credits</Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Similarity Analysis</span>
-                <Badge variant="outline">100 credits</Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Transaction ledger */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Transaction History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="space-y-3">
-                {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-              </div>
-            ) : transactions.length === 0 ? (
-              <div className="flex flex-col items-center py-8 gap-2 text-muted-foreground">
-                <Loader2 className="h-6 w-6 opacity-30" />
-                <p className="text-sm">No transactions yet</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {transactions.map((tx) => {
-                  const config = getTxConfig(tx);
-                  const isCredit = tx.delta > 0;
-                  return (
-                    <div key={tx.id} className="flex items-center justify-between py-3 gap-3">
-                      <div className={`flex items-center gap-2 ${config.color}`}>
-                        {config.icon}
-                        <span className="text-sm font-medium text-foreground">{config.label}</span>
+          {/* Right column: transaction history */}
+          <Card className="min-h-[400px]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Activity className="h-3.5 w-3.5" />
+                Transaction History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+                </div>
+              ) : transactions.length === 0 ? (
+                <div className="flex flex-col items-center py-16 gap-3 text-muted-foreground">
+                  <Receipt className="h-8 w-8 opacity-20" />
+                  <p className="text-sm">No transactions yet</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {transactions.map((tx) => {
+                    const config = getTxConfig(tx);
+                    const isCredit = tx.delta > 0;
+                    return (
+                      <div key={tx.id} className="flex items-center justify-between py-3 gap-3">
+                        <div className={`flex items-center gap-2 shrink-0 ${config.color}`}>
+                          {config.icon}
+                          <span className="text-sm font-medium text-foreground">{config.label}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground flex-1 text-right mr-2 truncate">
+                          {formatDate(tx.createdAt)}
+                        </span>
+                        <span className={`font-mono font-semibold text-sm tabular-nums shrink-0 ${isCredit ? 'text-green-400' : 'text-red-400'}`}>
+                          {isCredit ? '+' : ''}{tx.delta.toLocaleString()}
+                        </span>
                       </div>
-                      <span className="text-xs text-muted-foreground flex-1 text-right mr-4">
-                        {formatDate(tx.createdAt)}
-                      </span>
-                      <span className={`font-mono font-semibold text-sm tabular-nums ${isCredit ? 'text-green-400' : 'text-red-400'}`}>
-                        {isCredit ? '+' : ''}{tx.delta.toLocaleString()}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
-      <CreditPurchaseModal open={modalOpen} onOpenChange={setModalOpen} />
+        {/* ── Pack selection — below the fold ── */}
+        <div ref={packsRef} className="space-y-4 scroll-mt-6">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">Top up your balance</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Pay once with USDC on Solana. Credits never expire.
+            </p>
+          </div>
+
+          {packsLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-64 w-full rounded-xl" />)}
+            </div>
+          ) : packs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No credit packs available.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {packs.map((pack, i) => (
+                <PackCard
+                  key={pack.id}
+                  pack={pack}
+                  highlight={i === highlightIndex}
+                  onSelect={() => handleSelectPack(pack)}
+                />
+              ))}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground text-center pt-1">
+            Phantom, Backpack, Solflare, or any Solana Pay compatible wallet accepted
+          </p>
+        </div>
+
+      </div>
     </AppShell>
   );
 }
