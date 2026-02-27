@@ -6,6 +6,7 @@ import {
   Transaction,
   VersionedTransaction,
 } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import { CreditsService } from './credits.service';
@@ -40,6 +41,7 @@ export class X402VerificationService {
   private readonly connection: Connection;
   private readonly usdcMint: string;
   private readonly treasury: string;
+  private readonly treasuryAta: string;
 
   constructor(
     private readonly configService: ConfigService,
@@ -50,6 +52,10 @@ export class X402VerificationService {
     this.treasury = this.configService.get<string>('TREASURY_WALLET_ADDRESS') ?? '';
     const apiKey = this.configService.get<string>('HELIUS_API_KEY') ?? '';
     this.connection = new Connection(`${HELIUS_RPC_MAINNET}?api-key=${apiKey}`, 'confirmed');
+    this.treasuryAta = getAssociatedTokenAddressSync(
+      new PublicKey(this.usdcMint),
+      new PublicKey(this.treasury),
+    ).toBase58();
   }
 
   /**
@@ -283,9 +289,9 @@ export class X402VerificationService {
 
         if (mint !== this.usdcMint) continue;
 
-        if (destination !== this.treasury) {
+        if (destination !== this.treasuryAta) {
           throw new HttpException(
-            `x402: transfer destination ${destination} does not match treasury ${this.treasury}`,
+            `x402: transfer destination ${destination} does not match treasury ATA ${this.treasuryAta}`,
             HttpStatus.PAYMENT_REQUIRED,
           );
         }

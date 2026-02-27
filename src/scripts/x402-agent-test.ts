@@ -31,9 +31,8 @@ import {
   getAssociatedTokenAddress,
 } from '@solana/spl-token';
 
-// bs58 uses package exports incompatible with moduleResolution:node — CJS path directly
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const bs58 = require('bs58/src/cjs/index.cjs') as { default: { decode: (s: string) => Uint8Array } };
+const bs58 = (require('bs58') as { default: { decode: (s: string) => Uint8Array } }).default;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -69,7 +68,7 @@ async function main(): Promise<void> {
     'confirmed',
   );
 
-  const agentKeypair = Keypair.fromSecretKey(bs58.default.decode(AGENT_PRIVKEY));
+  const agentKeypair = Keypair.fromSecretKey(bs58.decode(AGENT_PRIVKEY));
   log(`Agent wallet: ${agentKeypair.publicKey.toBase58()}`);
 
   // ---------------------------------------------------------------------------
