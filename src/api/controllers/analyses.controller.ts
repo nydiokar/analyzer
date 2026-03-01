@@ -244,6 +244,14 @@ export class AnalysesController {
       };
 
       // Add job to similarity operations queue
+      // REFUND SCOPE: the catch below only fires if addSimilarityAnalysisFlow() throws
+      // synchronously — i.e. BullMQ cannot accept the job (Redis down, serialisation error).
+      // If the job is accepted but the worker fails mid-processing (Helius timeout, partial
+      // wallet sync failure, etc.) that is an async processor failure and credits are NOT
+      // automatically refunded here. Processor-level compensation is a separate concern.
+      // To investigate a missing refund: check CreditTransaction for the deduct row, then
+      // check BullMQ job status in Bull Board — if job shows 'failed' with no refund row,
+      // the failure was async (processor), not synchronous (queue add).
       let job: Awaited<ReturnType<typeof this.similarityOperationsQueue.addSimilarityAnalysisFlow>>;
       try {
         job = await this.similarityOperationsQueue.addSimilarityAnalysisFlow(jobData, {
@@ -621,6 +629,11 @@ export class AnalysesController {
       };
 
       // Add job to analysis operations queue
+      // REFUND SCOPE: same limitation as similarity/queue — refund only fires on synchronous
+      // queue failure (Redis/BullMQ unreachable). Async processor failures (Helius RPC errors,
+      // partial holder fetch, worker crash) do NOT trigger this refund.
+      // Debugging: deduct row in CreditTransaction + no refund row + job status 'failed' in
+      // Bull Board = async processor failure, not a bug in this refund path.
       let job: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
       try {
         job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
