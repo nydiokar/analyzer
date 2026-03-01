@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-02-27  **Status:** PAY-4b complete → PAY-5a–5e next
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-01  **Status:** PAY-6 complete → PAY-7b next, then PAY-7 Intel layer
 
 ---
 
@@ -21,12 +21,12 @@
 | ✅ | **[PAY-4b] Checkout page UX upgrade** | 🟡 M | Dedicated `/dashboard/credits/checkout/[packId]` route. Two-column layout: left = order summary (pack name, price, "what you get" breakdown per operation type), right = QR code + copy Solana Pay URL + expiry countdown + all terminal states (loading/qr/confirmed/expired/error). `ExpiryCountdown` extracted to shared component. `CreditPurchaseModal` kept (still used as fallback) but no longer primary flow. Credits page restructured: two-column (balance+costs+CTA left, full transaction history right), pack grid below the fold with "Top Up" scroll-to. "Most Popular" highlight on middle pack. `Top Holders` removed from nav. `Credits` removed from nav (accessible via balance chip + UserMenu). UserMenu gains live Credits balance entry. **tsc clean.** |
 | ✅ | **[PAY-6a] Map every endpoint to cost + gating decision** | 🟢 S | **AUDIT COMPLETE (Feb 27).** Full audit of all controllers. 3 gated endpoints reviewed, 2 ungated expensive endpoints identified, compound operations verified no-double-charge, frontend similarity coupling documented. See `.ai/context/monetization/PAY-6-PRICING-AUDIT.md`. |
 | ✅ | **[PAY-6d] Verify compound operation charging** | 🟢 S | **VERIFIED (Feb 27).** dashboard-analysis with `queueWorkingAfter` does NOT double-charge (internal job-to-job, CreditGuard doesn't fire). holder-profiles child wallet jobs do NOT double-charge. Frontend similarity auto-fire IS a separate charge — to be decoupled (opt-in button). |
-| ⚪ | **[PAY-6b] Tune credit costs on existing gated endpoints** | 🟢 S | Decided: `behavior-analysis` → remove gate (pure DB read). `dashboard-analysis` → 10→5cr. `similarity/queue` → 100→20cr. 1-line changes per endpoint. |
-| ⚪ | **[PAY-6c] Gate currently-free expensive endpoints** | 🟢 S | Decided: `holder-profiles` → add @RequireCredits(20). `holder-profiles/wallet` → add @RequireCredits(5) or remove endpoint. `pnl-overview` stays free (pure DB read, NOT Helius as previously assumed). |
-| ⚪ | **[PAY-6e] Update credits page UI to reflect final pricing** | 🟢 S | Update `OPERATION_COSTS` constant + checkout OrderSummary + pack card breakdowns. |
-| ⚪ | **[PAY-5a] Pricing discovery endpoint** `GET /intel/pricing` | 🟡 M | New `IntelController` at `/api/v1/intel/`. Public, no auth. Returns machine-readable map: `endpoints[]` (path, method, credits, usdEquivalent, description, category) + `packs[]` + `x402` config. Config-driven (not reflection). |
+| ✅ | **[PAY-6b] Tune credit costs on existing gated endpoints** | 🟢 S | Done (commit fcd3e60): `behavior-analysis` gate removed. `dashboard-analysis` 10→5cr. `similarity/queue` 100→20cr. |
+| ✅ | **[PAY-6c] Gate currently-free expensive endpoints** | 🟢 S | Done (commit fcd3e60): `holder-profiles` → @RequireCredits(25) (bundles similarity, auto-fires free). `holder-profiles/wallet` → @RequireCredits(5). |
+| ✅ | **[PAY-6e] Update credits page UI to reflect final pricing** | 🟢 S | Done: `OPERATION_COSTS` → Dashboard=5cr, Holder Profiles+Similarity=25cr, Similarity standalone=20cr. Checkout breakdown updated to match. |
+| ✅ | **[PAY-5a] Pricing discovery endpoint** `GET /intel/pricing` | 🟡 M | Done (commit fcd3e60): `PricingController` at `/api/v1/pricing`. `@Public()`. Returns endpoints[], packs[], x402 config. Wired into PaymentModule. |
 | ⚪ | **[PAY-7] Intel API layer** | 🔴 L | New public API product: `GET /intel/wallet/:addr` (5cr, combined summary+HUD+behavior+PnL), `GET /intel/wallet/:addr/tokens` (3cr), `POST /intel/token/:mint/holders` (35cr, bundled profiles+similarity), `GET /intel/wallet/:addr/hud` (1cr), `POST /intel/wallets/batch-hud` (5cr). See `.ai/context/monetization/PAY-6-PRICING-AUDIT.md` §2+§5. |
-| ⚪ | **[PAY-7a] Frontend: decouple similarity from holder-profiles** | 🟢 S | Remove auto-fire in `holder-profiles/page.tsx` (line ~240). Replace with opt-in "Run Similarity (20cr)" button after profiles complete. |
+| ✅ | **[PAY-7a] Holder-profiles + similarity pricing decision** | 🟢 S | Keep auto-fire. Bundle as one operation: `holder-profiles` → 25cr (covers both). Similarity auto-fires after profiles at no extra cost. Standalone similarity via Similarity Lab stays at 20cr. |
 | ⚪ | **[PAY-7b] Frontend: graceful 0-balance auto-trigger** | 🟡 M | In `WalletProfileLayout.tsx` auto-trigger: if credits < 5, show last known data (even stale) + staleness badge + "Refresh Analysis (5cr)" button + "Buy Credits" CTA. Never block the page. |
 | ⚪ | **[PAY-5b] Agent usage stats** | 🟡 M | Admin query surface + dashboard widget showing x402 revenue: per-wallet breakdown, total agent payments, credits consumed vs human credits. Query from `CreditTransaction WHERE reason = 'x402_payment'`. |
 | ⚪ | **[PAY-5c] `X-Payment-Receipt` response header** | 🟢 S | After successful x402 payment, return confirmed tx signature in `X-Payment-Receipt` header so agent can record it for their own accounting. 2-line change in `CreditGuard`. |
@@ -36,13 +36,6 @@
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
 REMOVE AUTODOC from deps! 
-
-**Recently Completed:**
--  **[PAY-2a/2b] Solana Pay checkout + schema** (Feb 24, branch `feat/credit-ledger-foundation`) — `CreditPack` + `PaymentIntent` models, migration applied, 3 packs seeded (Starter $15/1k, Builder $120/10k, Pro $900/100k). `PaymentService` generates Solana Pay URL + base64 QR via `@solana/pay` + `qrcode`. `PaymentController` exposes `GET /payments/packs`, `POST /payments/checkout`, `GET /payments/:id/status`, `GET /users/me/credits`. Verified: checkout returns valid Solana Pay URL targeting treasury wallet + valid QR PNG. Status polls correctly. **Files:** `prisma/schema.prisma`, `prisma/seed.ts`, `src/api/services/payment.service.ts`, `src/api/controllers/payment.controller.ts`, `src/api/modules/payment.module.ts`, `src/api.module.ts`.
--  **[PAY-1d] Decorate production endpoints** (Feb 24, branch `feat/credit-ledger-foundation`) — `@RequireCredits(5)` on behavior-analysis, `@RequireCredits(100)` on similarity/queue, `@RequireCredits(10)` on dashboard-analysis. Verified with 402 on 0-balance user.
--  **[PAY-1c] @RequireCredits decorator + guard + interceptor** (Feb 24, branch `feat/credit-ledger-foundation`) — Created `@RequireCredits(N)` decorator for marking endpoints with credit cost. `CreditGuard` (pre-check) verifies user has sufficient balance before handler executes, throws HTTP 402 `{error,balance,required}` if insufficient. `CreditInterceptor` (post-deduct) deducts credits AFTER successful response (async, non-blocking). Failed requests do NOT consume credits. Both registered globally in `app.module.ts`. Test endpoint added: `GET /api/v1/test-auth/credits` (costs 5 credits). **Files:** `src/api/shared/decorators/require-credits.decorator.ts`, `src/api/shared/guards/credit.guard.ts`, `src/api/shared/interceptors/credit.interceptor.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/controllers/test.controller.ts`. **Test plan:** `.ai/context/monetization/PAY-1c-TEST-PLAN.md`. **Ready for testing.**
--  **[PAY-1a/1b] Credit ledger foundation** (Feb 24, branch `feat/credit-ledger-foundation`) — `CreditBalance` + `CreditTransaction` models added to `schema.prisma` (append-only ledger, never mutate balance directly). `CreditsService` implements atomic `topUp`/`deduct` via Prisma `$transaction` — deduct throws HTTP 402 `{error,balance,required}` on short balance. `CreditsModule` is `@Global`. `grantSignupBonus(userId)` wired into `AuthService.register()` (non-fatal). Migration applied: `20260224002042_credit_ledger`. **Files:** `prisma/schema.prisma`, `src/api/services/credits.service.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/modules/auth.module.ts`, `src/api/shared/services/auth.service.ts`.
-
 
 <details>
 <summary><b>Legend</b></summary>
@@ -66,18 +59,20 @@ Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 - ✅ `[PAY-2a–2c]` Solana Pay checkout + webhook confirmation — **E2E verified** (real $15 USDC → 1000 credits)
 - ✅ `[PAY-3]` X402 protocol layer — **E2E verified** (real mainnet USDC → 200 → replay rejected)
 - ✅ `[PAY-4/4b]` Credits dashboard + checkout page UX — complete
-- ✅ `[PAY-6a/6d]` **Pricing audit complete (Feb 27)** — all endpoints traced, compound ops verified, strategy decided
-- ⚪ `[PAY-6b]` Tune credit costs — behavior(remove), dashboard(10→5), similarity(100→20)
-- ⚪ `[PAY-6c]` Gate holder-profiles(20cr), holder-profiles/wallet(5cr)
-- ⚪ `[PAY-5a]` `GET /intel/pricing` — public pricing discovery endpoint
-- ⚪ `[PAY-6e]` Update credits page UI with final pricing
-- ⚪ `[PAY-7]` Intel API layer — new `/api/v1/intel/` controller (public API product)
-- ⚪ `[PAY-7a]` Decouple similarity from holder-profiles (frontend opt-in button)
+- ✅ `[PAY-6a/6d]` **Pricing audit complete** — all endpoints traced, compound ops verified, strategy decided
+- ✅ `[PAY-6b]` Tune credit costs — behavior gate removed, dashboard 10→5cr, similarity 100→20cr
+- ✅ `[PAY-6c]` Gate holder-profiles(25cr, bundles similarity), holder-profiles/wallet(5cr)
+- ✅ `[PAY-5a]` `GET /api/v1/pricing` — public pricing discovery endpoint live
+- ✅ `[PAY-6e]` Credits page UI updated — Dashboard=5cr, Holder+Similarity=25cr, Similarity standalone=20cr
+- ✅ `[PAY-7a]` Similarity bundled into holder-profiles (25cr total, auto-fires free after profiles)
 - ⚪ `[PAY-7b]` Graceful 0-balance auto-trigger (stale data + CTA)
+- ⚪ `[PAY-7]` Intel API layer — new `/api/v1/intel/` controller (public API product)
 
-**Key decisions (Feb 27):**
+**Key decisions (Feb 27–Mar 1):**
 - **Two-tier API:** Internal endpoints (dashboard) = free reads + paid compute. Public Intel endpoints (devs/LLMs) = aggregated, all credit-gated.
-- **Pricing:** dashboard-analysis=5cr, holder-profiles=20cr, similarity=20cr. Reads free on dashboard. Intel: wallet=5cr, tokens=3cr, holders+similarity=35cr, hud=1cr.
+- **Pricing:** dashboard-analysis=5cr, holder-profiles=25cr (bundles similarity auto-fire), similarity standalone=20cr. Reads free on dashboard. Intel: wallet=5cr, tokens=3cr, holders+similarity=35cr, hud=1cr.
+- **Bundling rationale:** Helius cost is in holder-profiles (up to 50 RPCs). Similarity is CPU-only on cached data — marginal cost ~0. Bundle at 25cr instead of 20+20=40cr. No opt-in friction.
+- **JWT bypass:** Not a real threat — compute triggers are credit-gated regardless of route. Free reads are already free by design. Rate limiting + invite codes handle abuse.
 - **X402:** Unchanged. USDC_PER_CREDIT=0.015. Works with Intel endpoints.
 - **Full plan:** `.ai/context/monetization/PAY-6-PRICING-AUDIT.md`
 
@@ -278,7 +273,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-26 (evening)  **Branch:** `feat/credit-ledger-foundation`
+**Last Updated:** 2026-03-01  **Branch:** `feat/credit-ledger-foundation`
 
 
 

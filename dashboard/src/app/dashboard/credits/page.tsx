@@ -48,9 +48,9 @@ function formatDate(iso: string) {
 // ── pack card ──────────────────────────────────────────────────────────────────
 
 const OPERATION_COSTS = [
-  { label: 'Behavior Analyses', cost: 5 },
-  { label: 'Dashboard Analyses', cost: 10 },
-  { label: 'Similarity Analyses', cost: 100 },
+  { label: 'Dashboard Analyses', cost: 5 },
+  { label: 'Holder Profiles + Similarity', cost: 25 },
+  { label: 'Similarity (standalone)', cost: 20 },
 ] as const;
 
 function PackCard({

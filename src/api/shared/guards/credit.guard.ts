@@ -117,8 +117,9 @@ export class CreditGuard implements CanActivate {
     );
     throw new HttpException(
       {
+        error: 'insufficient_credits',
+        required: requiredCredits,
         x402Version: 1,
-        error: 'insufficient_funds',
         accepts: [
           {
             scheme: 'exact',

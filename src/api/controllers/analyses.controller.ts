@@ -522,7 +522,7 @@ export class AnalysesController {
   }
 
   @Post('/holder-profiles')
-  @RequireCredits(20)
+  @RequireCredits(25)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: 'Queue holder profiles analysis job',

@@ -53,9 +53,9 @@ export class PricingController {
       {
         path: '/analyses/holder-profiles',
         method: 'POST',
-        credits: 20,
-        usdEquivalent: this.toUsd(20),
-        description: 'Queues token-mode holder profile analysis for top holders.',
+        credits: 25,
+        usdEquivalent: this.toUsd(25),
+        description: 'Queues token-mode holder profile analysis for top holders. Includes automatic similarity analysis at no extra cost.',
         category: 'compute',
         status: 'active',
         changedFromCredits: 0,

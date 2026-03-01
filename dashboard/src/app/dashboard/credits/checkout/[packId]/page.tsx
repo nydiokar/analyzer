@@ -35,9 +35,9 @@ import {
 
 function getAnalysisBreakdown(credits: number) {
   return [
-    { label: 'Behavior Analyses', count: Math.floor(credits / 5), cost: 5 },
-    { label: 'Dashboard Analyses', count: Math.floor(credits / 10), cost: 10 },
-    { label: 'Similarity Analyses', count: Math.floor(credits / 100), cost: 100 },
+    { label: 'Dashboard Analyses', count: Math.floor(credits / 5), cost: 5 },
+    { label: 'Holder Profiles + Similarity', count: Math.floor(credits / 25), cost: 25 },
+    { label: 'Similarity (standalone)', count: Math.floor(credits / 20), cost: 20 },
   ];
 }
 
