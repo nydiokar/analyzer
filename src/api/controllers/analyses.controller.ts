@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, HttpException, Req, ForbiddenException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -21,6 +21,7 @@ import { Request } from 'express';
 import { User } from '@prisma/client';
 import { getErrorMessage } from 'core/utils/error-utils';
 import { RequireCredits } from '../shared/decorators/require-credits.decorator';
+import { CreditsService } from '../services/credits.service';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -35,6 +36,7 @@ export class AnalysesController {
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
     private readonly redisLockService: RedisLockService,
     private readonly jobPayloadCache: JobPayloadCacheService,
+    private readonly creditsService: CreditsService,
   ) {}
 
   @Post('/similarity/enrich-balances')
@@ -143,8 +145,16 @@ export class AnalysesController {
     }
   }
 
+  // NOTE: No @RequireCredits decorator — dynamic pricing (10cr pre-synced / 20cr needs-sync)
+  // is computed inside the handler after wallet status check. @RequireCredits is static and
+  // cannot express this. Credit deduction is explicit via creditsService.deduct().
+  //
+  // X402 behaviour: CreditGuard skips this endpoint (no decorator → requiredCredits=undefined).
+  // An agent hitting this with X-Payment will have CompositeAuthGuard provision them an agent
+  // user row, then the handler will deduct from their credit balance instead of verifying
+  // on-chain payment. This is intentional — agents must use /intel/* endpoints for X402.
+  // Anyone reaching /analyses/* from outside is internal tooling or their own problem.
   @Post('/similarity/queue')
-  @RequireCredits(20)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: 'Queue a similarity analysis job',
@@ -212,6 +222,11 @@ export class AnalysesController {
       
       this.logger.log(`Advanced analysis: ${walletsNeedingSync.length}/${dto.walletAddresses.length} wallets need sync: [${walletsNeedingSync.join(', ')}]`);
 
+      const creditCost = walletsNeedingSync.length > 0 ? 20 : 10;
+      if (req.user) {
+        await this.creditsService.deduct(req.user.id, creditCost, 'endpoint:AnalysesController.queueSimilarityAnalysis');
+      }
+
       // Prepare job data - delegate to existing SimilarityApiService
       const jobData: ComprehensiveSimilarityFlowData = {
         walletAddresses: dto.walletAddresses,
@@ -229,10 +244,18 @@ export class AnalysesController {
       };
 
       // Add job to similarity operations queue
-      const job = await this.similarityOperationsQueue.addSimilarityAnalysisFlow(jobData, {
-        priority: 5, // Normal priority
-        delay: 0 // No delay
-      });
+      let job: Awaited<ReturnType<typeof this.similarityOperationsQueue.addSimilarityAnalysisFlow>>;
+      try {
+        job = await this.similarityOperationsQueue.addSimilarityAnalysisFlow(jobData, {
+          priority: 5, // Normal priority
+          delay: 0 // No delay
+        });
+      } catch (queueError) {
+        if (req.user) {
+          await this.creditsService.topUp(req.user.id, creditCost, 'refund:AnalysesController.queueSimilarityAnalysis');
+        }
+        throw new InternalServerErrorException('Failed to queue similarity analysis job');
+      }
 
       // Calculate estimated processing time based on wallet count
       const baseTimeMinutes = 5; // Base processing time
@@ -256,7 +279,7 @@ export class AnalysesController {
 
     } catch (error) {
       this.logger.error(`Failed to queue similarity analysis: ${getErrorMessage(error)}`);
-      if (error instanceof BadRequestException) {
+      if (error instanceof HttpException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException('Failed to queue similarity analysis job');
@@ -521,8 +544,11 @@ export class AnalysesController {
     }
   }
 
+  // NOTE: No @RequireCredits decorator — cost is 20cr fixed but charging is explicit via
+  // creditsService.deduct() so the try/catch refund pattern works correctly. Same X402
+  // behaviour as /similarity/queue above: agents hitting this get credit-balance deducted,
+  // not on-chain verified. Use /intel/* endpoints for X402-compatible external access.
   @Post('/holder-profiles')
-  @RequireCredits(25)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: 'Queue holder profiles analysis job',
@@ -580,6 +606,10 @@ export class AnalysesController {
       // Generate request ID
       const requestId = `holder-profiles-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+      if (req.user) {
+        await this.creditsService.deduct(req.user.id, 20, 'endpoint:AnalysesController.queueHolderProfilesAnalysis');
+      }
+
       // Prepare job data
       const jobData: AnalyzeHolderProfilesJobData = {
         mode: 'token',
@@ -591,10 +621,18 @@ export class AnalysesController {
       };
 
       // Add job to analysis operations queue
-      const job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
-        priority: 5,
-        delay: 0,
-      });
+      let job: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
+      try {
+        job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
+          priority: 5,
+          delay: 0,
+        });
+      } catch (queueError) {
+        if (req.user) {
+          await this.creditsService.topUp(req.user.id, 20, 'refund:AnalysesController.queueHolderProfilesAnalysis');
+        }
+        throw new InternalServerErrorException('Failed to queue holder profiles analysis job');
+      }
 
       // Calculate estimated processing time (roughly 1-2 seconds per wallet)
       const estimatedSeconds = topN * 1.5;
@@ -616,7 +654,7 @@ export class AnalysesController {
       };
     } catch (error) {
       this.logger.error(`Failed to queue holder profiles analysis: ${getErrorMessage(error)}`);
-      if (error instanceof BadRequestException) {
+      if (error instanceof HttpException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException('Failed to queue holder profiles analysis job');

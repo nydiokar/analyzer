@@ -31,9 +31,22 @@ function getTxConfig(tx: CreditTransaction): { label: string; icon: React.ReactN
     if (tx.reason === 'signup_bonus') {
       return { label: 'Signup Bonus', icon: <Gift className="h-4 w-4" />, color: 'text-blue-400' };
     }
-    return { label: 'Purchase', icon: <ArrowUpCircle className="h-4 w-4" />, color: 'text-green-400' };
+    if (tx.reason === 'x402_payment') {
+      return { label: 'Agent Payment (X402)', icon: <Zap className="h-4 w-4" />, color: 'text-purple-400' };
+    }
+    return { label: 'Credit Purchase', icon: <ArrowUpCircle className="h-4 w-4" />, color: 'text-green-400' };
   }
-  return { label: 'Used', icon: <ArrowDownCircle className="h-4 w-4" />, color: 'text-red-400' };
+  if (tx.reason.startsWith('refund:')) {
+    return { label: 'Refund', icon: <ArrowUpCircle className="h-4 w-4" />, color: 'text-yellow-400' };
+  }
+  const labelMap: Record<string, string> = {
+    'endpoint:AnalysesController.queueHolderProfilesAnalysis': 'Holder Profiles',
+    'endpoint:AnalysesController.queueSimilarityAnalysis': 'Similarity Analysis',
+    'endpoint:AnalysesController.queueDashboardWalletAnalysis': 'Dashboard Analysis',
+    'endpoint:AnalysesController.queueWalletHolderProfile': 'Wallet Profile',
+  };
+  const label = labelMap[tx.reason] ?? 'Analysis';
+  return { label, icon: <ArrowDownCircle className="h-4 w-4" />, color: 'text-red-400' };
 }
 
 function formatDate(iso: string) {
@@ -47,10 +60,18 @@ function formatDate(iso: string) {
 
 // ── pack card ──────────────────────────────────────────────────────────────────
 
+// Reference table (left column) — shows each operation individually for clarity
 const OPERATION_COSTS = [
-  { label: 'Dashboard Analyses', cost: 5 },
-  { label: 'Holder Profiles + Similarity', cost: 25 },
+  { label: 'Dashboard Analysis', cost: 5 },
+  { label: 'Holder Profiles + Similarity', cost: 30 },
   { label: 'Similarity (standalone)', cost: 20 },
+] as const;
+
+// Pack card breakdown — collapsed to meaningful "runs" a user can do with this pack
+const PACK_BREAKDOWN_COSTS = [
+  { label: 'Dashboard Analyses', cost: 5 },
+  { label: 'Holder Profiles + Similarity runs', cost: 30 },
+  { label: 'Standalone Similarity runs', cost: 20 },
 ] as const;
 
 function PackCard({
@@ -62,7 +83,7 @@ function PackCard({
   highlight: boolean;
   onSelect: () => void;
 }) {
-  const centsPerCredit = (pack.priceUsdc / pack.credits * 100).toFixed(2);
+  const usdPerCredit = (pack.priceUsdc / pack.credits).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
 
   return (
     <div className={`relative rounded-xl border bg-card p-6 flex flex-col gap-5 transition-colors ${
@@ -84,13 +105,13 @@ function PackCard({
           <span className="text-sm text-muted-foreground">USDC</span>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          {pack.credits.toLocaleString()} credits · {centsPerCredit}¢ each
+          {pack.credits.toLocaleString()} credits · ${usdPerCredit} each
         </p>
       </div>
 
       {/* What you get */}
       <ul className="space-y-2 flex-1">
-        {OPERATION_COSTS.map(({ label, cost }) => (
+        {PACK_BREAKDOWN_COSTS.map(({ label, cost }) => (
           <li key={label} className="flex items-center gap-2 text-sm text-muted-foreground">
             <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
             <span>
@@ -165,7 +186,7 @@ export default function CreditsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5 items-start">
 
           {/* Left column */}
-          <div className="space-y-4">
+          <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
 
             {/* Balance */}
             <Card>

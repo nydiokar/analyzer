@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-01  **Status:** PAY-6 complete → PAY-7b next, then PAY-7 Intel layer
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-01  **Status:** PAY-SIM + PAY-SIM-UI complete, E2E verified → PAY-7 Intel layer next
 
 ---
 
@@ -25,8 +25,10 @@
 | ✅ | **[PAY-6c] Gate currently-free expensive endpoints** | 🟢 S | Done (commit fcd3e60): `holder-profiles` → @RequireCredits(25) (bundles similarity, auto-fires free). `holder-profiles/wallet` → @RequireCredits(5). |
 | ✅ | **[PAY-6e] Update credits page UI to reflect final pricing** | 🟢 S | Done: `OPERATION_COSTS` → Dashboard=5cr, Holder Profiles+Similarity=25cr, Similarity standalone=20cr. Checkout breakdown updated to match. |
 | ✅ | **[PAY-5a] Pricing discovery endpoint** `GET /intel/pricing` | 🟡 M | Done (commit fcd3e60): `PricingController` at `/api/v1/pricing`. `@Public()`. Returns endpoints[], packs[], x402 config. Wired into PaymentModule. |
-| ⚪ | **[PAY-7] Intel API layer** | 🔴 L | New public API product: `GET /intel/wallet/:addr` (5cr, combined summary+HUD+behavior+PnL), `GET /intel/wallet/:addr/tokens` (3cr), `POST /intel/token/:mint/holders` (35cr, bundled profiles+similarity), `GET /intel/wallet/:addr/hud` (1cr), `POST /intel/wallets/batch-hud` (5cr). See `.ai/context/monetization/PAY-6-PRICING-AUDIT.md` §2+§5. |
-| ✅ | **[PAY-7a] Holder-profiles + similarity pricing decision** | 🟢 S | Keep auto-fire. Bundle as one operation: `holder-profiles` → 25cr (covers both). Similarity auto-fires after profiles at no extra cost. Standalone similarity via Similarity Lab stays at 20cr. |
+| ✅ | **[PAY-7a] Holder-profiles + similarity pricing decision** | 🟢 S | **SUPERSEDED by PAY-SIM.** Original decision was 25cr bundled. Revised: 20cr for holder-profiles + dynamic 10/20cr for similarity = 30cr total for full flow. Standalone similarity 10cr (pre-synced) or 20cr (needs sync). See `.ai/context/monetization/PAY-SIMILARITY-DYNAMIC-PRICING.md`. |
+| ✅ | **[PAY-SIM] Credit charging architecture fix** | 🟡 M | Done (Mar 1). (1) Removed `@RequireCredits(25)` from `holder-profiles` → explicit `creditsService.deduct(20cr)` with try/catch refund. (2) Removed `@RequireCredits(20)` from `similarity/queue` → dynamic `creditCost = walletsNeedingSync.length > 0 ? 20 : 10` with try/catch refund. (3) Injected `CreditsService` into `AnalysesController`. (4) Updated `pricing.controller.ts` similarity entry to 10cr min + updated description. `tsc --noEmit` clean. |
+| ✅ | **[PAY-SIM-UI] Transaction label fix + pricing display update** | 🟢 S | Done (Mar 1). (1) `getTxConfig` updated — reason→label map (Holder Profiles, Similarity Analysis, Dashboard Analysis, Wallet Profile), refund→text-yellow-400, x402→text-purple-400. (2) `OPERATION_COSTS` collapsed to 3 rows: Dashboard=5cr, Holder Profiles+Similarity=30cr, Similarity standalone=20cr. Separate `PACK_BREAKDOWN_COSTS` (3 rows) powers PackCard "what you get". (3) Checkout breakdown → Dashboard/5, Holder+Similarity/30, Standalone Similarity/20. (4) Left column now `lg:sticky` so balance+costs+CTA stay visible while scrolling. (5) Per-credit price display fixed: `$0.015 each` instead of `1.50¢`. (6) `CreditPack` seed re-run (packs were missing from DB). `tsc --noEmit` clean. **E2E verified Mar 1:** MISSING→20cr✅ READY→10cr✅ 402@balance=8(need10)✅ 402@balance=15(need20)✅ no-auth→401✅ balance unchanged on rejection✅. |
+| ⚪ | **[PAY-7] Intel API layer — `IntelController`** | 🔴 L | New `src/api/controllers/intel.controller.ts`. Injects `AnalysisOperationsQueue` + `SimilarityOperationsQueue` directly — same processors, zero logic duplication. Static `@RequireCredits(N)` on all methods → X402 works automatically. Endpoints: `POST /intel/token/:mint/holders` (35cr, queues holder-profiles job + similarity job internally), `GET /intel/wallet/:addr` (5cr, aggregates summary+HUD+behavior+PnL from DB), `GET /intel/wallet/:addr/tokens` (3cr), `GET /intel/wallet/:addr/hud` (1cr), `POST /intel/wallets/batch-hud` (5cr). Agents and devs use these. Dashboard uses `/analyses/*`. See `.ai/context/monetization/PAY-6-PRICING-AUDIT.md` + `.ai/context/monetization/PAY-SIMILARITY-DYNAMIC-PRICING.md`. |
 | ⚪ | **[PAY-7b] Frontend: graceful 0-balance auto-trigger** | 🟡 M | In `WalletProfileLayout.tsx` auto-trigger: if credits < 5, show last known data (even stale) + staleness badge + "Refresh Analysis (5cr)" button + "Buy Credits" CTA. Never block the page. |
 | ⚪ | **[PAY-5b] Agent usage stats** | 🟡 M | Admin query surface + dashboard widget showing x402 revenue: per-wallet breakdown, total agent payments, credits consumed vs human credits. Query from `CreditTransaction WHERE reason = 'x402_payment'`. |
 | ⚪ | **[PAY-5c] `X-Payment-Receipt` response header** | 🟢 S | After successful x402 payment, return confirmed tx signature in `X-Payment-Receipt` header so agent can record it for their own accounting. 2-line change in `CreditGuard`. |
@@ -64,17 +66,19 @@ Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 - ✅ `[PAY-6c]` Gate holder-profiles(25cr, bundles similarity), holder-profiles/wallet(5cr)
 - ✅ `[PAY-5a]` `GET /api/v1/pricing` — public pricing discovery endpoint live
 - ✅ `[PAY-6e]` Credits page UI updated — Dashboard=5cr, Holder+Similarity=25cr, Similarity standalone=20cr
-- ✅ `[PAY-7a]` Similarity bundled into holder-profiles (25cr total, auto-fires free after profiles)
+- ✅ `[PAY-7a]` Pricing decision revised — see PAY-SIM below (25cr bundle superseded)
+- ⚪ `[PAY-SIM]` **Credit charging architecture fix** — remove `@RequireCredits` from holder-profiles + similarity, add explicit `creditsService.deduct()` with refund-on-failure, dynamic similarity pricing (10cr cached / 20cr needs-sync). Full spec: `.ai/context/monetization/PAY-SIMILARITY-DYNAMIC-PRICING.md`
+- ⚪ `[PAY-SIM-UI]` Transaction label fix + OPERATION_COSTS update
 - ⚪ `[PAY-7b]` Graceful 0-balance auto-trigger (stale data + CTA)
-- ⚪ `[PAY-7]` Intel API layer — new `/api/v1/intel/` controller (public API product)
+- ⚪ `[PAY-7]` Intel API layer — new `IntelController`, calls queue services directly, static `@RequireCredits` → X402 works automatically
 
-**Key decisions (Feb 27–Mar 1):**
-- **Two-tier API:** Internal endpoints (dashboard) = free reads + paid compute. Public Intel endpoints (devs/LLMs) = aggregated, all credit-gated.
-- **Pricing:** dashboard-analysis=5cr, holder-profiles=25cr (bundles similarity auto-fire), similarity standalone=20cr. Reads free on dashboard. Intel: wallet=5cr, tokens=3cr, holders+similarity=35cr, hud=1cr.
-- **Bundling rationale:** Helius cost is in holder-profiles (up to 50 RPCs). Similarity is CPU-only on cached data — marginal cost ~0. Bundle at 25cr instead of 20+20=40cr. No opt-in friction.
-- **JWT bypass:** Not a real threat — compute triggers are credit-gated regardless of route. Free reads are already free by design. Rate limiting + invite codes handle abuse.
-- **X402:** Unchanged. USDC_PER_CREDIT=0.015. Works with Intel endpoints.
-- **Full plan:** `.ai/context/monetization/PAY-6-PRICING-AUDIT.md`
+**Key decisions (Feb 27–Mar 1, revised Mar 1):**
+- **Two-tier API model:** `/analyses/*` = internal compute primitives for the dashboard (dynamic/explicit pricing, no X402). `/intel/*` = external product API for devs and agents (static pricing, full X402, stable contracts). Processors and queue services are 100% shared — no logic duplication.
+- **Why separate controllers, not one:** `@RequireCredits` is static (compile-time). X402 payment instructions must be returned before the handler runs (guard fires first). Dynamic pricing requires reading wallet status inside the handler body. These are irreconcilable in one endpoint — hence the split.
+- **Revised pricing:** holder-profiles = 20cr (was 25cr bundle). Similarity = 10cr if wallets pre-synced, 20cr if needs Helius sync. Full holder-profiles + similarity flow = 30cr. Standalone similarity = 10–20cr.
+- **Free read concern (behavior-analysis):** Accepted. JWT users can read cached behavioral profiles at 0cr. This is intentional — free reads are the dashboard UX. The expensive operations (Helius RPCs, CPU-heavy similarity) are always credit-gated. Intel layer monetizes the aggregated read as a product for external consumers.
+- **X402:** Unchanged on existing endpoints. New Intel endpoints get X402 for free via static `@RequireCredits` decorator.
+- **Full spec:** `.ai/context/monetization/PAY-SIMILARITY-DYNAMIC-PRICING.md`
 
 ### P1: PFT Oracle Bot v2 — ✅ COMPLETE (Phases 1-4, Feb 20-23)
 

@@ -43,9 +43,9 @@ export class PricingController {
       {
         path: '/analyses/similarity/queue',
         method: 'POST',
-        credits: 20,
-        usdEquivalent: this.toUsd(20),
-        description: 'Queues similarity analysis across multiple wallets.',
+        credits: 10, // minimum (pre-synced wallets)
+        usdEquivalent: this.toUsd(10),
+        description: 'Queues similarity analysis across multiple wallets. 10cr if wallets are pre-synced, 20cr if Helius sync required.',
         category: 'compute',
         status: 'active',
         changedFromCredits: 100,
@@ -53,9 +53,9 @@ export class PricingController {
       {
         path: '/analyses/holder-profiles',
         method: 'POST',
-        credits: 25,
-        usdEquivalent: this.toUsd(25),
-        description: 'Queues token-mode holder profile analysis for top holders. Includes automatic similarity analysis at no extra cost.',
+        credits: 20,
+        usdEquivalent: this.toUsd(20),
+        description: 'Queues token-mode holder profile analysis for top holders. Similarity auto-fires separately at 10cr after completion.',
         category: 'compute',
         status: 'active',
         changedFromCredits: 0,
