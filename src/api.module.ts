@@ -17,6 +17,7 @@ import { DiscoverModule } from './api/modules/discover.module';
 import { WalletHudModule } from './api/modules/wallet-hud.module';
 import { WalletHuntModule } from './api/modules/wallet-hunt.module';
 import { PaymentModule } from './api/modules/payment.module';
+import { IntelModule } from './api/modules/intel.module';
 
 
 @Module({
@@ -37,6 +38,7 @@ import { PaymentModule } from './api/modules/payment.module';
     WalletHudModule, // Wallet HUD (Heads-Up Display) for high-signal metrics
     WalletHuntModule, // Wallet Hunt for detecting person wallets via token intersection
     PaymentModule,    // Solana Pay credit pack checkout
+    IntelModule,      // External product API for devs and agents
     // QueueModule, HeliusModule, DatabaseModule are already global from AppModule
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
   ],

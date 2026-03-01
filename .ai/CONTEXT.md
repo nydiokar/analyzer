@@ -1,8 +1,11 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-01  **Status:** PAY-SIM + PAY-SIM-UI complete, E2E verified → PAY-7 Intel layer next
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-02  **Status:** PAY-7 Intel layer complete + E2E verified → PAY-7b next
 
 ---
+
+P0: check if the PAY-SIM tasks were properly implemented we charge credits but in the logs I saw 0|sova-backend-api  | [Nest] 34172  - 03/01/2026, 11:41:17 PM   ERROR [AnalysesController] Failed to queue similarity analysis: Http Exception
+0|sova-backend-api  | [Nest] 34172  - 03/01/2026, 11:42:38 PM   ERROR [AnalysesController] Failed to queue similarity analysis: Http Exception
 
 ##  Active Work
 
@@ -28,7 +31,7 @@
 | ✅ | **[PAY-7a] Holder-profiles + similarity pricing decision** | 🟢 S | **SUPERSEDED by PAY-SIM.** Original decision was 25cr bundled. Revised: 20cr for holder-profiles + dynamic 10/20cr for similarity = 30cr total for full flow. Standalone similarity 10cr (pre-synced) or 20cr (needs sync). See `.ai/context/monetization/PAY-SIMILARITY-DYNAMIC-PRICING.md`. |
 | ✅ | **[PAY-SIM] Credit charging architecture fix** | 🟡 M | Done (Mar 1). (1) Removed `@RequireCredits(25)` from `holder-profiles` → explicit `creditsService.deduct(20cr)` with try/catch refund. (2) Removed `@RequireCredits(20)` from `similarity/queue` → dynamic `creditCost = walletsNeedingSync.length > 0 ? 20 : 10` with try/catch refund. (3) Injected `CreditsService` into `AnalysesController`. (4) Updated `pricing.controller.ts` similarity entry to 10cr min + updated description. `tsc --noEmit` clean. |
 | ✅ | **[PAY-SIM-UI] Transaction label fix + pricing display update** | 🟢 S | Done (Mar 1). (1) `getTxConfig` updated — reason→label map (Holder Profiles, Similarity Analysis, Dashboard Analysis, Wallet Profile), refund→text-yellow-400, x402→text-purple-400. (2) `OPERATION_COSTS` collapsed to 3 rows: Dashboard=5cr, Holder Profiles+Similarity=30cr, Similarity standalone=20cr. Separate `PACK_BREAKDOWN_COSTS` (3 rows) powers PackCard "what you get". (3) Checkout breakdown → Dashboard/5, Holder+Similarity/30, Standalone Similarity/20. (4) Left column now `lg:sticky` so balance+costs+CTA stay visible while scrolling. (5) Per-credit price display fixed: `$0.015 each` instead of `1.50¢`. (6) `CreditPack` seed re-run (packs were missing from DB). `tsc --noEmit` clean. **E2E verified Mar 1:** MISSING→20cr✅ READY→10cr✅ 402@balance=8(need10)✅ 402@balance=15(need20)✅ no-auth→401✅ balance unchanged on rejection✅. |
-| ⚪ | **[PAY-7] Intel API layer — `IntelController`** | 🔴 L | New `src/api/controllers/intel.controller.ts`. Injects `AnalysisOperationsQueue` + `SimilarityOperationsQueue` directly — same processors, zero logic duplication. Static `@RequireCredits(N)` on all methods → X402 works automatically. Endpoints: `POST /intel/token/:mint/holders` (35cr, queues holder-profiles job + similarity job internally), `GET /intel/wallet/:addr` (5cr, aggregates summary+HUD+behavior+PnL from DB), `GET /intel/wallet/:addr/tokens` (3cr), `GET /intel/wallet/:addr/hud` (1cr), `POST /intel/wallets/batch-hud` (5cr). Agents and devs use these. Dashboard uses `/analyses/*`. See `.ai/context/monetization/PAY-6-PRICING-AUDIT.md` + `.ai/context/monetization/PAY-SIMILARITY-DYNAMIC-PRICING.md`. |
+| ✅ | **[PAY-7] Intel API layer — `IntelController`** | 🔴 L | Done (Mar 2). `src/api/controllers/intel.controller.ts` + `src/api/modules/intel.module.ts`. Three read endpoints: `GET /intel/wallet/:addr` (5cr), `GET /intel/wallet/:addr/tokens` (3cr), `GET /intel/wallet/:addr/hud` (1cr). Static `@RequireCredits(N)` → X402 works automatically. Key design: freshness check (30min, same as dashboard `shouldAutoTriggerFlash`) — fresh data returns 200 immediately; stale/missing auto-queues flash analysis via `AnalysisOperationsQueue` (same job, same processor, same BullMQ) and returns 202 with jobId. Credit charging contract: 200 `return` → credits deducted; 202/422 `throw HttpException` → interceptor skips, 0cr. Known-wallet check (all 4 conditions), BullMQ queue scan + Redis lock dedup — identical to `AnalysesController`. `unrealizedPnl` served from `PnlOverviewService` (live DexScreener prices), NOT from DB snapshot. **E2E verified Mar 2** via `src/scripts/intel-agent-test.ts`: 402 `required:5` ✅ · 200 with summary+HUD+behavior+pnl ✅ · `/hud` 1cr ✅ · `/tokens` 3cr 60 tokens ✅. 4 on-chain USDC payments confirmed. `tsc --noEmit` clean. |
 | ⚪ | **[PAY-7b] Frontend: graceful 0-balance auto-trigger** | 🟡 M | In `WalletProfileLayout.tsx` auto-trigger: if credits < 5, show last known data (even stale) + staleness badge + "Refresh Analysis (5cr)" button + "Buy Credits" CTA. Never block the page. |
 | ⚪ | **[PAY-5b] Agent usage stats** | 🟡 M | Admin query surface + dashboard widget showing x402 revenue: per-wallet breakdown, total agent payments, credits consumed vs human credits. Query from `CreditTransaction WHERE reason = 'x402_payment'`. |
 | ⚪ | **[PAY-5c] `X-Payment-Receipt` response header** | 🟢 S | After successful x402 payment, return confirmed tx signature in `X-Payment-Receipt` header so agent can record it for their own accounting. 2-line change in `CreditGuard`. |
@@ -107,7 +110,19 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 ##  Recent Activity
 
-### February 27, 2026 (Latest)
+### March 2, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 2.1 | 🎯 FEAT | PAY-7: IntelController — three X402-ready read endpoints for external API | 🔴 L | `src/api/controllers/intel.controller.ts` (new), `src/api/modules/intel.module.ts` (new), `src/api.module.ts` (+IntelModule), `src/scripts/intel-agent-test.ts` (new) |
+
+**Summary:**
+
+**2.1:** Implemented PAY-7 Intel API layer. `GET /intel/wallet/:addr` (5cr) aggregates summary + HUD + behavior + PnL using same services as dashboard (`WalletHudService`, `PnlOverviewService`, `BehaviorService`). Freshness gated at 30 min (same threshold as `WalletProfileLayout.shouldAutoTriggerFlash`): fresh → 200 immediately; stale/missing → auto-queues flash analysis via `AnalysisOperationsQueue` (same job data, same BullMQ processor, same Redis lock key) → 202 with jobId. `GET /intel/wallet/:addr/tokens` (3cr) — `TokenPerformanceService` direct. `GET /intel/wallet/:addr/hud` (1cr) — `WalletHudService` direct. Credit contract: only `return` (200) triggers `CreditInterceptor`; non-data responses use `throw HttpException` (202/422) so interceptor skips — agent pays once, when data is delivered. Dedup: known-wallet check (4 conditions), BullMQ queue scan, Redis lock. `unrealizedPnl` served live via `PnlOverviewService` → DexScreener, not DB snapshot. **E2E verified:** 4 on-chain USDC payments, 402 `required:5` ✅ · 200 summary+HUD ✅ · `/hud` 1cr ✅ · `/tokens` 3cr/60 tokens ✅.
+
+---
+
+### February 27, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
