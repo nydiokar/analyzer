@@ -1,6 +1,9 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
+  HttpCode,
   Param,
   Query,
   Logger,
@@ -13,9 +16,10 @@ import {
   ValidationPipe,
   Req,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { User } from '@prisma/client';
+import { IsArray, IsString, ArrayMaxSize, ArrayMinSize } from 'class-validator';
 
 import { RequireCredits } from '../shared/decorators/require-credits.decorator';
 import { WalletHudService } from '../services/wallet-hud.service';
@@ -24,13 +28,22 @@ import { BehaviorService } from '../services/behavior.service';
 import { PnlOverviewService } from '../services/pnl-overview.service';
 import { TokenPerformanceService } from '../services/token-performance.service';
 import { TokenPerformanceQueryDto } from '../shared/dto/token-performance-query.dto';
+import { BatchWalletHudResponseDto } from '../shared/dto/wallet-hud.dto';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
-import { DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
+import { AnalyzeHolderProfilesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
 import { JobPriority } from '../../queues/config/queue.config';
 import { getKnownWallet } from '../../config/known-wallets';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
+
+class BatchHudRequestDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  wallets: string[];
+}
 
 /**
  * IntelController — external product API for developers and agents.
@@ -43,12 +56,15 @@ import { isValidSolanaAddress } from '../shared/solana-address.pipe';
  * - We are responsible for delivery: if data is missing we queue it and
  *   return a jobId. The agent pays once — on the call that delivers data.
  *
- * Credit charging contract:
- * - status "ok"     → 200  → CreditInterceptor fires → 5cr deducted  ✓ data delivered
- * - status "queued" → 202  → CreditInterceptor fires → 5cr deducted  ✓ job queued, poll jobId
- * - status "skipped"→ 422  → CreditInterceptor skips → 0cr           ✓ known wallet, nothing to do
- * - already running → 202  → CreditInterceptor fires → 5cr deducted  ✓ job already in flight, poll jobId
- * - invalid address → 400  → guard rejects before handler             ✓ 0cr
+ * Credit charging contract (CreditInterceptor fires on handler `return`, skips on `throw`):
+ * - status "ok"     → 200  → handler returns    → interceptor fires → Ncr deducted  ✓ data delivered
+ * - status "queued" → 202  → throw HttpException → interceptor skips → 0cr           ✓ GET endpoints: pay on delivery
+ * - status "queued" → 202  → handler returns    → interceptor fires → Ncr deducted  ✓ POST endpoints: pay on acceptance
+ * - status "skipped"→ 422  → throw HttpException → interceptor skips → 0cr           ✓ known wallet, nothing to do
+ * - invalid address → 400  → throw BadRequest   → interceptor skips → 0cr           ✓ guard or handler rejects
+ *
+ * GET /intel/wallet/:addr "pay on delivery": agent is NOT charged for queuing a flash analysis.
+ * They call again after the job completes, get a 200, and pay then. One charge per data delivery.
  */
 @ApiTags('Intel')
 @Controller('intel')
@@ -341,5 +357,238 @@ export class IntelController {
     }
 
     return hud;
+  }
+
+  /**
+   * POST /intel/token/:mint/holders
+   * 35 credits — queue holder-profiles analysis for a token's top holders.
+   *
+   * Queues an analyze-holder-profiles job (mode: 'token') via the same AnalysisOperationsQueue
+   * and processor as POST /analyses/holder-profiles. Fetches top N holders from Helius,
+   * runs wallet analysis on each, stores profiles in Redis under holder-profiles:result:{jobId}.
+   * Similarity is NOT auto-chained by the processor — poll the job, then fire
+   * POST /intel/wallets/batch-hud or POST /analyses/similarity/queue separately.
+   *
+   * Static @RequireCredits(35) → X402 works automatically for autonomous agents.
+   *
+   * Credit contract: handler always returns (never throws on success path) → HTTP 202
+   * with @HttpCode(202) → CreditInterceptor fires → 35cr deducted on job acceptance.
+   */
+  @Post('token/:mint/holders')
+  @RequireCredits(35)
+  @HttpCode(202)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({
+    summary: 'Queue holder-profiles + similarity analysis for a token (35cr)',
+    description: `Queues holder-profiles analysis for the top N holders of a token mint.
+
+**Always returns HTTP 202** — the job runs asynchronously. Poll \`monitoringUrl\` for completion. Job result is stored in Redis under \`holder-profiles:result:{jobId}\` (15-min TTL), retrievable via \`GET /api/v1/jobs/result/by-key\`.
+
+35cr deducted on job acceptance. No charge if the mint address is invalid (400).`,
+  })
+  @ApiParam({ name: 'mint', description: 'Solana token mint address' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        topN: {
+          type: 'number',
+          minimum: 1,
+          maximum: 50,
+          default: 20,
+          description: 'Number of top holders to analyze (default 20, max 50)',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 202, description: 'Holder-profiles job accepted — poll monitoringUrl for completion' })
+  @ApiResponse({ status: 400, description: 'Invalid token mint address or topN out of range' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async queueTokenHolders(
+    @Param('mint') mint: string,
+    @Req() req: Request & { user?: User },
+    @Body() body: { topN?: number },
+  ) {
+    if (!isValidSolanaAddress(mint)) {
+      throw new BadRequestException(`Invalid token mint address: ${mint}`);
+    }
+
+    const topN = body.topN ?? 20;
+    if (topN < 1 || topN > 50) {
+      throw new BadRequestException('topN must be between 1 and 50');
+    }
+
+    this.logger.log(`Intel holder-profiles request: mint=${mint} topN=${topN}`);
+
+    const requestId = `intel-holders-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const jobData: AnalyzeHolderProfilesJobData = {
+      mode: 'token',
+      userId: req.user?.id,
+      tokenMint: mint,
+      topN,
+      requestId,
+    };
+
+    let job: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
+    try {
+      job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
+        priority: JobPriority.HIGH,
+        delay: 0,
+      });
+    } catch (queueError) {
+      this.logger.error(`Intel holder-profiles: failed to queue job for ${mint}: ${queueError}`);
+      throw new InternalServerErrorException('Failed to queue holder-profiles job');
+    }
+
+    this.logger.log(`Intel holder-profiles: queued job ${job.id} for mint=${mint} topN=${topN}`);
+
+    // HTTP 202 — CreditInterceptor fires on return → 35cr deducted.
+    return {
+      status: 'queued' as const,
+      tokenMint: mint,
+      topN,
+      jobId: job.id,
+      requestId,
+      monitoringUrl: `/api/v1/jobs/${job.id}`,
+      message: 'Holder-profiles analysis queued. Poll monitoringUrl for completion.',
+    };
+  }
+
+  /**
+   * POST /intel/wallets/batch-hud
+   * 5 credits — batch HUD for up to 30 wallets. Same freshness logic as GET /intel/wallet/:addr
+   * but applied per-wallet in parallel.
+   *
+   * For each wallet:
+   *   - HUD in Redis cache (fresh) → returned immediately in `huds` map
+   *   - HUD missing or wallet not analyzed → auto-queues flash analysis → jobId in `queued`
+   *   - Known system wallet → listed in `skipped`
+   *
+   * 5cr charged once for the whole batch regardless of how many wallets are ready.
+   * Agent calls again after queued jobs complete to get the remaining HUDs.
+   */
+  @Post('wallets/batch-hud')
+  @RequireCredits(5)
+  @HttpCode(200)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({
+    summary: 'Batch HUD for up to 30 wallets (5cr)',
+    description: `Returns HUD metrics for each wallet. Missing or stale wallets are auto-queued for flash analysis.
+
+**Response shape:**
+- \`huds\`: map of address → HUD for wallets with fresh data
+- \`queued\`: array of \`{walletAddress, jobId, monitoringUrl}\` for wallets that needed analysis
+- \`skipped\`: known system/program wallets (no analysis possible)
+
+5cr per call. Call again after queued jobs complete to get the remaining HUDs. Max 30 wallets.`,
+  })
+  @ApiBody({ type: BatchHudRequestDto })
+  @ApiResponse({ status: 200, description: 'Batch HUD — huds map + queued jobs + skipped list' })
+  @ApiResponse({ status: 400, description: 'Invalid request — empty array, >30 wallets, or invalid addresses' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async batchWalletHud(
+    @Req() req: Request & { user?: User },
+    @Body() body: BatchHudRequestDto,
+  ) {
+    const { wallets } = body;
+
+    const invalidAddresses = wallets.filter((w) => !isValidSolanaAddress(w));
+    if (invalidAddresses.length > 0) {
+      throw new BadRequestException(
+        `Invalid Solana address(es): ${invalidAddresses.slice(0, 5).join(', ')}${invalidAddresses.length > 5 ? ` … (+${invalidAddresses.length - 5} more)` : ''}`,
+      );
+    }
+
+    this.logger.log(`Intel batch-hud request: ${wallets.length} wallets`);
+
+    const FRESHNESS_MS = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS.flash.freshnessMinutes * 60 * 1000;
+
+    // Process each wallet in parallel — same logic as GET /intel/wallet/:addr per wallet
+    const results = await Promise.all(wallets.map(async (addr) => {
+      try {
+        // Known-wallet check first — identical 4-condition check
+        const registryEntry = getKnownWallet(addr);
+        const walletRecord = await this.databaseService.getWallet(addr);
+        const isKnownWallet =
+          !!registryEntry ||
+          !!walletRecord?.knownType ||
+          walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
+          walletRecord?.classification === 'INVALID';
+
+        if (isKnownWallet) {
+          return { addr, type: 'skipped' as const };
+        }
+
+        // Check freshness via PnL summary — same gate as GET /intel/wallet/:addr
+        const summary = await this.databaseService.getWalletPnlSummaryWithRelations(addr);
+        const isFresh = summary !== null && (Date.now() - summary.updatedAt.getTime()) < FRESHNESS_MS;
+
+        if (isFresh) {
+          const hud = await this.walletHudService.getHud(addr).catch(() => null);
+          if (hud) {
+            return { addr, type: 'ready' as const, hud };
+          }
+          // Summary is fresh but HUD not built yet — fall through to queue
+        }
+
+        // Missing or stale — check dedup before queuing (BullMQ scan + Redis lock)
+        const queue = this.analysisOperationsQueue.getQueue();
+        const existingJobs = await queue.getJobs(['active', 'waiting', 'delayed']);
+        const matchingJob = existingJobs.find((job) => {
+          const d = job?.data as DashboardWalletAnalysisJobData | undefined;
+          return d?.walletAddress === addr && (d?.analysisScope ?? 'deep') === 'flash';
+        });
+        if (matchingJob) {
+          return { addr, type: 'queued' as const, jobId: matchingJob.id ?? '' };
+        }
+
+        const lockKey = RedisLockService.createWalletLockKey(addr, 'dashboard-analysis');
+        const existingLockJobId = await this.redisLockService.getLockValue(lockKey);
+        if (existingLockJobId) {
+          return { addr, type: 'queued' as const, jobId: existingLockJobId };
+        }
+
+        // Queue flash analysis
+        const requestId = `intel-batch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS.flash;
+        const jobData: DashboardWalletAnalysisJobData = {
+          walletAddress: addr,
+          userId: req.user?.id,
+          requestId,
+          analysisScope: 'flash',
+          triggerSource: 'auto',
+          historyWindowDays: scopeDefaults.historyWindowDays ?? undefined,
+          targetSignatureCount: scopeDefaults.targetSignatureCount ?? undefined,
+          forceRefresh: false,
+          enrichMetadata: false,
+          queueWorkingAfter: true,
+          queueDeepAfter: false,
+          failureThreshold: 0.8,
+          timeoutMinutes: scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES,
+        };
+        const job = await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
+          priority: JobPriority.CRITICAL,
+        });
+        return { addr, type: 'queued' as const, jobId: job.id ?? '' };
+
+      } catch (err) {
+        this.logger.warn(`Intel batch-hud: error processing ${addr}: ${err}`);
+        return { addr, type: 'error' as const };
+      }
+    }));
+
+    // Shape the response
+    const huds: Record<string, any> = {};
+    const queued: Array<{ walletAddress: string; jobId: string; monitoringUrl: string }> = [];
+    const skipped: string[] = [];
+
+    for (const r of results) {
+      if (r.type === 'ready') huds[r.addr] = r.hud;
+      else if (r.type === 'queued') queued.push({ walletAddress: r.addr, jobId: r.jobId, monitoringUrl: `/api/v1/jobs/${r.jobId}` });
+      else if (r.type === 'skipped') skipped.push(r.addr);
+    }
+
+    return { huds, queued, skipped, calculatedAt: new Date() };
   }
 }
