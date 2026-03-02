@@ -306,19 +306,32 @@ export class AnalysesController {
     return this.databaseService.getWalletsStatus(walletStatusRequestDto.walletAddresses);
   }
 
+  // NOTE: No @RequireCredits decorator — credit charging is conditional (see handler below).
+  //
+  // Charging rules for dashboard-analysis (5cr):
+  //   FREE  — wallet was analyzed within the last 24h (data is reasonably fresh; auto-refresh is housekeeping)
+  //   FREE  — wallet has never produced PnL data (no WalletPnlSummary exists); we've run the job before
+  //           and got nothing — charging for repeated zero-data attempts is unfair
+  //   FREE  — known wallet, skipped, already running, or freshness-skipped
+  //   5cr   — wallet is missing entirely (first-ever analysis) — explicit deduct before queuing
+  //   5cr   — wallet data is >24h old (genuinely stale refresh) — explicit deduct before queuing
+  //   5cr   — forceRefresh=true (manual button, user opted in) — explicit deduct before queuing
+  //
+  // CreditGuard still runs (no @RequireCredits = no guard). Balance check + deduction both
+  // happen via creditsService.deduct() inside the handler only when warranted.
   @Post('/wallets/dashboard-analysis')
-  @RequireCredits(5)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Queue dashboard wallet analysis job',
     description: 'Queues a scoped wallet analysis job for dashboard display. Returns job ID (if queued) and follow-up intent for monitoring.'
   })
-  @ApiResponse({ 
-    status: 202, 
+  @ApiResponse({
+    status: 202,
     description: 'Dashboard analysis job queued or skipped due to freshness.',
     type: DashboardAnalysisResponseDto
   })
   @ApiResponse({ status: 400, description: 'Invalid wallet address or request parameters' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits (only charged for missing or >24h stale wallets, or forceRefresh)' })
   @ApiResponse({ status: 503, description: 'Analysis already in progress for this wallet' })
   @HttpCode(202)
   async queueDashboardWalletAnalysis(
@@ -472,6 +485,59 @@ export class AnalysesController {
           alreadyRunning: true,
         };
       }
+
+      // ── Credit charging decision ──────────────────────────────────────────
+      // We only charge when we're actually doing meaningful work for the user:
+      //   • First-ever analysis (no PnlSummary at all)
+      //   • Genuinely stale data (last successful analysis >24h ago)
+      //   • Explicit manual refresh (forceRefresh=true, user opted in)
+      //
+      // We do NOT charge for:
+      //   • Wallets that have been analyzed recently (<24h) — auto-refresh is housekeeping
+      //   • Wallets that consistently produce no data (no PnlSummary despite prior runs)
+      //     e.g. token program addresses or wallets with zero swap history
+      const CREDIT_STALENESS_MS = 24 * 60 * 60 * 1000; // 24 hours
+      const DASHBOARD_ANALYSIS_COST = 5;
+      const [pnlSummary, latestRun] = await Promise.all([
+        this.databaseService.getWalletPnlSummaryWithRelations(dto.walletAddress),
+        this.databaseService.getLatestDashboardAnalysisRun(dto.walletAddress, scope),
+      ]);
+      const hasProducedData = pnlSummary !== null;
+      const hasBeenTriedBefore = latestRun !== null;
+      const lastAnalyzedAt = pnlSummary?.updatedAt ?? null;
+      const isGenuinelyStale = !lastAnalyzedAt || (Date.now() - lastAnalyzedAt.getTime() > CREDIT_STALENESS_MS);
+      // Charge only when the work is meaningful:
+      //   - forceRefresh: user explicitly asked (always charge)
+      //   - hasProducedData && isGenuinelyStale: wallet has data but it's >24h old (genuine refresh)
+      //   - !hasProducedData && !hasBeenTriedBefore: truly first-ever attempt on this wallet
+      // Free cases:
+      //   - fresh data (<24h): auto-refresh is housekeeping, not worth charging
+      //   - no data but already tried: wallet consistently returns nothing (zero-swap wallets,
+      //     token addresses, etc.) — don't keep charging for zero-value jobs
+      const shouldCharge =
+        dto.forceRefresh ||
+        (hasProducedData && isGenuinelyStale) ||
+        (!hasProducedData && !hasBeenTriedBefore);
+
+      if (shouldCharge && req.user) {
+        try {
+          await this.creditsService.deduct(req.user.id, DASHBOARD_ANALYSIS_COST, 'dashboard-analysis');
+          this.logger.log(
+            `Charged ${DASHBOARD_ANALYSIS_COST}cr for dashboard-analysis: wallet=${dto.walletAddress} ` +
+            `reason=${dto.forceRefresh ? 'force-refresh' : !hasProducedData ? 'first-analysis' : 'stale>24h'}`,
+          );
+        } catch (creditError) {
+          // creditsService.deduct throws HTTP 402 on insufficient balance — let it propagate
+          throw creditError;
+        }
+      } else {
+        this.logger.debug(
+          `Skipping credit charge for dashboard-analysis: wallet=${dto.walletAddress} ` +
+          `hasData=${hasProducedData} triedBefore=${hasBeenTriedBefore} ` +
+          `ageH=${lastAnalyzedAt ? Math.round((Date.now() - lastAnalyzedAt.getTime()) / 3600000) : 'n/a'}`,
+        );
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       const walletStatuses = await this.databaseService.getWalletsStatus([dto.walletAddress]);
       const walletStatus = walletStatuses.statuses[0];

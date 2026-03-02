@@ -6,7 +6,7 @@ import { Public } from '../shared/decorators/public.decorator';
 const USDC_PER_CREDIT = 0.015;
 const DEFAULT_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-type PricingCategory = 'compute' | 'intel';
+type PricingCategory = 'intel';
 
 interface PricingEndpoint {
   path: string;
@@ -26,104 +26,73 @@ export class PricingController {
 
   @Get('pricing')
   @Public()
-  @ApiOperation({ summary: 'Public pricing map for credit-gated compute and intel endpoints' })
+  @ApiOperation({ summary: 'Public pricing map for external Intel API endpoints' })
   @ApiResponse({ status: 200, description: 'Pricing metadata' })
   async getPricing() {
     const endpoints: PricingEndpoint[] = [
-      {
-        path: '/analyses/wallets/dashboard-analysis',
-        method: 'POST',
-        credits: 5,
-        usdEquivalent: this.toUsd(5),
-        description: 'Queues dashboard analysis for a wallet (flash/working/deep scopes).',
-        category: 'compute',
-        status: 'active',
-        changedFromCredits: 10,
-      },
-      {
-        path: '/analyses/similarity/queue',
-        method: 'POST',
-        credits: 10, // minimum (pre-synced wallets)
-        usdEquivalent: this.toUsd(10),
-        description: 'Queues similarity analysis across multiple wallets. 10cr if wallets are pre-synced, 20cr if Helius sync required.',
-        category: 'compute',
-        status: 'active',
-        changedFromCredits: 100,
-      },
-      {
-        path: '/analyses/holder-profiles',
-        method: 'POST',
-        credits: 20,
-        usdEquivalent: this.toUsd(20),
-        description: 'Queues token-mode holder profile analysis for top holders. Similarity auto-fires separately at 10cr after completion.',
-        category: 'compute',
-        status: 'active',
-        changedFromCredits: 0,
-      },
-      {
-        path: '/analyses/holder-profiles/wallet',
-        method: 'POST',
-        credits: 5,
-        usdEquivalent: this.toUsd(5),
-        description: 'Queues wallet-mode holder profile analysis for a single wallet.',
-        category: 'compute',
-        status: 'active',
-        changedFromCredits: 0,
-      },
-      {
-        path: '/wallets/:walletAddress/behavior-analysis',
-        method: 'GET',
-        credits: 0,
-        usdEquivalent: this.toUsd(0),
-        description: 'Read-only behavior profile endpoint used for dashboard rendering.',
-        category: 'compute',
-        status: 'active',
-        changedFromCredits: 5,
-      },
       {
         path: '/intel/wallet/:addr',
         method: 'GET',
         credits: 5,
         usdEquivalent: this.toUsd(5),
-        description: 'Planned: aggregated wallet intel response (summary + HUD + behavior + PnL).',
+        description: 'Aggregated wallet intel response (summary + HUD + behavior + PnL).',
         category: 'intel',
-        status: 'planned',
+        status: 'active',
       },
       {
         path: '/intel/wallet/:addr/tokens',
         method: 'GET',
         credits: 3,
         usdEquivalent: this.toUsd(3),
-        description: 'Planned: paginated token-level wallet performance data.',
+        description: 'Paginated token-level wallet performance data.',
         category: 'intel',
-        status: 'planned',
+        status: 'active',
       },
       {
         path: '/intel/token/:mint/holders',
         method: 'POST',
+        credits: 20,
+        usdEquivalent: this.toUsd(20),
+        description: 'Holder-profiles only endpoint for top token holders (no bundled similarity).',
+        category: 'intel',
+        status: 'active',
+        changedFromCredits: 35,
+      },
+      {
+        path: '/intel/wallets/similarity',
+        method: 'POST',
+        credits: 20,
+        usdEquivalent: this.toUsd(20),
+        description: 'Standalone wallet similarity endpoint for 2-30 wallets.',
+        category: 'intel',
+        status: 'active',
+      },
+      {
+        path: '/intel/token/:mint/holders/deep',
+        method: 'POST',
         credits: 35,
         usdEquivalent: this.toUsd(35),
-        description: 'Planned: bundled holder profiles + similarity report for a token.',
+        description: 'Bundled holders + similarity queueing endpoint (discounted vs separate calls).',
         category: 'intel',
-        status: 'planned',
+        status: 'active',
       },
       {
         path: '/intel/wallet/:addr/hud',
         method: 'GET',
         credits: 1,
         usdEquivalent: this.toUsd(1),
-        description: 'Planned: lightweight HUD-only wallet endpoint.',
+        description: 'Lightweight HUD-only wallet endpoint.',
         category: 'intel',
-        status: 'planned',
+        status: 'active',
       },
       {
         path: '/intel/wallets/batch-hud',
         method: 'POST',
         credits: 5,
         usdEquivalent: this.toUsd(5),
-        description: 'Planned: batch HUD endpoint for up to 50 wallets.',
+        description: 'Batch HUD endpoint for up to 30 wallets.',
         category: 'intel',
-        status: 'planned',
+        status: 'active',
       },
     ];
 

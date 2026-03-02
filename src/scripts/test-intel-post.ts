@@ -1,9 +1,11 @@
 /**
  * test-intel-post.ts
  *
- * Tests the two POST Intel endpoints:
- *   POST /intel/token/:mint/holders  (35cr)
- *   POST /intel/wallets/batch-hud    (5cr)
+ * Tests the three POST Intel endpoints + GET /intel/pricing:
+ *   GET  /intel/pricing                         (public)
+ *   POST /intel/token/:mint/holders             (20cr)
+ *   POST /intel/wallets/similarity              (20cr)
+ *   POST /intel/token/:mint/holders/deep        (35cr)
  *
  * Run:
  *   npx ts-node -r tsconfig-paths/register src/scripts/test-intel-post.ts
@@ -37,10 +39,12 @@ function prompt(question: string, hidden = false): Promise<string> {
   });
 }
 
-async function req(method: string, path: string, token: string, body?: unknown) {
+async function req(method: string, path: string, token?: string, body?: unknown) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API}${path}`, {
     method,
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -72,16 +76,40 @@ function section(t: string) {
 }
 
 function show(status: number, data: any) {
-  console.log(`${status >= 200 && status < 300 ? '✅' : status === 402 ? '🔒' : '❌'}  HTTP ${status}`);
+  const icon = status >= 200 && status < 300 ? '✅' : status === 402 ? '🔒' : '❌';
+  console.log(`${icon}  HTTP ${status}`);
   console.log(JSON.stringify(data, null, 2));
 }
 
 async function main() {
   console.log('╔══════════════════════════════════════════════════════════════╗');
-  console.log('║      Intel POST Endpoints — Focused Integration Test        ║');
+  console.log('║     Intel POST Endpoints — Focused Integration Test          ║');
+  console.log('║  /holders (20cr)  /similarity (20cr)  /holders/deep (35cr)  ║');
   console.log('╚══════════════════════════════════════════════════════════════╝\n');
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TEST 0 — GET /intel/pricing  (public, no auth)
+  // ═══════════════════════════════════════════════════════════════════════════
+  section('TEST 0 — GET /intel/pricing  (public — no auth required)');
+  const pricingRes = await req('GET', '/pricing');
+  show(pricingRes.status, pricingRes.data);
+  if (pricingRes.status === 200 && Array.isArray(pricingRes.data?.endpoints)) {
+    const relevant = pricingRes.data.endpoints.filter((e: any) =>
+      ['/intel/token/:mint/holders', '/intel/wallets/similarity', '/intel/token/:mint/holders/deep'].includes(e.path),
+    );
+    if (relevant.length) {
+      console.log('\n  → Relevant POST endpoints from pricing:');
+      for (const e of relevant) {
+        console.log(`     ${e.method.padEnd(4)} ${e.path.padEnd(35)}  ${e.credits}cr  ($${e.usdEquivalent})`);
+        if (e.changedFromCredits !== undefined) {
+          console.log(`           ↳ changed from ${e.changedFromCredits}cr`);
+        }
+      }
+    }
+  }
+
   // Login
+  console.log('');
   const email    = await prompt('Email: ');
   const password = await prompt('Password: ', true);
   const loginRes = await fetch(`${API}/auth/login`, {
@@ -100,14 +128,14 @@ async function main() {
   console.log(`💳 Balance: ${balBefore} cr`);
 
   // Inputs
-  const mint         = await prompt('\nToken mint for POST /intel/token/:mint/holders (Enter to skip): ');
-  const walletsInput = await prompt('Wallet addresses for POST /intel/wallets/batch-hud, comma-separated: ');
+  const mint         = await prompt('\nToken mint for holders endpoints (Enter to skip A & C): ');
+  const walletsInput = await prompt('Wallet addresses (comma-separated, min 2 for similarity): ');
   const wallets      = walletsInput.split(',').map(w => w.trim()).filter(Boolean);
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // TEST A — POST /intel/token/:mint/holders
+  // TEST A — POST /intel/token/:mint/holders  (20cr)
   // ═══════════════════════════════════════════════════════════════════════════
-  section('TEST A — POST /intel/token/:mint/holders  (35cr)');
+  section('TEST A — POST /intel/token/:mint/holders  (20cr)');
 
   if (!mint) {
     console.log('  ⊘  Skipped — no mint provided');
@@ -141,34 +169,65 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // TEST B — POST /intel/wallets/batch-hud
+  // TEST B — POST /intel/wallets/similarity  (20cr)
   // ═══════════════════════════════════════════════════════════════════════════
-  section(`TEST B — POST /intel/wallets/batch-hud  (5cr)  — ${wallets.length} wallet(s)`);
+  section(`TEST B — POST /intel/wallets/similarity  (20cr)  — ${wallets.length} wallet(s)`);
 
-  if (wallets.length === 0) {
-    console.log('  ⊘  Skipped — no wallets provided');
+  if (wallets.length < 2) {
+    console.log('  ⊘  Skipped — need at least 2 wallet addresses');
   } else {
     console.log(`  wallets: ${wallets.join(', ')}\n`);
-    const rB1 = await req('POST', '/intel/wallets/batch-hud', token, { wallets });
-    show(rB1.status, rB1.data);
+    const rB = await req('POST', '/intel/wallets/similarity', token, { wallets });
+    show(rB.status, rB.data);
 
-    const queuedJobs: Array<{ walletAddress: string; jobId: string }> = rB1.data?.queued ?? [];
-
-    if (rB1.status === 200 && queuedJobs.length > 0) {
-      console.log(`\n  → ${queuedJobs.length} wallet(s) queued. Polling until complete...`);
-      for (const qj of queuedJobs) {
-        console.log(`     wallet: ${qj.walletAddress}`);
-        await pollUntilDone(qj.jobId, token);
+    if (rB.status === 202 && rB.data?.jobId) {
+      console.log('\n  → Polling similarity job...');
+      const outcome = await pollUntilDone(rB.data.jobId, token);
+      if (outcome === 'completed') {
+        console.log('\n  → Fetching similarity result...');
+        const resultB = await req('GET', `/jobs/${rB.data.jobId}/result`, token);
+        show(resultB.status, resultB.data);
       }
+    }
+  }
 
-      section('TEST B2 — POST /intel/wallets/batch-hud  (5cr)  — second call after jobs complete');
-      console.log('  Same wallets, jobs should be done now\n');
-      const rB2 = await req('POST', '/intel/wallets/batch-hud', token, { wallets });
-      show(rB2.status, rB2.data);
-      console.log(`\n  → huds ready: ${Object.keys(rB2.data?.huds ?? {}).length}  |  still queued: ${(rB2.data?.queued ?? []).length}  |  skipped: ${(rB2.data?.skipped ?? []).length}`);
-    } else if (rB1.status === 200) {
-      const hudCount = Object.keys(rB1.data?.huds ?? {}).length;
-      console.log(`\n  → All ${hudCount} wallet(s) returned HUD data immediately`);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TEST C — POST /intel/token/:mint/holders/deep  (35cr)
+  // ═══════════════════════════════════════════════════════════════════════════
+  section(`TEST C — POST /intel/token/:mint/holders/deep  (35cr)`);
+
+  if (!mint) {
+    console.log('  ⊘  Skipped — no mint provided');
+  } else if (wallets.length < 2) {
+    console.log('  ⊘  Skipped — need at least 2 wallet addresses');
+  } else {
+    console.log(`  mint: ${mint}  topN: 5  wallets: ${wallets.join(', ')}\n`);
+    const rC = await req('POST', `/intel/token/${mint}/holders/deep`, token, { topN: 5, wallets });
+    show(rC.status, rC.data);
+
+    if (rC.status === 202) {
+      const holderJobId   = rC.data?.holderProfiles?.jobId;
+      const similarityJobId = rC.data?.similarity?.jobId;
+
+      if (holderJobId) {
+        console.log('\n  → Polling holder-profiles job...');
+        await pollUntilDone(holderJobId, token);
+      }
+      if (similarityJobId) {
+        console.log('\n  → Polling similarity job...');
+        await pollUntilDone(similarityJobId, token);
+      }
+      if (holderJobId && similarityJobId) {
+        console.log('\n  → Both jobs complete. Fetching results...');
+        const [holdersResult, similarityResult] = await Promise.all([
+          req('GET', `/jobs/${holderJobId}/result`, token),
+          req('GET', `/jobs/${similarityJobId}/result`, token),
+        ]);
+        console.log('\n  Holder-profiles result:');
+        show(holdersResult.status, holdersResult.data);
+        console.log('\n  Similarity result:');
+        show(similarityResult.status, similarityResult.data);
+      }
     }
   }
 

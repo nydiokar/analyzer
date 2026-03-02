@@ -19,7 +19,7 @@ import {
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { User } from '@prisma/client';
-import { IsArray, IsString, ArrayMaxSize, ArrayMinSize } from 'class-validator';
+import { IsArray, IsString, ArrayMaxSize, ArrayMinSize, IsOptional, IsInt, Min, Max } from 'class-validator';
 
 import { RequireCredits } from '../shared/decorators/require-credits.decorator';
 import { WalletHudService } from '../services/wallet-hud.service';
@@ -30,8 +30,13 @@ import { TokenPerformanceService } from '../services/token-performance.service';
 import { TokenPerformanceQueryDto } from '../shared/dto/token-performance-query.dto';
 import { BatchWalletHudResponseDto } from '../shared/dto/wallet-hud.dto';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
+import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
-import { AnalyzeHolderProfilesJobData, DashboardWalletAnalysisJobData } from '../../queues/jobs/types';
+import {
+  AnalyzeHolderProfilesJobData,
+  ComprehensiveSimilarityFlowData,
+  DashboardWalletAnalysisJobData,
+} from '../../queues/jobs/types';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
 import { JobPriority } from '../../queues/config/queue.config';
 import { getKnownWallet } from '../../config/known-wallets';
@@ -40,6 +45,30 @@ import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 class BatchHudRequestDto {
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  wallets: string[];
+}
+
+class IntelTokenHoldersRequestDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  topN?: number;
+}
+
+class IntelWalletSimilarityRequestDto {
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  wallets: string[];
+}
+
+class IntelTokenHoldersDeepRequestDto extends IntelTokenHoldersRequestDto {
+  @IsArray()
+  @ArrayMinSize(2)
   @ArrayMaxSize(30)
   @IsString({ each: true })
   wallets: string[];
@@ -78,6 +107,7 @@ export class IntelController {
     private readonly pnlOverviewService: PnlOverviewService,
     private readonly tokenPerformanceService: TokenPerformanceService,
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
+    private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly redisLockService: RedisLockService,
   ) {}
 
@@ -361,7 +391,7 @@ export class IntelController {
 
   /**
    * POST /intel/token/:mint/holders
-   * 35 credits — queue holder-profiles analysis for a token's top holders.
+   * 20 credits — queue holder-profiles analysis for a token's top holders.
    *
    * Queues an analyze-holder-profiles job (mode: 'token') via the same AnalysisOperationsQueue
    * and processor as POST /analyses/holder-profiles. Fetches top N holders from Helius,
@@ -369,45 +399,32 @@ export class IntelController {
    * Similarity is NOT auto-chained by the processor — poll the job, then fire
    * POST /intel/wallets/batch-hud or POST /analyses/similarity/queue separately.
    *
-   * Static @RequireCredits(35) → X402 works automatically for autonomous agents.
+   * Static @RequireCredits(20) → X402 works automatically for autonomous agents.
    *
    * Credit contract: handler always returns (never throws on success path) → HTTP 202
-   * with @HttpCode(202) → CreditInterceptor fires → 35cr deducted on job acceptance.
+   * with @HttpCode(202) → CreditInterceptor fires → 20cr deducted on job acceptance.
    */
   @Post('token/:mint/holders')
-  @RequireCredits(35)
+  @RequireCredits(20)
   @HttpCode(202)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
-    summary: 'Queue holder-profiles + similarity analysis for a token (35cr)',
+    summary: 'Queue holder-profiles analysis for a token (20cr)',
     description: `Queues holder-profiles analysis for the top N holders of a token mint.
 
 **Always returns HTTP 202** — the job runs asynchronously. Poll \`monitoringUrl\` for completion. Job result is stored in Redis under \`holder-profiles:result:{jobId}\` (15-min TTL), retrievable via \`GET /api/v1/jobs/result/by-key\`.
 
-35cr deducted on job acceptance. No charge if the mint address is invalid (400).`,
+20cr deducted on job acceptance. No charge if the mint address is invalid (400).`,
   })
   @ApiParam({ name: 'mint', description: 'Solana token mint address' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        topN: {
-          type: 'number',
-          minimum: 1,
-          maximum: 50,
-          default: 20,
-          description: 'Number of top holders to analyze (default 20, max 50)',
-        },
-      },
-    },
-  })
+  @ApiBody({ type: IntelTokenHoldersRequestDto })
   @ApiResponse({ status: 202, description: 'Holder-profiles job accepted — poll monitoringUrl for completion' })
   @ApiResponse({ status: 400, description: 'Invalid token mint address or topN out of range' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   async queueTokenHolders(
     @Param('mint') mint: string,
     @Req() req: Request & { user?: User },
-    @Body() body: { topN?: number },
+    @Body() body: IntelTokenHoldersRequestDto,
   ) {
     if (!isValidSolanaAddress(mint)) {
       throw new BadRequestException(`Invalid token mint address: ${mint}`);
@@ -443,7 +460,7 @@ export class IntelController {
 
     this.logger.log(`Intel holder-profiles: queued job ${job.id} for mint=${mint} topN=${topN}`);
 
-    // HTTP 202 — CreditInterceptor fires on return → 35cr deducted.
+    // HTTP 202 — CreditInterceptor fires on return → 20cr deducted.
     return {
       status: 'queued' as const,
       tokenMint: mint,
@@ -452,6 +469,148 @@ export class IntelController {
       requestId,
       monitoringUrl: `/api/v1/jobs/${job.id}`,
       message: 'Holder-profiles analysis queued. Poll monitoringUrl for completion.',
+    };
+  }
+
+  @Post('wallets/similarity')
+  @RequireCredits(20)
+  @HttpCode(202)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({
+    summary: 'Queue standalone similarity analysis (20cr)',
+    description: 'Queues similarity analysis for 2-30 wallet addresses. Always returns HTTP 202 with a job ID for async polling.',
+  })
+  @ApiBody({ type: IntelWalletSimilarityRequestDto })
+  @ApiResponse({ status: 202, description: 'Similarity job accepted - poll monitoringUrl for completion' })
+  @ApiResponse({ status: 400, description: 'Invalid wallet list or invalid wallet address' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async queueWalletSimilarity(
+    @Req() req: Request & { user?: User },
+    @Body() body: IntelWalletSimilarityRequestDto,
+  ) {
+    const invalidWallets = body.wallets.filter((wallet) => !isValidSolanaAddress(wallet));
+    if (invalidWallets.length > 0) {
+      throw new BadRequestException(
+        `Invalid Solana address(es) provided: ${invalidWallets.slice(0, 5).join(', ')}${invalidWallets.length > 5 ? ` ... (+${invalidWallets.length - 5} more)` : ''}`,
+      );
+    }
+
+    const similarity = await this.queueSimilarityJob(req, body.wallets, 'intel-similarity');
+
+    return {
+      status: 'queued' as const,
+      jobId: similarity.jobId,
+      requestId: similarity.requestId,
+      walletCount: body.wallets.length,
+      monitoringUrl: `/api/v1/jobs/${similarity.jobId}`,
+      message: 'Similarity analysis queued. Poll monitoringUrl for completion.',
+    };
+  }
+
+  @Post('token/:mint/holders/deep')
+  @RequireCredits(35)
+  @HttpCode(202)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({
+    summary: 'Queue bundled holder-profiles + similarity analysis (35cr)',
+    description: `Queues two jobs in one request:
+- holder-profiles for token top holders (token mint + topN)
+- similarity analysis for provided wallets[]
+
+Always returns HTTP 202 with both job IDs.`,
+  })
+  @ApiParam({ name: 'mint', description: 'Solana token mint address' })
+  @ApiBody({ type: IntelTokenHoldersDeepRequestDto })
+  @ApiResponse({ status: 202, description: 'Bundled jobs accepted - poll both monitoring URLs for completion' })
+  @ApiResponse({ status: 206, description: 'Partial acceptance — holder-profiles queued but similarity failed; 0cr charged' })
+  @ApiResponse({ status: 400, description: 'Invalid token mint, topN, or wallets payload' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async queueTokenHoldersDeep(
+    @Param('mint') mint: string,
+    @Req() req: Request & { user?: User },
+    @Body() body: IntelTokenHoldersDeepRequestDto,
+  ) {
+    if (!isValidSolanaAddress(mint)) {
+      throw new BadRequestException(`Invalid token mint address: ${mint}`);
+    }
+
+    const topN = body.topN ?? 20;
+    if (topN < 1 || topN > 50) {
+      throw new BadRequestException('topN must be between 1 and 50');
+    }
+
+    const invalidWallets = body.wallets.filter((wallet) => !isValidSolanaAddress(wallet));
+    if (invalidWallets.length > 0) {
+      throw new BadRequestException(
+        `Invalid Solana address(es) provided: ${invalidWallets.slice(0, 5).join(', ')}${invalidWallets.length > 5 ? ` ... (+${invalidWallets.length - 5} more)` : ''}`,
+      );
+    }
+
+    const holderProfilesRequestId = `intel-holders-deep-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const holderProfilesJobData: AnalyzeHolderProfilesJobData = {
+      mode: 'token',
+      userId: req.user?.id,
+      tokenMint: mint,
+      topN,
+      requestId: holderProfilesRequestId,
+    };
+
+    let holderProfilesJob: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
+    try {
+      holderProfilesJob = await this.analysisOperationsQueue.addHolderProfilesJob(holderProfilesJobData, {
+        priority: JobPriority.HIGH,
+        delay: 0,
+      });
+    } catch (queueError) {
+      this.logger.error(`Intel deep holder-profiles: failed to queue job for ${mint}: ${queueError}`);
+      throw new InternalServerErrorException('Failed to queue holder-profiles job');
+    }
+
+    let similarity: { requestId: string; jobId: string };
+    try {
+      similarity = await this.queueSimilarityJob(req, body.wallets, 'intel-holders-deep');
+    } catch (similarityError) {
+      // Holder-profiles job is already in BullMQ — return its ID so the caller
+      // can track it. Throw (not return) so CreditInterceptor skips and 35cr
+      // are NOT charged for a partial acceptance.
+      this.logger.error(
+        `Intel deep: similarity queue failed after holder-profiles job ${holderProfilesJob.id} was accepted: ${similarityError}`,
+      );
+      throw new HttpException(
+        {
+          status: 'partial' as const,
+          tokenMint: mint,
+          topN,
+          holderProfiles: {
+            jobId: holderProfilesJob.id,
+            requestId: holderProfilesRequestId,
+            monitoringUrl: `/api/v1/jobs/${holderProfilesJob.id}`,
+          },
+          similarity: null,
+          message:
+            'Holder-profiles job was queued successfully but the similarity job could not be accepted. ' +
+            'No credits were charged. You may retry the full request or call POST /intel/wallets/similarity separately.',
+        },
+        HttpStatus.PARTIAL_CONTENT,
+      );
+    }
+
+    return {
+      status: 'queued' as const,
+      tokenMint: mint,
+      topN,
+      walletsCount: body.wallets.length,
+      holderProfiles: {
+        jobId: holderProfilesJob.id,
+        requestId: holderProfilesRequestId,
+        monitoringUrl: `/api/v1/jobs/${holderProfilesJob.id}`,
+      },
+      similarity: {
+        jobId: similarity.jobId,
+        requestId: similarity.requestId,
+        monitoringUrl: `/api/v1/jobs/${similarity.jobId}`,
+      },
+      message: 'Bundled holder-profiles and similarity analyses queued. Poll both monitoring URLs for completion.',
     };
   }
 
@@ -590,5 +749,49 @@ export class IntelController {
     }
 
     return { huds, queued, skipped, calculatedAt: new Date() };
+  }
+
+  private async queueSimilarityJob(
+    req: Request & { user?: User },
+    wallets: string[],
+    prefix: string,
+  ): Promise<{ requestId: string; jobId: string }> {
+    const requestId = `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const walletStatuses = await this.databaseService.getWalletsStatus(wallets);
+    const walletsNeedingSync = walletStatuses.statuses
+      .filter((status) => status.status === 'STALE' || status.status === 'MISSING')
+      .map((status) => status.walletAddress);
+
+    const jobData: ComprehensiveSimilarityFlowData = {
+      walletAddresses: wallets,
+      userId: req.user?.id,
+      requestId,
+      walletsNeedingSync,
+      enrichMetadata: false,
+      includeBalances: false,
+      includeVectors: false,
+      failureThreshold: 0.8,
+      timeoutMinutes: walletsNeedingSync.length > 0 ? 45 : 15,
+      similarityConfig: {
+        vectorType: 'capital',
+      },
+    };
+
+    let job: Awaited<ReturnType<typeof this.similarityOperationsQueue.addSimilarityAnalysisFlow>>;
+    try {
+      job = await this.similarityOperationsQueue.addSimilarityAnalysisFlow(jobData, {
+        priority: JobPriority.NORMAL,
+        delay: 0,
+      });
+    } catch (queueError) {
+      this.logger.error(`Intel similarity: failed to queue job for request ${requestId}: ${queueError}`);
+      throw new InternalServerErrorException('Failed to queue similarity analysis job');
+    }
+
+    return {
+      requestId,
+      jobId: String(job.id),
+    };
   }
 }
