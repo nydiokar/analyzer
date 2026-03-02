@@ -28,6 +28,16 @@ import type { CreditTransaction, CreditPack } from '@/types/api';
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 function getTxConfig(tx: CreditTransaction): { label: string; icon: React.ReactNode; color: string } {
+  if (tx.reason.startsWith('refund:')) {
+    const refundLabelMap: Record<string, string> = {
+      'refund:AnalysisOperationsProcessor.holderProfilesCacheOnly': 'Holder Profiles Refund',
+      'refund:AnalysesController.queueSimilarityAnalysis': 'Similarity Refund',
+      'refund:AnalysesController.queueHolderProfilesAnalysis': 'Holder Profiles Refund',
+    };
+    const label = refundLabelMap[tx.reason] ?? 'Refund';
+    return { label, icon: <ArrowUpCircle className="h-4 w-4" />, color: 'text-yellow-400' };
+  }
+
   if (tx.delta > 0) {
     if (tx.reason === 'signup_bonus') {
       return { label: 'Signup Bonus', icon: <Gift className="h-4 w-4" />, color: 'text-blue-400' };
@@ -36,9 +46,6 @@ function getTxConfig(tx: CreditTransaction): { label: string; icon: React.ReactN
       return { label: 'Agent Payment (X402)', icon: <Zap className="h-4 w-4" />, color: 'text-purple-400' };
     }
     return { label: 'Credit Purchase', icon: <ArrowUpCircle className="h-4 w-4" />, color: 'text-green-400' };
-  }
-  if (tx.reason.startsWith('refund:')) {
-    return { label: 'Refund', icon: <ArrowUpCircle className="h-4 w-4" />, color: 'text-yellow-400' };
   }
   const labelMap: Record<string, string> = {
     'endpoint:AnalysesController.queueHolderProfilesAnalysis': 'Holder Profiles',

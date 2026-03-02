@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-02  **Status:** PAY-8a/8b/8c complete — all three Intel POST endpoints live, partial-failure bug fixed, test script updated
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-03  **Status:** PAY-8a/8b/8c complete + similarity/holder cache-aware charging fixes + Intel static-pricing guard
 
 ##  Active Work
 
@@ -25,6 +25,7 @@
 | ✅ | **[PAY-5a] Pricing discovery endpoint** `GET /intel/pricing` | 🟡 M | Done (commit fcd3e60): `PricingController` at `/api/v1/pricing`. `@Public()`. Returns endpoints[], packs[], x402 config. Wired into PaymentModule. |
 | ✅ | **[PAY-7a] Holder-profiles + similarity pricing decision** | 🟢 S | **SUPERSEDED by PAY-SIM.** Original decision was 25cr bundled. Revised: 20cr for holder-profiles + dynamic 10/20cr for similarity = 30cr total for full flow. Standalone similarity 10cr (pre-synced) or 20cr (needs sync). See `.ai/context/monetization/PAY-SIMILARITY-DYNAMIC-PRICING.md`. |
 | ✅ | **[PAY-SIM] Credit charging architecture fix** | 🟡 M | Done (Mar 1). (1) Removed `@RequireCredits(25)` from `holder-profiles` → explicit `creditsService.deduct(20cr)` with try/catch refund. (2) Removed `@RequireCredits(20)` from `similarity/queue` → dynamic `creditCost = walletsNeedingSync.length > 0 ? 20 : 10` with try/catch refund. (3) Injected `CreditsService` into `AnalysesController`. (4) Updated `pricing.controller.ts` similarity entry to 10cr min + updated description. `tsc --noEmit` clean. |
+| ✅ | **[PAY-SIM-HOTFIX] Cache-aware charging alignment + Intel static guard** | 🟢 S | Done (Mar 3). (1) Similarity dynamic pricing excludes known/system wallets from sync eligibility to prevent false `20cr` on cache-heavy reruns. (2) Holder-profiles token jobs mark cache-only outcomes and auto-refund `20cr` for internal `/analyses/holder-profiles` requests when no wallet sync is required. (3) Refund path explicitly scoped to internal request IDs (`holder-profiles-*`) so Intel static-priced endpoints are unaffected. (4) Credits UI transaction mapping fixed: refund reasons no longer show as "Credit Purchase". |
 | ✅ | **[PAY-SIM-UI] Transaction label fix + pricing display update** | 🟢 S | Done (Mar 1). (1) `getTxConfig` updated — reason→label map (Holder Profiles, Similarity Analysis, Dashboard Analysis, Wallet Profile), refund→text-yellow-400, x402→text-purple-400. (2) `OPERATION_COSTS` collapsed to 3 rows: Dashboard=5cr, Holder Profiles+Similarity=30cr, Similarity standalone=20cr. Separate `PACK_BREAKDOWN_COSTS` (3 rows) powers PackCard "what you get". (3) Checkout breakdown → Dashboard/5, Holder+Similarity/30, Standalone Similarity/20. (4) Left column now `lg:sticky` so balance+costs+CTA stay visible while scrolling. (5) Per-credit price display fixed: `$0.015 each` instead of `1.50¢`. (6) `CreditPack` seed re-run (packs were missing from DB). `tsc --noEmit` clean. **E2E verified Mar 1:** MISSING→20cr✅ READY→10cr✅ 402@balance=8(need10)✅ 402@balance=15(need20)✅ no-auth→401✅ balance unchanged on rejection✅. |
 | ✅ | **[PAY-7] Intel API layer — GET endpoints** | 🔴 L | Done + E2E verified (Mar 2). Three GET endpoints: `GET /intel/wallet/:addr` (5cr) — aggregated summary+HUD+behavior+PnL, freshness 30min, stale→auto-queues flash→202 jobId (0cr charged via throw), re-call→200 data (5cr charged via return). `GET /intel/wallet/:addr/tokens` (3cr). `GET /intel/wallet/:addr/hud` (1cr). Static `@RequireCredits(N)` → X402 auto on all. Credit contract: handler `return`→interceptor fires (charges); `throw HttpException`→interceptor skips (0cr). E2E: 402 required:5 ✅ · 200 summary+HUD ✅ · /hud 1cr ✅ · /tokens 3cr ✅. |
 | ✅ | **[PAY-7-POST] Intel POST scaffolds** | 🟢 S | `POST /intel/token/:mint/holders` and `POST /intel/wallets/batch-hud` wired and tsc clean (Mar 2). batch-hud: per-wallet freshness check, queues flash analysis for missing/stale wallets (same pattern as GET /intel/wallet/:addr), returns `{huds, queued[], skipped[]}`. holders: queues analyze-holder-profiles job, returns jobId — agent polls `GET /jobs/:id/result` for HolderProfilesResult. **Pricing fixed + remaining POST endpoints added in PAY-8a/8b/8c.** |
@@ -35,7 +36,7 @@
 | ✅ | **[PAY-5b] Agent usage stats** | 🟡 M | Done (Mar 2). Frontend widget on `/dashboard/credits` left sidebar — "Agent API Usage" card shown only when `agentTxs.length > 0`. Derives from existing `useCredits()` transactions (no new API call): filters `reason === 'x402_payment'`, displays payment count, credits consumed, USDC equivalent (`credits × $0.015`). `tsc --noEmit` clean. |
 | ✅ | **[PAY-5c] `X-Payment-Receipt` response header** | 🟢 S | Done (Mar 2). Captured `txSig` return from `x402VerificationService.verify()` in `CreditGuard`. Added `response.setHeader('X-Payment-Receipt', txSig)` on confirmed x402 path. `tsc --noEmit` clean. |
 | ⚪ | **[PAY-5d] Blocked wallet E2E test** | 🟢 S | Verify `isActive=false` on an agent user row returns HTTP 403. Manual DB flip + script check. |
-| ⚪ | **[PAY-5e] Agent SDK / integration guide** | 🟡 M | Docs + minimal code example showing x402 handshake: discovery → build tx → attach header → handle replay. Reference implementation in `x402-agent-test.ts` or the latest one rather src\scripts\intel-agent-test.ts <---- this was tested and it worked - payment went trough and everything. |
+| ⚪ | **[PAY-5e] SKILL.md / integration guide** | 🟡 M | Docs + minimal code example showing x402 handshake: discovery → build tx → attach header → handle replay. Reference implementation in `x402-agent-test.ts` or the latest one rather src\scripts\intel-agent-test.ts <---- this was tested and it worked - payment went trough and everything. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
@@ -70,6 +71,7 @@ Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 - ✅ `[PAY-6e]` Credits page UI updated — Dashboard=5cr, Holder+Similarity=25cr, Similarity standalone=20cr
 - ✅ `[PAY-7a]` Pricing decision revised — see PAY-SIM below (25cr bundle superseded)
 - ✅ `[PAY-SIM]` Credit charging architecture fix — dynamic similarity pricing, explicit deduct with refund
+- ✅ `[PAY-SIM-HOTFIX]` Cache-aware charging alignment — similarity false-20cr fixed, holder-profiles cache-only refund for internal flow, Intel static-pricing guard
 - ✅ `[PAY-SIM-UI]` Transaction labels + OPERATION_COSTS update
 - ✅ `[PAY-7b]` Graceful 0-balance auto-trigger (staleness banner + CTA)
 - ✅ `[PAY-7]` Intel GET endpoints — `GET /intel/wallet/:addr` (5cr), `/tokens` (3cr), `/hud` (1cr) — E2E verified
@@ -88,6 +90,10 @@ Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 - **Free read concern (behavior-analysis):** Accepted. JWT users can read cached behavioral profiles at 0cr. This is intentional — free reads are the dashboard UX. The expensive operations (Helius RPCs, CPU-heavy similarity) are always credit-gated. Intel layer monetizes the aggregated read as a product for external consumers.
 - **X402:** Unchanged on existing endpoints. New Intel endpoints get X402 for free via static `@RequireCredits` decorator.
 - **Full spec:** `.ai/context/monetization/PAY-SIMILARITY-DYNAMIC-PRICING.md`
+
+**Key decisions (Mar 3, 2026):**
+- **Intel pricing contract remains static:** `/intel/*` is priced per accepted request (static decorator cost), regardless of whether underlying computation used cache. Cache reuse affects latency/infra load, not endpoint price.
+- **cacheOnly metadata transparency:** Keep `metadata.cacheOnly` in holder-profiles job results as operational telemetry. Do not hide it; document static Intel pricing clearly to avoid ambiguity.
 
 ### P1: PFT Oracle Bot v2 — ✅ COMPLETE (Phases 1-4, Feb 20-23)
 
@@ -116,7 +122,23 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 ##  Recent Activity
 
-### March 2, 2026 (Latest)
+### March 3, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 3.1 | 🐛 FIX | Similarity dynamic pricing false-positive: known/system wallets forced 20cr | 🟢 S | `src/api/controllers/analyses.controller.ts` |
+| 3.2 | 🐛 FIX | Holder-profiles cache-only billing: internal flow auto-refund + UI label correction | 🟡 M | `src/queues/processors/analysis-operations.processor.ts`, `src/queues/jobs/types/index.ts`, `dashboard/src/app/dashboard/credits/page.tsx` |
+| 3.3 | 📋 DECISION | Intel static-pricing guard + transparency policy for `cacheOnly` | 🟢 S | `src/queues/processors/analysis-operations.processor.ts`, `.ai/CONTEXT.md` |
+
+**Summary:**
+
+**3.1:** Fixed a pricing false-positive in `POST /analyses/similarity/queue`. Dynamic `10/20cr` decision previously evaluated all wallets, including known/system wallets intentionally skipped by analysis flows; those often appeared `MISSING/STALE` and incorrectly forced `20cr`. The controller now excludes known/system wallets from sync-eligibility before computing `walletsNeedingSync`, preserving `10cr` when no sync-eligible wallets need refresh.
+
+**3.2:** Implemented cache-aware holder-profiles billing for internal dashboard flow. Token-mode holder profiles now annotate `metadata.cacheOnly` when outcomes are fully cache-served, including wallet-mode child jobs served from Tier-1/Tier-2 cache. `AnalysisOperationsProcessor` issues a `+20` refund (`refund:AnalysisOperationsProcessor.holderProfilesCacheOnly`) for internal `holder-profiles-*` requests that are cache-only. Credits page transaction mapping fixed so refund reasons render as "Refund"/specific refund labels instead of "Credit Purchase".
+
+**3.3:** Guarded Intel pricing contract: cache-only refund path is restricted to internal `/analyses/holder-profiles` request IDs only, preventing accidental refunds on static-priced `/intel/*` calls that share the same processor. Decision recorded: keep `cacheOnly` visible in job result metadata (telemetry), document Intel as static-priced per accepted request.
+
+### March 2, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
@@ -124,8 +146,14 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 | 2.2 | 🎯 FEAT | PAY-7b: Graceful 0-balance auto-trigger — staleness banner + Refresh CTA | 🟡 M | `dashboard/src/components/layout/WalletProfileLayout.tsx` |
 | 2.3 | 🎯 FEAT | PAY-8a/8b/8c: Reprice /holders 20cr + add /similarity + add /holders/deep + update pricing controller + test script | 🟡 M | `src/api/controllers/intel.controller.ts`, `src/api/controllers/pricing.controller.ts`, `src/scripts/test-intel-post.ts` |
 | 2.4 | 🐛 FIX | `/holders/deep` partial-failure: ghost job + silent 500 when similarity queue fails after holder-profiles accepted | 🟢 S | `src/api/controllers/intel.controller.ts` |
+| 2.5 | 🐛 FIX | `dashboard-analysis` conditional charging: free for fresh (<24h) or zero-data wallets, 5cr only for missing/stale/>24h/forceRefresh | 🟡 M | `src/api/controllers/analyses.controller.ts` |
+| 2.6 | 🐛 FIX | Similarity always charging 20cr instead of 10cr: system wallets were being checked for sync status AFTER credit deduction, making `walletsNeedingSync` always non-empty | 🟢 S | `src/api/controllers/analyses.controller.ts` (fixed by filtering system wallets before the status check) |
 
 **Summary:**
+
+**2.6:** Similarity dynamic pricing was always charging 20cr instead of 10cr. Root cause: system wallets (AMMs, token programs, etc.) always have `status: MISSING` because they're never synced, so `walletsNeedingSync.length > 0` was always true — even on runs where all real wallets were freshly analyzed. The processor already filters system wallets out of the actual similarity computation (log: "Filtered 1 system wallet(s)"), but the controller was checking wallet statuses before that filter, counting system wallets as needing sync. Fix: filter system/known wallets from the addresses before calling `getWalletsStatus` so the cost decision only reflects wallets that would actually be synced.
+
+**2.5:** Removed `@RequireCredits(5)` from `POST /analyses/wallets/dashboard-analysis` and replaced with conditional explicit deduction. Charging rules: FREE for wallets analyzed within 24h (auto-refresh is housekeeping); FREE for wallets with no PnL data that have been tried before (zero-swap wallets, token addresses — don't keep charging for nothing); 5cr for genuinely missing wallets (first-ever analysis), wallets with data >24h old, or `forceRefresh=true` (manual button). Two parallel DB reads added: `getWalletPnlSummaryWithRelations` + `getLatestDashboardAnalysisRun`. Intel endpoints unaffected — they use static `@RequireCredits` and are on a separate controller.
 
 **2.4:** Found and fixed a partial-failure bug in `POST /intel/token/:mint/holders/deep`. If `addHolderProfilesJob` succeeded but `queueSimilarityJob` then threw (Redis blip, BullMQ issue, `getWalletsStatus` DB failure), the original code propagated the error as a 500 — the holder-profiles job was already running in BullMQ with no job ID surfaced to the caller, and 0cr were charged (correct by accident). Fix: wrap `queueSimilarityJob` in `try/catch`; on failure `throw new HttpException({status:'partial', holderProfiles:{jobId,...}, similarity:null, message:...}, 206)`. Throw (not return) so `CreditInterceptor` skips → 0cr charged. Caller receives the holder-profiles jobId to poll and clear recovery instructions. Added 206 to Swagger `@ApiResponse`.
 
@@ -307,7 +335,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-02  **Branch:** `feat/credit-ledger-foundation`
+**Last Updated:** 2026-03-03  **Branch:** `feat/credit-ledger-foundation`
 
 
 

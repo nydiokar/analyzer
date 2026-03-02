@@ -21,6 +21,7 @@ import { TokenHoldersService, HolderWithLabel } from '../../api/services/token-h
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
 import { WalletHudService } from '../../api/services/wallet-hud.service';
 import { SystemWalletDetectionService } from '../../api/services/system-wallet-detection.service';
+import { CreditsService } from '../../api/services/credits.service';
 import { SKIP_BEHAVIOR_ANALYSIS, SKIP_PNL_CALCULATION, getKnownWallet } from '../../config/known-wallets';
 import type { KnownWalletType } from '../../config/known-wallets';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
@@ -55,6 +56,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly telegramAlerts: TelegramAlertsService,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly systemWalletDetection: SystemWalletDetectionService,
+    private readonly creditsService: CreditsService,
     private readonly metricsService: MetricsService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {
@@ -885,6 +887,28 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const metricsStartTime = Date.now();
     try {
       const result = await this.processAnalyzeHolderProfiles(job);
+      const isInternalHolderProfilesRequest =
+        typeof job.data.requestId === 'string' && job.data.requestId.startsWith('holder-profiles-');
+
+      if (
+        isInternalHolderProfilesRequest &&
+        result.mode === 'token' &&
+        result.metadata.cacheOnly === true &&
+        job.data.userId
+      ) {
+        try {
+          await this.creditsService.topUp(
+            job.data.userId,
+            20,
+            'refund:AnalysisOperationsProcessor.holderProfilesCacheOnly',
+          );
+          this.logger.log(`Refunded 20 credits for cache-only holder-profiles job ${job.id} (user=${job.data.userId})`);
+        } catch (refundError) {
+          this.logger.warn(
+            `Failed to refund cache-only holder-profiles job ${job.id} for user ${job.data.userId}: ${getErrorMessage(refundError)}`,
+          );
+        }
+      }
 
       // Track successful job completion
       this.metricsService.analysisJobsTotal.labels('holder-profiles', 'success').inc();
@@ -1264,7 +1288,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           if (!hasMissingHoldings) {
             this.logger.log(`Returning cached holder profiles for ${tokenMint} (topN=${topN})`);
             await job.updateProgress(100);
-            return cachedResult;
+            return {
+              ...cachedResult,
+              metadata: {
+                ...cachedResult.metadata,
+                cacheOnly: true,
+              },
+            };
           }
           this.logger.log(`Cached holder profiles incomplete for ${tokenMint} (topN=${topN}); recomputing`);
         }
@@ -1284,6 +1314,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             totalProcessingTimeMs: processingTimeMs,
             avgProcessingTimePerWalletMs: 0,
             failedHolders: 0,
+            cacheOnly: true,
           },
           timestamp: Date.now(),
           processingTimeMs,
@@ -1366,6 +1397,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       const childJobIds: string[] = [];
       const jobIdToWallet = new Map<string, string>();
+      let walletsRequiringSyncCount = 0;
+      let allChildWalletJobsCacheOnly = true;
 
       // 🎯 Dynamic priority: Smaller jobs get higher priority to prevent starvation
       // Priority calculation: Smaller topN = higher priority (lower number)
@@ -1407,6 +1440,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       }
 
       if (childJobIds.length > 0) {
+        const walletStatuses = await this.databaseService.getWalletsStatus(walletsNeedingJobs);
+        walletsRequiringSyncCount = walletStatuses.statuses.filter(
+          (status) => status.status === 'STALE' || status.status === 'MISSING',
+        ).length;
+
         this.logger.debug(`Queueing ${childJobIds.length} wallet analysis jobs for token ${tokenMint}`);
         const batchProcessor = new BatchProcessor();
         const queue = this.analysisQueueService.getQueue();
@@ -1419,6 +1457,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
           if (!result.success) {
             failedWallets.add(wallet);
+            allChildWalletJobsCacheOnly = false;
             return;
           }
 
@@ -1461,6 +1500,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           }
 
           if (walletResult && walletResult.profiles.length > 0) {
+            if (walletResult.metadata?.cacheOnly !== true) {
+              allChildWalletJobsCacheOnly = false;
+            }
             const metadata = holderMetadataByWallet.get(wallet);
             const profile = { ...walletResult.profiles[0] };
             if (metadata) {
@@ -1473,6 +1515,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             await streamProfile(wallet, withFinancials);
           } else {
             failedWallets.add(wallet);
+            allChildWalletJobsCacheOnly = false;
           }
         };
 
@@ -1513,6 +1556,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       const analyzedCount = aggregatedProfiles.size;
       const skippedCount = knownWalletProfiles.length;
       const failedCount = Math.max(failedWallets.size, walletAddresses.length - analyzedCount);
+      const tokenCacheOnly =
+        walletsNeedingJobs.length === 0 ||
+        (walletsRequiringSyncCount === 0 && allChildWalletJobsCacheOnly);
 
       const result: HolderProfilesResult = {
         success: true,
@@ -1525,6 +1571,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           totalProcessingTimeMs: processingTimeMs,
           avgProcessingTimePerWalletMs: analyzedCount > 0 ? Math.round(processingTimeMs / analyzedCount) : 0,
           failedHolders: failedCount,
+          cacheOnly: tokenCacheOnly,
         },
         timestamp: Date.now(),
         processingTimeMs,
@@ -1596,6 +1643,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         totalHoldersAnalyzed: 0,
         totalProcessingTimeMs: processingTimeMs,
         avgProcessingTimePerWalletMs: processingTimeMs,
+        cacheOnly: true,
       },
       timestamp: Date.now(),
       processingTimeMs,
@@ -1668,6 +1716,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         return {
           ...cached,
           profiles: hydratedProfiles,
+          metadata: {
+            ...cached.metadata,
+            cacheOnly: true,
+          },
         };
       }
 
@@ -1687,6 +1739,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           totalHoldersAnalyzed: 1,
           totalProcessingTimeMs: processingTimeMs,
           avgProcessingTimePerWalletMs: processingTimeMs,
+          cacheOnly: true,
         },
         timestamp: Date.now(),
         processingTimeMs,
