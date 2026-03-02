@@ -21,6 +21,7 @@ import {
   Zap,
   Activity,
   Check,
+  Bot,
 } from 'lucide-react';
 import type { CreditTransaction, CreditPack } from '@/types/api';
 
@@ -165,6 +166,10 @@ export default function CreditsPage() {
     packsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const agentTxs = transactions.filter((tx) => tx.reason === 'x402_payment');
+  const agentCreditsSpent = agentTxs.reduce((sum, tx) => sum + Math.abs(tx.delta), 0);
+  const agentUsdcSpent = +(agentCreditsSpent * 0.015).toFixed(3);
+
   const handleSelectPack = (pack: CreditPack) => {
     router.push(`/dashboard/credits/checkout/${pack.id}`);
   };
@@ -224,6 +229,32 @@ export default function CreditsPage() {
                 ))}
               </CardContent>
             </Card>
+
+            {/* Agent usage (x402) — only shown when there's activity */}
+            {!isLoading && agentTxs.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <Bot className="h-3.5 w-3.5 text-purple-400" />
+                    Agent API Usage
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Payments (last 20)</span>
+                    <span className="font-mono text-foreground">{agentTxs.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Credits consumed</span>
+                    <span className="font-mono text-foreground">{agentCreditsSpent.toLocaleString()} cr</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">USDC equivalent</span>
+                    <span className="font-mono text-purple-400">${agentUsdcSpent}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Top-up CTA — scrolls to packs, doesn't navigate */}
             <Button

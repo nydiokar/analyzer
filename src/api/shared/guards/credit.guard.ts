@@ -80,7 +80,7 @@ export class CreditGuard implements CanActivate {
 
     // --- X402 path: agent supplied a signed transaction ---
     if (xPaymentHeader) {
-      await this.x402VerificationService.verify(
+      const txSig = await this.x402VerificationService.verify(
         xPaymentHeader,
         requiredCredits,
         user.id,
@@ -88,6 +88,8 @@ export class CreditGuard implements CanActivate {
       );
       request.x402Paid = true;
       request.creditCost = requiredCredits;
+      const response = context.switchToHttp().getResponse<{ setHeader: (k: string, v: string) => void }>();
+      response.setHeader('X-Payment-Receipt', txSig);
       this.logger.log(`x402 payment verified: user=${user.id} credits=${requiredCredits}`);
       return true;
     }
