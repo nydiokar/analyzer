@@ -18,7 +18,7 @@ import { JobPriority } from '../../queues/config/queue.config';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
 import { getKnownWallet } from '../../config/known-wallets';
 import { Request } from 'express';
-import { User } from '@prisma/client';
+import { User, Wallet } from '@prisma/client';
 import { getErrorMessage } from 'core/utils/error-utils';
 import { RequireCredits } from '../shared/decorators/require-credits.decorator';
 import { CreditsService } from '../services/credits.service';
@@ -214,13 +214,31 @@ export class AnalysesController {
       // Generate request ID  
       const requestId = `similarity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      // Check wallet status to determine which wallets need sync
-      const walletStatuses = await this.databaseService.getWalletsStatus(dto.walletAddresses);
+      // Check wallet status to determine which wallets need sync.
+      // IMPORTANT: exclude known/system wallets from pricing logic because they are intentionally
+      // skipped by analysis flows and would otherwise force false-positive "needs sync" billing.
+      const walletRecords = await this.databaseService.getWallets(dto.walletAddresses, true) as Wallet[];
+      const walletMap = new Map(walletRecords.map((wallet) => [wallet.address, wallet]));
+      const statusCheckWallets = dto.walletAddresses.filter((address) => {
+        const registryEntry = getKnownWallet(address);
+        const walletRecord = walletMap.get(address);
+        const isKnownOrSystem =
+          !!registryEntry ||
+          !!walletRecord?.knownType ||
+          walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
+          walletRecord?.classification === 'INVALID';
+        return !isKnownOrSystem;
+      });
+
+      const walletStatuses = await this.databaseService.getWalletsStatus(statusCheckWallets);
       const walletsNeedingSync = walletStatuses.statuses
         .filter(status => status.status === 'STALE' || status.status === 'MISSING')
         .map(status => status.walletAddress);
       
-      this.logger.log(`Advanced analysis: ${walletsNeedingSync.length}/${dto.walletAddresses.length} wallets need sync: [${walletsNeedingSync.join(', ')}]`);
+      this.logger.log(
+        `Advanced analysis pricing check: ${walletsNeedingSync.length}/${statusCheckWallets.length} sync-eligible wallets need sync ` +
+        `(excluded ${dto.walletAddresses.length - statusCheckWallets.length} known/system wallets): [${walletsNeedingSync.join(', ')}]`
+      );
 
       const creditCost = walletsNeedingSync.length > 0 ? 20 : 10;
       if (req.user) {
