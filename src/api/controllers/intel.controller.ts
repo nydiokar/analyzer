@@ -120,8 +120,9 @@ export class IntelController {
    *   → Poll GET /api/v1/jobs/:jobId, then call this endpoint again.
    * If known system wallet: returns HTTP 422, no credits charged.
    *
-   * Credits are charged on "ok" (data delivered) and "queued" (job accepted).
-   * Never charged when returning 4xx.
+   * Credits are charged on "ok" (data delivered, handler returns 200).
+   * 202 uses throw → interceptor skips → 0cr. Agent pays on the 200 re-call.
+   * Never charged on 4xx or 422.
    */
   @Get('wallet/:addr')
   @RequireCredits(5)
@@ -256,7 +257,7 @@ export class IntelController {
       if (matchingJob) {
         const jobId = matchingJob.id ?? null;
         this.logger.log(`Intel wallet ${addr}: job already in queue: ${jobId}`);
-        // HTTP 202 — CreditInterceptor fires, 5cr deducted. Job already in flight.
+        // HTTP 202 — throw skips CreditInterceptor → 0cr. Agent pays on the 200 re-call.
         throw new HttpException(
           {
             status: 'queued',
@@ -274,7 +275,7 @@ export class IntelController {
       const existingLockJobId = await this.redisLockService.getLockValue(lockKey);
       if (existingLockJobId) {
         this.logger.log(`Intel wallet ${addr}: analysis already running via job ${existingLockJobId}`);
-        // HTTP 202 — CreditInterceptor fires, 5cr deducted. Job already running.
+        // HTTP 202 — throw skips CreditInterceptor → 0cr. Agent pays on the 200 re-call.
         throw new HttpException(
           {
             status: 'queued',
@@ -310,7 +311,7 @@ export class IntelController {
 
       this.logger.log(`Intel wallet ${addr}: queued flash analysis job ${job.id}`);
 
-      // HTTP 202 — CreditInterceptor fires, 5cr deducted. Job accepted.
+      // HTTP 202 — throw skips CreditInterceptor → 0cr. Agent pays on the 200 re-call.
       throw new HttpException(
         {
           status: 'queued',

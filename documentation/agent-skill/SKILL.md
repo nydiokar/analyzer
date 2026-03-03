@@ -93,8 +93,8 @@ curl -X POST http://localhost:3001/api/v1/intel/wallets/batch-hud \
   -d '{"wallets": ["ADDR_1", "ADDR_2", "ADDR_3"]}'
 ```
 
-Returns: `{ huds: { "ADDR_1": { pnlSignal, behaviorCode, winRate, isBotFlagged, ... } }, queued: [...], skipped: [...] }`
-Wallets without fresh data appear in `queued` — poll those jobs then call again.
+Returns: `{ huds: { "ADDR_1": { pnlSignal, behaviorCode, winRate, isBotFlagged, ... } }, queued: [{ walletAddress, jobId, monitoringUrl }], skipped: [...], calculatedAt }`
+Wallets without fresh data appear in `queued` as objects with `walletAddress`, `jobId`, and `monitoringUrl` — poll those jobs then call again.
 
 **Top N holders of a token** (20cr — async):
 
@@ -105,7 +105,7 @@ curl -X POST http://localhost:3001/api/v1/intel/token/TOKEN_MINT/holders \
   -d '{"topN": 20}'
 ```
 
-Returns: `{ jobId, requestId, monitoringUrl }` → poll → fetch `holder-profiles:result:<requestId>`
+Returns: `{ jobId, requestId, monitoringUrl }` → poll → fetch `holder-profiles:result:<jobId>`
 
 **Similarity analysis for 2–30 wallets** (20cr — async):
 
@@ -132,7 +132,8 @@ curl -X POST http://localhost:3001/api/v1/intel/token/TOKEN_MINT/holders/deep \
 - `topN` — how many top holders to profile (1–50, default 20). Server fetches them from Helius.
 - `wallets` — 2–30 addresses for the similarity job. You provide these — typically from prior knowledge or a previous `/holders` run.
 
-Returns: `{ holderProfiles: { jobId, requestId }, similarity: { jobId, requestId } }` — poll both independently.
+Returns `202`: `{ holderProfiles: { jobId, requestId, monitoringUrl }, similarity: { jobId, requestId, monitoringUrl } }` — poll both independently.
+Returns `206` (partial failure): `{ status: "partial", holderProfiles: { jobId, requestId, monitoringUrl }, similarity: null }` — similarity failed to queue, 0cr charged. Retry the full request or call `POST /intel/wallets/similarity` separately.
 
 ---
 
