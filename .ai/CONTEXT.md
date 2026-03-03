@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-03  **Status:** PAY-8a/8b/8c complete + similarity/holder cache-aware charging fixes + Intel static-pricing guard
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-03  **Status:** PAY-5e complete — SKILL.md agent integration guide published to docs/skill/
 
 ##  Active Work
 
@@ -36,7 +36,7 @@
 | ✅ | **[PAY-5b] Agent usage stats** | 🟡 M | Done (Mar 2). Frontend widget on `/dashboard/credits` left sidebar — "Agent API Usage" card shown only when `agentTxs.length > 0`. Derives from existing `useCredits()` transactions (no new API call): filters `reason === 'x402_payment'`, displays payment count, credits consumed, USDC equivalent (`credits × $0.015`). `tsc --noEmit` clean. |
 | ✅ | **[PAY-5c] `X-Payment-Receipt` response header** | 🟢 S | Done (Mar 2). Captured `txSig` return from `x402VerificationService.verify()` in `CreditGuard`. Added `response.setHeader('X-Payment-Receipt', txSig)` on confirmed x402 path. `tsc --noEmit` clean. |
 | ⚪ | **[PAY-5d] Blocked wallet E2E test** | 🟢 S | Verify `isActive=false` on an agent user row returns HTTP 403. Manual DB flip + script check. |
-| ⚪ | **[PAY-5e] SKILL.md / integration guide** | 🟡 M | Docs + minimal code example showing x402 handshake: discovery → build tx → attach header → handle replay. Reference implementation in `x402-agent-test.ts` or the latest one rather src\scripts\intel-agent-test.ts <---- this was tested and it worked - payment went trough and everything. |
+| ✅ | **[PAY-5e] SKILL.md / integration guide** | 🟡 M | Done (Mar 3). Agent skill published to `docs/skill/`. Two files: `skill.json` (machine-readable index, triggers, payment params) + `SKILL.md` (canonical AgentSkills format with YAML frontmatter). SKILL.md covers: what data is available + real response shapes, pricing table, API key auth (`X-Api-Key`), full X402 handshake (402 body → build transferChecked → X-Payment header → TypeScript implementation), async job polling loop with result keys + 15min TTL warning, autonomous agent decision tree, full error table. Deliberately excludes JWT (browser-only). Next: TS SDK + MCP server skill (separate tasks). |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
@@ -129,6 +129,7 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 | 3.1 | 🐛 FIX | Similarity dynamic pricing false-positive: known/system wallets forced 20cr | 🟢 S | `src/api/controllers/analyses.controller.ts` |
 | 3.2 | 🐛 FIX | Holder-profiles cache-only billing: internal flow auto-refund + UI label correction | 🟡 M | `src/queues/processors/analysis-operations.processor.ts`, `src/queues/jobs/types/index.ts`, `dashboard/src/app/dashboard/credits/page.tsx` |
 | 3.3 | 📋 DECISION | Intel static-pricing guard + transparency policy for `cacheOnly` | 🟢 S | `src/queues/processors/analysis-operations.processor.ts`, `.ai/CONTEXT.md` |
+| 3.4 | 📄 DOCS | PAY-5e: SKILL.md agent integration guide — canonical AgentSkills format | 🟡 M | `docs/skill/SKILL.md` (new), `docs/skill/skill.json` (new) |
 
 **Summary:**
 
@@ -137,6 +138,8 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 **3.2:** Implemented cache-aware holder-profiles billing for internal dashboard flow. Token-mode holder profiles now annotate `metadata.cacheOnly` when outcomes are fully cache-served, including wallet-mode child jobs served from Tier-1/Tier-2 cache. `AnalysisOperationsProcessor` issues a `+20` refund (`refund:AnalysisOperationsProcessor.holderProfilesCacheOnly`) for internal `holder-profiles-*` requests that are cache-only. Credits page transaction mapping fixed so refund reasons render as "Refund"/specific refund labels instead of "Credit Purchase".
 
 **3.3:** Guarded Intel pricing contract: cache-only refund path is restricted to internal `/analyses/holder-profiles` request IDs only, preventing accidental refunds on static-priced `/intel/*` calls that share the same processor. Decision recorded: keep `cacheOnly` visible in job result metadata (telemetry), document Intel as static-priced per accepted request.
+
+**3.4:** Published agent skill to `docs/skill/`. Follows canonical AgentSkills spec (agentskills.io) with YAML frontmatter — compatible with Claude Code, Cursor, Gemini CLI and other skills-aware frameworks. Structure: data-first (what you get + real response shapes) → pricing → how to pay (API key first, X402 second with full TypeScript implementation) → async job loop → agent decision tree → errors. Omits JWT (browser session only). Key decisions: treasury ATA not hardcoded (deployment-specific env var, cached after first 402); `/pricing` schema not documented in skill (costs hardcoded, live endpoint for human SDK builders); SDK generation and MCP server are separate follow-on tasks.
 
 ### March 2, 2026
 
