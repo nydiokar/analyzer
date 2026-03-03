@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-03  **Status:** PAY-5e complete — SKILL.md agent integration guide published to docs/skill/
+**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-03  **Status:** PAY-5f complete — TypeScript SDK shipped in `packages/sdk`
 
 ##  Active Work
 
@@ -36,7 +36,8 @@
 | ✅ | **[PAY-5b] Agent usage stats** | 🟡 M | Done (Mar 2). Frontend widget on `/dashboard/credits` left sidebar — "Agent API Usage" card shown only when `agentTxs.length > 0`. Derives from existing `useCredits()` transactions (no new API call): filters `reason === 'x402_payment'`, displays payment count, credits consumed, USDC equivalent (`credits × $0.015`). `tsc --noEmit` clean. |
 | ✅ | **[PAY-5c] `X-Payment-Receipt` response header** | 🟢 S | Done (Mar 2). Captured `txSig` return from `x402VerificationService.verify()` in `CreditGuard`. Added `response.setHeader('X-Payment-Receipt', txSig)` on confirmed x402 path. `tsc --noEmit` clean. |
 | ⚪ | **[PAY-5d] Blocked wallet E2E test** | 🟢 S | Verify `isActive=false` on an agent user row returns HTTP 403. Manual DB flip + script check. |
-| ✅ | **[PAY-5e] SKILL.md / integration guide** | 🟡 M | Done (Mar 3). Agent skill published to `docs/skill/`. Two files: `skill.json` (machine-readable index, triggers, payment params) + `SKILL.md` (canonical AgentSkills format with YAML frontmatter). SKILL.md covers: what data is available + real response shapes, pricing table, API key auth (`X-Api-Key`), full X402 handshake (402 body → build transferChecked → X-Payment header → TypeScript implementation), async job polling loop with result keys + 15min TTL warning, autonomous agent decision tree, full error table. Deliberately excludes JWT (browser-only). Next: TS SDK + MCP server skill (separate tasks). |
+| ✅ | **[PAY-5e] SKILL.md / integration guide** | 🟡 M | Done (Mar 3). Agent skill published to `docs/skill/`. Two files: `skill.json` (machine-readable index, triggers, payment params) + `SKILL.md` (canonical AgentSkills format with YAML frontmatter). SKILL.md covers: what data is available + real response shapes, pricing table, API key auth (`X-Api-Key`), full X402 handshake (402 body → build transferChecked → X-Payment header → TypeScript implementation), async job polling loop with result keys + 15min TTL warning, autonomous agent decision tree, full error table. Deliberately excludes JWT (browser-only). Next: MCP server skill (separate task). |
+| ✅ | **[PAY-5f] TypeScript SDK package (`@sova/intel-sdk`)** | 🟡 M | Done (Mar 3). SDK added in `packages/sdk/` with typed client for all Intel endpoints, API key + X402 auth, async polling helpers, and Vitest coverage for warm/cold/job/x402/error paths. Build is `pnpm run build` (`tsc`) with declaration files emitted to `packages/sdk/dist/`. |
 | ⚪ | **[INTEL-DEEP-BUG] Fix `POST /intel/token/:mint/holders/deep` similarity chaining** | 🟡 M | Endpoint currently requires caller to pass `wallets[]` upfront, but callers can't know the holders before the job runs — circular dependency. Fix: add `chainSimilarity: true` flag to `AnalyzeHolderProfilesJobData`, processor auto-queues similarity job using discovered holder addresses after completion. Controller removes `wallets[]` from request body, returns `chainedSimilarityRequestId` upfront so agent can poll result key directly. No round-trip needed. **Full spec + proposed implementation:** `.ai/context/monetization/INTEL-DEEP-CHAIN-BUG.md`. Files: `src/queues/jobs/types/index.ts`, `src/api/controllers/intel.controller.ts`, `src/queues/processors/analysis-operations.processor.ts`, `documentation/skill/SKILL.md`. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
@@ -80,6 +81,7 @@ Full plan: `.ai/context/monetization/DEFINITIVE_PLAN.md`
 - ✅ `[PAY-8a]` Reprice `/intel/token/:mint/holders` 35cr → 20cr
 - ✅ `[PAY-8b]` `POST /intel/wallets/similarity` (20cr standalone) — live
 - ✅ `[PAY-8c]` `POST /intel/token/:mint/holders/deep` (35cr bundled) — live, partial-failure bug fixed (HTTP 206)
+- ✅ `[PAY-5f]` TypeScript SDK package (`@sova/intel-sdk`) — complete (`packages/sdk`, typed client + tests + README)
 
 **Key decisions (Feb 27–Mar 2, revised Mar 2):**
 - **Intel POST endpoint shape (Mar 2):** Three-endpoint model for holder intelligence: `POST /intel/token/:mint/holders` (20cr, standalone profiles), `POST /intel/wallets/similarity` (20cr, standalone similarity), `POST /intel/token/:mint/holders/deep` (35cr, bundled — agent provides known wallet list upfront, queues both jobs immediately, returns two jobIds). Replaces original "35cr bundled" plan which failed because the processor doesn't auto-chain similarity — the agent must provide the wallet list or make two calls. Price: separate calls cost 40cr, deep bundle costs 35cr (12.5% discount).
@@ -131,6 +133,7 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 | 3.2 | 🐛 FIX | Holder-profiles cache-only billing: internal flow auto-refund + UI label correction | 🟡 M | `src/queues/processors/analysis-operations.processor.ts`, `src/queues/jobs/types/index.ts`, `dashboard/src/app/dashboard/credits/page.tsx` |
 | 3.3 | 📋 DECISION | Intel static-pricing guard + transparency policy for `cacheOnly` | 🟢 S | `src/queues/processors/analysis-operations.processor.ts`, `.ai/CONTEXT.md` |
 | 3.4 | 📄 DOCS | PAY-5e: SKILL.md agent integration guide — canonical AgentSkills format | 🟡 M | `docs/skill/SKILL.md` (new), `docs/skill/skill.json` (new) |
+| 3.5 | 🎯 FEAT | PAY-5f: TypeScript SDK package for Intel API consumers | 🟡 M | `packages/sdk/src/*`, `packages/sdk/src/client.test.ts`, `packages/sdk/README.md`, `packages/sdk/package.json`, `packages/sdk/tsconfig.json` |
 
 **Summary:**
 
@@ -140,7 +143,9 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 **3.3:** Guarded Intel pricing contract: cache-only refund path is restricted to internal `/analyses/holder-profiles` request IDs only, preventing accidental refunds on static-priced `/intel/*` calls that share the same processor. Decision recorded: keep `cacheOnly` visible in job result metadata (telemetry), document Intel as static-priced per accepted request.
 
-**3.4:** Published agent skill to `docs/skill/`. Follows canonical AgentSkills spec (agentskills.io) with YAML frontmatter — compatible with Claude Code, Cursor, Gemini CLI and other skills-aware frameworks. Structure: data-first (what you get + real response shapes) → pricing → how to pay (API key first, X402 second with full TypeScript implementation) → async job loop → agent decision tree → errors. Omits JWT (browser session only). Key decisions: treasury ATA not hardcoded (deployment-specific env var, cached after first 402); `/pricing` schema not documented in skill (costs hardcoded, live endpoint for human SDK builders); SDK generation and MCP server are separate follow-on tasks.
+**3.4:** Published agent skill to `docs/skill/`. Follows canonical AgentSkills spec (agentskills.io) with YAML frontmatter — compatible with Claude Code, Cursor, Gemini CLI and other skills-aware frameworks. Structure: data-first (what you get + real response shapes) → pricing → how to pay (API key first, X402 second with full TypeScript implementation) → async job loop → agent decision tree → errors. Omits JWT (browser session only). Key decisions: treasury ATA not hardcoded (deployment-specific env var, cached after first 402); `/pricing` schema not documented in skill (costs hardcoded, live endpoint for human SDK builders); MCP server skill remains a separate follow-on task.
+
+**3.5:** Implemented `@sova/intel-sdk` in `packages/sdk/` for external API consumers. The SDK exposes all current Intel endpoints with strict TS types, supports API key and X402 auth, and adds convenience pollers for async jobs (`pollHolderProfiles`, `pollSimilarity`, `pollDeepAnalysis`). Unit tests cover warm/cold profile behavior, correct result-key contracts (`jobId` for holder profiles, `requestId` for similarity), deep 206 partial handling, and X402 probe→payment→retry flow. Build pipeline is `pnpm run build` (`tsc`) with `.d.ts` declarations emitted to `dist/`.
 
 ### March 2, 2026
 
