@@ -147,7 +147,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
             const isHolderOnly = !profile.behaviorType && (profile.currentHoldingsCount ?? 0) > 0;
             const behaviorMeta = getBehaviorMeta(profile.behaviorType) ?? (isHolderOnly
               ? {
-                  label: 'Holder (no exits yet)',
+                  label: 'Fresh',
                   description: 'No completed exits yet; classification will update once exits occur.',
                   timeframe: 'Not enough exits',
                 }

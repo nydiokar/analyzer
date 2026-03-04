@@ -349,21 +349,21 @@ export function WalletBaseballCard({ profile, walletAddress }: Props) {
                     style={getBehaviorColor(behaviorDisplayType).style}
                   >
                     {getBehaviorMeta(profile.behaviorType)?.label
-                      ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
+                      ?? (heldTokens > 0 ? 'Fresh' : profile.behaviorType)
                       ?? 'Unclassified'}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs text-xs">
                   <p className="font-semibold mb-1">
                     {getBehaviorMeta(profile.behaviorType)?.label
-                      ?? (heldTokens > 0 ? 'Holder (no exits yet)' : profile.behaviorType)
+                      ?? (heldTokens > 0 ? 'Fresh' : profile.behaviorType)
                       ?? 'Unclassified'}
                   </p>
                   <p className="text-muted-foreground">
                     {getBehaviorMeta(profile.behaviorType)?.timeframe
                       ? `Typical hold: ${getBehaviorMeta(profile.behaviorType)?.timeframe}`
                       : heldTokens > 0
-                        ? 'No exits yet'
+                        ? 'Fresh — holding with no exits yet'
                         : 'No exit data'}
                   </p>
                   {exitCount > 0 && (

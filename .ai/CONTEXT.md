@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-02-26  **Status:** PFT bot complete → Payment infrastructure (Solana Pay + X402) is next priority
+**Branch:** `main`  **Last Updated:** 2026-03-04  **Status:** PFT bot complete → Payment infrastructure (Solana Pay + X402) is next priority
 
 ---
 
@@ -23,6 +23,7 @@
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
 **Recently Completed:**
+-  **Holder Profiles UI cleanup** (Mar 4) - Removed "Top Holders" from nav (`AppShell.tsx` `navItems`) — route still exists, just not linked. Removed `OutcomeStrip` classification card (high churn / stable etc.) from `TokenPulse`. Replaced it with a 4th `CognitiveMetricCard` — **Fresh Supply** — showing `freshSupplyPercent` (supply % held by wallets with no exit history). Grid adjusted from `[auto_2fr_repeat(3,...)]` → `[auto_repeat(4,...)]`. Renamed "Holder (no exits yet)" → "Fresh" across `TraderDistributionBar`, `MinimalHoldersTable`, `WalletBaseballCard`. Tooltip on "Fresh" badge updated to "Fresh — holding with no exits yet". `getTokenOutcome` aliased as `getTokenStats` in `TokenPulse` import to reflect actual usage. **Files:** `AppShell.tsx`, `TokenPulse.tsx`, `CognitiveMetricCard.tsx`, `TraderDistributionBar.tsx`, `MinimalHoldersTable.tsx`, `WalletBaseballCard.tsx`.
 -  **Log Level Refactor — Phase 1** (Feb 24) - Audited 94 INFO-level log calls across 16 backend files. Applied verdicts: 13 REMOVE, 54 → DEBUG, 27 KEEP. INFO output for a 20-wallet holder-profiles job reduced from 900+ lines to ~22. Phase 2 (structured events + CI schema enforcement) designed and documented at `.ai/context/log_audit/IMPLEMENTATION_PLAN.md` — not yet implemented.
 -  **PFT Oracle Bot v2 — Phase 4: IPFS attachments** (Feb 23) - Tested `upload_content` MCP tool for large comparison markdown files. Bot now attaches IPFS-hosted reports when reply text exceeds on-chain size limits.
 -  **PFT Oracle Bot v2 — Phase 3: `/analyze` and `/compare` commands** (Feb 23) - Explicit `/analyze` deferred jobs working across flash/working/deep scopes. `/compare` fully tested end-to-end with real wallets.

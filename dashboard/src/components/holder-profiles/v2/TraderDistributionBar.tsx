@@ -69,7 +69,7 @@ function buildDistribution(profiles: HolderProfile[]): DistributionBucket[] {
     const supplyPercent = supplyPercents[behaviorType] || 0;
     return {
       id: behaviorType,
-      label: behaviorType === 'HODLER' ? 'Holder (no exits yet)' : (meta?.label || behaviorType),
+      label: behaviorType === 'HODLER' ? 'Fresh' : (meta?.label || behaviorType),
       timeframe: meta?.timeframe || '',
       count,
       supplyPercent,

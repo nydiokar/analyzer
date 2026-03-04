@@ -68,7 +68,6 @@ export function AppShell({ children }: AppShellProps) {
     { href: '/trackers', label: 'Tracked Wallets' },
     { href: '/similarity-lab', label: 'Similarity Lab' },
     { href: '/tools/holder-profiles', label: 'Holder Profiles' },
-    { href: '/tools/top-holders', label: 'Top Holders' },
     { href: '/wallet-hunt', label: 'Wallet Hunt' },
   ];
 
