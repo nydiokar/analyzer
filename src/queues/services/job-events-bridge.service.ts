@@ -165,6 +165,25 @@ export class JobEventsBridgeService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Set up queue events for: ${queueName}`);
   }
 
+  /**
+   * Awaits a BullMQ job using the already-open QueueEvents for that queue.
+   * Reuses the existing subscriber connection — no extra Redis connections.
+   */
+  async waitForJob(job: { id?: string; waitUntilFinished: (qe: QueueEvents, timeout?: number) => Promise<any> }, queueName: string, timeoutMs = 30_000): Promise<'completed' | 'failed' | 'timeout'> {
+    const queueEvents = this.queueEventsMap.get(queueName);
+    if (!queueEvents) {
+      this.logger.warn(`waitForJob: no QueueEvents found for queue ${queueName}`);
+      return 'failed';
+    }
+    try {
+      await job.waitUntilFinished(queueEvents, timeoutMs);
+      return 'completed';
+    } catch (err: any) {
+      if (err?.message?.includes('timed out') || err?.message?.includes('timeout')) return 'timeout';
+      return 'failed';
+    }
+  }
+
   private async resolveUserId(job: any, jobId: string): Promise<string | undefined> {
     const fromData = (job?.data as any)?.userId;
     if (fromData) {

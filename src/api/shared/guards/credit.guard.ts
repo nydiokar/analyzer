@@ -5,12 +5,15 @@ import {
   Logger,
   HttpException,
   HttpStatus,
+  Inject,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import { Redis } from 'ioredis';
 import { CREDITS_REQUIRED_KEY } from '../decorators/require-credits.decorator';
 import { CreditsService } from '../../services/credits.service';
 import { X402VerificationService } from '../../services/x402-verification.service';
+import { REDIS_CLIENT } from '../../../queues/config/redis.provider';
 import { User } from '@prisma/client';
 
 const DEFAULT_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -45,6 +48,7 @@ export class CreditGuard implements CanActivate {
     private readonly creditsService: CreditsService,
     private readonly x402VerificationService: X402VerificationService,
     configService: ConfigService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.usdcMint = configService.get<string>('USDC_MINT') ?? DEFAULT_USDC_MINT;
     this.treasury = configService.get<string>('TREASURY_WALLET_ADDRESS') ?? '';
@@ -62,9 +66,35 @@ export class CreditGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    const user = request.user;
-
     const headers = request.headers as unknown as Record<string, string>;
+
+    // Prepaid-marker check: agent already paid during the synchronous hold — skip payment
+    const prepaidJobId = headers['x-prepaid-job-id'];
+    if (prepaidJobId) {
+      const markerKey = `intel:prepaid:${prepaidJobId}`;
+      const hudMarkerKey = `intel:prepaid-hud:${prepaidJobId}`;
+      const [markerVal, hudMarkerVal] = await Promise.all([
+        this.redis.get(markerKey),
+        this.redis.get(hudMarkerKey),
+      ]);
+      const activeMarkerKey = markerVal ? markerKey : hudMarkerVal ? hudMarkerKey : null;
+      if (activeMarkerKey) {
+        const markerValue = markerVal ?? hudMarkerVal!;
+        await this.redis.del(activeMarkerKey);
+        request.creditCost = requiredCredits ?? 0;
+        if (markerValue === 'x402') {
+          // Agent paid on-chain in the first call — CreditInterceptor must NOT deduct from balance.
+          request.x402Paid = true;
+        }
+        // For standard credit users (markerValue = userId), creditCost is set and x402Paid
+        // is NOT set, so CreditInterceptor will deduct from balance on the re-call. This is
+        // correct: the first call timed out before the interceptor ran, so no deduction happened yet.
+        this.logger.log(`Prepaid marker found for job ${prepaidJobId} (${markerValue === 'x402' ? 'x402' : 'credit user'}) — skipping payment gate`);
+        return true;
+      }
+    }
+
+    const user = request.user;
     const paymentHeader = headers['payment-signature'] ?? headers['x-payment'];
 
     // No user = unauthenticated x402 discovery request (CompositeAuthGuard allowed it through).

@@ -15,11 +15,15 @@ import {
   UsePipes,
   ValidationPipe,
   Req,
+  Inject,
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 import { IsArray, IsString, ArrayMaxSize, ArrayMinSize, IsOptional, IsInt, Min, Max } from 'class-validator';
+import { Job } from 'bullmq';
+import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 import { RequireCredits } from '../shared/decorators/require-credits.decorator';
 import { WalletHudService } from '../services/wallet-hud.service';
@@ -28,7 +32,6 @@ import { BehaviorService } from '../services/behavior.service';
 import { PnlOverviewService } from '../services/pnl-overview.service';
 import { TokenPerformanceService } from '../services/token-performance.service';
 import { TokenPerformanceQueryDto } from '../shared/dto/token-performance-query.dto';
-import { BatchWalletHudResponseDto } from '../shared/dto/wallet-hud.dto';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
@@ -38,7 +41,8 @@ import {
   DashboardWalletAnalysisJobData,
 } from '../../queues/jobs/types';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
-import { JobPriority } from '../../queues/config/queue.config';
+import { JobPriority, QueueNames } from '../../queues/config/queue.config';
+import { JobEventsBridgeService } from '../../queues/services/job-events-bridge.service';
 import { getKnownWallet } from '../../config/known-wallets';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 
@@ -87,13 +91,14 @@ class IntelTokenHoldersDeepRequestDto extends IntelTokenHoldersRequestDto {
  *
  * Credit charging contract (CreditInterceptor fires on handler `return`, skips on `throw`):
  * - status "ok"     → 200  → handler returns    → interceptor fires → Ncr deducted  ✓ data delivered
- * - status "queued" → 202  → throw HttpException → interceptor skips → 0cr           ✓ GET endpoints: pay on delivery
+ * - status "queued" → 202  → throw HttpException → interceptor skips → 0cr           ✓ timeout fallback only
  * - status "queued" → 202  → handler returns    → interceptor fires → Ncr deducted  ✓ POST endpoints: pay on acceptance
  * - status "skipped"→ 422  → throw HttpException → interceptor skips → 0cr           ✓ known wallet, nothing to do
  * - invalid address → 400  → throw BadRequest   → interceptor skips → 0cr           ✓ guard or handler rejects
  *
- * GET /intel/wallet/:addr "pay on delivery": agent is NOT charged for queuing a flash analysis.
- * They call again after the job completes, get a 200, and pay then. One charge per data delivery.
+ * GET /intel/wallet/:addr synchronous hold: connection is held open up to 30s awaiting the flash
+ * analysis. On completion a 200 is returned and credits are charged once. A 202 is only thrown
+ * if the analysis exceeds 30s — the prepaidJobId in the response allows one free re-call.
  */
 @ApiTags('Intel')
 @Controller('intel')
@@ -109,7 +114,61 @@ export class IntelController {
     private readonly analysisOperationsQueue: AnalysisOperationsQueue,
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly redisLockService: RedisLockService,
+    private readonly jobEventsBridgeService: JobEventsBridgeService,
+    @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {}
+
+  private awaitJob(job: Job): Promise<'completed' | 'failed' | 'timeout'> {
+    return this.jobEventsBridgeService.waitForJob(job, QueueNames.ANALYSIS_OPERATIONS);
+  }
+
+  /**
+   * Returns the prepaid marker value to store in Redis.
+   * 'x402' = agent paid on-chain; CreditInterceptor must NOT deduct on re-call.
+   * Anything else = standard credit user; CreditInterceptor MUST deduct on re-call.
+   */
+  private prepaidMarkerValue(req: Request & { user?: User }): string {
+    return (req as any).x402Paid === true ? 'x402' : (req.user?.id ?? 'unknown');
+  }
+
+  private buildIntelResponse(
+    addr: string,
+    summary: NonNullable<Awaited<ReturnType<DatabaseService['getWalletPnlSummaryWithRelations']>>>,
+    hud: any,
+    pnlOverview: any,
+    behavior: any,
+  ) {
+    return {
+      status: 'ok' as const,
+      walletAddress: addr,
+      summary: {
+        lastAnalyzedAt: summary.updatedAt.toISOString(),
+        realizedPnl: summary.realizedPnl ?? 0,
+        profitableTradesCount: summary.profitableTradesCount ?? 0,
+        totalTradesCount: summary.totalIndividualTradesCount ?? 0,
+        currentSolBalance: summary.currentSolBalance ?? null,
+        knownType: summary.wallet?.knownType ?? null,
+        knownLabel: summary.wallet?.knownLabel ?? null,
+      },
+      hud: hud ?? null,
+      behavior: behavior
+        ? {
+            tradingStyle: behavior.tradingStyle ?? null,
+            speedCategory: behavior.speedCategory ?? null,
+            avgHoldTimeHours: behavior.averageFlipDurationHours ?? null,
+            medianHoldTimeHours: behavior.medianHoldTime ?? null,
+            buySellRatio: behavior.buySellRatio ?? null,
+            exitPattern: behavior.historicalPattern?.exitPattern ?? null,
+          }
+        : null,
+      pnl: pnlOverview
+        ? {
+            allTime: pnlOverview.allTimeData ?? null,
+            period: pnlOverview.periodData ?? null,
+          }
+        : null,
+    };
+  }
 
   /**
    * GET /intel/wallet/:addr
@@ -130,8 +189,8 @@ export class IntelController {
     summary: 'Aggregated wallet intel (5cr)',
     description: `Returns aggregated wallet intel (summary + HUD + behavior + PnL).
 
-**HTTP 200 — status "ok":** Data returned immediately. 5cr charged.
-**HTTP 202 — status "queued":** Wallet not yet analyzed. Flash analysis queued. 5cr charged. Poll \`monitoringUrl\` for completion, then call this endpoint again.
+**HTTP 200 — status "ok":** Data returned immediately (or after synchronous wait). 5cr charged.
+**HTTP 202 — status "queued":** Analysis timed out (>30s). 0cr charged. Poll \`monitoringUrl\` for completion, then call again with \`X-Prepaid-Job-Id: {prepaidJobId}\` header — no second payment required.
 **HTTP 422 — status "skipped":** Known system/program wallet, not eligible for analysis. 0cr charged.`,
   })
   @ApiParam({ name: 'addr', description: 'Solana wallet address' })
@@ -154,10 +213,16 @@ export class IntelController {
     // Check PnL summary — same gate as GET /wallets/:addr/summary.
     const summary = await this.databaseService.getWalletPnlSummaryWithRelations(addr);
 
+    // Prepaid re-call: CreditGuard already consumed the marker and set x402Paid/creditCost.
+    // The analysis just ran — serve whatever is in DB regardless of freshness timestamp.
+    const isPrepaidRecall = !!(req.headers as any)['x-prepaid-job-id'];
+
     // Freshness check: same 30-minute window the dashboard uses to decide whether
     // to auto-trigger a re-analysis (WalletProfileLayout.tsx shouldAutoTriggerFlash).
     const FRESHNESS_MS = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS.flash.freshnessMinutes * 60 * 1000;
-    const isFresh = summary !== null && (Date.now() - summary.updatedAt.getTime()) < FRESHNESS_MS;
+    const isFresh = isPrepaidRecall
+      ? summary !== null  // prepaid re-call: skip staleness gate — analysis just ran
+      : summary !== null && (Date.now() - summary.updatedAt.getTime()) < FRESHNESS_MS;
 
     if (isFresh) {
       // Data is fresh — fetch remaining fields in parallel and return immediately.
@@ -171,39 +236,7 @@ export class IntelController {
       ]);
 
       // HTTP 200 — CreditInterceptor fires, 5cr deducted. Data delivered.
-      return {
-        status: 'ok' as const,
-        walletAddress: addr,
-        summary: {
-          lastAnalyzedAt: summary!.updatedAt.toISOString(),
-          // realizedPnl is stable (closed trades only) — safe to serve from DB snapshot
-          realizedPnl: summary!.realizedPnl ?? 0,
-          profitableTradesCount: summary!.profitableTradesCount ?? 0,
-          totalTradesCount: summary!.totalIndividualTradesCount ?? 0,
-          currentSolBalance: summary!.currentSolBalance ?? null,
-          knownType: summary!.wallet?.knownType ?? null,
-          knownLabel: summary!.wallet?.knownLabel ?? null,
-          // unrealizedPnl and netPnl are intentionally omitted here —
-          // they require live token prices (DexScreener). See pnl.allTime below.
-        },
-        hud: hud ?? null,
-        behavior: behavior
-          ? {
-              tradingStyle: behavior.tradingStyle ?? null,
-              speedCategory: behavior.speedCategory ?? null,
-              avgHoldTimeHours: behavior.averageFlipDurationHours ?? null,
-              medianHoldTimeHours: behavior.medianHoldTime ?? null,
-              buySellRatio: behavior.buySellRatio ?? null,
-              exitPattern: behavior.historicalPattern?.exitPattern ?? null,
-            }
-          : null,
-        pnl: pnlOverview
-          ? {
-              allTime: pnlOverview.allTimeData ?? null,
-              period: pnlOverview.periodData ?? null,
-            }
-          : null,
-      };
+      return this.buildIntelResponse(addr, summary!, hud, pnlOverview, behavior);
     }
 
     // Data is missing or stale (older than 30 min) — run pre-queue checks then queue.
@@ -256,16 +289,25 @@ export class IntelController {
 
       if (matchingJob) {
         const jobId = matchingJob.id ?? null;
-        this.logger.log(`Intel wallet ${addr}: job already in queue: ${jobId}`);
-        // HTTP 202 — throw skips CreditInterceptor → 0cr. Agent pays on the 200 re-call.
+        this.logger.log(`Intel wallet ${addr}: job already in queue: ${jobId} — awaiting completion`);
+        const outcome = await this.awaitJob(matchingJob);
+        if (outcome === 'completed') {
+          const freshSummary = await this.databaseService.getWalletPnlSummaryWithRelations(addr);
+          if (freshSummary) {
+            const [hud, pnlOverview, behavior] = await Promise.all([
+              this.walletHudService.getHud(addr).catch(() => null),
+              this.pnlOverviewService.getPnlOverview(addr).catch(() => null),
+              this.behaviorService.getWalletBehavior(addr, this.behaviorService.getDefaultBehaviorAnalysisConfig()).catch(() => null),
+            ]);
+            return this.buildIntelResponse(addr, freshSummary, hud, pnlOverview, behavior);
+          }
+        }
+        // Write prepaid marker for timeout OR failed — agent already cleared payment gate
+        if (jobId) {
+          await this.redisClient.set(`intel:prepaid:${jobId}`, this.prepaidMarkerValue(req), 'EX', 300);
+        }
         throw new HttpException(
-          {
-            status: 'queued',
-            walletAddress: addr,
-            jobId,
-            monitoringUrl: jobId ? `/api/v1/jobs/${jobId}` : null,
-            message: 'Analysis already queued. Poll monitoringUrl for completion, then call this endpoint again.',
-          },
+          { status: 'queued', walletAddress: addr, jobId, prepaidJobId: jobId, monitoringUrl: jobId ? `/api/v1/jobs/${jobId}` : null, message: 'Analysis already queued. Poll monitoringUrl for completion, then call this endpoint again.' },
           HttpStatus.ACCEPTED,
         );
       }
@@ -274,16 +316,40 @@ export class IntelController {
       const lockKey = RedisLockService.createWalletLockKey(addr, 'dashboard-analysis');
       const existingLockJobId = await this.redisLockService.getLockValue(lockKey);
       if (existingLockJobId) {
-        this.logger.log(`Intel wallet ${addr}: analysis already running via job ${existingLockJobId}`);
-        // HTTP 202 — throw skips CreditInterceptor → 0cr. Agent pays on the 200 re-call.
+        this.logger.log(`Intel wallet ${addr}: analysis already running via job ${existingLockJobId} — awaiting completion`);
+        const existingJob = await queue.getJob(existingLockJobId);
+        if (existingJob) {
+          const outcome = await this.awaitJob(existingJob);
+          if (outcome === 'completed') {
+            const freshSummary = await this.databaseService.getWalletPnlSummaryWithRelations(addr);
+            if (freshSummary) {
+              const [hud, pnlOverview, behavior] = await Promise.all([
+                this.walletHudService.getHud(addr).catch(() => null),
+                this.pnlOverviewService.getPnlOverview(addr).catch(() => null),
+                this.behaviorService.getWalletBehavior(addr, this.behaviorService.getDefaultBehaviorAnalysisConfig()).catch(() => null),
+              ]);
+              return this.buildIntelResponse(addr, freshSummary, hud, pnlOverview, behavior);
+            }
+          }
+          // Write prepaid marker for timeout OR failed — agent already cleared payment gate
+          await this.redisClient.set(`intel:prepaid:${existingLockJobId}`, this.prepaidMarkerValue(req), 'EX', 300);
+        } else {
+          // Job was evicted from BullMQ (removeOnComplete) but lock still present — job already
+          // finished. Try to serve from DB directly; if data is there we're done.
+          const freshSummary = await this.databaseService.getWalletPnlSummaryWithRelations(addr);
+          if (freshSummary) {
+            const [hud, pnlOverview, behavior] = await Promise.all([
+              this.walletHudService.getHud(addr).catch(() => null),
+              this.pnlOverviewService.getPnlOverview(addr).catch(() => null),
+              this.behaviorService.getWalletBehavior(addr, this.behaviorService.getDefaultBehaviorAnalysisConfig()).catch(() => null),
+            ]);
+            return this.buildIntelResponse(addr, freshSummary, hud, pnlOverview, behavior);
+          }
+          // Data still not in DB — write prepaid marker and fall through to 202
+          await this.redisClient.set(`intel:prepaid:${existingLockJobId}`, this.prepaidMarkerValue(req), 'EX', 300);
+        }
         throw new HttpException(
-          {
-            status: 'queued',
-            walletAddress: addr,
-            jobId: existingLockJobId,
-            monitoringUrl: `/api/v1/jobs/${existingLockJobId}`,
-            message: 'Analysis already in progress. Poll monitoringUrl for completion, then call this endpoint again.',
-          },
+          { status: 'queued', walletAddress: addr, jobId: existingLockJobId, prepaidJobId: existingLockJobId, monitoringUrl: `/api/v1/jobs/${existingLockJobId}`, message: 'Analysis already in progress. Poll monitoringUrl for completion, then call this endpoint again.' },
           HttpStatus.ACCEPTED,
         );
       }
@@ -309,14 +375,31 @@ export class IntelController {
         priority: JobPriority.CRITICAL,
       });
 
-      this.logger.log(`Intel wallet ${addr}: queued flash analysis job ${job.id}`);
+      this.logger.log(`Intel wallet ${addr}: queued flash analysis job ${job.id} — awaiting completion`);
 
-      // HTTP 202 — throw skips CreditInterceptor → 0cr. Agent pays on the 200 re-call.
+      const outcome = await this.awaitJob(job);
+      if (outcome === 'completed') {
+        const freshSummary = await this.databaseService.getWalletPnlSummaryWithRelations(addr);
+        if (freshSummary) {
+          const [hud, pnlOverview, behavior] = await Promise.all([
+            this.walletHudService.getHud(addr).catch(() => null),
+            this.pnlOverviewService.getPnlOverview(addr).catch(() => null),
+            this.behaviorService.getWalletBehavior(addr, this.behaviorService.getDefaultBehaviorAnalysisConfig()).catch(() => null),
+          ]);
+          return this.buildIntelResponse(addr, freshSummary, hud, pnlOverview, behavior);
+        }
+      }
+
+      // Timed out or failed — write prepaid marker so re-call skips CreditGuard payment
+      if (job.id) {
+        await this.redisClient.set(`intel:prepaid:${job.id}`, this.prepaidMarkerValue(req), 'EX', 300);
+      }
       throw new HttpException(
         {
           status: 'queued',
           walletAddress: addr,
           jobId: job.id,
+          prepaidJobId: job.id,
           monitoringUrl: `/api/v1/jobs/${job.id}`,
           message: 'Wallet analysis queued. Poll monitoringUrl for completion, then call this endpoint again to retrieve data.',
         },
@@ -367,8 +450,8 @@ export class IntelController {
    * 1 credit — compact HUD metrics only.
    *
    * If HUD data exists: returns it immediately (1cr charged).
-   * If missing: auto-queues flash analysis (0cr), returns 202.
-   *   → Poll GET /api/v1/jobs/:jobId, then call this endpoint again (1cr on 200).
+   * If missing: holds connection, runs flash analysis synchronously (up to 30s),
+   * returns 200 + HUD on completion (1cr charged). Only falls back to 202 if >30s.
    */
   @Get('wallet/:addr/hud')
   @RequireCredits(1)
@@ -381,7 +464,7 @@ export class IntelController {
   @ApiResponse({ status: 202, description: 'Analysis queued — poll monitoringUrl then call again' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   @ApiResponse({ status: 422, description: 'Known system wallet — not eligible for analysis' })
-  async getWalletHud(@Param('addr') addr: string) {
+  async getWalletHud(@Param('addr') addr: string, @Req() req: Request & { user?: User }) {
     this.logger.log(`Intel HUD request: ${addr}`);
     const hud = await this.walletHudService.getHud(addr);
 
@@ -409,14 +492,24 @@ export class IntelController {
       // Check for already-queued/running job
       const queue = this.analysisOperationsQueue.getQueue();
       const existingJobs = await queue.getJobs(['active', 'waiting', 'delayed']);
-      const matchingJob = existingJobs.find((job) => {
+      const matchingHudJob = existingJobs.find((job) => {
         const jobData = job?.data as DashboardWalletAnalysisJobData | undefined;
         return jobData?.walletAddress === addr && (jobData?.analysisScope ?? 'deep') === 'flash';
       });
 
-      if (matchingJob) {
+      if (matchingHudJob) {
+        this.logger.log(`Intel HUD ${addr}: job already in queue: ${matchingHudJob.id} — awaiting completion`);
+        const outcome = await this.awaitJob(matchingHudJob);
+        if (outcome === 'completed') {
+          const freshHud = await this.walletHudService.getHud(addr);
+          if (freshHud) return freshHud;
+        }
+        // Write prepaid marker for timeout OR failed — agent already cleared payment gate
+        if (matchingHudJob.id) {
+          await this.redisClient.set(`intel:prepaid-hud:${matchingHudJob.id}`, this.prepaidMarkerValue(req), 'EX', 300);
+        }
         throw new HttpException(
-          { status: 'queued', walletAddress: addr, jobId: matchingJob.id, monitoringUrl: `/api/v1/jobs/${matchingJob.id}`, message: 'Analysis already queued. Poll monitoringUrl then call again.' },
+          { status: 'queued', walletAddress: addr, jobId: matchingHudJob.id, prepaidJobId: matchingHudJob.id, monitoringUrl: `/api/v1/jobs/${matchingHudJob.id}`, message: 'Analysis already queued. Poll monitoringUrl then call again.' },
           HttpStatus.ACCEPTED,
         );
       }
@@ -424,8 +517,24 @@ export class IntelController {
       const lockKey = RedisLockService.createWalletLockKey(addr, 'dashboard-analysis');
       const existingLockJobId = await this.redisLockService.getLockValue(lockKey);
       if (existingLockJobId) {
+        this.logger.log(`Intel HUD ${addr}: analysis already running via job ${existingLockJobId} — awaiting completion`);
+        const existingHudJob = await queue.getJob(existingLockJobId);
+        if (existingHudJob) {
+          const outcome = await this.awaitJob(existingHudJob);
+          if (outcome === 'completed') {
+            const freshHud = await this.walletHudService.getHud(addr);
+            if (freshHud) return freshHud;
+          }
+          // Write prepaid marker for timeout OR failed — agent already cleared payment gate
+          await this.redisClient.set(`intel:prepaid-hud:${existingLockJobId}`, this.prepaidMarkerValue(req), 'EX', 300);
+        } else {
+          // Job evicted from BullMQ (removeOnComplete) but lock still present — already done.
+          const freshHud = await this.walletHudService.getHud(addr);
+          if (freshHud) return freshHud;
+          await this.redisClient.set(`intel:prepaid-hud:${existingLockJobId}`, this.prepaidMarkerValue(req), 'EX', 300);
+        }
         throw new HttpException(
-          { status: 'queued', walletAddress: addr, jobId: existingLockJobId, monitoringUrl: `/api/v1/jobs/${existingLockJobId}`, message: 'Analysis already running. Poll monitoringUrl then call again.' },
+          { status: 'queued', walletAddress: addr, jobId: existingLockJobId, prepaidJobId: existingLockJobId, monitoringUrl: `/api/v1/jobs/${existingLockJobId}`, message: 'Analysis already running. Poll monitoringUrl then call again.' },
           HttpStatus.ACCEPTED,
         );
       }
@@ -435,7 +544,7 @@ export class IntelController {
       const requestId = `intel-hud-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const jobData: DashboardWalletAnalysisJobData = {
         walletAddress: addr,
-        userId: 'system',
+        userId: req.user?.id,
         requestId,
         analysisScope: scope,
         triggerSource: 'auto',
@@ -448,13 +557,23 @@ export class IntelController {
         failureThreshold: 0.8,
         timeoutMinutes: scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES,
       };
-      const job = await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
+      const hudJob = await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
         priority: JobPriority.CRITICAL,
       });
 
-      this.logger.log(`Intel HUD ${addr}: queued flash analysis job ${job.id}`);
+      this.logger.log(`Intel HUD ${addr}: queued flash analysis job ${hudJob.id} — awaiting completion`);
+
+      const hudOutcome = await this.awaitJob(hudJob);
+      if (hudOutcome === 'completed') {
+        const freshHud = await this.walletHudService.getHud(addr);
+        if (freshHud) return freshHud;
+      }
+
+      if (hudJob.id) {
+        await this.redisClient.set(`intel:prepaid-hud:${hudJob.id}`, this.prepaidMarkerValue(req), 'EX', 300);
+      }
       throw new HttpException(
-        { status: 'queued', walletAddress: addr, jobId: job.id, monitoringUrl: `/api/v1/jobs/${job.id}`, message: 'Wallet analysis queued. Poll monitoringUrl for completion, then call this endpoint again.' },
+        { status: 'queued', walletAddress: addr, jobId: hudJob.id, prepaidJobId: hudJob.id, monitoringUrl: `/api/v1/jobs/${hudJob.id}`, message: 'Wallet analysis queued. Poll monitoringUrl for completion, then call this endpoint again.' },
         HttpStatus.ACCEPTED,
       );
     } catch (error) {
