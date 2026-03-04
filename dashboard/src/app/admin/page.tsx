@@ -149,7 +149,7 @@ export default function AdminDashboardPage() {
     isAdmin?: boolean;
     isDemo?: boolean;
   }>({});
-  const [usersSortBy, setUsersSortBy] = useState<'createdAt' | 'lastLoginAt' | 'email'>('createdAt');
+  const [usersSortBy, setUsersSortBy] = useState<'createdAt' | 'lastLoginAt' | 'lastSeenAt' | 'email'>('createdAt');
   const PAGE_SIZE = 20;
 
   // API Base URL - defined outside hooks to avoid dependency issues
@@ -1266,6 +1266,46 @@ export default function AdminDashboardPage() {
                   </SelectContent>
                 </Select>
 
+                <Select
+                  value={usersFilter.isAdmin === undefined ? 'all' : usersFilter.isAdmin ? 'admin' : 'regular'}
+                  onValueChange={(v) => {
+                    setUsersFilter({
+                      ...usersFilter,
+                      isAdmin: v === 'all' ? undefined : v === 'admin'
+                    });
+                    setUsersPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[130px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Roles</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="regular">Regular</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={usersFilter.isDemo === undefined ? 'all' : usersFilter.isDemo ? 'demo' : 'real'}
+                  onValueChange={(v) => {
+                    setUsersFilter({
+                      ...usersFilter,
+                      isDemo: v === 'all' ? undefined : v === 'demo'
+                    });
+                    setUsersPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[130px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="demo">Demo</SelectItem>
+                    <SelectItem value="real">Real</SelectItem>
+                  </SelectContent>
+                </Select>
+
                 <Select value={usersSortBy} onValueChange={(v: any) => setUsersSortBy(v)}>
                   <SelectTrigger className="w-[160px]">
                     <SelectValue />
@@ -1273,6 +1313,7 @@ export default function AdminDashboardPage() {
                   <SelectContent>
                     <SelectItem value="createdAt">Newest First</SelectItem>
                     <SelectItem value="lastLoginAt">Recent Login</SelectItem>
+                    <SelectItem value="lastSeenAt">Recent Activity</SelectItem>
                     <SelectItem value="email">Email A-Z</SelectItem>
                   </SelectContent>
                 </Select>
@@ -1296,11 +1337,11 @@ export default function AdminDashboardPage() {
                 ) : (
                   <>
                     <div className="rounded-md border">
-                      <div className="hidden md:grid grid-cols-[minmax(220px,1.4fr)_minmax(220px,1.6fr)_130px_200px_110px] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                      <div className="hidden md:grid grid-cols-[minmax(260px,1.5fr)_minmax(220px,1.3fr)_130px_240px_110px] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
                         <span>User</span>
                         <span>Email</span>
                         <span>Flags</span>
-                        <span>Created / Last Login</span>
+                        <span>Created / Last Login / Last Active</span>
                         <span className="text-right">Actions</span>
                       </div>
                       <ScrollArea className="h-[62vh] min-h-[420px]">
@@ -1312,11 +1353,24 @@ export default function AdminDashboardPage() {
                                 !u.isActive ? 'bg-muted/50 opacity-60' : 'bg-card'
                               }`}
                             >
-                              <div className="grid gap-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(220px,1.6fr)_130px_200px_110px] md:items-center">
-                                <div className="font-medium truncate">
-                                  {u.displayName || u.email || 'Unknown User'}
+                              <div className="grid gap-3 md:grid-cols-[minmax(260px,1.5fr)_minmax(220px,1.3fr)_130px_240px_110px] md:items-center">
+                                <div className="min-w-0">
+                                  <div className="font-medium truncate">
+                                    {u.displayName || u.email || 'Unknown User'}
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground truncate">
+                                    ID: {u.id}
+                                  </div>
+                                  {u.displayName && u.email && (
+                                    <div className="text-[11px] text-muted-foreground truncate">{u.displayName}</div>
+                                  )}
                                 </div>
-                                <div className="text-sm text-muted-foreground truncate">{u.email || 'No email'}</div>
+                                <div className="min-w-0 text-sm text-muted-foreground">
+                                  <div className="truncate">{u.email || 'No email'}</div>
+                                  {u.description && (
+                                    <div className="text-[11px] truncate">{u.description}</div>
+                                  )}
+                                </div>
                                 <div className="flex items-center gap-1 flex-wrap">
                                   {u.isAdmin && <Badge variant="default">Admin</Badge>}
                                   {u.isDemo && <Badge variant="secondary">Demo</Badge>}
@@ -1326,6 +1380,7 @@ export default function AdminDashboardPage() {
                                 <div className="text-xs text-muted-foreground space-y-1">
                                   <div>Created: {new Date(u.createdAt).toLocaleDateString()}</div>
                                   <div>Last login: {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</div>
+                                  <div>Last active: {u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleString() : 'Never'}</div>
                                 </div>
                                 <div className="flex md:justify-end gap-2">
                                   {u.id !== user?.id && (
