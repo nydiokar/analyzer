@@ -83,6 +83,7 @@ interface UserListItem {
   id: string;
   email: string | null;
   displayName: string | null;
+  description: string | null;
   isAdmin: boolean;
   isActive: boolean;
   isDemo: boolean;
