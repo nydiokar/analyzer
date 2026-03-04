@@ -23,6 +23,7 @@
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
 **Recently Completed:**
+-  **Admin panel density overhaul** (Mar 4) - Refined `/admin` layout for higher information density and reduced scrolling. Compacted top shell (smaller header, tighter spacing, denser tabs), widened content container, and converted **Users** + **Registration Codes** from large card stacks into compact row/table-style lists with column headers and viewport-scaled scroll areas (`h-[62vh]`). Users now show clear columns (user, email, flags, created/last login, actions) and registration codes show code, status, usage, dates, and actions in a single scan line. Also removed unused icon import and fixed pagination separator text rendering. **File:** `dashboard/src/app/admin/page.tsx`.
 -  **Holder Profiles UI cleanup** (Mar 4) - Removed "Top Holders" from nav (`AppShell.tsx` `navItems`) — route still exists, just not linked. Removed `OutcomeStrip` classification card (high churn / stable etc.) from `TokenPulse`. Replaced it with a 4th `CognitiveMetricCard` — **Fresh Supply** — showing `freshSupplyPercent` (supply % held by wallets with no exit history). Grid adjusted from `[auto_2fr_repeat(3,...)]` → `[auto_repeat(4,...)]`. Renamed "Holder (no exits yet)" → "Fresh" across `TraderDistributionBar`, `MinimalHoldersTable`, `WalletBaseballCard`. Tooltip on "Fresh" badge updated to "Fresh — holding with no exits yet". `getTokenOutcome` aliased as `getTokenStats` in `TokenPulse` import to reflect actual usage. **Files:** `AppShell.tsx`, `TokenPulse.tsx`, `CognitiveMetricCard.tsx`, `TraderDistributionBar.tsx`, `MinimalHoldersTable.tsx`, `WalletBaseballCard.tsx`.
 -  **Log Level Refactor — Phase 1** (Feb 24) - Audited 94 INFO-level log calls across 16 backend files. Applied verdicts: 13 REMOVE, 54 → DEBUG, 27 KEEP. INFO output for a 20-wallet holder-profiles job reduced from 900+ lines to ~22. Phase 2 (structured events + CI schema enforcement) designed and documented at `.ai/context/log_audit/IMPLEMENTATION_PLAN.md` — not yet implemented.
 -  **PFT Oracle Bot v2 — Phase 4: IPFS attachments** (Feb 23) - Tested `upload_content` MCP tool for large comparison markdown files. Bot now attaches IPFS-hosted reports when reply text exceeds on-chain size limits.
@@ -262,7 +263,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-02-26  **Branch:** `main`
+**Last Updated:** 2026-03-04  **Branch:** `main`
 
 
 

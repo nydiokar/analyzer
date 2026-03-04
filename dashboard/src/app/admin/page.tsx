@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import {
   Loader2, Copy, Shield, AlertTriangle, Users, Ticket,
-  Power, Lock, Unlock, Search, Filter, ChevronDown, Ban,
+  Power, Lock, Unlock, Search, Filter, Ban,
   CheckCircle2, XCircle, Clock, Calendar, Hash, Key, AlertCircle
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -644,22 +644,22 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="p-3 sm:p-4 lg:p-5">
+      <div className="mx-auto max-w-[1500px]">
         {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Shield className="w-8 h-8" />
+        <div className="mb-4">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Shield className="w-6 h-6" />
             Admin Panel
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Manage registration access controls and user accounts
           </p>
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+        <Tabs defaultValue="overview" className="space-y-4">
+          <TabsList className="grid h-10 w-full grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="codes">Registration Codes</TabsTrigger>
             <TabsTrigger value="controls">Access Controls</TabsTrigger>
@@ -870,7 +870,7 @@ export default function AdminDashboardPage() {
           </TabsContent>
 
           {/* Registration Codes Tab */}
-          <TabsContent value="codes" className="space-y-6">
+          <TabsContent value="codes" className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex gap-2">
                 <Select value={codeFilter} onValueChange={(v: any) => setCodeFilter(v)}>
@@ -944,7 +944,7 @@ export default function AdminDashboardPage() {
 
             {/* Codes List */}
             <Card>
-              <CardHeader>
+              <CardHeader className="py-4">
                 <CardTitle>Registration Codes</CardTitle>
                 <CardDescription>
                   {filteredCodes.length} code{filteredCodes.length !== 1 ? 's' : ''}
@@ -959,113 +959,115 @@ export default function AdminDashboardPage() {
                 ) : filteredCodes.length === 0 ? (
                   <p className="text-muted-foreground text-center py-8">No codes found</p>
                 ) : (
-                  <ScrollArea className="h-[500px]">
-                    <div className="space-y-3">
-                      {filteredCodes.map(code => {
-                        const isExpired = code.expiresAt && new Date(code.expiresAt) < new Date();
+                  <div className="rounded-md border">
+                    <div className="hidden md:grid grid-cols-[minmax(220px,1.7fr)_120px_150px_170px_120px] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                      <span>Code</span>
+                      <span>Status</span>
+                      <span>Usage</span>
+                      <span>Created / Expires</span>
+                      <span className="text-right">Actions</span>
+                    </div>
+                    <ScrollArea className="h-[62vh] min-h-[420px]">
+                      <div className="divide-y">
+                        {filteredCodes.map(code => {
+                          const isExpired = code.expiresAt && new Date(code.expiresAt) < new Date();
 
-                        return (
-                          <div
-                            key={code.code}
-                            className={`border rounded-lg p-4 ${
-                              code.status === 'revoked' ? 'bg-muted/50 opacity-60' :
-                              code.status === 'used' || isExpired ? 'bg-muted/30' :
-                              'bg-card'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                  <code className="text-sm font-mono bg-muted px-2 py-1 rounded break-all">
-                                    {code.code}
-                                  </code>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => copyToClipboard(code.code)}
-                                    className="h-7"
-                                  >
-                                    <Copy className="w-3 h-3" />
-                                  </Button>
+                          return (
+                            <div
+                              key={code.code}
+                              className={`p-3 ${
+                                code.status === 'revoked' ? 'bg-muted/50 opacity-60' :
+                                code.status === 'used' || isExpired ? 'bg-muted/30' :
+                                'bg-card'
+                              }`}
+                            >
+                              <div className="grid gap-3 md:grid-cols-[minmax(220px,1.7fr)_120px_150px_170px_120px] md:items-center">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <code className="text-sm font-mono bg-muted px-2 py-1 rounded truncate">
+                                      {code.code}
+                                    </code>
+                                    <Button size="sm" variant="ghost" onClick={() => copyToClipboard(code.code)} className="h-7 px-2">
+                                      <Copy className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
                                   {code.status === 'revoked' && <Badge variant="secondary">Revoked</Badge>}
                                   {code.status === 'used' && <Badge variant="secondary">Fully Used</Badge>}
                                   {isExpired && <Badge variant="destructive">Expired</Badge>}
                                   {code.status === 'active' && !isExpired && <Badge variant="default">Active</Badge>}
                                 </div>
-                                <div className="text-sm text-muted-foreground space-y-1">
-                                  <div className="flex items-center gap-4 flex-wrap">
-                                    <span className="flex items-center gap-1">
-                                      <Hash className="w-3 h-3" />
-                                      Uses: {code.usedCount} / {code.maxUses}
-                                    </span>
-                                    <span className="flex items-center gap-1">
-                                      <Calendar className="w-3 h-3" />
-                                      Created: {new Date(code.createdAt).toLocaleDateString()}
-                                    </span>
-                                    {code.expiresAt && (
-                                      <span className={`flex items-center gap-1 ${isExpired ? 'text-red-600 dark:text-red-400' : ''}`}>
-                                        <Clock className="w-3 h-3" />
-                                        Expires: {new Date(code.expiresAt).toLocaleDateString()}
-                                      </span>
-                                    )}
+                                <div className="text-sm text-muted-foreground flex items-center gap-1">
+                                  <Hash className="w-3 h-3" />
+                                  {code.usedCount} / {code.maxUses}
+                                </div>
+                                <div className="text-xs text-muted-foreground space-y-1">
+                                  <div className="flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" />
+                                    {new Date(code.createdAt).toLocaleDateString()}
+                                  </div>
+                                  <div className={`flex items-center gap-1 ${isExpired ? 'text-red-600 dark:text-red-400' : ''}`}>
+                                    <Clock className="w-3 h-3" />
+                                    {code.expiresAt ? new Date(code.expiresAt).toLocaleDateString() : 'No expiry'}
                                   </div>
                                 </div>
-                              </div>
-                              <div className="flex gap-2">
-                                {code.status === 'active' && (
+                                <div className="flex md:justify-end gap-2">
+                                  {code.status === 'active' && (
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button variant="outline" size="sm" className="h-8 px-2">
+                                          <Ban className="w-4 h-4" />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Revoke Code?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This will prevent the code from being used for new registrations. This action cannot be undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction onClick={() => handleRevokeCode(code.code)}>
+                                            Revoke
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  )}
                                   <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                      <Button variant="outline" size="sm">
-                                        <Ban className="w-4 h-4" />
+                                      <Button variant="destructive" size="sm" className="h-8 px-2">
+                                        <XCircle className="w-4 h-4" />
                                       </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
                                       <AlertDialogHeader>
-                                        <AlertDialogTitle>Revoke Code?</AlertDialogTitle>
+                                        <AlertDialogTitle>Delete Code?</AlertDialogTitle>
                                         <AlertDialogDescription>
-                                          This will prevent the code from being used for new registrations. This action cannot be undone.
+                                          This will permanently delete the code from the database. This action cannot be undone.
                                         </AlertDialogDescription>
                                       </AlertDialogHeader>
                                       <AlertDialogFooter>
                                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleRevokeCode(code.code)}>
-                                          Revoke
+                                        <AlertDialogAction
+                                          onClick={() => handleDeleteCode(code.code)}
+                                          className="bg-red-600 hover:bg-red-700"
+                                        >
+                                          Delete
                                         </AlertDialogAction>
                                       </AlertDialogFooter>
                                     </AlertDialogContent>
                                   </AlertDialog>
-                                )}
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button variant="destructive" size="sm">
-                                      <XCircle className="w-4 h-4" />
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Delete Code?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        This will permanently delete the code from the database. This action cannot be undone.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() => handleDeleteCode(code.code)}
-                                        className="bg-red-600 hover:bg-red-700"
-                                      >
-                                        Delete
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </ScrollArea>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -1227,7 +1229,7 @@ export default function AdminDashboardPage() {
           </TabsContent>
 
           {/* Users Tab */}
-          <TabsContent value="users" className="space-y-6">
+          <TabsContent value="users" className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1">
                 <div className="relative">
@@ -1278,7 +1280,7 @@ export default function AdminDashboardPage() {
             </div>
 
             <Card>
-              <CardHeader>
+              <CardHeader className="py-4">
                 <CardTitle>User Accounts</CardTitle>
                 <CardDescription>
                   {usersTotal} user{usersTotal !== 1 ? 's' : ''} total
@@ -1293,95 +1295,92 @@ export default function AdminDashboardPage() {
                   <p className="text-muted-foreground text-center py-8">No users found</p>
                 ) : (
                   <>
-                    <ScrollArea className="h-[500px]">
-                      <div className="space-y-3">
-                        {users.map(u => (
-                          <div
-                            key={u.id}
-                            className={`border rounded-lg p-4 ${
-                              !u.isActive ? 'bg-muted/50 opacity-60' : 'bg-card'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                  <span className="font-medium truncate">
-                                    {u.displayName || u.email || 'Unknown User'}
-                                  </span>
+                    <div className="rounded-md border">
+                      <div className="hidden md:grid grid-cols-[minmax(220px,1.4fr)_minmax(220px,1.6fr)_130px_200px_110px] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                        <span>User</span>
+                        <span>Email</span>
+                        <span>Flags</span>
+                        <span>Created / Last Login</span>
+                        <span className="text-right">Actions</span>
+                      </div>
+                      <ScrollArea className="h-[62vh] min-h-[420px]">
+                        <div className="divide-y">
+                          {users.map(u => (
+                            <div
+                              key={u.id}
+                              className={`p-3 ${
+                                !u.isActive ? 'bg-muted/50 opacity-60' : 'bg-card'
+                              }`}
+                            >
+                              <div className="grid gap-3 md:grid-cols-[minmax(220px,1.4fr)_minmax(220px,1.6fr)_130px_200px_110px] md:items-center">
+                                <div className="font-medium truncate">
+                                  {u.displayName || u.email || 'Unknown User'}
+                                </div>
+                                <div className="text-sm text-muted-foreground truncate">{u.email || 'No email'}</div>
+                                <div className="flex items-center gap-1 flex-wrap">
                                   {u.isAdmin && <Badge variant="default">Admin</Badge>}
                                   {u.isDemo && <Badge variant="secondary">Demo</Badge>}
                                   {!u.isActive && <Badge variant="destructive">Disabled</Badge>}
                                   {!u.emailVerified && <Badge variant="outline">Unverified</Badge>}
                                 </div>
-                                <div className="text-sm text-muted-foreground space-y-1">
-                                  {u.email && (
-                                    <div className="truncate">{u.email}</div>
+                                <div className="text-xs text-muted-foreground space-y-1">
+                                  <div>Created: {new Date(u.createdAt).toLocaleDateString()}</div>
+                                  <div>Last login: {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</div>
+                                </div>
+                                <div className="flex md:justify-end gap-2">
+                                  {u.id !== user?.id && (
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant={u.isActive ? "outline" : "default"}
+                                          size="sm"
+                                        >
+                                          {u.isActive ? (
+                                            <>
+                                              <Ban className="w-4 h-4 mr-1" />
+                                              Disable
+                                            </>
+                                          ) : (
+                                            <>
+                                              <CheckCircle2 className="w-4 h-4 mr-1" />
+                                              Enable
+                                            </>
+                                          )}
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>
+                                            {u.isActive ? 'Disable' : 'Enable'} User Account?
+                                          </AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            {u.isActive
+                                              ? 'This will prevent the user from logging in. Their existing tokens will be invalidated.'
+                                              : 'This will allow the user to login again.'}
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction onClick={() => handleToggleUserActive(u.id, u.isActive)}>
+                                            {u.isActive ? 'Disable' : 'Enable'}
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
                                   )}
-                                  <div className="flex items-center gap-4 flex-wrap text-xs">
-                                    <span>
-                                      Created: {new Date(u.createdAt).toLocaleDateString()}
-                                    </span>
-                                    {u.lastLoginAt && (
-                                      <span>
-                                        Last login: {new Date(u.lastLoginAt).toLocaleDateString()}
-                                      </span>
-                                    )}
-                                  </div>
                                 </div>
                               </div>
-                              <div className="flex gap-2">
-                                {u.id !== user?.id && (
-                                  <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                      <Button
-                                        variant={u.isActive ? "outline" : "default"}
-                                        size="sm"
-                                      >
-                                        {u.isActive ? (
-                                          <>
-                                            <Ban className="w-4 h-4 mr-1" />
-                                            Disable
-                                          </>
-                                        ) : (
-                                          <>
-                                            <CheckCircle2 className="w-4 h-4 mr-1" />
-                                            Enable
-                                          </>
-                                        )}
-                                      </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>
-                                          {u.isActive ? 'Disable' : 'Enable'} User Account?
-                                        </AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          {u.isActive
-                                            ? 'This will prevent the user from logging in. Their existing tokens will be invalidated.'
-                                            : 'This will allow the user to login again.'}
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleToggleUserActive(u.id, u.isActive)}>
-                                          {u.isActive ? 'Disable' : 'Enable'}
-                                        </AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
-                                )}
-                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    </div>
 
                     {/* Pagination */}
                     {totalPages > 1 && (
                       <div className="flex items-center justify-between mt-4">
                         <div className="text-sm text-muted-foreground">
-                          Page {usersPage} of {totalPages} · {usersTotal} total users
+                          Page {usersPage} of {totalPages} - {usersTotal} total users
                         </div>
                         <div className="flex gap-2">
                           <Button
