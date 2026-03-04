@@ -8,6 +8,7 @@ import type {
   SovaIntelClientConfig,
   WalletProfileResponse,
   WalletHudResponse,
+  WalletGetQueuedResponse,
   TokenPnlResponse,
   TokenPnlParams,
   BatchHudResponse,
@@ -32,20 +33,24 @@ export class SovaIntelClient {
 
   // -------------------------------------------------------------------------
   // GET /intel/wallet/:addr — 5cr
-  // Returns 200 immediately for warm wallets, or 202 (queued) for cold ones.
-  // This method handles the 202 by polling until the result is ready,
-  // then calling the endpoint again to retrieve the final 200 response.
+  // Warm/fresh: returns 200 directly.
+  // Cold/stale: server holds request up to ~30s. On timeout fallback (202),
+  // this method polls job completion and re-calls with X-Prepaid-Job-Id.
   // -------------------------------------------------------------------------
   async getWalletProfile(walletAddress: string): Promise<WalletProfileResponse> {
     const path = `/intel/wallet/${walletAddress}`;
-    const res = await this.http.request<WalletProfileResponse | JobAcceptedResponse>({
+    const res = await this.http.request<WalletProfileResponse | WalletGetQueuedResponse>({
       path,
     });
 
     if ("status" in res && res.status === "queued") {
-      // Poll the job, then call the endpoint again
-      await this.waitForJob((res as JobAcceptedResponse).jobId);
-      return this.http.request<WalletProfileResponse>({ path });
+      const queued = res as WalletGetQueuedResponse;
+      const prepaidJobId = queued.prepaidJobId ?? queued.jobId;
+      await this.waitForJob(queued.jobId);
+      return this.http.request<WalletProfileResponse>({
+        path,
+        headers: { "X-Prepaid-Job-Id": prepaidJobId },
+      });
     }
 
     return res as WalletProfileResponse;
@@ -53,11 +58,21 @@ export class SovaIntelClient {
 
   // -------------------------------------------------------------------------
   // GET /intel/wallet/:addr/hud — 1cr
+  // Same timeout fallback contract as getWalletProfile.
   // -------------------------------------------------------------------------
   async getWalletHud(walletAddress: string): Promise<WalletHudResponse> {
-    return this.http.request<WalletHudResponse>({
-      path: `/intel/wallet/${walletAddress}/hud`,
-    });
+    const path = `/intel/wallet/${walletAddress}/hud`;
+    const res = await this.http.request<WalletHudResponse | WalletGetQueuedResponse>({ path });
+    if ("status" in res && res.status === "queued") {
+      const queued = res as WalletGetQueuedResponse;
+      const prepaidJobId = queued.prepaidJobId ?? queued.jobId;
+      await this.waitForJob(queued.jobId);
+      return this.http.request<WalletHudResponse>({
+        path,
+        headers: { "X-Prepaid-Job-Id": prepaidJobId },
+      });
+    }
+    return res as WalletHudResponse;
   }
 
   // -------------------------------------------------------------------------

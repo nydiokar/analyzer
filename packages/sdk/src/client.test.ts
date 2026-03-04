@@ -38,10 +38,14 @@ function makeX402Client(
   });
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  headers?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(headers ?? {}) },
   });
 }
 
@@ -124,6 +128,47 @@ describe("getWalletHud", () => {
     const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
     await expect(client.getWalletHud(WALLET)).rejects.toThrow(SovaHttpError);
   });
+
+  it("handles 202 timeout fallback: polls job then re-calls with prepaid header", async () => {
+    const queued202 = {
+      status: "queued",
+      walletAddress: WALLET,
+      jobId: "hud-job-11",
+      prepaidJobId: "hud-job-11",
+      monitoringUrl: "/api/v1/jobs/hud-job-11",
+      message: "Wallet analysis queued.",
+    };
+
+    let hudCallCount = 0;
+    let pollCount = 0;
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = input.toString();
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+
+      if (url.includes("/jobs/hud-job-11")) {
+        pollCount++;
+        if (pollCount === 1) return jsonResponse({ status: "active", progress: 30 });
+        return jsonResponse({ status: "completed", progress: 100 });
+      }
+
+      if (url.includes(`/intel/wallet/${WALLET}/hud`)) {
+        hudCallCount++;
+        if (hudCallCount === 1) return jsonResponse(queued202, 202);
+        expect(headers["X-Prepaid-Job-Id"]).toBe("hud-job-11");
+        return jsonResponse(MOCK_HUD, 200);
+      }
+
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+
+    const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
+    const hud = await client.getWalletHud(WALLET);
+
+    expect(hudCallCount).toBe(2);
+    expect(pollCount).toBe(2);
+    expect(hud.behaviorCode).toBe("SWING_TRADER");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -151,6 +196,7 @@ describe("getWalletProfile", () => {
       status: "queued",
       walletAddress: WALLET,
       jobId: "job-99",
+      prepaidJobId: "job-99",
       monitoringUrl: "/api/v1/jobs/job-99",
       message: "Wallet analysis queued.",
     };
@@ -158,8 +204,9 @@ describe("getWalletProfile", () => {
     let callCount = 0;
     let pollCount = 0;
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = input.toString();
+      const headers = (init?.headers ?? {}) as Record<string, string>;
 
       // Job status poll
       if (url.includes("/jobs/job-99") && !url.includes("result")) {
@@ -172,6 +219,7 @@ describe("getWalletProfile", () => {
       if (url.includes(`/intel/wallet/${WALLET}`) && !url.includes("/hud") && !url.includes("/tokens")) {
         callCount++;
         if (callCount === 1) return jsonResponse(queued202, 202);
+        expect(headers["X-Prepaid-Job-Id"]).toBe("job-99");
         return jsonResponse(MOCK_PROFILE, 200);
       }
 
@@ -492,20 +540,19 @@ describe("pollDeepAnalysis", () => {
 describe("X402 auth flow", () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it("probes without auth, reads 402 body, calls buildPayment with correct args, retries with X-Payment header", async () => {
-    const x402Body = {
-      error: "insufficient_credits",
-      required: 5,
-      x402Version: 1,
+  it("probes without auth, reads PAYMENT-REQUIRED header, retries with payment-signature", async () => {
+    const paymentRequired = {
+      x402Version: 2,
       accepts: [{
         scheme: "exact",
         network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
         asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        maxAmountRequired: "75000",
+        amount: "75000",
         payTo: "TREASURYpubkey1111111111111111111111111111",
         maxTimeoutSeconds: 60,
       }],
     };
+    const paymentRequiredHeader = Buffer.from(JSON.stringify(paymentRequired)).toString("base64");
 
     let callCount = 0;
     const buildPayment = vi.fn(async (payTo: string, amount: bigint) => {
@@ -520,11 +567,15 @@ describe("X402 auth flow", () => {
       if (callCount === 1) {
         // Probe: no auth headers
         expect(headers?.["X-Api-Key"]).toBeUndefined();
-        expect(headers?.["X-Payment"]).toBeUndefined();
-        return jsonResponse(x402Body, 402);
+        expect(headers?.["payment-signature"]).toBeUndefined();
+        return jsonResponse(
+          { error: "Payment required", required: 5 },
+          402,
+          { "PAYMENT-REQUIRED": paymentRequiredHeader },
+        );
       }
-      // Retry: X-Payment present
-      expect(headers?.["X-Payment"]).toBe("base64encodedXPayment");
+      // Retry: payment-signature present
+      expect(headers?.["payment-signature"]).toBe("base64encodedXPayment");
       return jsonResponse(MOCK_HUD, 200);
     });
 
@@ -537,22 +588,27 @@ describe("X402 auth flow", () => {
   });
 
   it("throws X402PaymentError if 402 is returned after payment attempt", async () => {
-    const x402Body = {
-      error: "insufficient_credits",
-      required: 5,
-      x402Version: 1,
+    const paymentRequired = {
+      x402Version: 2,
       accepts: [{
         scheme: "exact",
         network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
         asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        maxAmountRequired: "75000",
+        amount: "75000",
         payTo: "TREASURYpubkey1111111111111111111111111111",
         maxTimeoutSeconds: 60,
       }],
     };
+    const paymentRequiredHeader = Buffer.from(JSON.stringify(paymentRequired)).toString("base64");
 
     // Both probe and retry return 402
-    const fetchMock = vi.fn(async (): Promise<Response> => jsonResponse(x402Body, 402));
+    const fetchMock = vi.fn(async (): Promise<Response> =>
+      jsonResponse(
+        { error: "Payment required", required: 5 },
+        402,
+        { "PAYMENT-REQUIRED": paymentRequiredHeader },
+      )
+    );
     const client = makeX402Client(fetchMock as unknown as typeof fetch);
 
     await expect(client.getWalletHud(WALLET)).rejects.toThrow(X402PaymentError);

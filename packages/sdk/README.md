@@ -87,7 +87,7 @@ async function buildPayment(payTo: string, amountBaseUnits: bigint): Promise<str
   tx.sign(keypair);
 
   return Buffer.from(JSON.stringify({
-    x402Version: 1,
+    x402Version: 2,
     scheme: "exact",
     network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
     payload: { transaction: tx.serialize().toString("base64") },
@@ -108,7 +108,10 @@ console.log(holders);
 
 ## Async job polling
 
-POST endpoints and cold wallet GETs return HTTP 202 (job queued, 0cr charged). The `poll*` convenience methods handle the polling loop automatically:
+POST endpoints return HTTP 202 (job queued).  
+`GET /intel/wallet/:addr` and `GET /intel/wallet/:addr/hud` hold the request up to ~30s and only fall back to 202 on timeout/failure; the SDK handles this fallback automatically (poll + prepaid re-call).
+
+The `poll*` convenience methods handle async job polling automatically:
 
 ```typescript
 const client = new SovaIntelClient({
@@ -158,7 +161,12 @@ const result = await pollAndFetch(/* http client — advanced use */);
 | `queueSimilarity(wallets[])` / `pollSimilarity(...)` | `POST /intel/wallets/similarity` | 20cr | Async similarity scores |
 | `queueDeepAnalysis(mint, wallets[], topN?)` / `pollDeepAnalysis(...)` | `POST /intel/token/:mint/holders/deep` | 35cr | Two async jobs |
 
-1 credit = $0.015 USDC. Credits charged on data delivery (200), not job acceptance (202).
+1 credit = $0.015 USDC.
+
+Charging model:
+- Intel GET endpoints charge on successful 200 data delivery.
+- Intel GET timeout fallback 202 uses prepaid re-call flow (no double-charge).
+- Async Intel POST endpoints charge on accepted 202.
 
 ---
 
@@ -184,7 +192,7 @@ try {
 |:----:|:--------|:-------|
 | 400 | Invalid address or bad body | Fix input |
 | 402 | Payment required | Add credits or fund X402 wallet |
-| 404 | No data for wallet | Call `getWalletProfile()` first |
+| 404 | Route/result key not found | Verify base URL and endpoint/result key |
 | 422 | System/program wallet | Not analyzable — skip |
 | 500 | Server error | Retry with backoff |
 

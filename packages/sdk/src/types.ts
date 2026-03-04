@@ -11,7 +11,7 @@ export interface ApiKeyAuth {
 
 export interface X402Auth {
   kind: "x402";
-  /** Called by the SDK when a 402 is received. Must return a base64-encoded X-Payment header value. */
+  /** Called by the SDK when a 402 is received. Must return a base64-encoded payment-signature header value. */
   buildPayment: (payTo: string, amountBaseUnits: bigint) => Promise<string>;
 }
 
@@ -26,7 +26,7 @@ export interface JobRef {
 }
 
 export interface JobStatus {
-  status: "waiting" | "active" | "completed" | "failed";
+  status: "waiting" | "active" | "delayed" | "completed" | "failed" | string;
   progress?: number;
 }
 
@@ -139,6 +139,16 @@ export interface JobAcceptedResponse {
   monitoringUrl: string;
 }
 
+/** Returned by GET /intel/wallet/:addr and GET /intel/wallet/:addr/hud on timeout fallback (202). */
+export interface WalletGetQueuedResponse {
+  status: "queued";
+  walletAddress: string;
+  jobId: string;
+  prepaidJobId?: string;
+  monitoringUrl: string | null;
+  message: string;
+}
+
 /** POST /intel/token/:mint/holders/deep — two jobs returned (202) */
 export interface DeepJobAcceptedResponse {
   status: "queued";
@@ -165,16 +175,16 @@ export interface X402Accept {
   scheme: "exact";
   network: string;
   asset: string;
-  maxAmountRequired: string;
+  amount: string;
   payTo: string;
   maxTimeoutSeconds: number;
 }
 
 export interface X402ErrorBody {
-  error: "insufficient_credits";
+  error: string;
   required: number;
-  x402Version: number;
-  accepts: X402Accept[];
+  x402Version?: number;
+  accepts?: X402Accept[];
 }
 
 // --- SDK config -----------------------------------------------------------

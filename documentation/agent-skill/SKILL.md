@@ -2,7 +2,7 @@
 name: sova-intel
 description: On-chain intelligence API for Solana. Use when asked to analyze a wallet, score a trader, find token holders, measure wallet similarity, or get PnL and behavioral data. Returns digested intelligence — not raw transactions. Pay per call via X402 (Solana wallet) or API key.
 metadata:
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Sova Intel
@@ -149,7 +149,12 @@ Returns `206` (partial failure): `{ status: "partial", holderProfiles: { jobId, 
 | `POST /intel/wallets/similarity`       |      20 |  $0.30 |
 | `POST /intel/token/:mint/holders/deep` |      35 | $0.525 |
 
-1 credit = $0.015 USDC. Charged on data delivery (200), not on job acceptance (202).
+1 credit = $0.015 USDC.
+
+Charging model:
+- GET Intel endpoints (`/intel/wallet/:addr`, `/hud`, `/tokens`) charge on successful `200`.
+- GET fallback `202` (timeout path) does not charge immediately; re-call uses prepaid marker flow.
+- Async POST endpoints charge on accepted `202` job acceptance.
 
 ---
 
@@ -166,7 +171,7 @@ No transaction building. Credits come from the key owner's account. Done.
 
 ### Option B — X402 (autonomous, self-funded Solana wallet)
 
-Every endpoint returns HTTP 402 when called without auth. The 402 body tells you exactly what to send.
+Every endpoint returns HTTP 402 when called without auth. The payment contract is x402 v2.
 
 **Step 1 — probe (no auth):**
 
@@ -175,18 +180,23 @@ curl -i http://localhost:3001/api/v1/intel/wallet/WALLET_ADDRESS
 # → HTTP 402
 ```
 
-**402 body:**
+**402 response contract:**
+
+- Header: `PAYMENT-REQUIRED: <base64-json>`
+- Body: `{"error":"Payment required","required":<credits>}`
+
+Decoded `PAYMENT-REQUIRED` JSON example:
 
 ```json
 {
   "error": "insufficient_credits",
   "required": 5,
-  "x402Version": 1,
+  "x402Version": 2,
   "accepts": [{
     "scheme": "exact",
     "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    "maxAmountRequired": "75000",
+    "amount": "75000",
     "payTo": "<TREASURY_PUBKEY>",
     "maxTimeoutSeconds": 60
   }]
@@ -198,13 +208,15 @@ Cache `accepts[0].payTo` — it never changes per deployment.
 **Step 2 — build payment + resend:**
 
 ```
-X-Payment: base64( JSON.stringify({
-  x402Version: 1,
+payment-signature: base64( JSON.stringify({
+  x402Version: 2,
   scheme: "exact",
   network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
   payload: { transaction: base64(signedTxBytes) }
 }) )
 ```
+
+`x-payment` is still accepted as a legacy fallback header.
 
 Transaction: `transferChecked` from your USDC ATA → treasury USDC ATA (derive with `getAssociatedTokenAddress(USDC_MINT, new PublicKey(payTo))`). Do not use the raw `payTo` pubkey as destination.
 
@@ -213,7 +225,7 @@ Transaction: `transferChecked` from your USDC ATA → treasury USDC ATA (derive 
 ```
 USDC mint : EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 Decimals  : 6
-Amount    : read maxAmountRequired from 402 body (string → BigInt)
+Amount    : read amount from PAYMENT-REQUIRED header payload (string → BigInt)
 ```
 
 **TypeScript:**
@@ -228,7 +240,7 @@ async function buildXPayment(
   connection: Connection,
   keypair: Keypair,
   payTo: string,           // accepts[0].payTo from 402 body
-  amountBaseUnits: bigint, // BigInt(accepts[0].maxAmountRequired)
+  amountBaseUnits: bigint, // BigInt(accepts[0].amount)
 ): Promise<string> {
   const agentAta    = await getAssociatedTokenAddress(USDC_MINT, keypair.publicKey);
   const treasuryAta = await getAssociatedTokenAddress(USDC_MINT, new PublicKey(payTo));
@@ -239,21 +251,21 @@ async function buildXPayment(
   ));
   tx.sign(keypair);
   return Buffer.from(JSON.stringify({
-    x402Version: 1, scheme: "exact",
+    x402Version: 2, scheme: "exact",
     network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
     payload: { transaction: tx.serialize().toString("base64") },
   })).toString("base64");
 }
 ```
 
-On success: response header `X-Payment-Receipt: <txSignature>`. Each signature is single-use (24h replay protection).
+On success: response header `X-Payment-Response: <txSignature>`. Each signature is single-use (24h replay protection).
 
 **X402 errors:**
 
 | Message | Fix |
 |:--------|:----|
 | `transfer destination does not match treasury ATA` | Derive ATA, don't use raw `payTo` pubkey |
-| `USDC amount N < required M` | Use `maxAmountRequired` from 402 body |
+| `USDC amount N < required M` | Use `amount` from PAYMENT-REQUIRED payload |
 | `transaction already used (replay attack)` | Fresh tx + fresh blockhash per request |
 | `transaction confirmation failed` | Expired blockhash or RPC error — retry |
 
@@ -261,19 +273,21 @@ On success: response header `X-Payment-Receipt: <txSignature>`. Each signature i
 
 ## Async jobs
 
-POST endpoints and `GET /intel/wallet/:addr` on a cold/stale wallet return **HTTP 202** — 0cr charged, job queued.
+POST endpoints return **HTTP 202** (async accepted).
+`GET /intel/wallet/:addr` and `GET /intel/wallet/:addr/hud` use synchronous hold and only return **HTTP 202** on timeout/failure fallback.
 
 ```json
 { "status": "queued", "jobId": "123", "requestId": "intel-holders-123-abc", "monitoringUrl": "/api/v1/jobs/123" }
 ```
 
-**Poll** every 5s — free, same auth:
+**Poll** every 5s — free:
 
 ```bash
-curl http://localhost:3001/api/v1/jobs/JOB_ID \
-  -H "X-Api-Key: ak_your_key"
+curl http://localhost:3001/api/v1/jobs/JOB_ID
 # → { "status": "active" | "completed" | "failed", "progress": 80 }
 ```
+
+`GET /jobs/:jobId` is public for status polling. Unauthenticated callers get status/progress metadata; authenticated callers may receive full payload.
 
 **Retrieve result** once `completed` (results expire after 15 minutes):
 
@@ -285,10 +299,13 @@ curl "http://localhost:3001/api/v1/jobs/result/by-key?key=similarity:result:REQU
   -H "X-Api-Key: ak_your_key"
 ```
 
-`GET /intel/wallet/:addr` cold flow — always 5cr total:
+`GET /intel/wallet/:addr` cold/stale flow (PAY-8) — always 5cr total:
 
 ```
-→ 202 (0cr) → poll jobId → call again → 200 (5cr)
+→ hold up to 30s
+→ if completed: 200 (5cr) in same call
+→ if timeout: 202 (0cr) + prepaidJobId
+→ poll jobId → call again with X-Prepaid-Job-Id → 200 (total still 5cr)
 ```
 
 ---
@@ -301,17 +318,18 @@ curl "http://localhost:3001/api/v1/jobs/result/by-key?key=similarity:result:REQU
    NO  → proceed with X402
 
 2. Call target endpoint without auth → 402
-   Read accepts[0].payTo (cache it) + maxAmountRequired
-   Build X-Payment header → resend request
+   Read PAYMENT-REQUIRED header payload (`accepts[0].payTo`, `accepts[0].amount`)
+   Build payment header (`payment-signature`) → resend request
 
 3. Handle response:
    200 → data ready, credits charged — done
-   202 → job queued (0cr)
-         poll GET /jobs/:jobId every 5s
-         on completed → GET /jobs/result/by-key?key=<type>:result:<requestId>
+   202 from GET /intel/wallet* timeout fallback → poll GET /jobs/:jobId every 5s
+         on completed → re-call same Intel GET with X-Prepaid-Job-Id header
+   202 from async POST endpoints → poll GET /jobs/:jobId every 5s
+         on completed → GET /jobs/result/by-key?key=<type>:result:<requestId or jobId>
          on failed    → retry once, then surface error
    402 → payment failed — check X402 errors above
-   404 → no data yet — call GET /intel/wallet/:addr first, then retry
+   404 → verify base URL/route or result key
    422 → system/program wallet — skip this address
    500 → retry with exponential backoff, max 3 attempts
 ```
@@ -325,7 +343,7 @@ curl "http://localhost:3001/api/v1/jobs/result/by-key?key=similarity:result:REQU
 | 400 | Invalid address or bad body | Fix input |
 | 402 | Payment required | See "How to pay" above |
 | 403 | Wallet/key blocked | Contact operator |
-| 404 | No data for wallet | Call `GET /intel/wallet/:addr` first |
+| 404 | Route or result key not found | Verify base URL/route/key |
 | 422 | System/program wallet | Not analyzable — skip |
 | 206 | Bundled job partial failure | 0cr charged; retry or split calls |
 | 500 | Server error | Retry with backoff |
