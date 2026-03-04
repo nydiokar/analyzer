@@ -144,7 +144,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
         </thead>
         <tbody>
           {profiles.map((profile) => {
-            const isHolderOnly = !profile.behaviorType && (profile.currentHoldingsCount ?? 0) > 0;
+            const isHolderOnly = !profile.behaviorType && !profile.analysisSkipped && (profile.currentHoldingsCount ?? 0) > 0;
             const behaviorMeta = getBehaviorMeta(profile.behaviorType) ?? (isHolderOnly
               ? {
                   label: 'Fresh',

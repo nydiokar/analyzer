@@ -48,7 +48,7 @@ function buildDistribution(profiles: HolderProfile[]): DistributionBucket[] {
     if (behaviorType === 'HOLDER') {
       behaviorType = 'HODLER';
     }
-    if (!behaviorType) {
+    if (!behaviorType && !profile.analysisSkipped) {
       const isHolderOnly = (profile.currentHoldingsCount ?? 0) > 0;
       const hasNoExits = (profile.completedCycleCount ?? 0) === 0;
       if (isHolderOnly && hasNoExits) {
