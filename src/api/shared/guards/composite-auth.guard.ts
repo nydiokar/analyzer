@@ -64,11 +64,11 @@ export class CompositeAuthGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
 
-    // X402 autonomous agent path — X-Payment header = wallet-signed tx = identity
+    // X402 autonomous agent path — v2 PAYMENT-SIGNATURE or legacy X-Payment header
     // No JWT or API key required. Agent is identified by their Solana wallet pubkey.
-    const xPaymentHeader = request.headers['x-payment'] as string | undefined;
-    if (xPaymentHeader) {
-      const walletPubkey = this.x402VerificationService.extractPayerFromHeader(xPaymentHeader);
+    const paymentHeader = (request.headers['payment-signature'] ?? request.headers['x-payment']) as string | undefined;
+    if (paymentHeader) {
+      const walletPubkey = this.x402VerificationService.extractPayerFromHeader(paymentHeader);
       const agentUser = await this.x402VerificationService.findOrCreateAgentUser(walletPubkey);
       request.user = agentUser;
       return true;

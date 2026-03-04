@@ -365,29 +365,103 @@ export class IntelController {
   /**
    * GET /intel/wallet/:addr/hud
    * 1 credit — compact HUD metrics only.
+   *
+   * If HUD data exists: returns it immediately (1cr charged).
+   * If missing: auto-queues flash analysis (0cr), returns 202.
+   *   → Poll GET /api/v1/jobs/:jobId, then call this endpoint again (1cr on 200).
    */
   @Get('wallet/:addr/hud')
   @RequireCredits(1)
   @ApiOperation({
     summary: 'Wallet HUD metrics (1cr)',
-    description: 'Returns compact heads-up-display metrics: PnL signals, behavior code, win rate, data quality tier, and conditional badges (bot/whale). Backed by a 24-hour Redis cache.',
+    description: 'Returns compact heads-up-display metrics. Auto-queues flash analysis if wallet is unknown — returns 202, poll monitoringUrl, then call again.',
   })
   @ApiParam({ name: 'addr', description: 'Solana wallet address' })
   @ApiResponse({ status: 200, description: 'Wallet HUD metrics' })
+  @ApiResponse({ status: 202, description: 'Analysis queued — poll monitoringUrl then call again' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
-  @ApiResponse({ status: 404, description: 'No HUD data — call GET /intel/wallet/:addr first to trigger analysis' })
+  @ApiResponse({ status: 422, description: 'Known system wallet — not eligible for analysis' })
   async getWalletHud(@Param('addr') addr: string) {
     this.logger.log(`Intel HUD request: ${addr}`);
     const hud = await this.walletHudService.getHud(addr);
 
-    if (!hud) {
-      throw new NotFoundException(
-        `No HUD data found for wallet ${addr}. ` +
-          'Call GET /api/v1/intel/wallet/:addr first — it will auto-queue analysis if the wallet is missing.',
-      );
-    }
+    if (hud) return hud;
 
-    return hud;
+    // HUD missing — auto-queue flash analysis, same logic as getWalletIntel.
+    this.logger.log(`Intel HUD ${addr}: no data, auto-queuing flash analysis`);
+
+    try {
+      const registryEntry = getKnownWallet(addr);
+      const walletRecord = await this.databaseService.getWallet(addr);
+      const isKnownWallet =
+        !!registryEntry ||
+        !!walletRecord?.knownType ||
+        walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
+        walletRecord?.classification === 'INVALID';
+
+      if (isKnownWallet) {
+        throw new HttpException(
+          { status: 'skipped', walletAddress: addr, message: 'Known system wallet — not eligible for analysis.' },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+
+      // Check for already-queued/running job
+      const queue = this.analysisOperationsQueue.getQueue();
+      const existingJobs = await queue.getJobs(['active', 'waiting', 'delayed']);
+      const matchingJob = existingJobs.find((job) => {
+        const jobData = job?.data as DashboardWalletAnalysisJobData | undefined;
+        return jobData?.walletAddress === addr && (jobData?.analysisScope ?? 'deep') === 'flash';
+      });
+
+      if (matchingJob) {
+        throw new HttpException(
+          { status: 'queued', walletAddress: addr, jobId: matchingJob.id, monitoringUrl: `/api/v1/jobs/${matchingJob.id}`, message: 'Analysis already queued. Poll monitoringUrl then call again.' },
+          HttpStatus.ACCEPTED,
+        );
+      }
+
+      const lockKey = RedisLockService.createWalletLockKey(addr, 'dashboard-analysis');
+      const existingLockJobId = await this.redisLockService.getLockValue(lockKey);
+      if (existingLockJobId) {
+        throw new HttpException(
+          { status: 'queued', walletAddress: addr, jobId: existingLockJobId, monitoringUrl: `/api/v1/jobs/${existingLockJobId}`, message: 'Analysis already running. Poll monitoringUrl then call again.' },
+          HttpStatus.ACCEPTED,
+        );
+      }
+
+      const scope = 'flash' as const;
+      const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[scope];
+      const requestId = `intel-hud-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const jobData: DashboardWalletAnalysisJobData = {
+        walletAddress: addr,
+        userId: 'system',
+        requestId,
+        analysisScope: scope,
+        triggerSource: 'auto',
+        historyWindowDays: scopeDefaults.historyWindowDays ?? undefined,
+        targetSignatureCount: scopeDefaults.targetSignatureCount ?? undefined,
+        forceRefresh: false,
+        enrichMetadata: false,
+        queueWorkingAfter: false, // HUD call — no need to chain working analysis
+        queueDeepAfter: false,
+        failureThreshold: 0.8,
+        timeoutMinutes: scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES,
+      };
+      const job = await this.analysisOperationsQueue.addDashboardWalletAnalysisJob(jobData, {
+        priority: JobPriority.CRITICAL,
+      });
+
+      this.logger.log(`Intel HUD ${addr}: queued flash analysis job ${job.id}`);
+      throw new HttpException(
+        { status: 'queued', walletAddress: addr, jobId: job.id, monitoringUrl: `/api/v1/jobs/${job.id}`, message: 'Wallet analysis queued. Poll monitoringUrl for completion, then call this endpoint again.' },
+        HttpStatus.ACCEPTED,
+      );
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error(`Intel HUD ${addr}: failed to queue analysis: ${error}`);
+      throw new InternalServerErrorException('Failed to queue wallet analysis');
+    }
   }
 
   /**

@@ -27,10 +27,10 @@ interface AuthenticatedRequest extends Request {
 /**
  * CreditGuard checks if a user has enough credits to execute the endpoint.
  *
- * Extended to support X402 autonomous agent payments:
- * - X-PAYMENT header present → verify on-chain tx via X402VerificationService
- * - X-PAYMENT absent + insufficient credits → return x402 PaymentRequired payload
- * - X-PAYMENT absent + sufficient credits → existing behavior (store creditCost on request)
+ * Extended to support X402 autonomous agent payments (x402 v2):
+ * - PAYMENT-SIGNATURE header present → verify on-chain tx via X402VerificationService
+ * - PAYMENT-SIGNATURE absent + insufficient credits → return 402 with PAYMENT-REQUIRED header
+ * - PAYMENT-SIGNATURE absent + sufficient credits → existing behavior (store creditCost on request)
  *
  * Must be used together with CreditInterceptor for post-deduction.
  */
@@ -64,24 +64,25 @@ export class CreditGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const user = request.user;
 
-    const xPaymentHeader = (request.headers as unknown as Record<string, string>)['x-payment'];
+    const headers = request.headers as unknown as Record<string, string>;
+    const paymentHeader = headers['payment-signature'] ?? headers['x-payment'];
 
     // No user = unauthenticated x402 discovery request (CompositeAuthGuard allowed it through).
-    // Return the 402 payment instructions payload so the agent knows what to pay.
-    if (!user && !xPaymentHeader) {
-      return this.throwPaymentRequired(requiredCredits, (request as any).url);
+    // Return the 402 with PAYMENT-REQUIRED header so the agent knows what to pay.
+    if (!user && !paymentHeader) {
+      return this.throwPaymentRequired(requiredCredits, (request as any).url, context);
     }
 
     if (!user) {
-      // X-Payment present but CompositeAuthGuard somehow didn't set user — shouldn't happen
-      this.logger.warn('CreditGuard: X-Payment present but no user on request');
+      // Payment header present but CompositeAuthGuard somehow didn't set user — shouldn't happen
+      this.logger.warn('CreditGuard: payment header present but no user on request');
       throw new HttpException('Authentication required', HttpStatus.UNAUTHORIZED);
     }
 
     // --- X402 path: agent supplied a signed transaction ---
-    if (xPaymentHeader) {
+    if (paymentHeader) {
       const txSig = await this.x402VerificationService.verify(
-        xPaymentHeader,
+        paymentHeader,
         requiredCredits,
         user.id,
         (request as any).url,
@@ -89,7 +90,7 @@ export class CreditGuard implements CanActivate {
       request.x402Paid = true;
       request.creditCost = requiredCredits;
       const response = context.switchToHttp().getResponse<{ setHeader: (k: string, v: string) => void }>();
-      response.setHeader('X-Payment-Receipt', txSig);
+      response.setHeader('X-Payment-Response', txSig);
       this.logger.log(`x402 payment verified: user=${user.id} credits=${requiredCredits}`);
       return true;
     }
@@ -101,7 +102,7 @@ export class CreditGuard implements CanActivate {
       this.logger.warn(
         `Insufficient credits: user=${user.id} has ${currentBalance}, needs ${requiredCredits}`,
       );
-      return this.throwPaymentRequired(requiredCredits, (request as any).url);
+      return this.throwPaymentRequired(requiredCredits, (request as any).url, context);
     }
 
     // Sufficient credits — store cost for interceptor
@@ -113,30 +114,32 @@ export class CreditGuard implements CanActivate {
     return true;
   }
 
-  private throwPaymentRequired(requiredCredits: number, resourceUrl: string): never {
+  private throwPaymentRequired(requiredCredits: number, resourceUrl: string, context: ExecutionContext): never {
     const amountBaseUnits = Math.ceil(
       requiredCredits * USDC_PER_CREDIT * Math.pow(10, USDC_DECIMALS),
     );
+    const paymentRequired = {
+      x402Version: 2,
+      accepts: [
+        {
+          scheme: 'exact',
+          network: SOLANA_MAINNET_CAIP2,
+          asset: this.usdcMint,
+          amount: String(amountBaseUnits),
+          payTo: this.treasury,
+          maxTimeoutSeconds: 60,
+          resource: resourceUrl,
+          description: 'Sova Intel API',
+          mimeType: 'application/json',
+          extra: {},
+        },
+      ],
+    };
+    const encoded = Buffer.from(JSON.stringify(paymentRequired)).toString('base64');
+    const response = context.switchToHttp().getResponse<{ setHeader: (k: string, v: string) => void }>();
+    response.setHeader('PAYMENT-REQUIRED', encoded);
     throw new HttpException(
-      {
-        error: 'insufficient_credits',
-        required: requiredCredits,
-        x402Version: 1,
-        accepts: [
-          {
-            scheme: 'exact',
-            network: SOLANA_MAINNET_CAIP2,
-            asset: this.usdcMint,
-            maxAmountRequired: String(amountBaseUnits),
-            payTo: this.treasury,
-            maxTimeoutSeconds: 60,
-            resource: resourceUrl,
-            description: 'Sova Intel API',
-            mimeType: 'application/json',
-            extra: {},
-          },
-        ],
-      },
+      { error: 'Payment required', required: requiredCredits },
       HttpStatus.PAYMENT_REQUIRED,
     );
   }
