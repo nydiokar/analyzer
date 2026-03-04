@@ -6,6 +6,7 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| 🔲 | **[PAY-8] Synchronous cold-wallet resolution — eliminate split flow** | 🔴 L | Current cold wallet flow is fundamentally broken for the payment model: `GET /hud` cold → 402 → pay 1cr → 202 (job queued) → client polls → `GET /hud` again → 402 → **pay 1cr again** → 200 (data). **Double charge confirmed** — `@RequireCredits` fires on every request, has no memory that this wallet was already paid 15s ago. Problems: (1) **double charging** — agent pays 1cr to queue and 1cr again to retrieve; (2) **free compute attack** — a different caller can queue at 0cr (no auth) and never pay; (3) **incoherent payment UX** — 3 requests to get 1 result; (4) **broken x402 verification** — spec requires 402 visible on entry, but queue step bypasses it for unauthenticated callers. **Fix:** `/hud` and `/intel/wallet/:addr` must hold the HTTP connection open on cold wallet — queue the flash job internally, await completion (max 30s via BullMQ completion event or Redis pub/sub on the specific jobId), then return 200 + data in a single request/response. Client always sees: 402 (price discovery) → pay → one request → one result. 1cr charged once on entry. **No `/wait` endpoint** — the waiting is internal to the existing handler, fully transparent to the client. Fallback to 202+jobId only if analysis exceeds 30s timeout (rare for flash scope). |
 | ✅ | **[PAY-0] Create treasury wallet** | 🟢 S | New dedicated Phantom/Solflare wallet. Add pubkey to `.env` as `TREASURY_WALLET_ADDRESS`. Blocks all payment work. |
 | ✅ | **[PAY-1a] Prisma: CreditBalance + CreditTransaction models** | 🟢 S | Both models added to `schema.prisma`. User gets `creditBalance`/`creditTransactions` relations. Run `npx prisma migrate dev --name credit-ledger` to apply. Branch: `feat/credit-ledger-foundation`. |
 | ✅ | **[PAY-1b] CreditsModule + CreditsService** | 🟡 M | `getBalance`, `deduct` (atomic, throws 402 on short balance), `topUp`, `grantSignupBonus` (non-fatal, called from AuthService.register). `@Global()` module wired into AppModule. Branch: `feat/credit-ledger-foundation`. |
@@ -125,7 +126,24 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 ##  Recent Activity
 
-### March 3, 2026 (Latest)
+### March 4, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 4.1 | 🐛 FIX | x402 v2 migration: server was emitting v1 protocol with CAIP-2 network names (mixed versions) | 🟡 M | `src/api/shared/guards/credit.guard.ts`, `src/api/shared/guards/composite-auth.guard.ts` |
+| 4.2 | 🐛 FIX | Job polling 401: `GET /jobs/:jobId` required auth, blocking x402 agents with no persistent identity | 🟢 S | `src/api/controllers/jobs.controller.ts` |
+| 4.3 | 🔒 SEC | Strip `result` + `data` from public job status — unauthenticated poll returns status/progress only | 🟢 S | `src/api/controllers/jobs.controller.ts` |
+| 4.4 | 🎯 FEAT | `/hud` auto-queues flash analysis on unknown wallet — returns 202 + jobId instead of 404 | 🟡 M | `src/api/controllers/intel.controller.ts` |
+
+**Summary:**
+
+**4.1:** The server was emitting `x402Version: 1` in the 402 body (v1 protocol) but using CAIP-2 network format (`solana:5eykt4...`) which is a v2 convention — breaking all x402 library clients that correctly implement the spec. Migrated to full x402 v2: `PAYMENT-REQUIRED` response header (base64 JSON), `x402Version: 2`, CAIP-2 network, `amount` field (not `maxAmountRequired`). Both guards now read `payment-signature` header (v2) with fallback to `x-payment` (v1 legacy). Response header changed from `X-Payment-Receipt` to `X-Payment-Response` (v2 spec). MCP wallet client (`mcp-x402`) updated with `AgentExactSvmScheme` subclass that injects `feePayer: signer.address` when the server omits it — the agent correctly pays its own SOL transaction fees.
+
+**4.2 / 4.3:** Job status polling was gated by `CompositeAuthGuard` — agents completing a payment have no persistent JWT or API key, so polling their own job returned 401. Made `GET /jobs/:jobId` public (`@Public()` decorator). To prevent free data extraction via jobId enumeration (`dashboard-<8hex>`), unauthenticated responses are stripped of `result` and `data` — only `id`, `name`, `queue`, `status`, `progress`, `createdAt`, `processedAt`, `finishedAt`, `attempts`, `maxAttempts` are returned. Authenticated users still get full response.
+
+**4.4:** `GET /intel/wallet/:addr/hud` previously returned 404 on unknown wallets, forcing agents to make an extra call to `GET /intel/wallet/:addr` (5cr) just to trigger analysis before being able to use the cheaper 1cr HUD endpoint. The HUD endpoint now auto-queues a flash analysis on missing wallet (same logic as `getWalletIntel`) and returns 202 + `jobId` + `monitoringUrl`. Agent polls (free), then calls `/hud` again — 1cr charged on 200. `queueWorkingAfter: false` — HUD flash doesn't chain a working analysis (unnecessary for a 1cr signal call).
+
+### March 3, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
@@ -173,87 +191,6 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 **2.1:** Implemented PAY-7 Intel API layer. `GET /intel/wallet/:addr` (5cr) aggregates summary + HUD + behavior + PnL using same services as dashboard (`WalletHudService`, `PnlOverviewService`, `BehaviorService`). Freshness gated at 30 min (same threshold as `WalletProfileLayout.shouldAutoTriggerFlash`): fresh → 200 immediately; stale/missing → auto-queues flash analysis via `AnalysisOperationsQueue` (same job data, same BullMQ processor, same Redis lock key) → 202 with jobId. `GET /intel/wallet/:addr/tokens` (3cr) — `TokenPerformanceService` direct. `GET /intel/wallet/:addr/hud` (1cr) — `WalletHudService` direct. Credit contract: only `return` (200) triggers `CreditInterceptor`; non-data responses use `throw HttpException` (202/422) so interceptor skips — agent pays once, when data is delivered. Dedup: known-wallet check (4 conditions), BullMQ queue scan, Redis lock. `unrealizedPnl` served live via `PnlOverviewService` → DexScreener, not DB snapshot. **E2E verified:** 4 on-chain USDC payments, 402 `required:5` ✅ · 200 summary+HUD ✅ · `/hud` 1cr ✅ · `/tokens` 3cr/60 tokens ✅.
 
 ---
-
-### February 27, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 27.1 | 🎯 FEAT | PAY-4b: dedicated checkout route + credits page restructure | 🟡 M | `dashboard/src/app/dashboard/credits/page.tsx`, `dashboard/src/app/dashboard/credits/checkout/[packId]/page.tsx` (new), `dashboard/src/components/credits/ExpiryCountdown.tsx` (new), `dashboard/src/components/credits/CreditPurchaseModal.tsx`, `dashboard/src/components/layout/AppShell.tsx`, `dashboard/src/components/auth/UserMenu.tsx` |
-| 27.2 | 🔧 REFACTOR | Credits page UX: two-column layout, pack grid below fold, scroll-to CTA | 🟢 S | `dashboard/src/app/dashboard/credits/page.tsx` |
-| 27.3 | 🐛 FIX | Checkout bugs: double `!packsLoading`, `!!pack` boolean dep, missing `setCheckout(null)` on retry, `React` import, `$¢` notation | 🟢 S | `dashboard/src/app/dashboard/credits/checkout/[packId]/page.tsx`, `dashboard/src/app/dashboard/credits/page.tsx` |
-| 27.4 | 📋 DECISION | PAY-6a/6d audit complete + API pricing & strategy document | 🟡 M | `.ai/context/monetization/PAY-6-PRICING-AUDIT.md` (new) |
-
-**Summary:**
-
-**27.1:** Implemented PAY-4b. New route `dashboard/credits/checkout/[packId]` — two-column page (order summary + payment). Payment column has 5 states: `loading` (creating intent), `qr` (QR code + copy URL + countdown + polling + WS), `confirmed` (success + "View Balance"), `expired` (explicit "Session Expired" + retry CTA), `error` (failed POST + retry). `ExpiryCountdown` extracted from `CreditPurchaseModal` to `components/credits/ExpiryCountdown.tsx` — shared by both, gains `prominent` prop for page vs modal display. `CreditPurchaseModal` updated to import it. AppShell: `Credits` and `Top Holders` removed from nav bar. Balance chip updated title. UserMenu: `Credits · {N}` entry added with live balance between Account and Settings. `tsc --noEmit` clean throughout.
-
-**27.2:** Restructured `/dashboard/credits` page. Above the fold: fixed 320px left column (balance hero at 6xl, cost-per-operation reference, "Top Up Credits" scroll-to button) + fluid right column (full transaction history). Below the fold: full-width pack grid with proper pack cards showing price, credits, per-credit cost, "what you get" breakdown (N× per operation type), "Most Popular" badge on middle pack. Each pack "Select" CTA → navigates to that pack's checkout. `PackCard` and `OPERATION_COSTS` constant shared between reference table and pack cards (single source of truth). Empty transaction state uses `Receipt` icon instead of `Loader2`.
-
-**27.3:** Bug sweep after flow audit. Fixed: (1) `!packsLoading && !packsLoading` typo in redirect guard — second condition was dead; (2) `!!pack` boolean in useEffect deps — unstable derived value, replaced with `pack?.id`; (3) missing `setCheckout(null)` before retry POST — old checkout object could leak into WS effect; (4) `React.ReactNode` used without React import; (5) `$1.5¢` contradictory currency notation — removed `$` prefix, display as `1.5¢ per credit`; (6) `OrderSummary` had unused `checkout` prop — removed; (7) `<img>` ESLint warnings on QR elements — suppressed with targeted `eslint-disable-next-line` comments (data: URI, next/image cannot optimize).
-
-**27.4:** Full pricing audit (PAY-6a + PAY-6d). Traced every endpoint through controllers → processors → Helius calls. Key findings: (1) `behavior-analysis` at 5cr is pure DB read — remove gate. (2) `holder-profiles` at 0cr triggers up to 50 Helius RPCs — must gate at 20cr. (3) `dashboard-analysis` at 10cr auto-triggers on wallet page visit — reduce to 5cr. (4) `similarity/queue` at 100cr is CPU-only (no Helius if wallets synced) — reduce to 20cr. (5) Compound ops verified: no double-charging on internal job chains. (6) Frontend auto-fires similarity after holder-profiles — must decouple to opt-in. **Strategic decision:** Two-tier API architecture. Internal endpoints (dashboard) = free reads, paid compute triggers only. Public Intel endpoints (developers/LLMs/agents) = new `/api/v1/intel/` controller with aggregated high-value responses, all credit-gated. Full plan: `.ai/context/monetization/PAY-6-PRICING-AUDIT.md`.
-
-### February 26, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 26.1 | 🐛 FIX | PAY-2c bug: Helius tokenAmount is human float not raw base units — remove /1e6 | 🟢 S | `src/api/services/payment-confirmation.service.ts` |
-| 26.2 | 🧪 TEST | PAY-2c E2E verified: real $15 USDC → webhook → 1000 credits confirmed | 🟢 S | `dashboard/src/app/pay-test/page.tsx` |
-| 26.3 | 🎯 FEAT | PAY-4: Credits dashboard page + purchase modal + WS + 402 handling | 🟡 M | `dashboard/src/app/dashboard/credits/page.tsx`, `dashboard/src/components/credits/CreditPurchaseModal.tsx`, `dashboard/src/hooks/useCredits.ts`, `dashboard/src/hooks/useCreditPacks.ts`, `dashboard/src/components/layout/AppShell.tsx`, `dashboard/src/components/dashboard/BehavioralPatternsTab.tsx`, `dashboard/src/app/similarity-lab/page.tsx` |
-| 26.4 | 🐛 FIX | PAY-4 type audit: align CreditTransaction/PaymentStatus/CreditPack to real backend contracts | 🟢 S | `dashboard/src/types/api.ts`, `dashboard/src/hooks/useCreditPacks.ts`, `dashboard/src/components/credits/CreditPurchaseModal.tsx` |
-| 26.5 | 🎯 FEAT | PAY-3: X402 protocol layer — autonomous agent payments via Solana wallet identity | 🔴 L | `src/api/services/x402-verification.service.ts` (new), `src/api/shared/guards/composite-auth.guard.ts`, `src/api/shared/guards/credit.guard.ts`, `src/api/shared/interceptors/credit.interceptor.ts`, `src/api/modules/credits.module.ts`, `src/api/services/credits.service.ts`, `src/scripts/x402-agent-test.ts` (new), `src/scripts/generate-wallet.ts` (new) |
-
-**Summary:**
-
-**26.1:** Fixed amount validation bug in `PaymentConfirmationService.tryConfirmByAccounts`. Helius Enhanced Transaction format sends `tokenTransfers[].tokenAmount` as a human-readable float (e.g. `15` for $15 USDC), not raw base units. The code was dividing by `1e6`, turning `15` into `0.000015` which always failed the `>= intent.amountUsdc` check. Removed the division — compare directly.
-
-**26.2:** Full E2E test with real mainnet USDC payment. Helius webhook fired → reference pubkey matched pending intent → amount validated → `confirmIntent` ran → credits topped up → `payment:confirmed` WS event emitted. Status endpoint confirmed `phase: confirmed` with `txSignature`. Credit balance: 0 → 1000. Reconciliation fallback also triggered on the pre-fix pending intent. Test page at `dashboard/src/app/pay-test/page.tsx`.
-
-**26.3:** Implemented PAY-4 frontend payment flow. `/dashboard/credits` page: balance card, credit costs reference, transaction ledger with `delta`-signed amounts and `reason`-derived labels. `CreditPurchaseModal`: 3-stage flow (pack grid → QR → confirmed). Polls `GET /payments/:id/status` every 3s via SWR `refreshInterval`. Separate Socket.IO listener for `payment:confirmed` WS event (faster confirmation path). Expiry countdown timer — hits zero → silently returns to pack selection. SWR `mutate` on credits cache key after confirmation. 402 handling: `BehavioralPatternsTab` shows contextual "Insufficient credits" EmptyState with Buy Credits button + suppresses retry on 402. `similarity-lab` shows Sonner toast with required/balance + "Buy Credits" action. Credits nav item (auth-only) + live balance chip in AppShell header. All hooks null-keyed when unauthenticated. **Verified E2E:** $15 USDC → Payment Confirmed modal → +1,000 in ledger. Known UX limitation: expiry returns to packs silently with no explanation — tracked as PAY-4b.
-
-**26.5:** Implemented PAY-3 X402 protocol layer. Autonomous agents pay per-request via Solana USDC — no API key or JWT needed. Architecture: `CompositeAuthGuard` gets an X402 early path — if `X-Payment` header present, extracts fee payer pubkey from the signed tx, auto-provisions a `User` row keyed by `<pubkey>@x402.agent`, sets `request.user`. Also adds a discovery path: unauthenticated requests to `@RequireCredits` endpoints pass through so `CreditGuard` can return the 402 payment instructions payload. `CreditGuard` validates the USDC `transferChecked` instruction locally (mint, recipient, amount), submits + confirms on-chain, atomically claims the tx signature in Redis (`SET NX EX 86400`) for replay protection, records a `CreditTransaction` ledger entry (`reason: x402_payment`, `refId: txSig`) without touching credit balance. `CreditInterceptor` skips deduction when `request.x402Paid = true`. `CreditsModule` cleaned: guards/interceptors removed (live in AppModule), `X402VerificationService` + `RedisModule` added. `CreditsService.recordX402Payment()` added. Test script: `src/scripts/x402-agent-test.ts` — 6-step flow (discovery → build tx → pay → verify 200 → verify replay rejection). Wallet generator: `src/scripts/generate-wallet.ts`. **Pending:** E2E test — fund agent wallet `zEQfU8xvhnbRDEFTuzFHjHa6cQwd47A6g7fNCnzUaqW` with 0.01 SOL + $1 USDC, then run test script. Decision log: `.ai/context/monetization/PAY-3-X402-DECISIONS.md`.
-
-**26.4:** Post-implementation type audit against actual backend contracts. `CreditTransaction`: backend sends `delta`/`reason`/`refId`/`balanceAfter` — not `amount`/`type` (no enum). `PaymentStatus`: no `credits` field, no `failed` status (only `pending/confirmed/expired`), real fields are `status/phase/message/confirmedAt/txSignature`. `CreditPack`: removed invented `description` field. `ExpiryCountdown`: fixed interval recreation bug (removed `secondsLeft` from `useEffect` deps, use `useRef` for callback). `useCreditPacks`: auth-gated (endpoint requires JWT). `tsc --noEmit` clean.
-
-### February 24, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 24.1 | 🎯 FEAT | Credit ledger foundation — Prisma models + CreditsService + signup bonus wired | 🟡 M | `prisma/schema.prisma`, `src/api/services/credits.service.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/modules/auth.module.ts`, `src/api/shared/services/auth.service.ts` |
-| 24.2 | 🎯 FEAT | @RequireCredits decorator + CreditGuard + CreditInterceptor (PAY-1c) | 🟡 M | `src/api/shared/decorators/require-credits.decorator.ts`, `src/api/shared/guards/credit.guard.ts`, `src/api/shared/interceptors/credit.interceptor.ts`, `src/api/modules/credits.module.ts`, `src/app.module.ts`, `src/api/controllers/test.controller.ts` |
-| 24.3 | 🎯 FEAT | Decorate production endpoints with credit costs (PAY-1d) | 🟢 S | `src/api/controllers/wallets.controller.ts`, `src/api/controllers/analyses.controller.ts` |
-| 24.4 | 🎯 FEAT | Solana Pay checkout + payment schema (PAY-2a/2b) | 🟡 M | `prisma/schema.prisma`, `prisma/seed.ts`, `src/api/services/payment.service.ts`, `src/api/controllers/payment.controller.ts`, `src/api/modules/payment.module.ts` |
-
-**Summary:**
-
-**24.1:** Implemented PAY-1a and PAY-1b on branch `feat/credit-ledger-foundation`. Added `CreditBalance` (one-to-one per user, running total) and `CreditTransaction` (append-only ledger, indexed on `userId+createdAt`) to `schema.prisma`. `User` gains `creditBalance` / `creditTransactions` relations. `CreditsService` provides: `getBalance` (returns 0 if no row), `topUp` (upsert balance + append tx in single Prisma `$transaction`), `deduct` (reads balance inside tx → throws HTTP 402 `{error,balance,required}` if short → decrements + appends tx), `grantSignupBonus` (calls topUp with `FREE_CREDITS_ON_SIGNUP` env var, default 100, swallows errors), `getRecentTransactions`. `CreditsModule` is `@Global()` — injectable everywhere without re-importing. Injected `CreditsService` into `AuthService`; `grantSignupBonus(user.id)` called immediately after user creation. Migration applied: `20260224002042_credit_ledger`. TypeScript compiles clean.
-
-**24.3:** Implemented PAY-1d — applied `@RequireCredits(N)` to production endpoints: `GET /wallets/:addr/behavior-analysis` (5 credits, `wallets.controller.ts`), `POST /analyses/similarity/queue` (100 credits, `analyses.controller.ts`), `POST /analyses/wallets/dashboard-analysis` (10 credits, `analyses.controller.ts`). Dashboard scope tiers (flash=10/working=25/deep=50) deferred — scope is a runtime body param, static decorator applies flash cost as baseline. Verified end-to-end: set balance to 0 via Prisma, hit both `/test-auth/credits` and `/wallets/.../behavior-analysis` — both returned HTTP 402 `{"error":"insufficient_credits","balance":0,"required":5}`. Guard reads live DB balance; decorator metadata drives the `required` field correctly.
-
-**24.2:** Implemented PAY-1c — credit gating infrastructure. Created `@RequireCredits(N)` decorator (sets metadata). `CreditGuard` (global, registered in `app.module.ts`) runs BEFORE handler: reads metadata → checks user auth → fetches balance → throws HTTP 402 `{error:"insufficient_credits",balance:N,required:N}` if short → stores `creditCost` on request object if sufficient. `CreditInterceptor` (global) runs AFTER handler: reads `creditCost` from request → on success, calls `creditsService.deduct()` asynchronously (non-blocking) → on error, does nothing (failed requests don't consume credits). Both use existing `CreditsService` atomic operations. Test endpoint added: `GET /api/v1/test-auth/credits` requires 5 credits, returns success message. Test plan documented at `.ai/context/monetization/PAY-1c-TEST-PLAN.md`. TypeScript compiles clean. **Ready for testing before PAY-1d.**
-
-### February 23, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 23.1 | 🔧 REFACTOR | `/compare` formatter overhaul — real API shape, Jaccard context, no verdicts | 🟡 M | `pft-bot_v2/src/formatters/comparison.ts`, `src/commands.ts`, `src/test-formatters.ts` |
-
-### February 20, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 20.1 | 🎯 FEAT | PFT Oracle Bot v2 — Phase 1 scaffold (all source files + MCP client) | 🔴 L | `pft-bot_v2/src/*` (11 files), `package.json`, `tsconfig.json`, `ecosystem.config.cjs` |
-| 20.2 | 🔧 REFACTOR | `/profile` state machine — smart flow for analyzed/unanalyzed/system wallets | 🟡 M | `src/analyzer.ts`, `src/commands.ts`, `src/deferred-jobs.ts`, `src/formatters/profile.ts` |
-| 20.3 | 🧪 FEAT | Interactive surface test script — validates full pipeline before MCP wiring | 🟢 S | `src/test-bot.ts`, `package.json` |
-
-**Summary:**
-
-**20.1:** Created `pft-bot_v2/` — a standalone Node.js bot ("Sova Intel") that runs on the Post Fiat (PFTL) network. Users send commands with PFT payment, the bot calls the analyzer API, formats JSON into text, and replies on-chain. **Architecture:** Spawns `@postfiatorg/pft-chatbot-mcp` (v0.3.0) as an MCP stdio subprocess for all chain I/O (XRPL transactions, IPFS encryption, bot registry). The bot is the application layer on top — deterministic command parsing, analyzer HTTP client, pure-function formatters. No LLM, no database, no changes to analyzer backend. **MCP Client Coverage:** All 13 tools wrapped. **Key design decisions:** (1) MCP subprocess over direct import — `index.d.ts` exports nothing, stdio is the stable contract. (2) Deferred job polling — file persistence for crash recovery. (3) Cursor + dedup Set prevents double-processing on restart.
-
-**20.2:** Rewrote `/profile` as a proper state machine before touching the chain. The original flow was `GET /hud → if null: "go use /analyze"` — broken UX that punted to the user. New flow: (1) `GET /wallets/{addr}/summary` — fast read, tells us wallet state. (2) `status: 'unanalyzed'` → auto-queue flash analysis → defer with `type: 'profile'` → ack. (3) `alreadyRunning` → hook into existing job. (4) `skipped` (LP/system wallet) → reject with label. (5) `status: 'ok'` but HUD null → queue working analysis → defer. (6) HUD present → immediate reply. Deferred jobs for both `'profile'` and `'analysis'` now resolve by fetching HUD post-completion (not parsing raw BullMQ result). `WalletHud` interface updated to match actual backend DTO: added `provenance.dataRange`, `medianPnlPerToken`, `signalType`. Profile formatter shows both P/L signals (median + trimmed mean) and data date range from provenance. **Files:** `src/analyzer.ts` (WalletHud type), `src/commands.ts` (handleProfile rewrite), `src/deferred-jobs.ts` (type + sendResult), `src/formatters/profile.ts` (full rewrite).
-
-**20.3:** Added `src/test-bot.ts` — interactive REPL that simulates the full bot pipeline without MCP or chain. Asks for `ANALYZER_API_KEY` (URL is hardcoded default `localhost:3001/api/v1`). Smoke-tests connectivity, then drops into a command loop: type `/profile <addr>`, `/analyze <addr>`, `/holders <mint>`, or paste a bare address (auto-wraps as `/profile`). Prints parse result, exact bot reply text, any attachments, elapsed time, and registered deferred jobs. Run with `npm run test:bot`. **Files:** `src/test-bot.ts`, `package.json` (+`test:bot` script).
-
 
 <details>
 <summary><b>Icon Legend</b></summary>
@@ -344,7 +281,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-03  **Branch:** `feat/credit-ledger-foundation`
+**Last Updated:** 2026-03-04  **Branch:** `feat/credit-ledger-foundation`
 
 
 
