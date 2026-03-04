@@ -130,18 +130,15 @@ export class X402VerificationService {
   }
 
   /**
-   * Verifies an X-PAYMENT header end-to-end:
+   * Validates an X-PAYMENT header locally (no network calls):
    *
    * 1. Parses the base64 JSON payload
-   * 2. Validates USDC transferChecked instruction (mint, recipient, amount)
-   * 3. Submits + confirms on-chain
-   * 4. Atomically claims tx signature in Redis (replay protection)
-   * 5. Records the payment in the credit ledger
+   * 2. Decodes tx bytes and validates USDC transferChecked instruction (mint, recipient, amount)
    *
-   * Throws HTTP 402 with a reason on any failure.
-   * Returns the confirmed on-chain transaction signature (base58).
+   * Throws HTTP 402 on any failure.
+   * Returns the raw transaction bytes for use by confirmAndRecord().
    */
-  async verify(xPaymentHeader: string, creditCost: number, userId: string, requestUrl: string): Promise<string> {
+  async validateOnly(xPaymentHeader: string, creditCost: number): Promise<{ txBytes: Buffer }> {
     // --- 1. Parse header ---
     let paymentPayload: PaymentPayload;
     try {
@@ -183,6 +180,20 @@ export class X402VerificationService {
       );
     }
 
+    return { txBytes };
+  }
+
+  /**
+   * Broadcasts, confirms, and records an already-validated x402 payment:
+   *
+   * 3. Submits + confirms on-chain
+   * 4. Atomically claims tx signature in Redis (replay protection)
+   * 5. Records the payment in the credit ledger
+   *
+   * Throws HTTP 402 on RPC failure or replay attempt.
+   * Returns the confirmed on-chain transaction signature (base58).
+   */
+  async confirmAndRecord(txBytes: Buffer, creditCost: number, userId: string, requestUrl: string): Promise<string> {
     // --- 3. Submit + confirm on-chain ---
     let txSig: string;
     try {
@@ -221,6 +232,23 @@ export class X402VerificationService {
     });
 
     return txSig;
+  }
+
+  /**
+   * Verifies an X-PAYMENT header end-to-end:
+   *
+   * 1. Parses the base64 JSON payload
+   * 2. Validates USDC transferChecked instruction (mint, recipient, amount)
+   * 3. Submits + confirms on-chain
+   * 4. Atomically claims tx signature in Redis (replay protection)
+   * 5. Records the payment in the credit ledger
+   *
+   * Throws HTTP 402 with a reason on any failure.
+   * Returns the confirmed on-chain transaction signature (base58).
+   */
+  async verify(xPaymentHeader: string, creditCost: number, userId: string, requestUrl: string): Promise<string> {
+    const { txBytes } = await this.validateOnly(xPaymentHeader, creditCost);
+    return this.confirmAndRecord(txBytes, creditCost, userId, requestUrl);
   }
 
   // ---------------------------------------------------------------------------

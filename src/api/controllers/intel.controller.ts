@@ -128,7 +128,10 @@ export class IntelController {
    * Anything else = standard credit user; CreditInterceptor MUST deduct on re-call.
    */
   private prepaidMarkerValue(req: Request & { user?: User }): string {
-    return (req as any).x402Paid === true ? 'x402' : (req.user?.id ?? 'unknown');
+    const isX402 =
+      (req as any).x402Paid === true ||
+      (req as any).x402PendingTxBytes != null;
+    return isX402 ? 'x402' : (req.user?.id ?? 'unknown');
   }
 
   private buildIntelResponse(

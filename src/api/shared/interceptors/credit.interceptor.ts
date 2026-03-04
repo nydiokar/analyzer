@@ -8,12 +8,14 @@ import {
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { CreditsService } from '../../services/credits.service';
+import { X402VerificationService } from '../../services/x402-verification.service';
 import { User } from '@prisma/client';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
   creditCost?: number; // Set by CreditGuard
-  x402Paid?: boolean; // Set by CreditGuard when agent paid via X402
+  x402Paid?: boolean; // Set by CreditGuard when prepaid re-call (marker was 'x402')
+  x402PendingTxBytes?: Buffer; // Set by CreditGuard for fresh x402 calls awaiting confirm
 }
 
 /**
@@ -30,7 +32,10 @@ interface AuthenticatedRequest extends Request {
 export class CreditInterceptor implements NestInterceptor {
   private readonly logger = new Logger(CreditInterceptor.name);
 
-  constructor(private readonly creditsService: CreditsService) {}
+  constructor(
+    private readonly creditsService: CreditsService,
+    private readonly x402VerificationService: X402VerificationService,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -42,7 +47,38 @@ export class CreditInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    // x402 agent already paid on-chain — skip deduction
+    // Fresh x402 call — confirm on-chain and record after handler succeeds
+    const pendingTxBytes = request.x402PendingTxBytes;
+    if (pendingTxBytes) {
+      return next.handle().pipe(
+        tap({
+          next: async () => {
+            try {
+              const response = context.switchToHttp()
+                .getResponse<{ setHeader: (k: string, v: string) => void }>();
+              const txSig = await this.x402VerificationService.confirmAndRecord(
+                pendingTxBytes,
+                creditCost,
+                user.id,
+                (request as any).url,
+              );
+              response.setHeader('X-Payment-Response', txSig);
+              this.logger.log(
+                `x402 confirmed post-handler: user=${user.id} credits=${creditCost} sig=${txSig}`,
+              );
+            } catch (err) {
+              // Rare: RPC failure after 200 already returned.
+              // Cannot reverse response. Log for manual reconciliation.
+              this.logger.error(
+                `x402 confirm failed post-handler: user=${user.id} err=${(err as Error).message}`,
+              );
+            }
+          },
+        }),
+      );
+    }
+
+    // Prepaid re-call — already confirmed in original call's interceptor, skip deduction
     if (request.x402Paid) {
       return next.handle();
     }

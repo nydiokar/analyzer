@@ -25,6 +25,7 @@ interface AuthenticatedRequest extends Request {
   user?: User;
   creditCost?: number;
   x402Paid?: boolean;
+  x402PendingTxBytes?: Buffer;
 }
 
 /**
@@ -111,17 +112,14 @@ export class CreditGuard implements CanActivate {
 
     // --- X402 path: agent supplied a signed transaction ---
     if (paymentHeader) {
-      const txSig = await this.x402VerificationService.verify(
+      const { txBytes } = await this.x402VerificationService.validateOnly(
         paymentHeader,
         requiredCredits,
-        user.id,
-        (request as any).url,
       );
-      request.x402Paid = true;
+      request.x402PendingTxBytes = txBytes;
       request.creditCost = requiredCredits;
-      const response = context.switchToHttp().getResponse<{ setHeader: (k: string, v: string) => void }>();
-      response.setHeader('X-Payment-Response', txSig);
-      this.logger.log(`x402 payment verified: user=${user.id} credits=${requiredCredits}`);
+      // Do NOT set x402Paid — interceptor confirms on-chain and sets X-Payment-Response
+      this.logger.log(`x402 payment validated locally: user=${user.id} credits=${requiredCredits}`);
       return true;
     }
 
