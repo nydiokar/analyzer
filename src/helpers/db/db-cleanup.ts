@@ -42,6 +42,11 @@ async function cleanupTable(options: {
 
   // Build where clause
   const whereClause: Record<string, any> = { ...where };
+  const primaryKeyByTable: Record<string, string> = {
+    HeliusTransactionCache: 'signature',
+    Wallet: 'address',
+  };
+  const primaryKeyField = primaryKeyByTable[table] || 'id';
   
   // Add ID range if specified
   if (startId !== undefined) {
@@ -158,19 +163,19 @@ async function cleanupTable(options: {
       const recordsToDelete = await prisma[table].findMany({
         where: whereClause,
         take: batchSize,
-        orderBy: { id: 'asc' },
-        select: { id: true }
+        orderBy: { [primaryKeyField]: 'asc' },
+        select: { [primaryKeyField]: true }
       });
       
       if (recordsToDelete.length === 0) break;
       
-      // Extract IDs for this batch
-      const idsToDelete = recordsToDelete.map((r: { id: number }) => r.id);
+      // Extract keys for this batch
+      const keysToDelete = recordsToDelete.map((r: Record<string, string | number>) => r[primaryKeyField]);
       
       // Delete the batch
       // @ts-ignore - Dynamic table access
       const result = await prisma[table].deleteMany({
-        where: { id: { in: idsToDelete } }
+        where: { [primaryKeyField]: { in: keysToDelete } }
       });
       
       deleted += result.count;
