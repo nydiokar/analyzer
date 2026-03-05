@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import fs from 'fs';
 import { prisma } from '../../src/core/services/database-service';
 import { createLogger } from '../../src/core/utils/logger';
 
@@ -10,6 +11,8 @@ type PruneSummary = {
   heliusCandidates: number;
   swapCandidates: number;
   swapGlobalCandidates: number;
+  orphanAnalysisResultCandidates: number;
+  orphanTokenLotCandidates: number;
   candidateWallets: number;
   estHeliusBytesPerRow: number;
   estSwapBytesPerRow: number;
@@ -88,6 +91,7 @@ async function getProtectedWallets(options: {
   protectFavoritedWallets: boolean;
   protectNotedWallets: boolean;
   protectRecentWalletDays: number;
+  protectWalletFile?: string;
 }): Promise<string[]> {
   const protectedSet = new Set<string>();
 
@@ -123,6 +127,15 @@ async function getProtectedWallets(options: {
     recentWallets.forEach((w) => protectedSet.add(w.address));
   }
 
+  if (options.protectWalletFile) {
+    const content = fs.readFileSync(options.protectWalletFile, 'utf8');
+    const fileWallets = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith('#'));
+    fileWallets.forEach((w) => protectedSet.add(w));
+  }
+
   return Array.from(protectedSet);
 }
 
@@ -133,6 +146,16 @@ async function countSwapGlobalCandidates(olderThanUnixTs: number, protectedWalle
       ...(protectedWallets.length > 0 ? { walletAddress: { notIn: protectedWallets } } : {}),
     },
   });
+}
+
+async function countOrphanRows(tableName: 'AnalysisResult' | 'TokenLot'): Promise<number> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ count: number }>>(
+    `WITH swap_wallets AS (SELECT DISTINCT "walletAddress" FROM "SwapAnalysisInput")
+     SELECT COUNT(*)::bigint AS count
+     FROM "public"."${tableName}" t
+     WHERE t."walletAddress" NOT IN (SELECT "walletAddress" FROM swap_wallets);`,
+  );
+  return Number(rows[0]?.count ?? 0);
 }
 
 async function pruneHeliusInBatches(olderThanUnixTs: number, batchSize: number, pauseMs: number, maxBatches: number): Promise<number> {
@@ -252,6 +275,49 @@ async function pruneSwapGlobalInBatches(
   return deleted;
 }
 
+async function pruneOrphanRowsInBatches(
+  tableName: 'AnalysisResult' | 'TokenLot',
+  batchSize: number,
+  pauseMs: number,
+  maxBatches: number,
+): Promise<number> {
+  let deleted = 0;
+  let batch = 0;
+
+  while (batch < maxBatches) {
+    const result = await prisma.$executeRawUnsafe(
+      `WITH swap_wallets AS (SELECT DISTINCT "walletAddress" FROM "SwapAnalysisInput"),
+            to_del AS (
+              SELECT t.id
+              FROM "public"."${tableName}" t
+              WHERE t."walletAddress" NOT IN (SELECT "walletAddress" FROM swap_wallets)
+              ORDER BY t.id
+              LIMIT ${Math.max(1, batchSize)}
+            )
+       DELETE FROM "public"."${tableName}" t
+       USING to_del
+       WHERE t.id = to_del.id;`,
+    );
+
+    const deletedBatch = Number(result ?? 0);
+    if (deletedBatch === 0) break;
+
+    deleted += deletedBatch;
+    batch += 1;
+    logger.info(`[Orphan${tableName}] Batch ${batch}: deleted ${deletedBatch} rows (total ${deleted})`);
+
+    if (pauseMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, pauseMs));
+    }
+  }
+
+  return deleted;
+}
+
+async function reindexConcurrently(indexName: string): Promise<void> {
+  await prisma.$executeRawUnsafe(`REINDEX INDEX CONCURRENTLY "public"."${indexName}";`);
+}
+
 async function main() {
   const argv = await yargs(hideBin(process.argv))
     .scriptName('smart-db-prune')
@@ -275,6 +341,16 @@ async function main() {
       type: 'boolean',
       default: false,
       description: 'Prune old SwapAnalysisInput rows globally, excluding protected wallets.',
+    })
+    .option('pruneOrphanAnalysisResult', {
+      type: 'boolean',
+      default: false,
+      description: 'Prune AnalysisResult rows for wallets with no remaining SwapAnalysisInput rows.',
+    })
+    .option('pruneOrphanTokenLot', {
+      type: 'boolean',
+      default: false,
+      description: 'Prune TokenLot rows for wallets with no remaining SwapAnalysisInput rows.',
     })
     .option('heliusOlderThanDays', {
       type: 'number',
@@ -311,6 +387,10 @@ async function main() {
       default: 45,
       description: 'Exclude wallets seen recently from global swap pruning.',
     })
+    .option('protectWalletFile', {
+      type: 'string',
+      description: 'Path to file with wallet addresses to always protect (one per line, # comments allowed).',
+    })
     .option('minWalletOldRows', {
       type: 'number',
       default: 5000,
@@ -336,6 +416,16 @@ async function main() {
       default: 400,
       description: 'Safety cap: stop after this many batches.',
     })
+    .option('reindexAfterCleanup', {
+      type: 'boolean',
+      default: false,
+      description: 'Run concurrent reindex on selected large indexes after apply cleanup.',
+    })
+    .option('reindexLargeUniqueSwapIndex', {
+      type: 'boolean',
+      default: false,
+      description: 'Include SwapAnalysisInput_signature_mint_direction_amount_key in reindexAfterCleanup.',
+    })
     .strict()
     .help()
     .alias('help', 'h')
@@ -352,7 +442,7 @@ async function main() {
 
   logger.info(`Mode: ${argv.apply ? 'APPLY' : 'DRY_RUN'}`);
   logger.info(
-    `Config: pruneHelius=${argv.pruneHelius}, pruneSwapInactive=${argv.pruneSwapInactive}, pruneSwapGlobal=${argv.pruneSwapGlobal}, batchSize=${argv.batchSize}, maxBatches=${argv.maxBatches}`,
+      `Config: pruneHelius=${argv.pruneHelius}, pruneSwapInactive=${argv.pruneSwapInactive}, pruneSwapGlobal=${argv.pruneSwapGlobal}, pruneOrphanAnalysisResult=${argv.pruneOrphanAnalysisResult}, pruneOrphanTokenLot=${argv.pruneOrphanTokenLot}, batchSize=${argv.batchSize}, maxBatches=${argv.maxBatches}`,
   );
 
   const [estHeliusBytesPerRow, estSwapBytesPerRow] = await Promise.all([
@@ -378,16 +468,25 @@ async function main() {
         protectFavoritedWallets: argv.protectFavoritedWallets,
         protectNotedWallets: argv.protectNotedWallets,
         protectRecentWalletDays: argv.protectRecentWalletDays,
+        protectWalletFile: argv.protectWalletFile,
       })
     : [];
   const swapGlobalCandidates = argv.pruneSwapGlobal
     ? await countSwapGlobalCandidates(swapGlobalOlderThanUnixTs, protectedWallets)
+    : 0;
+  const orphanAnalysisResultCandidates = argv.pruneOrphanAnalysisResult
+    ? await countOrphanRows('AnalysisResult')
+    : 0;
+  const orphanTokenLotCandidates = argv.pruneOrphanTokenLot
+    ? await countOrphanRows('TokenLot')
     : 0;
 
   const summary: PruneSummary = {
     heliusCandidates,
     swapCandidates,
     swapGlobalCandidates,
+    orphanAnalysisResultCandidates,
+    orphanTokenLotCandidates,
     candidateWallets: swapCandidatesByWallet.length,
     estHeliusBytesPerRow,
     estSwapBytesPerRow,
@@ -409,7 +508,7 @@ async function main() {
       1024 /
       1024 /
       1024
-    ).toFixed(2)} GB logical)`,
+    ).toFixed(2)} GB logical), orphanAnalysisResultRows=${summary.orphanAnalysisResultCandidates}, orphanTokenLotRows=${summary.orphanTokenLotCandidates}`,
   );
 
   if (argv.pruneSwapGlobal) {
@@ -433,6 +532,8 @@ async function main() {
   let deletedHelius = 0;
   let deletedSwap = 0;
   let deletedSwapGlobal = 0;
+  let deletedOrphanAnalysisResult = 0;
+  let deletedOrphanTokenLot = 0;
 
   if (argv.pruneHelius) {
     deletedHelius = await pruneHeliusInBatches(
@@ -475,9 +576,46 @@ async function main() {
     }
   }
 
+  if (argv.pruneOrphanAnalysisResult && orphanAnalysisResultCandidates > 0) {
+    deletedOrphanAnalysisResult = await pruneOrphanRowsInBatches(
+      'AnalysisResult',
+      argv.batchSize,
+      argv.pauseMs,
+      argv.maxBatches,
+    );
+  }
+
+  if (argv.pruneOrphanTokenLot && orphanTokenLotCandidates > 0) {
+    deletedOrphanTokenLot = await pruneOrphanRowsInBatches(
+      'TokenLot',
+      argv.batchSize,
+      argv.pauseMs,
+      argv.maxBatches,
+    );
+  }
+
+  if (argv.reindexAfterCleanup) {
+    const indexes = [
+      'HeliusTransactionCache_timestamp_idx',
+      'HeliusTransactionCache_pkey',
+      'AnalysisResult_walletAddress_tokenAddress_key',
+      'TokenLot_walletAddress_tokenAddress_purchaseTimestamp_idx',
+      'SwapAnalysisInput_walletAddress_timestamp_idx',
+      'SwapAnalysisInput_mint_idx',
+    ];
+    if (argv.reindexLargeUniqueSwapIndex) {
+      indexes.push('SwapAnalysisInput_signature_mint_direction_amount_key');
+    }
+    for (const idx of indexes) {
+      logger.info(`[Reindex] Starting ${idx}`);
+      await reindexConcurrently(idx);
+      logger.info(`[Reindex] Completed ${idx}`);
+    }
+  }
+
   logger.info(
-    `Apply complete: deletedHelius=${deletedHelius}, deletedSwapInactive=${deletedSwap}, deletedSwapGlobal=${deletedSwapGlobal}, totalDeleted=${
-      deletedHelius + deletedSwap + deletedSwapGlobal
+    `Apply complete: deletedHelius=${deletedHelius}, deletedSwapInactive=${deletedSwap}, deletedSwapGlobal=${deletedSwapGlobal}, deletedOrphanAnalysisResult=${deletedOrphanAnalysisResult}, deletedOrphanTokenLot=${deletedOrphanTokenLot}, totalDeleted=${
+      deletedHelius + deletedSwap + deletedSwapGlobal + deletedOrphanAnalysisResult + deletedOrphanTokenLot
     }`,
   );
 }

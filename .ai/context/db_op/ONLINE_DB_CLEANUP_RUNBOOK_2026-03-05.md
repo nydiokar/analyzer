@@ -27,15 +27,25 @@ Owner: Sova backend ops
 5. Keep maintenance bounded with `--maxBatches`.
 6. Re-check PM2 and logs after every apply run.
 
-## Data Retention Policy (Recommended)
-- `HeliusTransactionCache`: keep 30 days.
-- `SwapAnalysisInput`: keep all by default; optional inactive-wallet pruning only.
-- `AnalysisResult`: keep.
-- `TokenLot`: keep.
+## Data Retention Policy (Finalized)
+### Keep (lightweight cold-cache / results)
+- `AnalysisResult`
+- `WalletPnlSummary`
+- `WalletBehaviorProfile`
+- `HolderProfileSnapshot`
+- Other small user-facing summary/snapshot tables
+
+### Prune (heavy raw history)
+- `HeliusTransactionCache`: keep 30 days
+- `SwapAnalysisInput`: keep recent horizon (30 days in current ops policy), prune older rows with wallet protections
+
+### Optional orphan cleanup (derived heavy rows)
+- `TokenLot` orphan rows (wallet has no `SwapAnalysisInput`) can be pruned.
+- `AnalysisResult` orphan rows can be pruned (already done in incident).
 
 Reasoning:
-- `HeliusTransactionCache` is regeneration-friendly and safest to prune.
-- `SwapAnalysisInput` is source history for deeper analysis; aggressive global pruning can degrade analysis depth and force costly re-sync.
+- Keep lightweight snapshots/results so inactive wallets can still be served quickly.
+- Remove heavy raw ingest history to control growth.
 
 ## Script
 - Script: `scripts/maintenance/smart-db-prune.ts`
@@ -49,11 +59,16 @@ npx ts-node -r tsconfig-paths/register scripts/maintenance/smart-db-prune.ts
 
 ```bash
 npx ts-node -r tsconfig-paths/register scripts/maintenance/smart-db-prune.ts \
-  --pruneSwapInactive \
-  --swapOlderThanDays 120 \
-  --walletInactiveDays 90 \
-  --minWalletOldRows 3000 \
-  --maxWallets 400
+  --pruneHelius \
+  --pruneSwapGlobal \
+  --pruneOrphanTokenLot \
+  --no-pruneSwapInactive \
+  --heliusOlderThanDays 30 \
+  --swapGlobalOlderThanDays 30 \
+  --protectRecentWalletDays 7 \
+  --protectFavoritedWallets \
+  --protectNotedWallets \
+  --protectWalletFile /tmp/protect-wallets.txt
 ```
 
 ### Safe Apply Command (Recommended Weekly)
@@ -61,11 +76,49 @@ npx ts-node -r tsconfig-paths/register scripts/maintenance/smart-db-prune.ts \
 npx ts-node -r tsconfig-paths/register scripts/maintenance/smart-db-prune.ts \
   --apply \
   --pruneHelius \
+  --pruneSwapGlobal \
   --no-pruneSwapInactive \
+  --no-pruneOrphanAnalysisResult \
+  --no-pruneOrphanTokenLot \
   --heliusOlderThanDays 30 \
-  --batchSize 1500 \
-  --pauseMs 75 \
-  --maxBatches 300
+  --swapGlobalOlderThanDays 30 \
+  --protectRecentWalletDays 7 \
+  --protectFavoritedWallets \
+  --protectNotedWallets \
+  --protectWalletFile /tmp/protect-wallets.txt \
+  --batchSize 10000 \
+  --pauseMs 30 \
+  --maxBatches 1200
+```
+
+### Optional Apply (include orphan `TokenLot` cleanup)
+```bash
+npx ts-node -r tsconfig-paths/register scripts/maintenance/smart-db-prune.ts \
+  --apply \
+  --pruneHelius \
+  --pruneSwapGlobal \
+  --pruneOrphanTokenLot \
+  --no-pruneSwapInactive \
+  --no-pruneOrphanAnalysisResult \
+  --heliusOlderThanDays 30 \
+  --swapGlobalOlderThanDays 30 \
+  --protectRecentWalletDays 7 \
+  --protectFavoritedWallets \
+  --protectNotedWallets \
+  --protectWalletFile /tmp/protect-wallets.txt \
+  --batchSize 10000 \
+  --pauseMs 30 \
+  --maxBatches 1200
+```
+
+### Optional Compaction In Same Script
+Use only when headroom is adequate.
+```bash
+--reindexAfterCleanup
+```
+Include the heaviest unique swap index only intentionally:
+```bash
+--reindexLargeUniqueSwapIndex
 ```
 
 ## Monitoring Before/After
@@ -85,12 +138,12 @@ docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c \
 
 ## Routine Cadence
 - Weekly (off-peak):
-  - Run Helius prune apply command above.
+  - Run heavy-data prune apply command above (`Helius` + `SwapAnalysisInput` global with protections).
   - Cap with `--maxBatches` to avoid long maintenance windows.
 - Monthly:
-  - Run inactive-wallet dry-run report.
-  - Only apply inactive swap prune if candidate set is meaningful and reviewed.
   - Reassess table/index size breakdown and dead tuples.
+  - Optional orphan `TokenLot` prune pass.
+  - Optional concurrent reindex wave if index bloat grows.
 
 ## About Disk Reclaim vs DB Reuse
 - Batched deletes free logical space inside Postgres for reuse.
@@ -118,7 +171,7 @@ pkill -f 'scripts/maintenance/smart-db-prune.ts'
   - Postgres container health
   - Redis connectivity
 
-## Next-Level Cleanup (Planned, Not Automatic Yet)
-- Add an archive table strategy for very old `SwapAnalysisInput` instead of direct deletion.
+## Next-Level Cleanup
 - Add metrics output (JSON report) from prune script for trend dashboarding.
 - Add cron with conservative caps and alerting on failures.
+- Maintain `/tmp/protect-wallets.txt` (or move to stable path) for always-protected wallets.

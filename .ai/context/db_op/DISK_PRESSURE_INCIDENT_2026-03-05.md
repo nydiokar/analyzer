@@ -46,6 +46,18 @@ Current high-impact safe policy (online):
 
 This avoids blind deletion of wallets users care about while still reclaiming large stale history.
 
+Final retention direction agreed:
+- Keep lightweight snapshots/results for cold-serving:
+  - `AnalysisResult`
+  - `WalletPnlSummary`
+  - `WalletBehaviorProfile`
+  - `HolderProfileSnapshot`
+- Remove/rotate heavy raw history:
+  - `SwapAnalysisInput`
+  - `HeliusTransactionCache`
+- Optional cleanup:
+  - Orphan `TokenLot` rows (wallet no longer has any swap history)
+
 ## Why filesystem % may not drop quickly
 Deleting rows frees pages **inside Postgres** for reuse. It often does not immediately shrink host filesystem usage.
 Immediate host-space shrink usually needs table rewrite tools (`pg_repack`) or dump/restore.
@@ -60,14 +72,40 @@ stdbuf -oL -eL npx ts-node -r tsconfig-paths/register scripts/maintenance/smart-
   --pruneHelius \
   --pruneSwapGlobal \
   --no-pruneSwapInactive \
+  --no-pruneOrphanAnalysisResult \
+  --no-pruneOrphanTokenLot \
   --heliusOlderThanDays 30 \
   --swapGlobalOlderThanDays 30 \
   --protectRecentWalletDays 7 \
   --protectFavoritedWallets \
   --protectNotedWallets \
+  --protectWalletFile /tmp/protect-wallets.txt \
   --batchSize 10000 \
   --pauseMs 30 \
   --maxBatches 1200 | tee -a /tmp/smart-db-prune-live.log
+```
+
+### 1b) Optional orphan cleanup
+```bash
+npx ts-node -r tsconfig-paths/register scripts/maintenance/smart-db-prune.ts \
+  --apply \
+  --pruneOrphanTokenLot \
+  --no-pruneOrphanAnalysisResult \
+  --no-pruneHelius \
+  --no-pruneSwapGlobal \
+  --no-pruneSwapInactive \
+  --batchSize 5000 \
+  --pauseMs 100 \
+  --maxBatches 500
+```
+
+### 1c) Optional post-cleanup compaction in script
+```bash
+--reindexAfterCleanup
+```
+Include heaviest unique swap index only intentionally:
+```bash
+--reindexLargeUniqueSwapIndex
 ```
 
 ### 2) Health checks
@@ -107,9 +145,9 @@ docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c \
 
 ## Open Decisions (next session)
 1. Whether to keep `protectRecentWalletDays=7` or increase/decrease.
-2. Whether to add periodic cron job for smart prune.
-3. When to schedule physical shrink (`pg_repack` or dump/restore).
-4. Whether to prune old Docker images immediately (`docker image prune -a`) for quick non-DB relief.
+2. Where to store long-term protected-wallet allowlist (currently `/tmp/protect-wallets.txt` example).
+3. Whether to add periodic cron job for smart prune.
+4. When to schedule physical shrink (`pg_repack` or dump/restore) if growth accelerates again.
 
 ## Risk Notes
 - `SwapAnalysisInput` pruning can reduce historical analysis depth for pruned wallets.
@@ -117,11 +155,10 @@ docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c \
 - Never run `VACUUM FULL` on hot path during peak usage.
 
 ## Recommended next operational sequence
-1. Let current smart prune complete.
+1. Run smart prune with finalized policy.
 2. Re-measure:
    - old-row counts
    - DB size
    - host disk %
-3. Reclaim easy host space:
-   - Docker image prune (after verifying unused images)
-4. Plan physical shrink window if host disk % remains high.
+3. If index bloat rises, run concurrent reindex wave.
+4. Plan physical shrink window if host disk % trends back to critical levels.
