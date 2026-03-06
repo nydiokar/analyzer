@@ -118,22 +118,12 @@ curl -X POST http://localhost:3001/api/v1/intel/wallets/similarity \
 
 Returns: `{ jobId, requestId, monitoringUrl }` → poll → fetch `similarity:result:<requestId>`
 
-**Holders + similarity bundled** (35cr — saves 5cr vs separate calls — async):
+**Holders + similarity bundled** — `POST /intel/token/:mint/holders/deep` — **coming soon (temporarily unavailable)**
 
-Two independent jobs in one call: holder-profiles for the token's top N holders (server fetches them from Helius), and similarity for a wallet list you supply upfront. These are separate inputs — `wallets[]` does not have to match the token's holders.
+This endpoint returns `501`. Use the two-step alternative:
 
-```bash
-curl -X POST http://localhost:3001/api/v1/intel/token/TOKEN_MINT/holders/deep \
-  -H "X-Api-Key: ak_your_key" \
-  -H "Content-Type: application/json" \
-  -d '{"topN": 20, "wallets": ["ADDR_1", "ADDR_2", "ADDR_3"]}'
-```
-
-- `topN` — how many top holders to profile (1–50, default 20). Server fetches them from Helius.
-- `wallets` — 2–30 addresses for the similarity job. You provide these — typically from prior knowledge or a previous `/holders` run.
-
-Returns `202`: `{ holderProfiles: { jobId, requestId, monitoringUrl }, similarity: { jobId, requestId, monitoringUrl } }` — poll both independently.
-Returns `206` (partial failure): `{ status: "partial", holderProfiles: { jobId, requestId, monitoringUrl }, similarity: null }` — similarity failed to queue, 0cr charged. Retry the full request or call `POST /intel/wallets/similarity` separately.
+1. `POST /intel/token/:mint/holders` — get holder addresses from the job result
+2. `POST /intel/wallets/similarity` — run similarity on those addresses
 
 ---
 
@@ -147,7 +137,7 @@ Returns `206` (partial failure): `{ status: "partial", holderProfiles: { jobId, 
 | `POST /intel/wallets/batch-hud`        |       5 | $0.075 |
 | `POST /intel/token/:mint/holders`      |      20 |  $0.30 |
 | `POST /intel/wallets/similarity`       |      20 |  $0.30 |
-| `POST /intel/token/:mint/holders/deep` |      35 | $0.525 |
+| `POST /intel/token/:mint/holders/deep` |      35 | $0.525 | _(coming soon — returns 501)_ |
 
 1 credit = $0.015 USDC.
 

@@ -164,7 +164,15 @@ export class SovaIntelClient {
 
   // -------------------------------------------------------------------------
   // POST /intel/token/:mint/holders/deep — 35cr (async, two jobs)
+  // TEMPORARILY UNAVAILABLE: endpoint returns 501 until chain-job fix lands.
+  // Use queueHolderProfiles() + pollHolderProfiles() then queueSimilarity() instead.
   // -------------------------------------------------------------------------
+
+  /**
+   * @deprecated Endpoint temporarily returns 501. Use the two-step alternative:
+   * 1. `queueHolderProfiles` / `pollHolderProfiles` to get holder addresses
+   * 2. `queueSimilarity` with those addresses
+   */
   async queueDeepAnalysis(
     tokenMint: string,
     wallets: string[],
@@ -180,6 +188,10 @@ export class SovaIntelClient {
   /**
    * Convenience: queue deep analysis and poll both jobs in parallel.
    * Returns { holderProfiles, similarity } — each is the raw result object.
+   *
+   * @deprecated Endpoint temporarily returns 501. Use the two-step alternative:
+   * 1. `queueHolderProfiles` / `pollHolderProfiles` to get holder addresses
+   * 2. `queueSimilarity` with those addresses
    */
   async pollDeepAnalysis<TH = unknown, TS = unknown>(
     tokenMint: string,

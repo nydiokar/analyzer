@@ -72,9 +72,9 @@ export class PricingController {
         method: 'POST',
         credits: 35,
         usdEquivalent: this.toUsd(35),
-        description: 'Bundled holders + similarity queueing endpoint (discounted vs separate calls).',
+        description: 'Bundled holders + similarity (coming soon — temporarily unavailable). Use /holders then /similarity separately.',
         category: 'intel',
-        status: 'active',
+        status: 'planned',
       },
       {
         path: '/intel/wallet/:addr/hud',
