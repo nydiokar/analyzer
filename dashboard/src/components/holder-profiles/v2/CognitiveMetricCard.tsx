@@ -14,6 +14,7 @@ function getTooltip(primitiveId: string): string {
     consistency: 'Share of holders with 30+ exits used in classification.',
     quality: 'Holders with 10+ exited tokens / total.',
     similarity: 'Average overlap across holder pairs (0-100%).',
+    fresh: 'Token supply % held by wallets with no exit history yet.',
   };
   return tooltips[primitiveId] || 'Behavioral metric';
 }

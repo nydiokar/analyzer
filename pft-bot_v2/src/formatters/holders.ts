@@ -22,6 +22,24 @@ const BEHAVIOR_LABELS: Record<string, string> = {
   'FLIPPER': 'Flipper',
 };
 
+const BEHAVIOR_EMOJIS: Record<string, string> = {
+  'Sniper': '🎯',
+  'Scalper': '⚡',
+  'Momentum': '🚀',
+  'Intraday': '📈',
+  'Day Trader': '⏱️',
+  'Swing': '🌊',
+  'Position': '🏛️',
+  'Holder': '💎',
+  'Accumulator': '🧲',
+  'Distributor': '📤',
+  'Balanced': '⚖️',
+  'Low Activity': '🛌',
+  'Fast Trader': '💨',
+  'Ultra Flipper': '🌀',
+  'Flipper': '🔁',
+};
+
 const SYSTEM_TYPES = new Set(['BURN', 'LP', 'RAYDIUM', 'ORCA', 'JUPITER', 'PROTOCOL', 'EXCHANGE', 'SYSTEM']);
 
 export function formatHolderTable(
@@ -102,7 +120,7 @@ export function formatHolderTable(
   if (hudData && Object.keys(hudData.huds).length > 0) {
     const counts: Record<string, number> = {};
     for (const hud of Object.values(hudData.huds)) {
-      const label = formatBehavior(hud.behaviorCategory, hud.behaviorCode);
+      const label = withBehaviorEmoji(formatBehavior(hud.behaviorCategory, hud.behaviorCode));
       counts[label] = (counts[label] ?? 0) + 1;
     }
     const dist = Object.entries(counts)
@@ -142,6 +160,11 @@ function formatBehavior(category?: string, code?: string): string {
   if (category) return category.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
   if (code) return `(${code})`;
   return '—';
+}
+
+function withBehaviorEmoji(style: string): string {
+  const emoji = BEHAVIOR_EMOJIS[style];
+  return emoji ? `${emoji} ${style}` : style;
 }
 
 function formatFlags(hud?: WalletHud): string {
@@ -197,13 +220,12 @@ export function formatHolderProfilesResult(
   for (const profile of realProfiles.slice(0, 10)) {
     const addr = profile.walletAddress;
     const supplyStr = `${profile.supplyPercent.toFixed(1)}%`;
+    lines.push(`#${profile.rank} ${addr}`);
     const tokenBag = formatTokenBag(profile.tokenHoldingValueSol ?? undefined);
     const pnl = formatPnlWithContext(profile.walletRealizedPnlSol ?? profile.walletPnlSol ?? undefined);
-    const style = formatBehavior(profile.behaviorType ?? undefined, undefined);
+    const style = withBehaviorEmoji(formatBehavior(profile.behaviorType ?? undefined, undefined));
     const hold = formatHoldTime(profile.medianHoldTimeHours ?? undefined);
     const quality = formatDataQuality(profile.dataQualityTier, profile.completedCycleCount);
-
-    lines.push(`#${profile.rank} ${addr}`);
     lines.push(`  Supply: ${supplyStr}  |  Bag: ${tokenBag}  |  PnL: ${pnl}`);
     lines.push(`  Style: ${style}  |  Avg exit: ${hold}  |  Data Quality: ${quality}`);
     lines.push('');
@@ -230,7 +252,7 @@ export function formatHolderProfilesResult(
     }
     const dist = Object.entries(countsByType)
       .sort((a, b) => b[1].count - a[1].count)
-      .map(([k, v]) => `${k} ${v.count} (${v.supply.toFixed(1)}%)`)
+      .map(([k, v]) => `${withBehaviorEmoji(k)} ${v.count} (${v.supply.toFixed(1)}%)`)
       .join(' | ');
     lines.push(`Trader types: ${dist}`);
   }

@@ -122,13 +122,20 @@ export class Scanner {
       const upload = await this.pft.uploadContent({
         content: result.attachment.content,
         content_type: result.attachment.contentType,
+        encrypt_for: decrypted.sender,
       });
       await this.pft.sendMessage({
         recipient: decrypted.sender,
         message: result.text,
         reply_to_tx: txHash,
         thread_id: decrypted.thread_id,
-        attachments: [{ cid: upload.cid, content_type: result.attachment.contentType, filename: result.attachment.filename }],
+        attachments: [{
+          cid: upload.cid,
+          content_type: result.attachment.contentType,
+          filename: result.attachment.filename,
+          size_bytes: upload.size,
+          encrypted: true,
+        }],
       });
     } else {
       await this.pft.sendMessage({

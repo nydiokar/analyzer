@@ -53,13 +53,13 @@ async function discoverSignificantWallets() {
 
   // Configuration
   const config = {
-    mintAddress: 'DzrScTJ32QqLWNQz6UEwRe5QaTw9SJbAepAuh95wBAGS',
-    minSolSpent: 1.0,
-    minUsdcSpent: 150,
-    maxTransactions: 2000,
-    startTime: 1769413020,     // 2026-01-26T07:37:00.000Z
-    endTime: 1769415180,       // 2026-01-26T08:18:00.000Z (20 min earlier than before)
-    minWallets: 50
+    mintAddress: '7opAGer4hk78N7VtYjk2bVif6SzvPkBm8PzQAvzspump',
+    minSolSpent: 0.7,
+    minUsdcSpent: 70,
+    maxTransactions: 5000,
+    startTime: 1772149020,     // 2026-02-26T23:20:00.000Z
+    endTime: 1772149140,       // 2026-02-26T23:45:00.000Z
+    minWallets: 1
   };
 
   // Extract variables for easier use

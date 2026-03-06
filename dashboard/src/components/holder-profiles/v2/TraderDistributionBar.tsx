@@ -48,7 +48,7 @@ function buildDistribution(profiles: HolderProfile[]): DistributionBucket[] {
     if (behaviorType === 'HOLDER') {
       behaviorType = 'HODLER';
     }
-    if (!behaviorType) {
+    if (!behaviorType && !profile.analysisSkipped) {
       const isHolderOnly = (profile.currentHoldingsCount ?? 0) > 0;
       const hasNoExits = (profile.completedCycleCount ?? 0) === 0;
       if (isHolderOnly && hasNoExits) {
@@ -69,7 +69,7 @@ function buildDistribution(profiles: HolderProfile[]): DistributionBucket[] {
     const supplyPercent = supplyPercents[behaviorType] || 0;
     return {
       id: behaviorType,
-      label: behaviorType === 'HODLER' ? 'Holder (no exits yet)' : (meta?.label || behaviorType),
+      label: behaviorType === 'HODLER' ? 'Fresh' : (meta?.label || behaviorType),
       timeframe: meta?.timeframe || '',
       count,
       supplyPercent,

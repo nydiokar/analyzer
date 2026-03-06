@@ -3,9 +3,9 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { Config } from './config.js';
 
 // ============================================================================
-// Types — derived from @postfiatorg/pft-chatbot-mcp Zod schemas (v0.3.0)
+// Types — derived from @postfiatorg/pft-chatbot-mcp Zod schemas (v0.3.x)
 //
-// All 13 MCP tools are wrapped below. Parameter names match the MCP server
+// All MCP tools are wrapped below. Parameter names match the MCP server
 // exactly so there's a 1:1 mapping with no translation layer to break.
 // ============================================================================
 
@@ -49,6 +49,8 @@ export interface Attachment {
   cid: string;
   content_type: string;
   filename?: string;
+  size_bytes?: number;
+  encrypted?: boolean;
 }
 
 export interface SendResult {
@@ -89,11 +91,28 @@ export interface BotInfo {
   capabilities: string[];
   commands?: BotCommand[];
   icon_emoji?: string;
+  is_active?: boolean;
+  last_ping_at?: string;
 }
 
 export interface SearchBotsResult {
   bots: BotInfo[];
   count: number;
+}
+
+// --- ping ---
+export interface PingResult {
+  agent_id: string;
+  last_ping_at: string;
+  status: string;
+}
+
+// --- get_attachment ---
+export interface AttachmentContent {
+  content: string;
+  encoding: 'utf8' | 'base64';
+  size_bytes?: number;
+  was_encrypted: boolean;
 }
 
 // --- check_balance ---
@@ -191,6 +210,11 @@ export class PFTClient {
     }
   }
 
+  /** Fire-and-forget tool call — ignores response body, only throws on transport error. */
+  private async callToolVoid(name: string, args: Record<string, unknown> = {}): Promise<void> {
+    await this.client.callTool({ name, arguments: args });
+  }
+
   // ---- 1. create_wallet ----
 
   async createWallet(algorithm?: 'ed25519' | 'secp256k1'): Promise<CreatedWallet> {
@@ -237,7 +261,7 @@ export class PFTClient {
   // ---- 5. register_bot ----
 
   async registerBot(registration: BotRegistration): Promise<void> {
-    await this.callTool('register_bot', registration as unknown as Record<string, unknown>);
+    await this.callToolVoid('register_bot', registration as unknown as Record<string, unknown>);
     console.log(`[PFT] Bot registered: ${registration.name}`);
   }
 
@@ -247,11 +271,13 @@ export class PFTClient {
     query?: string;
     capabilities?: string[];
     limit?: number;
+    include_inactive?: boolean;
   }): Promise<SearchBotsResult> {
     const args: Record<string, unknown> = {};
     if (opts?.query) args.query = opts.query;
     if (opts?.capabilities) args.capabilities = opts.capabilities;
     if (opts?.limit !== undefined) args.limit = opts.limit;
+    if (opts?.include_inactive !== undefined) args.include_inactive = opts.include_inactive;
     return this.callTool<SearchBotsResult>('search_bots', args);
   }
 
@@ -264,7 +290,7 @@ export class PFTClient {
   // ---- 8. delete_bot ----
 
   async deleteBot(agentId: string): Promise<void> {
-    await this.callTool('delete_bot', { agent_id: agentId });
+    await this.callToolVoid('delete_bot', { agent_id: agentId });
     console.log(`[PFT] Bot deleted: ${agentId}`);
   }
 
@@ -274,6 +300,7 @@ export class PFTClient {
     content: string;
     content_type: string;
     encoding?: 'utf8' | 'base64';
+    encrypt_for?: string;
   }): Promise<UploadResult> {
     return this.callTool<UploadResult>('upload_content', params as Record<string, unknown>);
   }
@@ -309,5 +336,19 @@ export class PFTClient {
 
   async getWalletInfo(): Promise<WalletInfo> {
     return this.callTool<WalletInfo>('get_wallet_info');
+  }
+
+  // ---- 14. ping ----
+
+  async ping(): Promise<PingResult> {
+    return this.callTool<PingResult>('ping');
+  }
+
+  // ---- 15. get_attachment ----
+
+  async getAttachment(cid: string, encoding?: 'utf8' | 'base64'): Promise<AttachmentContent> {
+    const args: Record<string, unknown> = { cid };
+    if (encoding) args.encoding = encoding;
+    return this.callTool<AttachmentContent>('get_attachment', args);
   }
 }

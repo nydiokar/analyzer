@@ -1,6 +1,8 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/credit-ledger-foundation`  **Last Updated:** 2026-03-03  **Status:** PAY-5f complete — TypeScript SDK shipped in `packages/sdk`
+**Branch:** `main`  **Last Updated:** 2026-03-06  **Status:** Credit ledger + Intel API layer merged from feat/credit-ledger-foundation — X402 agent payments live, TypeScript SDK shipped
+
+---
 
 ##  Active Work
 
@@ -43,7 +45,21 @@
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
-REMOVE AUTODOC from deps! 
+> **Note:** REMOVE AUTODOC from deps!
+
+**Recently Completed:**
+-  **Admin panel density overhaul** (Mar 4) - Refined `/admin` layout for higher information density and reduced scrolling. Compacted top shell (smaller header, tighter spacing, denser tabs), widened content container, and converted **Users** + **Registration Codes** from large card stacks into compact row/table-style lists with column headers and viewport-scaled scroll areas (`h-[62vh]`). Users now show clear columns (user, email, flags, created/last login, actions) and registration codes show code, status, usage, dates, and actions in a single scan line. Also removed unused icon import and fixed pagination separator text rendering. **File:** `dashboard/src/app/admin/page.tsx`.
+-  **Holder Profiles UI cleanup** (Mar 4) - Removed "Top Holders" from nav (`AppShell.tsx` `navItems`) — route still exists, just not linked. Removed `OutcomeStrip` classification card (high churn / stable etc.) from `TokenPulse`. Replaced it with a 4th `CognitiveMetricCard` — **Fresh Supply** — showing `freshSupplyPercent` (supply % held by wallets with no exit history). Grid adjusted from `[auto_2fr_repeat(3,...)]` → `[auto_repeat(4,...)]`. Renamed "Holder (no exits yet)" → "Fresh" across `TraderDistributionBar`, `MinimalHoldersTable`, `WalletBaseballCard`. Tooltip on "Fresh" badge updated to "Fresh — holding with no exits yet". `getTokenOutcome` aliased as `getTokenStats` in `TokenPulse` import to reflect actual usage. **Files:** `AppShell.tsx`, `TokenPulse.tsx`, `CognitiveMetricCard.tsx`, `TraderDistributionBar.tsx`, `MinimalHoldersTable.tsx`, `WalletBaseballCard.tsx`.
+-  **Log Level Refactor — Phase 1** (Feb 24) - Audited 94 INFO-level log calls across 16 backend files. Applied verdicts: 13 REMOVE, 54 → DEBUG, 27 KEEP. INFO output for a 20-wallet holder-profiles job reduced from 900+ lines to ~22. Phase 2 (structured events + CI schema enforcement) designed and documented at `.ai/context/log_audit/IMPLEMENTATION_PLAN.md` — not yet implemented.
+-  **PFT Oracle Bot v2 — Phase 4: IPFS attachments** (Feb 23) - Tested `upload_content` MCP tool for large comparison markdown files. Bot now attaches IPFS-hosted reports when reply text exceeds on-chain size limits.
+-  **PFT Oracle Bot v2 — Phase 3: `/analyze` and `/compare` commands** (Feb 23) - Explicit `/analyze` deferred jobs working across flash/working/deep scopes. `/compare` fully tested end-to-end with real wallets.
+-  **PFT Oracle Bot v2 — `/compare` formatter overhaul** (Feb 23) - Rewrote `pft-bot_v2/src/formatters/comparison.ts` from scratch to handle the real `CombinedSimilarityResult` shape (`pairwiseSimilarities`, `binaryScore`, `capitalScore`, `sharedTokens`, `capitalAllocation`, `binaryUniqueTokenCount*`). Chat message now shows a per-pair card: progress bar + overall %, behavioral/capital split, shared token count with Jaccard % and per-wallet coverage (e.g. "285 tokens (52% of A · 59% of B · Jaccard 38%)"), top 5 token names inline. Queued-ack overrides `estimatedProcessingTime` with `~45 sec` (API was returning "9 minutes"). Report (`comparison.md`) has clean metadata table, wallet list with token counts, per-pair section with full addresses + metrics table, shared tokens filtered to ≥0.1% capital weight (capped at 50 rows). Context section replaces verdict: shows raw facts only — shared count, % of universe, Jaccard, per-wallet coverage, capital alignment signal. No editorial judgements. Test fixture updated to real shape. Live-tested against `F4CB..1k1Q` ↔ `GPsd..UXPU`: 285 shared tokens / 729 universe / 58% overall. **Files:** `pft-bot_v2/src/formatters/comparison.ts`, `pft-bot_v2/src/commands.ts`, `pft-bot_v2/src/test-formatters.ts`.
+-  **PFT Oracle Bot v2 — Live Chain Registration & Testing** (Feb 22) - Successfully registered "Sova Intel" bot on Post Fiat testnet marketplace. Created wallet (`rEMrwTNtpjgoPgRZ1nTLS6oak5RpU4oQaL`, seed: `sEd7SuxpCYTQJ1Seb6N1tmbVTxahBdY`), installed dependencies, registered bot via MCP. Fixed critical amount parsing bug: MCP returns `amount_drops` not `amount_pft` (1 PFT = 1,000,000 drops). Bot successfully processed test payments, called analyzer API, and posted formatted wallet profiles on-chain. Added persistent hash storage (last 100 tx hashes saved to cursor file) + bot address filtering to skip own replies. **Remaining issue:** Cursor advancement not preventing reprocessing of old messages on restart - bot sees same 4 messages repeatedly. Root cause unclear: either MCP's `scan_messages` with `since_ledger` is inclusive, or wallet address filtering isn't working (`getWalletInfo().address` returns undefined). **Files:** `pft-bot_v2/.env`, `pft-bot_v2/src/scanner.ts`, `pft-bot_v2/create-wallet.ts`.
+-  **PFT Oracle Bot v2 — Test Bot Job Completion + Formatter Refinement + HUD Update** (Feb 22) - Fixed test bot to wait for job completion and show final results instead of exiting after queuing. Added `waitForJobCompletion()` helper that polls every 2s (10min max), detects new jobs, formats results based on job type. Refined both formatters to eliminate all made-up heuristics and provide clear context: (1) **Holders formatter** now shows full wallet addresses (no truncation), full token metadata (name/symbol/mint), token-specific holdings ("Token Bag" column from `tokenHoldingValueSol`), clear "Overall PnL" label (wallet-wide realized), actual wallet exit time (not category typical), data quality medals (🥇🥈🥉) + cycle count, supply % by trader type, removed made-up star flag (winRate>0.65 heuristic). (2) **Profile formatter** clarified PnL is "(realized)", hold time is "(median across positions)", better section headers ("Performance (Overall)", "Trading Behavior"). Updated `WalletHud` interface after main merge: removed `medianPnlPerToken`, added `avgTxValueSol` (average transaction value in SOL). Profile formatter now shows "PnL (avg)" (trimmedMeanPnl) and "Avg Tx Size" (avgTxValueSol) instead of dual PnL metrics. Both formatters now only use real backend data - `isWhale`/`isBot` from HUD, all other fields directly from API responses. **Files:** `pft-bot_v2/src/test-bot.ts`, `pft-bot_v2/src/formatters/holders.ts`, `pft-bot_v2/src/formatters/profile.ts`, `pft-bot_v2/src/analyzer.ts`, `pft-bot_v2/src/test-formatters.ts`.
+-  **PFT Oracle Bot v2 — `/profile` state machine + surface test** (Feb 20) - Rewrote `handleProfile` as a 5-state flow (unanalyzed → auto-flash, already running → hook in, system wallet → reject, HUD missing → re-queue working, HUD present → reply). `WalletHud` type synced to actual backend DTO (`provenance.dataRange`, `medianPnlPerToken`). Deferred jobs fetch HUD post-completion, not raw job blob. Added `test-bot.ts` interactive script (`npm run test:bot`) to validate full pipeline before wiring MCP.
+-  **PFT Oracle Bot v2 — Phase 1 Scaffold** (Feb 20) - Created `pft-bot_v2/` as a standalone Node.js process (not NestJS module) for the "Sova Intel" bot on the Post Fiat network. Architecture: scan loop polls for inbound PFT messages every 5s → deterministic command parser (`/holders`, `/profile`, `/analyze`, `/compare`) → calls analyzer API (localhost:3001) → pure-function formatters produce text → replies on-chain via `@postfiatorg/pft-chatbot-mcp` MCP subprocess. **No LLM in the loop** — all formatting is deterministic. PFT MCP client wraps all 13 tools (v0.3.0 Zod schemas): `create_wallet`, `scan_messages`, `get_message`, `send_message`, `register_bot`, `search_bots`, `get_bot`, `delete_bot`, `upload_content`, `get_thread`, `check_balance`, `send_pft`, `get_wallet_info`. 4 runtime deps: `@modelcontextprotocol/sdk`, `axios`, `dotenv`, `@postfiatorg/pft-chatbot-mcp` (spawned via npx). **Files:** `pft-bot_v2/package.json`, `tsconfig.json`, `.env.example`, `.gitignore`, `ecosystem.config.cjs`, `src/config.ts`, `src/pft-client.ts`, `src/analyzer.ts`, `src/commands.ts`, `src/scanner.ts`, `src/deferred-jobs.ts`, `src/index.ts`, `src/formatters/holders.ts`, `src/formatters/profile.ts`, `src/formatters/analysis.ts`, `src/formatters/comparison.ts`. Plan docs at `.ai/context/pft-oracle/PLAN_pft-oracle-bot.md` and `PROMPT_scaffold-pft-bot.md`.
+-  **Wallet Hunt UI** (Feb 18) - Full frontend for the Wallet Hunt feature. Three-column layout (`/wallet-hunt`): Hunts list (220px) | Snapshots (420px) | Candidates (flex). Hunt creation via inline input (Enter/Escape). Snapshot rows use `TokenBadge inline size="s"` for full token identity (avatar, name, symbol, market cap, chart link). Candidate rows are 2-line: WalletBadge + confidence bar + track button on row 1; overlapping `MiniTokenAvatar` chips showing exactly which token mints the wallet appeared in on row 2. Optimistic snapshot removal with revert on error. Track button cross-references `useFavorites` + session-local Set to show "tracked" state without re-fetching. Inactivity warning (>14 days) rendered as a plain flex div to avoid shadcn Alert's absolute-icon CSS conflict. **Files:** `dashboard/src/app/wallet-hunt/page.tsx`, `dashboard/src/hooks/useWalletHunts.ts`, `dashboard/src/types/api.ts` (+wallet hunt types), `dashboard/src/lib/swr-config.ts` (+cache keys), `dashboard/src/lib/error-messages.ts` (+5 hunt error contexts), `dashboard/src/components/layout/AppShell.tsx` (+nav item).
+-  **Wallet Hunt Feature** (Feb 18) - Full CRUD feature for cross-token wallet hunting. Users create named "hunts", add token snapshots (top-holder captures from Solana RPC), and the system computes candidate wallets that appear across multiple token snapshots (intersection logic). Candidates can be tracked (saved to favorites). 5-hunt limit per user enforced. Duplicate snapshot (same token+source) rejected with 400. Fixed post-implementation: `ValidationPipe` missing on `POST /wallet-hunts` and `POST /:id/snapshots` causing 500 instead of 400 on bad input. **Files:** `wallet-hunt.controller.ts`, `wallet-hunt.service.ts`, `wallet-hunt.module.ts`, `wallet-hunt.dto.ts`, `prisma/migrations/20260218101209_add_wallet_hunt/`.
 
 <details>
 <summary><b>Legend</b></summary>
@@ -196,6 +212,34 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 
 **2.1:** Implemented PAY-7 Intel API layer. `GET /intel/wallet/:addr` (5cr) aggregates summary + HUD + behavior + PnL using same services as dashboard (`WalletHudService`, `PnlOverviewService`, `BehaviorService`). Freshness gated at 30 min (same threshold as `WalletProfileLayout.shouldAutoTriggerFlash`): fresh → 200 immediately; stale/missing → auto-queues flash analysis via `AnalysisOperationsQueue` (same job data, same BullMQ processor, same Redis lock key) → 202 with jobId. `GET /intel/wallet/:addr/tokens` (3cr) — `TokenPerformanceService` direct. `GET /intel/wallet/:addr/hud` (1cr) — `WalletHudService` direct. Credit contract: only `return` (200) triggers `CreditInterceptor`; non-data responses use `throw HttpException` (202/422) so interceptor skips — agent pays once, when data is delivered. Dedup: known-wallet check (4 conditions), BullMQ queue scan, Redis lock. `unrealizedPnl` served live via `PnlOverviewService` → DexScreener, not DB snapshot. **E2E verified:** 4 on-chain USDC payments, 402 `required:5` ✅ · 200 summary+HUD ✅ · `/hud` 1cr ✅ · `/tokens` 3cr/60 tokens ✅.
 
+### February 26, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 26.1 | 📊 INVESTIGATION | PostgreSQL growth attribution (day-level + table-level + wallet pressure points) | 🟡 M | DB internals (`pg_class`, `pg_stat_user_tables`), container `analyzer-postgres`, `.ai/CONTEXT.md` |
+
+**26.1:** Investigated sustained DB growth (~1 GB/day observed operationally) directly in production PostgreSQL (`sova_analyzer`) via read-only SQL from `analyzer-postgres` container. Current DB size: **13 GB** (`13967906483` bytes). Largest tables by total relation size: `SwapAnalysisInput` **9194 MB**, `HeliusTransactionCache` **2105 MB**, `TokenLot` **1136 MB**, `AnalysisResult` **638 MB**.
+14-day estimated growth share (from day-level row ingest × current per-row relation footprint):
+- `SwapAnalysisInput`: **~60.9%** (**404.7 MB/day** avg)
+- `HeliusTransactionCache`: **~21.3%** (**141.7 MB/day** avg)
+- `TokenLot`: **~11.3%** (**75.5 MB/day** avg)
+- `AnalysisResult`: **~6.5%** (**43.0 MB/day** avg)
+Key anomaly day: **2026-02-12** (simultaneous surge across all large tables; est. ~1.57 GB from these 4 tables alone).
+Main storage inflation pressure is not vacuum bloat on the top ingest tables: `SwapAnalysisInput` dead tuples are near-zero (`0.01%`), `HeliusTransactionCache` dead tuples `0`. Growth is primarily new inserts.
+Critical index pressure: `SwapAnalysisInput_signature_mint_direction_amount_key` is **~3791 MB** alone (largest single index in DB), indicating high duplicate-prevention/index amplification cost on heavy ingest path.
+Wallet concentration remains meaningful: top wallets in last 14 days contribute tens of thousands of rows each (`SwapAnalysisInput` top wallet `45047` rows; `TokenLot` top wallet `16437`; `AnalysisResult` top wallet `12645` updated rows).
+Playbook for future sessions: `.ai/context/db_op/DB_GROWTH_PLAYBOOK_2026-02-26.md`
+
+### February 24, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 24.1 | 🔧 REFACTOR | Log level refactor Phase 1 — INFO noise 900+ → ~22 lines per job | 🔴 L | 16 `src/` files across processors + core services |
+
+**24.1:** Full audit of 94 INFO-level log calls. Verdict categories: 13 REMOVE (BullMQ worker events, instantiation logs, DB record ID bookkeeping), 54 → DEBUG (per-wallet sub-steps, internal filter stats, cache management, phase telemetry), 27 KEEP (job entry/exit boundaries, PnL outcomes, sync completion, error recovery). Files touched: `analysis-operations.processor.ts`, `enrichment-operations.processor.ts`, `similarity-operations.processor.ts`, `database-service.ts`, `helius-sync-service.ts`, `helius-api-client.ts`, `pnl-analysis-service.ts`, `wallet-balance-service.ts`, `behavior.service.ts` (API + core), `analyzer.ts` (behavior), `similarity.service.ts`, `token-info.service.ts`, `holder-profiles-cache.service.ts`, `dexscreener-service.ts`, `onchain-metadata.service.ts`. Signal check written to `IMPLEMENTATION_PLAN.md` — one noted gap: behavior analysis inside the holder-profile per-wallet path has no INFO boundary (low impact; orchestration completion count covers it). Phase 2 design (structured event keys + CI allowlist) documented but not implemented.
+
+### February 23, 2026
+
 ---
 
 <details>
@@ -214,6 +258,37 @@ Phase 5 (hardening: payment validation, crash recovery, rate limiting) deferred 
 ##  Architecture Decisions
 
 ALWAYS run scripts with "npx ts-node -r tsconfig-paths/register" 
+
+### DB Growth Investigation Protocol
+*Decided: 2026-02-26*
+
+For future sessions investigating DB growth, run this sequence first (read-only):
+
+1. Verify runtime + DB target:
+   - `pm2 status`
+   - `docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}'`
+   - Expect active container: `analyzer-postgres` and DB `sova_analyzer`.
+2. Baseline size:
+   - `docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c "SELECT pg_size_pretty(pg_database_size('sova_analyzer')), pg_database_size('sova_analyzer');"`
+3. Top table footprint:
+   - Query `pg_total_relation_size`, `pg_relation_size`, `pg_indexes_size`, toast size from `pg_class`.
+4. Day-level growth attribution:
+   - Group by day on:
+     - `SwapAnalysisInput.timestamp` (epoch int)
+     - `HeliusTransactionCache.fetchedAt` (fallback to `timestamp`)
+     - `TokenLot.createdAt`
+     - `AnalysisResult.updatedAt`
+   - Compute rows/day and estimated MB/day.
+5. Separate true growth vs bloat:
+   - `pg_stat_user_tables`: `n_live_tup`, `n_dead_tup`, autovacuum timestamps.
+6. Identify index amplification:
+   - `pg_index` + `pg_relation_size(index)` on top tables.
+7. Identify workload concentration:
+   - Top wallets by row counts (14d) for `SwapAnalysisInput`, `TokenLot`, `AnalysisResult`.
+
+Interpretation rule used in this session:
+- If dead tuples are low on biggest tables, growth is ingest-driven, not vacuum lag.
+- If one index is multi-GB and tied to high-ingest table, index strategy is a primary pressure point.
 
 ### Lock Scope Independence
 *Decided: 2026-01-13*
@@ -285,9 +360,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-04  **Branch:** `feat/credit-ledger-foundation`
-
-
+**Last Updated:** 2026-03-06  **Branch:** `main`
 
 
 

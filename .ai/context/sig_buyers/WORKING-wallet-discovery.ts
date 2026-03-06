@@ -68,19 +68,19 @@ async function discoverSignificantWallets() {
 
   const config = {
     // The token mint address to analyze
-    mintAddress: 'DzrScTJ32QqLWNQz6UEwRe5QaTw9SJbAepAuh95wBAGS',
+    mintAddress: '7opAGer4hk78N7VtYjk2bVif6SzvPkBm8PzQAvzspump',
 
     // Time range (Unix timestamps in seconds)
-    startTime: 1769413020,  // 2026-01-26T07:37:00.000Z
-    endTime: 1769415180,    // 2026-01-26T08:13:00.000Z
+    startTime: 1772148000,  // 2026-01-26T07:37:00.000Z
+    endTime: 1772149500,    // 2026-01-26T08:13:00.000Z
 
     // Minimum SOL spent to be considered "significant"
-    minSolSpent: 1.0,
+    minSolSpent: 0.7,
 
     // For debugging: specific wallets to track
     targetWallets: [
-      '7rnTq4E9bgkYTqMx62142zAFXnyifkDdJgGZc8jNq1xg',
-      'G8JbnuUxgBFHUPQycaJHz3uCLTqjk71qSbcnts9T6CYq'
+      '',
+      ''
     ]
   };
 
@@ -288,37 +288,37 @@ async function fetchTransactionsForMintInTimeWindow(
 
   while (true) {
     page++;
-    const result = await heliusClient['fetchSignaturesPage'](mintAddress, before, 1000);
+    const sigs = await heliusClient['getSignaturesViaRpcPage'](mintAddress, 1000, before);
 
-    if (!result.signatures || result.signatures.length === 0) {
+    if (!sigs || sigs.length === 0) {
       console.log(`   Page ${page}: Empty, stopping`);
       break;
     }
 
     // Filter by time range
-    const inRange = result.signatures.filter(sig =>
+    const inRange = sigs.filter(sig =>
       sig.blockTime && sig.blockTime >= startTime && sig.blockTime <= endTime
     );
 
     const signatures = inRange.map(s => s.signature);
     allSignatures.push(...signatures);
 
-    const times = result.signatures.map(sig => sig.blockTime).filter((t): t is number => t !== null && t !== undefined);
+    const times = sigs.map(sig => sig.blockTime).filter((t): t is number => t !== null && t !== undefined);
     if (times.length > 0) {
       const minT = Math.min(...times);
       const maxT = Math.max(...times);
-      console.log(`   Page ${page}: ${signatures.length} sigs in range (${new Date(minT * 1000).toISOString().slice(11, 19)} - ${new Date(maxT * 1000).toISOString().slice(11, 19)})`);
+      console.log(`   Page ${page}: ${signatures.length} sigs in range (${new Date(minT * 1000).toISOString()} - ${new Date(maxT * 1000).toISOString()})`);
     }
 
-    before = result.signatures[result.signatures.length - 1].signature;
+    before = sigs[sigs.length - 1].signature;
 
     // Stop if we've passed the start time
-    const lastTime = result.signatures[result.signatures.length - 1].blockTime;
+    const lastTime = sigs[sigs.length - 1].blockTime;
     if (lastTime && lastTime < startTime) {
       break;
     }
 
-    if (page > 100) break; // Safety limit
+    if (page > 500) break; // Safety limit
   }
 
   console.log(`✅ Collected ${allSignatures.length} signatures\n`);

@@ -187,8 +187,9 @@ export function getTokenOutcome(profiles: HolderProfile[]): OutcomeVerdict {
 
   // Fresh supply = token supply % held by trader wallets with no exit history
   // Excludes system wallets (BURN, LP, etc.) — they're not "fresh", just non-traders
+  const SYSTEM_KNOWN_TYPES = new Set(['BURN', 'LP', 'PROTOCOL', 'EXCHANGE', 'SYSTEM']);
   const freshSupplyPercent = profiles
-    .filter((p) => !p.analysisSkipped && (p.realizedMedianHoldTimeHours == null || !Number.isFinite(p.realizedMedianHoldTimeHours)))
+    .filter((p) => !p.analysisSkipped && !(p.knownType && SYSTEM_KNOWN_TYPES.has(p.knownType)) && (p.realizedMedianHoldTimeHours == null || !Number.isFinite(p.realizedMedianHoldTimeHours)))
     .reduce((sum, p) => sum + p.supplyPercent, 0);
 
   const result = classifyWeightedOutcome(speedScore, dataQualityRatio, avgTokensHeld, holdDataConfidence);

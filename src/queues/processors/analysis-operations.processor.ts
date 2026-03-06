@@ -402,6 +402,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const timeoutMs = effectiveTimeoutMinutes * 60 * 1000;
     const startTime = Date.now();
     const metricsStartTime = Date.now();
+    const enqueuedAtMs = typeof job.timestamp === 'number' ? job.timestamp : startTime;
+    const queueWaitMs = Math.max(0, startTime - enqueuedAtMs);
 
     const expectedJobId = generateJobId.dashboardWalletAnalysis(walletAddress, job.data.requestId);
     if (job.id !== expectedJobId) {
@@ -682,6 +684,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         inputDataEndTs: timeRange?.endTs,
         historyWindowDays: effectiveHistoryWindowDays,
         notes: {
+          queueWaitMs,
+          queueEnqueuedAt: new Date(enqueuedAtMs).toISOString(),
+          queueStartedAt: new Date(startTime).toISOString(),
+          queueJobId: String(job.id),
           followUpRequested: { working: job.data.queueWorkingAfter, deep: job.data.queueDeepAfter },
           followUpQueued: [], // Will be updated after queueing
         },
@@ -747,6 +753,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         signaturesConsidered,
         timeRange,
         followUpJobsQueued,
+        queueWaitMs,
         timestamp: Date.now(),
         processingTimeMs,
       };
@@ -784,7 +791,13 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         status: 'FAILED',
         triggerSource,
         runTimestamp: new Date(),
-        notes: { error: error instanceof Error ? error.message : 'unknown-error' },
+        notes: {
+          error: error instanceof Error ? error.message : 'unknown-error',
+          queueWaitMs,
+          queueEnqueuedAt: new Date(enqueuedAtMs).toISOString(),
+          queueStartedAt: new Date(startTime).toISOString(),
+          queueJobId: String(job.id),
+        },
       });
 
       if (enrichmentJob) {

@@ -143,13 +143,20 @@ export class DeferredJobs {
       const upload = await this.pft.uploadContent({
         content: attachment.content,
         content_type: attachment.contentType,
+        encrypt_for: job.sender,
       });
       await this.pft.sendMessage({
         recipient: job.sender,
         message: text,
         reply_to_tx: job.txHash,
         thread_id: job.threadId,
-        attachments: [{ cid: upload.cid, content_type: attachment.contentType, filename: attachment.filename }],
+        attachments: [{
+          cid: upload.cid,
+          content_type: attachment.contentType,
+          filename: attachment.filename,
+          size_bytes: upload.size,
+          encrypted: true,
+        }],
       });
     } else {
       await this.pft.sendMessage({
@@ -209,4 +216,5 @@ export class DeferredJobs {
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+
 }

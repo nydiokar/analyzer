@@ -3,13 +3,12 @@ import { getSpeedPrimitive, getConsistencyPrimitive } from './utils/cognitive-pr
 import { getMeanBehaviorSimilarity } from './utils/behavior-similarity';
 import { TraderDistributionBar } from './TraderDistributionBar';
 import { MinimalHoldersTable } from './MinimalHoldersTable';
-import { getTokenOutcome } from './utils/outcome-logic';
+import { getTokenOutcome as getTokenStats } from './utils/outcome-logic';
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { WalletBaseballCard } from './WalletBaseballCard';
 import { createPortal } from 'react-dom';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { SimilaritySidebar, type SimilarityGraphAnalysis, type SimilarityStatus } from './SimilaritySidebar';
-import { OutcomeStrip } from './OutcomeStrip';
 import { CognitiveMetricCard } from './CognitiveMetricCard';
 import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -35,7 +34,7 @@ export function TokenPulse({
   notice = null,
   onRetrySimilarity,
 }: Props) {
-  const outcome = getTokenOutcome(result.profiles);
+  const outcome = getTokenStats(result.profiles);
   const speed = getSpeedPrimitive(result.profiles);
   const consistency = getConsistencyPrimitive(result.profiles);
   const meanBehaviorSimilarity = getMeanBehaviorSimilarity(result.profiles);
@@ -145,13 +144,12 @@ export function TokenPulse({
           )}
         </Alert>
       )}
-      <div className="grid grid-cols-1 xl:grid-cols-[auto_2fr_repeat(3,minmax(0,1fr))] gap-3 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-[auto_repeat(4,minmax(0,1fr))] gap-3 items-start">
         {result.tokenMint && (
           <div className="flex items-start">
             <TokenBadge mint={result.tokenMint} size="lg" />
           </div>
         )}
-        <OutcomeStrip {...outcome} holdersCount={result.metadata.totalHoldersAnalyzed} />
         <CognitiveMetricCard primitive={speed} />
         <CognitiveMetricCard
           primitive={{
@@ -171,6 +169,24 @@ export function TokenPulse({
             category: similarityCategory,
             description: similarityDescription,
             color: 'text-sky-500',
+          }}
+        />
+        <CognitiveMetricCard
+          primitive={{
+            id: 'fresh',
+            label: 'Fresh Supply',
+            value: outcome.freshSupplyPercent != null ? `${Math.round(outcome.freshSupplyPercent)}%` : '—',
+            category: outcome.freshSupplyPercent != null && outcome.freshSupplyPercent >= 15
+              ? 'High'
+              : outcome.freshSupplyPercent != null && outcome.freshSupplyPercent >= 5
+                ? 'Moderate'
+                : 'Low',
+            description: 'Supply held by wallets with no exits yet',
+            color: outcome.freshSupplyPercent != null && outcome.freshSupplyPercent >= 15
+              ? 'text-amber-500'
+              : outcome.freshSupplyPercent != null && outcome.freshSupplyPercent >= 5
+                ? 'text-amber-400/80'
+                : 'text-muted-foreground',
           }}
         />
       </div>

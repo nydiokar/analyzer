@@ -883,13 +883,16 @@ async function fetchEnhancedTransactionsForMintWindowByType(
 
     if (batch.length === 0) break;
 
+    const newestTx = batch[0];
+    const oldestTx = batch[batch.length - 1];
+    logger.info(`  Page ${pagesFetched} (${type}): ${batch.length} txs | ${new Date((oldestTx?.timestamp||0)*1000).toISOString()} → ${new Date((newestTx?.timestamp||0)*1000).toISOString()}`);
+
     for (const tx of batch) {
       if (windowStart !== undefined && tx.timestamp < windowStart) continue;
       if (windowEnd !== undefined && tx.timestamp >= windowEnd) continue;
       allTransactions.push(tx);
     }
 
-    const oldestTx = batch[batch.length - 1];
     beforeSignature = oldestTx?.signature;
 
     if (windowStart !== undefined && oldestTx?.timestamp && oldestTx.timestamp < windowStart) {

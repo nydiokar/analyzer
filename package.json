@@ -35,6 +35,7 @@
     "reset": "npm run build && pm2 restart all",
     "top-holders": "ts-node -r tsconfig-paths/register src/scripts/topTokenHolders.ts",
     "db:size": "npx ts-node -r tsconfig-paths/register scripts/scaling/check-db-size.ts",
+    "db:perf-report": "npx ts-node -r tsconfig-paths/register scripts/scaling/db-performance-report.ts",
     "lint": "eslint .",
     "lint:dashboard": "npm run lint --prefix dashboard",
     "extract-logs": "ts-node -r tsconfig-paths/register scripts/extract-log-statements.ts",
