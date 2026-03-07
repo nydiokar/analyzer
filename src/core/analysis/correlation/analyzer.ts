@@ -148,7 +148,7 @@ export class CorrelationAnalyzer {
 
         // Score the pair
         if (currentSharedNonObvious.length >= this.config.minSharedNonObviousTokens || currentSyncEvents.length >= this.config.minSyncEvents) {
-          let score = (currentSharedNonObvious.length * this.config.weightSharedNonObvious) + 
+          const score = (currentSharedNonObvious.length * this.config.weightSharedNonObvious) + 
                       (currentSyncEvents.length * this.config.weightSyncEvents);
           
           if (score > 0) {

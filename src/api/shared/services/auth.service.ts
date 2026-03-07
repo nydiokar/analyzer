@@ -12,6 +12,7 @@ import { JwtKeyRotationService } from './jwt-key-rotation.service';
 import { EmailService } from './email.service';
 import { generateUniqueDisplayName } from '../utils/display-name-generator';
 import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+import { CreditsService } from '../../services/credits.service';
 
 
 export interface RegisterDto {
@@ -65,6 +66,7 @@ export class AuthService {
     private readonly keyRotationService: JwtKeyRotationService,
     private readonly emailService: EmailService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly creditsService: CreditsService,
     // Security logger will be injected via method calls to avoid circular dependency
   ) {
     // Load password pepper from environment
@@ -123,6 +125,9 @@ export class AuthService {
       });
 
       this.logger.log(`User registered: ${user.id} (${email})`);
+
+      // Grant free credits — non-blocking; failure is logged but does not abort registration
+      await this.creditsService.grantSignupBonus(user.id);
 
       // Security logging handled at controller level to avoid circular dependencies
 

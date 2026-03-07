@@ -1,0 +1,19 @@
+{
+  "name": "sova-intel",
+  "version": "1.0.0",
+  "description": "On-chain intelligence API for Solana — wallet behavior, PnL, token holders, similarity. Pay per call in USDC via X402.",
+  "api_base": "http://localhost:3001/api/v1",
+  "skill": "SKILL.md",
+  "discovery": "GET /pricing",
+  "payment": {
+    "protocol": "x402",
+    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    "usdcMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "usdcPerCredit": 0.015
+  },
+  "triggers": [
+    "analyze solana wallet", "wallet pnl", "wallet behavior",
+    "token holders", "wallet similarity", "on-chain intel",
+    "is this wallet a bot", "who holds this token"
+  ]
+}

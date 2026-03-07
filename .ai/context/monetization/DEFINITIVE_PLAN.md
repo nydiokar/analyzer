@@ -182,20 +182,57 @@ GET /payments/:id/status response:
 }
 ```
 
-### 2d. Confirmation Worker (BullMQ)
+### 2d. Confirmation — Webhook Primary + Reconciliation Fallback
 
-On `POST /payments/checkout`:
-1. Enqueue repeating job `check-payment:{intentId}` every 3 seconds
-2. Job calls `findReference()` from `@solana/pay` against Helius RPC
-3. On match: verify USDC mint + amount >= expected
-4. If valid:
-   - Mark PaymentIntent confirmed + store txSignature
-   - Call `creditsService.topUp(userId, credits, 'purchase', intentId)`
-   - Emit WebSocket event `payment:confirmed` to user
-   - Remove repeating job
-5. After expiresAt: mark expired, remove job
+**Decision (Feb 24):** Per-intent polling was rejected. It costs ~600 RPC calls per pending
+intent (findReference() every 3s over 30min). At any real user volume this becomes
+expensive and rate-limited. Big players (Stripe, Coinbase Commerce) never poll — they
+use webhooks as the primary path with a single reconciliation job as a safety net.
 
-Uses existing BullMQ infrastructure. Same pattern as analysis jobs.
+**Architecture:**
+
+```
+Payment confirmed on-chain
+        │
+        ▼
+Helius pushes to POST /integrations/helius/payment-webhook
+        │
+        ▼
+PaymentWebhookHandler:
+  - find PaymentIntent by reference pubkey
+  - verify USDC mint + amount >= expected
+  - mark confirmed + store txSignature
+  - creditsService.topUp()
+  - emit WebSocket event payment:confirmed
+        │
+        ▼ (safety net only)
+Reconciliation BullMQ job (runs every 5 min, ONE job total):
+  - scans all pending intents older than 2min (gives webhook time to arrive)
+  - for each: calls findReference() once
+  - if found: same confirm flow as above
+  - if expiresAt passed: mark expired
+```
+
+**Why this is correct:**
+- Zero RPC calls in the happy path (webhook does it)
+- One reconciliation scan per 5 min regardless of user count — O(1) not O(n intents)
+- Catches missed webhooks (Helius outage, network blip)
+- Same BullMQ infrastructure already in the project
+
+**Local dev:** use `ngrok http 3001` to get a public URL, register it in Helius dashboard
+under Enhanced Transactions webhook, filter to treasury wallet address. One-time setup.
+
+**Helius webhook registration:**
+- Type: Enhanced Transactions
+- Wallet: TREASURY_WALLET_ADDRESS
+- URL: https://<your-ngrok-or-prod-domain>/api/v1/integrations/helius/payment-webhook
+- Auth: add `HELIUS_PAYMENT_WEBHOOK_SECRET` to .env, verify `x-helius-signature` header
+
+**Files to create:**
+```
+src/api/controllers/helius-webhook.controller.ts  — add new @Post('payment-webhook') handler
+src/queues/processors/payment-reconciliation.processor.ts  — single scheduled BullMQ job
+```
 
 ### 2e. Packages
 

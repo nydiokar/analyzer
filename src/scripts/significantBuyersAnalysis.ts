@@ -22,7 +22,7 @@ const logger = createLogger('SignificantBuyersAnalysis');
 // DON"T TRUST FULLY - check .ai\context\sig_buyers\test-wallet-discovery.ts rather for latest logic 
 
 // Global telemetry counters
-let globalTelemetry = {
+const globalTelemetry = {
   apiCalls: {
     getSignaturesViaRpcPage: 0,
     getTransactionsBySignatures: 0,

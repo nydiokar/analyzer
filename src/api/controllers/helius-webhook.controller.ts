@@ -2,7 +2,7 @@ import { Body, Controller, Headers, HttpCode, Logger, Post } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { Public } from '../shared/decorators/public.decorator';
 import { MintParticipantsJobsQueue } from '../../queues/queues/mint-participants.queue';
-import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
+import { PaymentConfirmationService } from '../services/payment-confirmation.service';
 
 interface EnhancedWebhookTx {
   signature: string;
@@ -13,6 +13,7 @@ interface EnhancedWebhookTx {
     toUserAccount?: string;
     tokenAmount?: number;
   }>;
+  accountData?: Array<{ account: string }>;
   source?: string;
 }
 
@@ -23,47 +24,58 @@ export class HeliusWebhookController {
   constructor(
     private readonly configService: ConfigService,
     private readonly jobsQueue: MintParticipantsJobsQueue,
+    private readonly paymentConfirmationService: PaymentConfirmationService,
   ) {}
 
+  // NOTE: mint-participants processing is disabled. Handler is kept as a no-op so any
+  // registered Helius webhook doesn't 404. Re-enable by restoring the body when needed.
   @Public()
   @Post('webhook')
   @HttpCode(200)
-  async handleWebhook(@Headers() headers: Record<string, string>, @Body() payload: any) {
-    const secret = this.configService.get<string>('HELIUS_WEBHOOK_SECRET');
+  handleWebhook() {
+    return { ok: true };
+  }
+
+  @Public()
+  @Post('payment-webhook')
+  @HttpCode(200)
+  async handlePaymentWebhook(
+    @Headers() headers: Record<string, string>,
+    @Body() payload: any,
+  ) {
+    const secret = this.configService.get<string>('HELIUS_PAYMENT_WEBHOOK_SECRET');
     if (secret) {
-      const incoming = headers['x-helius-signature'] || headers['x-signature'] || headers['authorization'] || '';
+      const incoming =
+        headers['x-helius-signature'] ||
+        headers['x-signature'] ||
+        headers['authorization'] ||
+        '';
       if (!incoming || incoming !== secret) {
-        this.logger.warn('Invalid webhook signature');
+        this.logger.warn('payment-webhook: invalid signature — ignoring');
         return { ok: true };
       }
     }
 
-    const trackedWallet = (this.configService.get<string>('MINT_PARTICIPANTS_TRACKED_WALLET') || '').trim();
-    const body = Array.isArray(payload) ? payload : (payload?.events || payload?.transactions || [payload]);
-    if (!Array.isArray(body)) return { ok: true };
+    const txs: EnhancedWebhookTx[] = Array.isArray(payload)
+      ? payload
+      : payload?.events || payload?.transactions || [payload];
 
-    for (const evt of body as EnhancedWebhookTx[]) {
-      const ts = evt.timestamp || Math.floor(Date.now() / 1000);
-      const buys = (evt.tokenTransfers || []).filter(tr => tr.toUserAccount === trackedWallet && typeof tr.tokenAmount === 'number' && (tr.tokenAmount as number) > 0);
-      if (buys.length === 0) continue;
-      for (const tr of buys) {
-        const mint = tr.mint;
-        
-        // IMPORTANT: Excluded tokens are filtered from mint-participants analysis
-        // This includes SOL/WSOL, USDC, USDT and other common tokens as defined in DEFAULT_EXCLUDED_MINTS
-        // Mint-participants analysis only works with SPL tokens, not system/native tokens
-        // If you need to support these tokens in the future, update DEFAULT_EXCLUDED_MINTS in constants.ts
-        if (DEFAULT_EXCLUDED_MINTS.includes(mint)) {
-          this.logger.debug(`Skipping mint-participants analysis for excluded token: ${mint}`);
-          continue; // Skip excluded tokens at the source
-        }
-        
-        await this.jobsQueue.enqueueRun({
-          mint,
-          cutoffTs: ts,
-          signature: evt.signature,
-        });
-      }
+    if (!Array.isArray(txs)) return { ok: true };
+
+    for (const tx of txs) {
+      if (!tx.signature) continue;
+
+      // Collect all account keys present in the transaction.
+      // Helius Enhanced Transactions expose them in `accountData[].account`.
+      const accounts: string[] = (tx.accountData ?? []).map(
+        (a: { account: string }) => a.account,
+      );
+
+      await this.paymentConfirmationService
+        .tryConfirmByAccounts(tx.signature, accounts, tx.tokenTransfers ?? [])
+        .catch((e) =>
+          this.logger.warn(`payment-webhook: confirm failed for ${tx.signature}: ${e.message}`),
+        );
     }
 
     return { ok: true };

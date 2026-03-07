@@ -4,7 +4,9 @@ import React, { useState } from 'react';
 import useSWR from 'swr';
 import { useTimeRangeStore } from '@/store/time-range-store';
 import { BehaviorAnalysisResponseDto } from '@/types/api'; // Assuming this type exists
-import { AlertTriangle, Hourglass, LineChart, Users, ShieldCheck, HelpCircle, Info } from 'lucide-react';
+import { AlertTriangle, Hourglass, LineChart, Users, ShieldCheck, HelpCircle, Info, ShoppingCart } from 'lucide-react';
+import { CreditPurchaseModal } from '@/components/credits/CreditPurchaseModal';
+import { Button } from '@/components/ui/button';
 import EChartComponent, { ECOption } from '../charts/EChartComponent'; // Import the new chart component
 import { VisualMapComponent, CalendarComponent } from 'echarts/components'; // Import VisualMap and Calendar
 import * as echarts from 'echarts/core';
@@ -213,6 +215,7 @@ const formatHour = (hour: number | undefined | null): string => {
 export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal, triggerAnalysisGlobal }: BehavioralPatternsTabProps) {
   const { startDate, endDate } = useTimeRangeStore();
   const [useLogScaleDuration, setUseLogScaleDuration] = useState<boolean>(false);
+  const [buyModalOpen, setBuyModalOpen] = useState(false);
 
   const behaviorApiUrlBase = walletAddress ? `/wallets/${walletAddress}/behavior-analysis` : null;
   let swrKeyBehavior: (string | null)[] | null = null;
@@ -237,7 +240,7 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
-        if (error.status === 404 || error.payload?.message?.includes("No behavior analysis data found")) {
+        if (error.status === 402 || error.status === 404 || error.payload?.message?.includes("No behavior analysis data found")) {
           return;
         }
         if (retryCount >= 2) {
@@ -373,15 +376,41 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
   }
 
   if (behaviorError) {
-    const isNotFoundError = behaviorError.status === 404 || 
-                            behaviorError.payload?.message?.toLowerCase().includes("no behavior analysis data found") || 
+    const isNotFoundError = behaviorError.status === 404 ||
+                            behaviorError.payload?.message?.toLowerCase().includes("no behavior analysis data found") ||
                             behaviorError.message?.toLowerCase().includes("no behavior analysis data found");
+
+    if (behaviorError.status === 402) {
+      const payload = behaviorError.payload as { balance?: number; required?: number } | undefined;
+      return (
+        <>
+          <div className="mt-4 md:mt-6 lg:mt-8 flex flex-col items-center gap-4 text-center py-12">
+            <ShoppingCart className="h-10 w-10 text-muted-foreground" />
+            <div>
+              <p className="font-semibold text-foreground">Insufficient credits</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Behavior analysis costs{' '}
+                <span className="font-mono font-medium text-foreground">{payload?.required ?? 5}</span> credits.
+                {payload?.balance !== undefined && (
+                  <> You have <span className="font-mono font-medium text-foreground">{payload.balance}</span>.</>
+                )}
+              </p>
+            </div>
+            <Button onClick={() => setBuyModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+              <ShoppingCart className="h-4 w-4" />
+              Buy Credits
+            </Button>
+          </div>
+          <CreditPurchaseModal open={buyModalOpen} onOpenChange={setBuyModalOpen} />
+        </>
+      );
+    }
 
     if (isNotFoundError) {
       return (
         <EmptyState
           variant="info"
-          icon={Users} 
+          icon={Users}
           title="Behavioral Profile Not Generated"
           description="We couldn't generate a behavioral profile for this wallet with the current data or time range. Try analyzing the wallet or adjusting filters."
           actionText={isAnalyzingGlobal ? "Analyzing..." : "Analyze Wallet"}
@@ -398,8 +427,8 @@ export default function BehavioralPatternsTab({ walletAddress, isAnalyzingGlobal
         icon={AlertTriangle}
         title="Error Loading Behavioral Data"
         description={behaviorError.message || "Failed to load behavioral patterns. Please try analyzing again."}
-        actionText={isAnalyzingGlobal ? "Analyzing..." : "Retry Analysis"} 
-        onActionClick={triggerAnalysisGlobal} 
+        actionText={isAnalyzingGlobal ? "Analyzing..." : "Retry Analysis"}
+        onActionClick={triggerAnalysisGlobal}
         isActionLoading={!!isAnalyzingGlobal}
         className="mt-4 md:mt-6 lg:mt-8"
       />

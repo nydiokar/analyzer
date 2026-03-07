@@ -194,7 +194,7 @@ async function analyzeWallet(
   // Note: Time buckets require access to completed token lifecycles which is not
   // available via public APIs. This feature is temporarily disabled until
   // a public API is added to BehaviorAnalyzer for completed position data.
-  let timeBuckets = undefined;
+  const timeBuckets = undefined;
   if (includeTimeBuckets) {
     console.log('   ⚠️ Time buckets calculation temporarily disabled (requires private API access)');
     // TODO: Add public method to BehaviorAnalyzer to expose completed position holding times

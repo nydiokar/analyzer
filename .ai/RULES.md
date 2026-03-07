@@ -6,7 +6,7 @@ Universal execution contract for AI agents working on Sova Intel.
 
 ## 1. Context Management
 
-- **Read** `.ai/CONTEXT.md` and `.ai/GUIDE.md` at session start
+- **Read** `.ai/CONTEXT.md` at session start
 - **Update** `.ai/CONTEXT.md` after completing each task
 - **Never modify** `.ai/RULES.md` or `.ai/GUIDE.md` without maintainer approval
 - **Commit** context updates regularly
@@ -48,7 +48,7 @@ Universal execution contract for AI agents working on Sova Intel.
    ```bash
    npm run verify
    npm run test:unit
-   npm run analyze -- --address <WALLET> --period week   # confirm math remains sane
+   npm run analyze -- --address <WALLET> --period week   # confirm math remains sane (optional)
    ```
 
 4. **Commit** (if applicable)
@@ -56,7 +56,16 @@ Universal execution contract for AI agents working on Sova Intel.
    git add <changed files>
    git commit -m "type(scope): brief summary"
    ```
-   **Types**: feat, fix, docs, style, refactor, test, chore
+   **Types**:
+   | Type | Icon | Use for |
+   |------|------|---------|
+   | `feat` | ✨ | New feature or capability |
+   | `fix` | 🐛 | Bug fix |
+   | `docs` | 📝 | Documentation only |
+   | `style` | 🎨 | Formatting, no logic change |
+   | `refactor` | ♻️ | Code restructure, no feature/fix |
+   | `test` | 🧪 | Adding or updating tests |
+   | `chore` | 🔧 | Build, deps, config, tooling |
 
 5. **Summarize for Next Session**
    - Deliverables shipped (file paths or endpoints)

@@ -174,7 +174,7 @@ export class TokenPerformanceService {
     // including current holdings that may not have traded in the filtered period
 
     // Handle calculated fields that need post-processing
-    let orderBy: Prisma.AnalysisResultOrderByWithRelationInput = {};
+    const orderBy: Prisma.AnalysisResultOrderByWithRelationInput = {};
     let needsPostSorting = false;
     let needsPostFiltering = false;
     

@@ -634,9 +634,9 @@ export function generateSwapPnlCsv(summary: SwapAnalysisSummary, walletAddress?:
     };
 
     if (summary.advancedStats) {
-        // @ts-ignore - Assuming these fields exist for the CSV
+        // @ts-expect-error - Assuming these fields exist for the CSV
         overallSummaryLine.WinRate = summary.advancedStats.tokenWinRatePercent;
-        // @ts-ignore
+        // @ts-expect-error - Assuming these fields exist for the CSV
         overallSummaryLine.ProfitFactor = summary.advancedStats.profitFactor;
     }
 

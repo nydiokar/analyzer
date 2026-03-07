@@ -973,7 +973,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
       // Process SPL Token Transfers
       const txStartIndex = analysisInputs.length; // Capture start index for this transaction
       for (const transfer of tx.tokenTransfers || []) {
-            let currentTransferAmount = 0, mint: string | undefined, isWsol = false, isStable = false;
+            let currentTransferAmount = 0, isWsol = false, isStable = false;
             let direction: 'in' | 'out' | null = null;
             let associatedSolValue = 0, associatedUsdcValue = 0;
             let associatedSolValueSource: 'none' | 'wsol' | 'stable' | 'event' | 'spl-to-spl' | 'total-movement' | 'gross-out' | 'net-change' = 'none';
@@ -983,7 +983,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
              const currentAbsTransferAmount = Math.abs(currentTransferAmount);
 
              if (currentAbsTransferAmount === 0) continue;
-             mint = transfer.mint;
+             const mint = transfer.mint;
              if (!mint) continue;
              isWsol = mint === SOL_MINT; isStable = isStableMint(mint);
 

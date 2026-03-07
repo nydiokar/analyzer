@@ -5,7 +5,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
-import { User, Settings, LogOut, Sparkles, HelpCircle } from 'lucide-react';
+import { useCredits } from '@/hooks/useCredits';
+import { User, Settings, LogOut, Sparkles, HelpCircle, Coins } from 'lucide-react';
 import { AccountModal } from './AccountModal';
 import { SettingsModal } from './SettingsModal';
 import Link from 'next/link';
@@ -16,6 +17,7 @@ interface UserMenuProps {
 
 export function UserMenu({ className }: UserMenuProps) {
   const { user, isAuthenticated, logout } = useAuth();
+  const { balance } = useCredits();
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
@@ -62,6 +64,16 @@ export function UserMenu({ className }: UserMenuProps) {
           <DropdownMenuItem onClick={() => setShowAccountModal(true)} className="cursor-pointer">
             <User className="w-4 h-4 mr-2" />
             Account
+          </DropdownMenuItem>
+
+          <DropdownMenuItem asChild className="cursor-pointer">
+            <Link href="/dashboard/credits">
+              <Coins className="w-4 h-4 mr-2 text-blue-400" />
+              <span>Credits</span>
+              <span className="ml-auto text-xs font-mono text-muted-foreground">
+                {balance !== null ? balance.toLocaleString() : '—'}
+              </span>
+            </Link>
           </DropdownMenuItem>
 
           <DropdownMenuItem onClick={() => setShowSettingsModal(true)} className="cursor-pointer">

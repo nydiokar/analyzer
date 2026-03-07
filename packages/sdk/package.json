@@ -1,0 +1,40 @@
+{
+  "name": "@sova/intel-sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for the Sova Intel on-chain intelligence API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "solana",
+    "wallet",
+    "intelligence",
+    "pnl",
+    "on-chain",
+    "x402"
+  ],
+  "author": "Sova",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.5",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

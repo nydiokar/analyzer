@@ -9,10 +9,12 @@ import { SecurityLoggerService } from '../services/security-logger.service';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ALLOW_UNVERIFIED_EMAIL_KEY } from '../decorators/allow-unverified.decorator';
+import { CREDITS_REQUIRED_KEY } from '../decorators/require-credits.decorator';
 import { ConfigService } from '@nestjs/config';
 import { User } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { getErrorMessage, getErrorDetails } from '../../../core/utils/error-utils';
+import { X402VerificationService } from '../../services/x402-verification.service';
 
 
 interface AuthenticatedRequest extends Request {
@@ -40,6 +42,7 @@ export class CompositeAuthGuard implements CanActivate {
     private readonly jwtService: JwtService,
     private readonly reflector: Reflector,
     private readonly configService: ConfigService,
+    private readonly x402VerificationService: X402VerificationService,
     // Security logging will be handled at controller level to avoid circular dependencies
   ) {
     this.logger.debug(`CompositeAuthGuard instance created`);
@@ -60,6 +63,30 @@ export class CompositeAuthGuard implements CanActivate {
     ]);
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+
+    // X402 autonomous agent path — v2 PAYMENT-SIGNATURE or legacy X-Payment header
+    // No JWT or API key required. Agent is identified by their Solana wallet pubkey.
+    const paymentHeader = (request.headers['payment-signature'] ?? request.headers['x-payment']) as string | undefined;
+    if (paymentHeader) {
+      const walletPubkey = this.x402VerificationService.extractPayerFromHeader(paymentHeader);
+      const agentUser = await this.x402VerificationService.findOrCreateAgentUser(walletPubkey);
+      request.user = agentUser;
+      return true;
+    }
+
+    // X402 discovery path — endpoint requires credits but no auth headers present.
+    // Allow through unauthenticated so CreditGuard can return the 402 payment
+    // instructions payload (the agent's first call to discover how much to pay).
+    const requiresCredits = this.reflector.getAllAndOverride<number | undefined>(
+      CREDITS_REQUIRED_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    const hasNoAuth =
+      !request.headers.authorization && !request.headers['x-api-key'];
+    if (requiresCredits !== undefined && hasNoAuth) {
+      // No user set — CreditGuard will detect this and return 402 with payment instructions
+      return true;
+    }
 
     // Try JWT authentication first (preferred)
     const authHeader = request.headers.authorization;

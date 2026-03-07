@@ -135,7 +135,7 @@ export class HeliusSyncService {
         // 5. Use processAndSaveTransactions helper (extracted below).
 
         // ✅ SMART FETCH LIMITING DISABLED - Fetch full maxSignatures without limiting
-        let adjustedOptions = { ...options };
+        const adjustedOptions = { ...options };
         // 🚫 DISABLED: SmartFetchService limiting logic
         // This was preventing full transaction fetching by reducing maxSignatures
         // from 5000 → 1000-3000 for "bot-like" wallets
@@ -355,7 +355,7 @@ export class HeliusSyncService {
         
         let stopAtSignatureForStd: string | undefined = undefined;
         let newestProcessedTimestampForStd: number | undefined = undefined;
-        let untilTimestampForStd: number | undefined = undefined; 
+        const untilTimestampForStd: number | undefined = undefined; 
         
         if (isEffectivelyInitialFetch) {
             logger.debug(`[Sync] Standard Fetch (Initial/FetchOlder): Fetching for ${walletAddress} from beginning, up to ${options.maxSignatures} total transactions.`);

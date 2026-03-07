@@ -13,21 +13,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Install Backend Dependencies
-        run: npm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
+      - name: Type-check Backend
+        run: pnpm run verify
+
+      - name: Lint Backend
+        run: pnpm run lint
 
       - name: Build Backend
-        run: npm run build
+        run: pnpm run build
 
       - name: Install Frontend Dependencies
         working-directory: ./dashboard
-        run: npm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build Frontend
         working-directory: ./dashboard
-        run: npm run build 
+        run: pnpm run build

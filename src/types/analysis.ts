@@ -50,6 +50,7 @@ export interface CorrelationAnalysisConfig extends BaseAnalysisConfig {
 }
 
 // Configuration specific to Similarity Analysis
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface SimilarityAnalysisConfig extends BaseAnalysisConfig {
   // Add similarity-specific config options here
 }

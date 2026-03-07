@@ -1,8 +1,9 @@
-import { Controller, Get, Req, InternalServerErrorException, Logger, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Query, Req, InternalServerErrorException, Logger, UseGuards, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { DatabaseService } from '../services/database.service'; // Assuming this path is correct
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { AdminGuard } from '../shared/guards/admin.guard';
+import { RequireCredits } from '../shared/decorators/require-credits.decorator';
 import { User } from '@prisma/client';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
 
@@ -99,6 +100,25 @@ export class TestController {
       // Re-throw the original or a new NestJS exception
       throw new InternalServerErrorException('Error processing test data');
     }
+  }
+
+  /**
+   * Test endpoint for credit system (PAY-1c testing)
+   * Requires 5 credits to access
+   */
+  @Get('credits')
+  @RequireCredits(5)
+  async testCredits(@Req() req: Request & { user?: any }, @Query('fail') fail?: string) {
+    if (fail === 'true') {
+      throw new InternalServerErrorException('Simulated failure — credits should NOT be deducted');
+    }
+    const userId = req.user?.id;
+    return {
+      message: 'Success! This endpoint costs 5 credits.',
+      userId,
+      timestamp: new Date().toISOString(),
+      note: 'Credits will be deducted after this response is sent (async)',
+    };
   }
 
   private assertAdmin(user?: User): void {

@@ -17,8 +17,11 @@ import {
   FileText,        // Notes
   RefreshCw,
   Bot,             // Edit icon for wallet data
-  Loader2
-} from 'lucide-react' 
+  Loader2,
+  Zap,
+  AlertCircle,
+} from 'lucide-react'
+import Link from 'next/link'
 import { toast } from 'sonner';
 import {
   Tooltip,
@@ -32,6 +35,7 @@ import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
 import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse, DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '@/types/api';
 import { createCacheKey } from '@/lib/swr-config';
+import { useCredits } from '@/hooks/useCredits';
 import { useFavorites } from '@/hooks/useFavorites';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
@@ -151,6 +155,7 @@ export default function WalletProfileLayout({
 }: WalletProfileLayoutProps) {
   const { mutate: globalMutate, cache } = useSWRConfig();
   const { isDemo: isDemoAccount } = useApiKeyStore();
+  const { balance: creditBalance } = useCredits();
   const { startDate, endDate } = useTimeRangeStore();
   // REMOVED: Header expand/collapse state - no longer needed with natural scroll
   const [lastAnalysisStatus, setLastAnalysisStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -642,7 +647,12 @@ export default function WalletProfileLayout({
   const isValidData = walletSummary && walletSummary.walletAddress === walletAddress;
   const isRestrictedWallet = walletSummary?.status === 'restricted';
 
-
+  const isDataStale = React.useMemo(() => {
+    if (!walletSummary?.lastAnalyzedAt) return true;
+    const lastAnalyzed = new Date(walletSummary.lastAnalyzedAt);
+    if (Number.isNaN(lastAnalyzed.getTime())) return true;
+    return Date.now() - lastAnalyzed.getTime() > 30 * 60 * 1000;
+  }, [walletSummary?.lastAnalyzedAt]);
 
   useEffect(() => {
     if (walletSummary && typeof walletSummary.lastAnalyzedAt === 'string') {
@@ -892,6 +902,9 @@ export default function WalletProfileLayout({
       if (isDemoAccount) {
         return false;
       }
+    if (creditBalance === null || creditBalance < 5) {
+      return false;
+    }
     if (walletSummary.status === 'restricted') {
       return false;
     }
@@ -916,7 +929,7 @@ export default function WalletProfileLayout({
       }
     }
     return true;
-  }, [walletSummary, walletAddress, scopeStates.flash.status, isDemoAccount]);
+  }, [walletSummary, walletAddress, scopeStates.flash.status, isDemoAccount, creditBalance]);
 
   useEffect(() => {
     if (!walletAddress || !hasInitialTokenSnapshot) {
@@ -1195,6 +1208,39 @@ export default function WalletProfileLayout({
               <TimeRangeSelector />
             </div>
           </div>
+
+          {/* Low-credits staleness banner */}
+          {creditBalance !== null && creditBalance < 5 && isDataStale && !isAnalyzing && !isDemoAccount && walletAddress && (
+            <div className="flex items-center justify-between gap-3 mb-3 px-3 py-2 rounded-md border border-yellow-500/30 bg-yellow-500/5 text-sm">
+              <div className="flex items-center gap-2 text-yellow-400">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>Data may be stale. You need at least 5 credits to refresh.</span>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10 hover:text-yellow-300"
+                  onClick={() => triggerDashboardScope('flash', {
+                    triggerSource: 'manual',
+                    historyWindowDays: 7,
+                    targetSignatureCount: 250,
+                    queueWorkingAfter: true,
+                    queueDeepAfter: false,
+                  })}
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  Refresh (5cr)
+                </Button>
+                <Link
+                  href="/dashboard/credits"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+                >
+                  Buy Credits →
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Row 2: Summary Card + Performance HUD */}
           {walletAddress && (

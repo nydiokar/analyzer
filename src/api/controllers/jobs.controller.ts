@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete, UseGuards, ForbiddenException, Req, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete, UseGuards, ForbiddenException, Req, BadRequestException, SetMetadata } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { JobsService } from '../services/jobs.service';
 import { JobState } from 'bullmq';
@@ -14,6 +14,7 @@ import {
   JobSubmissionResponseDto
 } from '../shared/dto/job-status.dto';
 import { DeadLetterQueueService } from '../../queues/services/dead-letter-queue.service';
+import { Public } from '../shared/decorators/public.decorator';
 import { CompositeAuthGuard } from '../shared/guards/composite-auth.guard';
 import { AdminGuard } from '../shared/guards/admin.guard';
 import { Request } from 'express';
@@ -152,6 +153,7 @@ export class JobsController {
   }
 
   @Get(':jobId')
+  @Public()
   @ApiOperation({
     summary: 'Get job status by ID',
     description: 'Retrieves the status, progress, and results of a specific job by its ID across all queues. Users can query any job ID (no ownership validation yet - TODO: add userId to jobs).'
@@ -163,9 +165,15 @@ export class JobsController {
     type: JobStatusResponseDto
   })
   @ApiResponse({ status: 404, description: 'Job not found' })
-  async getJobStatus(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<JobStatusResponseDto> {
-    // Read-only endpoint - no admin check needed (TODO: add userId validation when job history feature is built)
-    return this.jobsService.getJobStatus(jobId);
+  async getJobStatus(@Req() req: Request & { user?: User }, @Param('jobId') jobId: string): Promise<Partial<JobStatusResponseDto>> {
+    const full = await this.jobsService.getJobStatus(jobId);
+    // Unauthenticated callers (agents polling a public jobId) only get status + progress.
+    // Full result + job data require auth to prevent free data extraction via jobId enumeration.
+    if (!req.user) {
+      const { result: _r, data: _d, ...publicFields } = full;
+      return publicFields;
+    }
+    return full;
   }
 
   @Get(':jobId/progress')

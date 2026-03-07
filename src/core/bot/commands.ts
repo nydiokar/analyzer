@@ -287,7 +287,7 @@ export class WalletAnalysisCommands {
             const walletInfo = syncOutcome.walletInfo;
             const walletAddress = walletInfo.address;
             try {
-              let allSwapInputsForWallet: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
+              const allSwapInputsForWallet: SwapAnalysisInput[] = await this.databaseService.getSwapAnalysisInputs(walletAddress);
               allSwapInputsForWallet.sort((a, b) => b.timestamp - a.timestamp);
               const slicedInputs = allSwapInputsForWallet.slice(0, targetTxCountInDb);
               const finalInputsForAnalysis = slicedInputs.sort((a, b) => a.timestamp - b.timestamp);

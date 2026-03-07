@@ -298,6 +298,8 @@ model User {
   walletHunts         WalletHunt[]
   walletNotes         WalletNote[]
   registrationCode    RegistrationCode?
+  creditBalance       CreditBalance?
+  creditTransactions  CreditTransaction[]
 
   @@index([lastBulkImportAt])
 }
@@ -618,4 +620,67 @@ model WalletHuntSnapshot {
 
   @@unique([huntId, tokenMint, sourceType])
   @@index([huntId])
+}
+
+// ---------------------------------------------------------------------------
+// Credit ledger — append-only design
+// Never mutate CreditBalance.credits directly; always go through
+// CreditsService.topUp() / CreditsService.deduct() which wrap both writes
+// in a Prisma transaction to ensure the audit trail is complete.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Payment infrastructure — Solana Pay credit pack purchases
+// ---------------------------------------------------------------------------
+
+model CreditPack {
+  id        String  @id @default(cuid())
+  name      String  // "Starter" | "Builder" | "Pro"
+  credits   Int     // 1000 | 10000 | 100000
+  priceUsdc Float   // 15 | 120 | 900
+  active    Boolean @default(true)
+}
+
+model PaymentIntent {
+  id                String    @id @default(cuid())
+  userId            String
+  packId            String
+  credits           Int
+  amountUsdc        Float
+  /// "pending" | "confirmed" | "expired"
+  status            String    @default("pending")
+  solanaPayUrl      String
+  destinationWallet String
+  reference         String    @unique // unique keypair pubkey used by @solana/pay findReference()
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime
+  confirmedAt       DateTime?
+  txSignature       String?
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+}
+
+model CreditBalance {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  credits   Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreditTransaction {
+  id           String   @id @default(cuid())
+  userId       String
+  /// Positive = credit added, negative = credit spent
+  delta        Int
+  /// e.g. "purchase" | "signup_bonus" | "endpoint:/wallets/.../behavior-analysis"
+  reason       String
+  /// Payment intent ID, job ID, or any external reference
+  refId        String?
+  balanceAfter Int
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

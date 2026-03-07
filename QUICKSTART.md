@@ -5,7 +5,7 @@ This guide will get your analyzer running with onchain metadata enrichment in un
 ## Prerequisites
 
 - **Docker Desktop** (for Redis) - [Download here](https://www.docker.com/products/docker-desktop/)
-- **WSL2** enabled (you're already using it!)
+- **WSL2** enabled 
 - **Helius API key** - [Get one free](https://www.helius.dev/)
 
 ## One-Command Setup

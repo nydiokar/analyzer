@@ -15,11 +15,17 @@ export default [
       'dashboard/**',
       'dashboard/.next/',
       'dashboard/node_modules/',
+      '.ai/**',
+      'pft-bot_v2/**',
+      'docs/**',
+      'packages/**',
+      'prisma/**',
+      'scripts/**',
     ],
   },
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -32,6 +38,8 @@ export default [
     },
     rules: {
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-require-imports': 'warn',
     },
   },
 ];

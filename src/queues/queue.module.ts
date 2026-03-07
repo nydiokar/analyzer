@@ -18,6 +18,7 @@ import { WalletOperationsProcessor } from './processors/wallet-operations.proces
 import { AnalysisOperationsProcessor } from './processors/analysis-operations.processor';
 import { SimilarityOperationsProcessor } from './processors/similarity-operations.processor';
 import { EnrichmentOperationsProcessor } from './processors/enrichment-operations.processor';
+import { PaymentReconciliationProcessor } from './processors/payment-reconciliation.processor';
 
 // Services
 import { RedisLockService } from './services/redis-lock.service';
@@ -42,6 +43,7 @@ import { HolderProfilesCacheModule } from '../api/modules/holder-profiles-cache.
 import { WalletHudModule } from '../api/modules/wallet-hud.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
+import { PaymentConfirmationService } from '../api/services/payment-confirmation.service';
 import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
 
 
@@ -105,6 +107,8 @@ import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
     AnalysisOperationsProcessor,
     SimilarityOperationsProcessor,
     EnrichmentOperationsProcessor,
+    PaymentReconciliationProcessor,
+    PaymentConfirmationService,
   ],
   
   exports: [
@@ -133,6 +137,8 @@ import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
     AnalysisOperationsProcessor,
     SimilarityOperationsProcessor,
     EnrichmentOperationsProcessor,
+    PaymentReconciliationProcessor,
+    PaymentConfirmationService,
   ],
 })
 export class QueueModule implements OnModuleInit, OnModuleDestroy {

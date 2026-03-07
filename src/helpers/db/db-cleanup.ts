@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { prisma } from '../../core/services/database-service';

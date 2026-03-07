@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, HttpException, Req, ForbiddenException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -18,8 +18,10 @@ import { JobPriority } from '../../queues/config/queue.config';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
 import { getKnownWallet } from '../../config/known-wallets';
 import { Request } from 'express';
-import { User } from '@prisma/client';
+import { User, Wallet } from '@prisma/client';
 import { getErrorMessage } from 'core/utils/error-utils';
+import { RequireCredits } from '../shared/decorators/require-credits.decorator';
+import { CreditsService } from '../services/credits.service';
 
 @ApiTags('Analyses')
 @Controller('/analyses')
@@ -34,6 +36,7 @@ export class AnalysesController {
     private readonly enrichmentStrategyService: EnrichmentStrategyService,
     private readonly redisLockService: RedisLockService,
     private readonly jobPayloadCache: JobPayloadCacheService,
+    private readonly creditsService: CreditsService,
   ) {}
 
   @Post('/similarity/enrich-balances')
@@ -142,6 +145,15 @@ export class AnalysesController {
     }
   }
 
+  // NOTE: No @RequireCredits decorator — dynamic pricing (10cr pre-synced / 20cr needs-sync)
+  // is computed inside the handler after wallet status check. @RequireCredits is static and
+  // cannot express this. Credit deduction is explicit via creditsService.deduct().
+  //
+  // X402 behaviour: CreditGuard skips this endpoint (no decorator → requiredCredits=undefined).
+  // An agent hitting this with X-Payment will have CompositeAuthGuard provision them an agent
+  // user row, then the handler will deduct from their credit balance instead of verifying
+  // on-chain payment. This is intentional — agents must use /intel/* endpoints for X402.
+  // Anyone reaching /analyses/* from outside is internal tooling or their own problem.
   @Post('/similarity/queue')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
@@ -202,13 +214,36 @@ export class AnalysesController {
       // Generate request ID  
       const requestId = `similarity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      // Check wallet status to determine which wallets need sync
-      const walletStatuses = await this.databaseService.getWalletsStatus(dto.walletAddresses);
+      // Check wallet status to determine which wallets need sync.
+      // IMPORTANT: exclude known/system wallets from pricing logic because they are intentionally
+      // skipped by analysis flows and would otherwise force false-positive "needs sync" billing.
+      const walletRecords = await this.databaseService.getWallets(dto.walletAddresses, true) as Wallet[];
+      const walletMap = new Map(walletRecords.map((wallet) => [wallet.address, wallet]));
+      const statusCheckWallets = dto.walletAddresses.filter((address) => {
+        const registryEntry = getKnownWallet(address);
+        const walletRecord = walletMap.get(address);
+        const isKnownOrSystem =
+          !!registryEntry ||
+          !!walletRecord?.knownType ||
+          walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
+          walletRecord?.classification === 'INVALID';
+        return !isKnownOrSystem;
+      });
+
+      const walletStatuses = await this.databaseService.getWalletsStatus(statusCheckWallets);
       const walletsNeedingSync = walletStatuses.statuses
         .filter(status => status.status === 'STALE' || status.status === 'MISSING')
         .map(status => status.walletAddress);
       
-      this.logger.log(`Advanced analysis: ${walletsNeedingSync.length}/${dto.walletAddresses.length} wallets need sync: [${walletsNeedingSync.join(', ')}]`);
+      this.logger.log(
+        `Advanced analysis pricing check: ${walletsNeedingSync.length}/${statusCheckWallets.length} sync-eligible wallets need sync ` +
+        `(excluded ${dto.walletAddresses.length - statusCheckWallets.length} known/system wallets): [${walletsNeedingSync.join(', ')}]`
+      );
+
+      const creditCost = walletsNeedingSync.length > 0 ? 20 : 10;
+      if (req.user) {
+        await this.creditsService.deduct(req.user.id, creditCost, 'endpoint:AnalysesController.queueSimilarityAnalysis');
+      }
 
       // Prepare job data - delegate to existing SimilarityApiService
       const jobData: ComprehensiveSimilarityFlowData = {
@@ -227,10 +262,26 @@ export class AnalysesController {
       };
 
       // Add job to similarity operations queue
-      const job = await this.similarityOperationsQueue.addSimilarityAnalysisFlow(jobData, {
-        priority: 5, // Normal priority
-        delay: 0 // No delay
-      });
+      // REFUND SCOPE: the catch below only fires if addSimilarityAnalysisFlow() throws
+      // synchronously — i.e. BullMQ cannot accept the job (Redis down, serialisation error).
+      // If the job is accepted but the worker fails mid-processing (Helius timeout, partial
+      // wallet sync failure, etc.) that is an async processor failure and credits are NOT
+      // automatically refunded here. Processor-level compensation is a separate concern.
+      // To investigate a missing refund: check CreditTransaction for the deduct row, then
+      // check BullMQ job status in Bull Board — if job shows 'failed' with no refund row,
+      // the failure was async (processor), not synchronous (queue add).
+      let job: Awaited<ReturnType<typeof this.similarityOperationsQueue.addSimilarityAnalysisFlow>>;
+      try {
+        job = await this.similarityOperationsQueue.addSimilarityAnalysisFlow(jobData, {
+          priority: 5, // Normal priority
+          delay: 0 // No delay
+        });
+      } catch (queueError) {
+        if (req.user) {
+          await this.creditsService.topUp(req.user.id, creditCost, 'refund:AnalysesController.queueSimilarityAnalysis');
+        }
+        throw new InternalServerErrorException('Failed to queue similarity analysis job');
+      }
 
       // Calculate estimated processing time based on wallet count
       const baseTimeMinutes = 5; // Base processing time
@@ -254,7 +305,7 @@ export class AnalysesController {
 
     } catch (error) {
       this.logger.error(`Failed to queue similarity analysis: ${getErrorMessage(error)}`);
-      if (error instanceof BadRequestException) {
+      if (error instanceof HttpException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException('Failed to queue similarity analysis job');
@@ -273,18 +324,32 @@ export class AnalysesController {
     return this.databaseService.getWalletsStatus(walletStatusRequestDto.walletAddresses);
   }
 
+  // NOTE: No @RequireCredits decorator — credit charging is conditional (see handler below).
+  //
+  // Charging rules for dashboard-analysis (5cr):
+  //   FREE  — wallet was analyzed within the last 24h (data is reasonably fresh; auto-refresh is housekeeping)
+  //   FREE  — wallet has never produced PnL data (no WalletPnlSummary exists); we've run the job before
+  //           and got nothing — charging for repeated zero-data attempts is unfair
+  //   FREE  — known wallet, skipped, already running, or freshness-skipped
+  //   5cr   — wallet is missing entirely (first-ever analysis) — explicit deduct before queuing
+  //   5cr   — wallet data is >24h old (genuinely stale refresh) — explicit deduct before queuing
+  //   5cr   — forceRefresh=true (manual button, user opted in) — explicit deduct before queuing
+  //
+  // CreditGuard still runs (no @RequireCredits = no guard). Balance check + deduction both
+  // happen via creditsService.deduct() inside the handler only when warranted.
   @Post('/wallets/dashboard-analysis')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Queue dashboard wallet analysis job',
     description: 'Queues a scoped wallet analysis job for dashboard display. Returns job ID (if queued) and follow-up intent for monitoring.'
   })
-  @ApiResponse({ 
-    status: 202, 
+  @ApiResponse({
+    status: 202,
     description: 'Dashboard analysis job queued or skipped due to freshness.',
     type: DashboardAnalysisResponseDto
   })
   @ApiResponse({ status: 400, description: 'Invalid wallet address or request parameters' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits (only charged for missing or >24h stale wallets, or forceRefresh)' })
   @ApiResponse({ status: 503, description: 'Analysis already in progress for this wallet' })
   @HttpCode(202)
   async queueDashboardWalletAnalysis(
@@ -439,6 +504,59 @@ export class AnalysesController {
         };
       }
 
+      // ── Credit charging decision ──────────────────────────────────────────
+      // We only charge when we're actually doing meaningful work for the user:
+      //   • First-ever analysis (no PnlSummary at all)
+      //   • Genuinely stale data (last successful analysis >24h ago)
+      //   • Explicit manual refresh (forceRefresh=true, user opted in)
+      //
+      // We do NOT charge for:
+      //   • Wallets that have been analyzed recently (<24h) — auto-refresh is housekeeping
+      //   • Wallets that consistently produce no data (no PnlSummary despite prior runs)
+      //     e.g. token program addresses or wallets with zero swap history
+      const CREDIT_STALENESS_MS = 24 * 60 * 60 * 1000; // 24 hours
+      const DASHBOARD_ANALYSIS_COST = 5;
+      const [pnlSummary, latestRun] = await Promise.all([
+        this.databaseService.getWalletPnlSummaryWithRelations(dto.walletAddress),
+        this.databaseService.getLatestDashboardAnalysisRun(dto.walletAddress, scope),
+      ]);
+      const hasProducedData = pnlSummary !== null;
+      const hasBeenTriedBefore = latestRun !== null;
+      const lastAnalyzedAt = pnlSummary?.updatedAt ?? null;
+      const isGenuinelyStale = !lastAnalyzedAt || (Date.now() - lastAnalyzedAt.getTime() > CREDIT_STALENESS_MS);
+      // Charge only when the work is meaningful:
+      //   - forceRefresh: user explicitly asked (always charge)
+      //   - hasProducedData && isGenuinelyStale: wallet has data but it's >24h old (genuine refresh)
+      //   - !hasProducedData && !hasBeenTriedBefore: truly first-ever attempt on this wallet
+      // Free cases:
+      //   - fresh data (<24h): auto-refresh is housekeeping, not worth charging
+      //   - no data but already tried: wallet consistently returns nothing (zero-swap wallets,
+      //     token addresses, etc.) — don't keep charging for zero-value jobs
+      const shouldCharge =
+        dto.forceRefresh ||
+        (hasProducedData && isGenuinelyStale) ||
+        (!hasProducedData && !hasBeenTriedBefore);
+
+      if (shouldCharge && req.user) {
+        try {
+          await this.creditsService.deduct(req.user.id, DASHBOARD_ANALYSIS_COST, 'dashboard-analysis');
+          this.logger.log(
+            `Charged ${DASHBOARD_ANALYSIS_COST}cr for dashboard-analysis: wallet=${dto.walletAddress} ` +
+            `reason=${dto.forceRefresh ? 'force-refresh' : !hasProducedData ? 'first-analysis' : 'stale>24h'}`,
+          );
+        } catch (creditError) {
+          // creditsService.deduct throws HTTP 402 on insufficient balance — let it propagate
+          throw creditError;
+        }
+      } else {
+        this.logger.debug(
+          `Skipping credit charge for dashboard-analysis: wallet=${dto.walletAddress} ` +
+          `hasData=${hasProducedData} triedBefore=${hasBeenTriedBefore} ` +
+          `ageH=${lastAnalyzedAt ? Math.round((Date.now() - lastAnalyzedAt.getTime()) / 3600000) : 'n/a'}`,
+        );
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       const walletStatuses = await this.databaseService.getWalletsStatus([dto.walletAddress]);
       const walletStatus = walletStatuses.statuses[0];
       const needsSync =
@@ -518,6 +636,10 @@ export class AnalysesController {
     }
   }
 
+  // NOTE: No @RequireCredits decorator — cost is 20cr fixed but charging is explicit via
+  // creditsService.deduct() so the try/catch refund pattern works correctly. Same X402
+  // behaviour as /similarity/queue above: agents hitting this get credit-balance deducted,
+  // not on-chain verified. Use /intel/* endpoints for X402-compatible external access.
   @Post('/holder-profiles')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
@@ -576,6 +698,10 @@ export class AnalysesController {
       // Generate request ID
       const requestId = `holder-profiles-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+      if (req.user) {
+        await this.creditsService.deduct(req.user.id, 20, 'endpoint:AnalysesController.queueHolderProfilesAnalysis');
+      }
+
       // Prepare job data
       const jobData: AnalyzeHolderProfilesJobData = {
         mode: 'token',
@@ -587,10 +713,23 @@ export class AnalysesController {
       };
 
       // Add job to analysis operations queue
-      const job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
-        priority: 5,
-        delay: 0,
-      });
+      // REFUND SCOPE: same limitation as similarity/queue — refund only fires on synchronous
+      // queue failure (Redis/BullMQ unreachable). Async processor failures (Helius RPC errors,
+      // partial holder fetch, worker crash) do NOT trigger this refund.
+      // Debugging: deduct row in CreditTransaction + no refund row + job status 'failed' in
+      // Bull Board = async processor failure, not a bug in this refund path.
+      let job: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
+      try {
+        job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
+          priority: 5,
+          delay: 0,
+        });
+      } catch (queueError) {
+        if (req.user) {
+          await this.creditsService.topUp(req.user.id, 20, 'refund:AnalysesController.queueHolderProfilesAnalysis');
+        }
+        throw new InternalServerErrorException('Failed to queue holder profiles analysis job');
+      }
 
       // Calculate estimated processing time (roughly 1-2 seconds per wallet)
       const estimatedSeconds = topN * 1.5;
@@ -612,7 +751,7 @@ export class AnalysesController {
       };
     } catch (error) {
       this.logger.error(`Failed to queue holder profiles analysis: ${getErrorMessage(error)}`);
-      if (error instanceof BadRequestException) {
+      if (error instanceof HttpException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException('Failed to queue holder profiles analysis job');
@@ -620,6 +759,7 @@ export class AnalysesController {
   }
 
   @Post('/holder-profiles/wallet')
+  @RequireCredits(5)
   @Throttle({ default: { limit: 50, ttl: 60000 } })
   @ApiOperation({
     summary: 'Analyze holder profile for a single wallet',
