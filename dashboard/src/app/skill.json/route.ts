@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { NextResponse } from 'next/server';
 
-export const dynamic = 'force-static';
+export const dynamic = 'force-dynamic';
 
 export function GET() {
   const filePath = join(process.cwd(), '..', 'documentation', 'agent-skill', 'skill.json');
