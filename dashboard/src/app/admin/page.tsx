@@ -690,7 +690,8 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Verify admin access by calling backend (SECURITY: Don't trust frontend state)
+  // Verify admin access via an admin endpoint — AdminController has @SkipThrottle() so
+  // this won't hit rate limits. A 403 response means the user isn't an admin.
   // This MUST be after all other hooks to avoid "hooks called in different order" error
   useEffect(() => {
     const verifyAdminAccess = async () => {
@@ -711,9 +712,8 @@ export default function AdminDashboardPage() {
       }
 
       try {
-        // Verify admin status by checking user profile
-        // This is cleaner than calling admin endpoints and getting 403 errors
-        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        // Use /admin/stats for verification — it's @SkipThrottle and doubles as the first data load
+        const response = await fetch(`${API_BASE_URL}/admin/stats`, {
           headers: buildHeaders(),
         });
 
@@ -722,24 +722,18 @@ export default function AdminDashboardPage() {
           return;
         }
 
-        const userData = await response.json();
+        const stats = await response.json();
 
-        // Check if user is actually admin
-        if (!userData.isAdmin) {
-          // Not admin - redirect silently without triggering admin endpoints
-          router.replace('/');
-          return;
-        }
-
-        // Success - user is verified admin, load data
+        // Success - user is verified admin, seed stats and load remaining data
         setIsAdminVerified(true);
+        setSystemStats(stats);
+        setLoadingSystemStats(false);
         fetchApiKeys();
         fetchRegistrationCodes();
         fetchCodeStats();
         fetchKillSwitch();
         fetchCodeRequirement();
         fetchUsers();
-        fetchSystemStats();
         fetchCreditTransactions();
       } catch (error) {
         console.error('Admin verification failed:', error);
