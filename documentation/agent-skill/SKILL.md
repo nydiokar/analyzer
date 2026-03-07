@@ -7,7 +7,7 @@ metadata:
 
 # Sova Intel
 
-**Base:** `https://www.sova-intel.com/api/v1` | **Live pricing:** `GET /pricing` (free, no auth)
+**Base:** `https://api.sova-intel.com/api/v1` | **Live pricing:** `GET /pricing` (free, no auth)
 
 Raw Solana transaction data tells you what happened. Sova tells you what it means — trader profiles, behavioral patterns, realized/unrealized PnL, holder maps, and wallet similarity scores, all derived from full transaction history. Use this instead of parsing raw Helius data yourself.
 
@@ -18,7 +18,7 @@ Raw Solana transaction data tells you what happened. Sova tells you what it mean
 ### Wallet intelligence
 
 ```bash
-curl https://www.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS \
+curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS \
   -H "X-Api-Key: ak_your_key"
 ```
 
@@ -65,7 +65,7 @@ Full profile — summary, behavior, PnL, HUD. Response:
 **HUD only** (1cr — use when you just need the signal):
 
 ```bash
-curl https://www.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/hud \
+curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/hud \
   -H "X-Api-Key: ak_your_key"
 ```
 
@@ -74,7 +74,7 @@ Returns: `{ pnlSignal, behaviorCode, winRate, isBotFlagged, isWhaleFlagged, medi
 **Per-token PnL table** (3cr — paginated, sortable):
 
 ```bash
-curl "https://www.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/tokens?pageSize=50&sortBy=netSolProfitLoss&sortOrder=DESC" \
+curl "https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/tokens?pageSize=50&sortBy=netSolProfitLoss&sortOrder=DESC" \
   -H "X-Api-Key: ak_your_key"
 ```
 
@@ -87,7 +87,7 @@ Returns: `{ data: [{ tokenAddress, realizedPnlSol, unrealizedPnlSol, roi, totalS
 **HUD for up to 30 wallets** (5cr flat):
 
 ```bash
-curl -X POST https://www.sova-intel.com/api/v1/intel/wallets/batch-hud \
+curl -X POST https://api.sova-intel.com/api/v1/intel/wallets/batch-hud \
   -H "X-Api-Key: ak_your_key" \
   -H "Content-Type: application/json" \
   -d '{"wallets": ["ADDR_1", "ADDR_2", "ADDR_3"]}'
@@ -99,7 +99,7 @@ Wallets without fresh data appear in `queued` as objects with `walletAddress`, `
 **Top N holders of a token** (20cr — async):
 
 ```bash
-curl -X POST https://www.sova-intel.com/api/v1/intel/token/TOKEN_MINT/holders \
+curl -X POST https://api.sova-intel.com/api/v1/intel/token/TOKEN_MINT/holders \
   -H "X-Api-Key: ak_your_key" \
   -H "Content-Type: application/json" \
   -d '{"topN": 20}'
@@ -110,7 +110,7 @@ Returns: `{ jobId, requestId, monitoringUrl }` → poll → fetch `holder-profil
 **Similarity analysis for 2–30 wallets** (20cr — async):
 
 ```bash
-curl -X POST https://www.sova-intel.com/api/v1/intel/wallets/similarity \
+curl -X POST https://api.sova-intel.com/api/v1/intel/wallets/similarity \
   -H "X-Api-Key: ak_your_key" \
   -H "Content-Type: application/json" \
   -d '{"wallets": ["ADDR_1", "ADDR_2", "ADDR_3"]}'
@@ -153,7 +153,7 @@ Charging model:
 ### Option A — API key (simplest)
 
 ```bash
-curl https://www.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS \
+curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS \
   -H "X-Api-Key: ak_your_key"
 ```
 
@@ -166,7 +166,7 @@ Every endpoint returns HTTP 402 when called without auth. The payment contract i
 **Step 1 — probe (no auth):**
 
 ```bash
-curl -i https://www.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS
+curl -i https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS
 # → HTTP 402
 ```
 
@@ -273,7 +273,7 @@ POST endpoints return **HTTP 202** (async accepted).
 **Poll** every 5s — free:
 
 ```bash
-curl https://www.sova-intel.com/api/v1/jobs/JOB_ID
+curl https://api.sova-intel.com/api/v1/jobs/JOB_ID
 # → { "status": "active" | "completed" | "failed", "progress": 80 }
 ```
 
@@ -282,10 +282,10 @@ curl https://www.sova-intel.com/api/v1/jobs/JOB_ID
 **Retrieve result** once `completed` (results expire after 15 minutes):
 
 ```bash
-curl "https://www.sova-intel.com/api/v1/jobs/result/by-key?key=holder-profiles:result:REQUEST_ID" \
+curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=holder-profiles:result:REQUEST_ID" \
   -H "X-Api-Key: ak_your_key"
 
-curl "https://www.sova-intel.com/api/v1/jobs/result/by-key?key=similarity:result:REQUEST_ID" \
+curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=similarity:result:REQUEST_ID" \
   -H "X-Api-Key: ak_your_key"
 ```
 

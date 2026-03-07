@@ -2,7 +2,7 @@
   "name": "sova-intel",
   "version": "1.0.0",
   "description": "On-chain intelligence API for Solana — wallet behavior, PnL, token holders, similarity. Pay per call in USDC via X402.",
-  "api_base": "https://www.sova-intel.com/api/v1",
+  "api_base": "https://api.sova-intel.com/api/v1",
   "skill": "SKILL.md",
   "discovery": "GET /pricing",
   "payment": {
