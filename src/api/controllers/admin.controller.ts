@@ -620,7 +620,9 @@ export class AdminController {
   ) {
     const limit = Math.min(Math.max(1, parseInt(limitStr || '50', 10)), 500);
     const offset = Math.max(0, parseInt(offsetStr || '0', 10));
-    return this.databaseService.listCreditTransactions(limit, offset, userId);
+    // Skip the full COUNT(*) when browsing without a user filter — fast on large tables
+    const skipCount = !userId;
+    return this.databaseService.listCreditTransactions(limit, offset, userId, skipCount);
   }
 
   @Get('stats')

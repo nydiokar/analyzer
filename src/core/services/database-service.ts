@@ -826,13 +826,13 @@ export class DatabaseService {
         });
     }
 
-    async listCreditTransactions(limit = 50, offset = 0, userId?: string): Promise<{
+    async listCreditTransactions(limit = 50, offset = 0, userId?: string, skipCount = false): Promise<{
         transactions: Array<{
             id: string; userId: string; delta: number; reason: string;
             refId: string | null; balanceAfter: number; createdAt: Date;
             user: { email: string | null; displayName: string | null };
         }>;
-        total: number;
+        total: number | null;
     }> {
         const where = userId ? { userId } : {};
         const [transactions, total] = await Promise.all([
@@ -847,7 +847,8 @@ export class DatabaseService {
                 take: limit,
                 skip: offset,
             }),
-            this.prismaClient.creditTransaction.count({ where }),
+            // skipCount avoids a full table scan when only browsing recent rows
+            skipCount ? Promise.resolve(null) : this.prismaClient.creditTransaction.count({ where }),
         ]);
         return { transactions, total };
     }

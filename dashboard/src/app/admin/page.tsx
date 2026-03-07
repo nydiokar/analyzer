@@ -188,7 +188,7 @@ export default function AdminDashboardPage() {
 
   // Credit Transactions State
   const [creditTransactions, setCreditTransactions] = useState<CreditTransactionItem[]>([]);
-  const [creditTransactionsTotal, setCreditTransactionsTotal] = useState(0);
+  const [creditTransactionsTotal, setCreditTransactionsTotal] = useState<number | null>(null);
   const [loadingCreditTransactions, setLoadingCreditTransactions] = useState(true);
   const [creditTransactionsPage, setCreditTransactionsPage] = useState(1);
 
@@ -874,140 +874,6 @@ export default function AdminDashboardPage() {
               </Card>
             </div>
 
-            {/* Status Cards */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Kill Switch Status */}
-              <Card className={killSwitch?.enabled ? "border-red-500 bg-red-900/10" : ""}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Power className="w-5 h-5" />
-                    Emergency Kill Switch
-                  </CardTitle>
-                  <CardDescription>
-                    {killSwitch?.enabled
-                      ? "ALL registration is currently BLOCKED"
-                      : "Registration is allowed (subject to code requirement)"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {loadingKillSwitch ? (
-                    <div className="flex justify-center py-4">
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">Status:</span>
-                        <Badge variant={killSwitch?.enabled ? "destructive" : "default"} className="text-sm">
-                          {killSwitch?.enabled ? "ENABLED - All Registration Blocked" : "Disabled - Registration Allowed"}
-                        </Badge>
-                      </div>
-                      {killSwitch?.lastModifiedAt && (
-                        <div className="text-xs text-muted-foreground">
-                          Last modified: {new Date(killSwitch.lastModifiedAt).toLocaleString()}
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant={killSwitch?.enabled ? "default" : "destructive"}
-                              className="flex-1"
-                              disabled={togglingKillSwitch}
-                            >
-                              {togglingKillSwitch ? (
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              ) : killSwitch?.enabled ? (
-                                <Unlock className="w-4 h-4 mr-2" />
-                              ) : (
-                                <Lock className="w-4 h-4 mr-2" />
-                              )}
-                              {killSwitch?.enabled ? "Disable Kill Switch" : "Enable Kill Switch"}
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle className="flex items-center gap-2">
-                                <AlertTriangle className="w-5 h-5 text-orange-500" />
-                                {killSwitch?.enabled ? "Disable Kill Switch?" : "Enable Kill Switch?"}
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {killSwitch?.enabled
-                                  ? "This will re-enable registration (subject to code requirement setting). Existing users will be able to login normally."
-                                  : "This will IMMEDIATELY block ALL new registrations. No one will be able to sign up until you disable the kill switch. Existing users can still login."}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleToggleKillSwitch(!killSwitch?.enabled)}
-                                className={killSwitch?.enabled ? "" : "bg-red-600 hover:bg-red-700"}
-                              >
-                                {killSwitch?.enabled ? "Disable Kill Switch" : "Enable Kill Switch"}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Code Requirement Status */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Ticket className="w-5 h-5" />
-                    Code Requirement
-                  </CardTitle>
-                  <CardDescription>
-                    {codeRequirement?.required
-                      ? "Registration codes are REQUIRED"
-                      : "Registration is OPEN to anyone"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {loadingCodeRequirement ? (
-                    <div className="flex justify-center py-4">
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">Status:</span>
-                        <Badge variant={codeRequirement?.required ? "default" : "secondary"} className="text-sm">
-                          {codeRequirement?.required ? "Codes Required" : "Open Registration"}
-                        </Badge>
-                      </div>
-                      {codeRequirement?.lastModifiedAt && (
-                        <div className="text-xs text-muted-foreground">
-                          Last modified: {new Date(codeRequirement.lastModifiedAt).toLocaleString()}
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <Button
-                          variant={codeRequirement?.required ? "secondary" : "default"}
-                          className="flex-1"
-                          disabled={togglingCodeRequirement}
-                          onClick={() => handleToggleCodeRequirement(!codeRequirement?.required)}
-                        >
-                          {togglingCodeRequirement ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          ) : codeRequirement?.required ? (
-                            <Unlock className="w-4 h-4 mr-2" />
-                          ) : (
-                            <Lock className="w-4 h-4 mr-2" />
-                          )}
-                          {codeRequirement?.required ? "Disable Code Requirement" : "Enable Code Requirement"}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
             {/* Recent Credit Activity */}
             <Card>
               <CardHeader className="py-4">
@@ -1671,7 +1537,9 @@ export default function AdminDashboardPage() {
                   <TrendingUp className="w-4 h-4" />
                   Credit Transactions
                 </CardTitle>
-                <CardDescription>{creditTransactionsTotal} total transactions</CardDescription>
+                <CardDescription>
+                  {creditTransactionsTotal !== null ? `${creditTransactionsTotal} total transactions` : `${creditTransactions.length}+ transactions`}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {loadingCreditTransactions ? (
@@ -1712,14 +1580,15 @@ export default function AdminDashboardPage() {
                         </div>
                       </ScrollArea>
                     </div>
-                    {creditTransactionsTotal > 50 && (
+                    {(creditTransactions.length === 50 || creditTransactionsPage > 1) && (
                       <div className="flex items-center justify-between mt-4">
                         <div className="text-sm text-muted-foreground">
-                          Page {creditTransactionsPage} of {Math.ceil(creditTransactionsTotal / 50)} — {creditTransactionsTotal} total
+                          Page {creditTransactionsPage}
+                          {creditTransactionsTotal !== null ? ` of ${Math.ceil(creditTransactionsTotal / 50)} — ${creditTransactionsTotal} total` : ''}
                         </div>
                         <div className="flex gap-2">
                           <Button variant="outline" size="sm" onClick={() => setCreditTransactionsPage(p => Math.max(1, p - 1))} disabled={creditTransactionsPage <= 1}>Previous</Button>
-                          <Button variant="outline" size="sm" onClick={() => setCreditTransactionsPage(p => p + 1)} disabled={creditTransactionsPage >= Math.ceil(creditTransactionsTotal / 50)}>Next</Button>
+                          <Button variant="outline" size="sm" onClick={() => setCreditTransactionsPage(p => p + 1)} disabled={creditTransactions.length < 50}>Next</Button>
                         </div>
                       </div>
                     )}
