@@ -754,7 +754,7 @@ export class DatabaseService {
         },
         sortBy: string = 'createdAt',
         sortOrder: 'asc' | 'desc' = 'desc'
-    ): Promise<{ users: Array<Pick<User, 'id' | 'email' | 'displayName' | 'description' | 'isAdmin' | 'isActive' | 'isDemo' | 'emailVerified' | 'createdAt' | 'lastLoginAt' | 'lastSeenAt'>>; total: number }> {
+    ): Promise<{ users: Array<Pick<User, 'id' | 'email' | 'displayName' | 'description' | 'isAdmin' | 'isActive' | 'isDemo' | 'emailVerified' | 'createdAt' | 'lastLoginAt' | 'lastSeenAt'> & { credits: number | null }>; total: number }> {
         this.logger.trace('Listing users with filters', { limit, offset, filters, sortBy, sortOrder });
 
         try {
@@ -795,6 +795,7 @@ export class DatabaseService {
                         createdAt: true,
                         lastLoginAt: true,
                         lastSeenAt: true,
+                        creditBalance: { select: { credits: true } },
                     },
                     orderBy: { [sortBy]: sortOrder },
                     take: limit,
@@ -803,8 +804,11 @@ export class DatabaseService {
                 this.prismaClient.user.count({ where }),
             ]);
 
-            // this.logger.info(`Listed ${users.length} users out of ${total} total (limit=${limit}, offset=${offset})`);
-            return { users, total };
+            const mapped = users.map(({ creditBalance, ...u }) => ({
+                ...u,
+                credits: creditBalance?.credits ?? null,
+            }));
+            return { users: mapped, total };
         } catch (error) {
             this.logger.error('Error listing users', { error, filters, limit, offset });
             throw error;

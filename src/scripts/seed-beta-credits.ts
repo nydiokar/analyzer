@@ -6,8 +6,10 @@
  *   npx ts-node -r tsconfig-paths/register src/scripts/seed-beta-credits.ts
  *
  * Options:
- *   --dry-run   Print what would happen without writing to DB
- *   --amount N  Override default 500 credits (e.g. --amount 100)
+ *   --dry-run        Print what would happen without writing to DB
+ *   --amount N       Override default 500 credits (e.g. --amount 100)
+ *   --user EMAIL     Target by email (repeatable)
+ *   --user-id ID     Target by user ID (repeatable, works for users with no email)
  */
 
 import { prisma } from '../core/services/database-service';
@@ -16,16 +18,22 @@ import { getErrorMessage } from '../core/utils/error-utils';
 const REASON = 'beta_grant';
 const DEFAULT_AMOUNT = 500;
 
-function parseArgs(): { dryRun: boolean; amount: number } {
-  const args = process.argv.slice(2);
+function parseArgs(): { dryRun: boolean; amount: number; emails: string[]; ids: string[] } {
+  const args = process.argv.slice(2).map((a) => a.trim());
   const dryRun = args.includes('--dry-run');
   const amountIdx = args.indexOf('--amount');
   const amount = amountIdx !== -1 ? parseInt(args[amountIdx + 1], 10) : DEFAULT_AMOUNT;
-  return { dryRun, amount };
+  const emails: string[] = [];
+  const ids: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--user' && args[i + 1]) emails.push(args[i + 1]);
+    if (args[i] === '--user-id' && args[i + 1]) ids.push(args[i + 1]);
+  }
+  return { dryRun, amount, emails, ids };
 }
 
 async function main() {
-  const { dryRun, amount } = parseArgs();
+  const { dryRun, amount, emails, ids } = parseArgs();
 
   if (isNaN(amount) || amount <= 0) {
     console.error('ERROR: --amount must be a positive integer');
@@ -35,11 +43,22 @@ async function main() {
   console.log(`\n=== Beta Credits Seed ===`);
   console.log(`Amount per user : ${amount} credits`);
   console.log(`Dry run         : ${dryRun}`);
+  if (emails.length > 0) console.log(`Targeting emails : ${emails.join(', ')}`);
+  if (ids.length > 0) console.log(`Targeting IDs    : ${ids.join(', ')}`);
   console.log('');
 
+  const hasFilter = emails.length > 0 || ids.length > 0;
   const users = await prisma.user.findMany({
     where: {
-      email: { not: { endsWith: '@x402.agent' } },
+      OR: hasFilter
+        ? [
+            ...(emails.length > 0 ? [{ email: { in: emails } }] : []),
+            ...(ids.length > 0 ? [{ id: { in: ids } }] : []),
+          ]
+        : undefined,
+      AND: {
+        OR: [{ email: null }, { email: { not: { endsWith: '@x402.agent' } } }],
+      },
     },
     select: { id: true, email: true },
     orderBy: { createdAt: 'asc' },
@@ -51,7 +70,7 @@ async function main() {
   }
 
   console.log(`Found ${users.length} user(s):\n`);
-  users.forEach((u, i) => console.log(`  ${i + 1}. ${u.email} (${u.id})`));
+  users.forEach((u, i) => console.log(`  ${i + 1}. ${u.email ?? '(no email)'} (${u.id})`));
   console.log('');
 
   if (dryRun) {
@@ -82,10 +101,10 @@ async function main() {
         });
       });
 
-      console.log(`  ✓ ${user.email} → +${amount} credits`);
+      console.log(`  ✓ ${user.email ?? user.id} → +${amount} credits`);
       succeeded++;
     } catch (error) {
-      console.error(`  ✗ ${user.email} → FAILED: ${getErrorMessage(error)}`);
+      console.error(`  ✗ ${user.email ?? user.id} → FAILED: ${getErrorMessage(error)}`);
       failed++;
     }
   }

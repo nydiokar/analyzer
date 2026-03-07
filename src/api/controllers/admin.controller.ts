@@ -173,6 +173,11 @@ class UserListItemDto {
   @ApiProperty({ description: 'Last activity timestamp', nullable: true, type: 'string', format: 'date-time' })
   @IsOptional()
   lastSeenAt: Date | null;
+
+  @ApiProperty({ description: 'Current credit balance', nullable: true })
+  @IsOptional()
+  @IsNumber()
+  credits: number | null;
 }
 
 class UsersListResponseDto {

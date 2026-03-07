@@ -91,6 +91,7 @@ interface UserListItem {
   createdAt: string;
   lastLoginAt: string | null;
   lastSeenAt: string | null;
+  credits: number | null;
 }
 
 interface UsersListResponse {
@@ -1338,10 +1339,11 @@ export default function AdminDashboardPage() {
                 ) : (
                   <>
                     <div className="rounded-md border">
-                      <div className="hidden md:grid grid-cols-[minmax(260px,1.5fr)_minmax(220px,1.3fr)_130px_240px_110px] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                      <div className="hidden md:grid grid-cols-[minmax(260px,1.5fr)_minmax(220px,1.3fr)_130px_80px_240px_110px] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
                         <span>User</span>
                         <span>Email</span>
                         <span>Flags</span>
+                        <span>Credits</span>
                         <span>Created / Last Login / Last Active</span>
                         <span className="text-right">Actions</span>
                       </div>
@@ -1354,7 +1356,7 @@ export default function AdminDashboardPage() {
                                 !u.isActive ? 'bg-muted/50 opacity-60' : 'bg-card'
                               }`}
                             >
-                              <div className="grid gap-3 md:grid-cols-[minmax(260px,1.5fr)_minmax(220px,1.3fr)_130px_240px_110px] md:items-center">
+                              <div className="grid gap-3 md:grid-cols-[minmax(260px,1.5fr)_minmax(220px,1.3fr)_130px_80px_240px_110px] md:items-center">
                                 <div className="min-w-0">
                                   <div className="font-medium truncate">
                                     {u.displayName || u.email || 'Unknown User'}
@@ -1377,6 +1379,9 @@ export default function AdminDashboardPage() {
                                   {u.isDemo && <Badge variant="secondary">Demo</Badge>}
                                   {!u.isActive && <Badge variant="destructive">Disabled</Badge>}
                                   {!u.emailVerified && <Badge variant="outline">Unverified</Badge>}
+                                </div>
+                                <div className="text-sm font-medium">
+                                  {u.credits !== null ? u.credits.toLocaleString() : <span className="text-muted-foreground text-xs">—</span>}
                                 </div>
                                 <div className="text-xs text-muted-foreground space-y-1">
                                   <div>Created: {new Date(u.createdAt).toLocaleDateString()}</div>
