@@ -12,7 +12,8 @@ import { toast } from 'sonner';
 import {
   Loader2, Copy, Shield, AlertTriangle, Users, Ticket,
   Power, Lock, Unlock, Search, Filter, Ban,
-  CheckCircle2, XCircle, Clock, Calendar, Hash, Key, AlertCircle
+  CheckCircle2, XCircle, Clock, Calendar, Hash, Key, AlertCircle,
+  Coins, TrendingUp, Activity, UserX, Plus, Minus,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -34,6 +35,13 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 // Types
 interface ApiKeyInfo {
@@ -101,6 +109,25 @@ interface UsersListResponse {
   offset: number;
 }
 
+interface SystemStats {
+  totalUsers: number;
+  activeUsers: number;
+  usersNeverLoggedIn: number;
+  totalCreditsInCirculation: number;
+  usersWithCredits: number;
+}
+
+interface CreditTransactionItem {
+  id: string;
+  userId: string;
+  delta: number;
+  reason: string;
+  refId: string | null;
+  balanceAfter: number;
+  createdAt: string;
+  user: { email: string | null; displayName: string | null };
+}
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const { user, isAuthenticated, isInitialized, getAuthHeader } = useAuth();
@@ -150,9 +177,26 @@ export default function AdminDashboardPage() {
     isActive?: boolean;
     isAdmin?: boolean;
     isDemo?: boolean;
+    neverLoggedIn?: boolean;
   }>({});
-  const [usersSortBy, setUsersSortBy] = useState<'createdAt' | 'lastLoginAt' | 'lastSeenAt' | 'email'>('createdAt');
+  const [usersSortBy, setUsersSortBy] = useState<'createdAt' | 'lastLoginAt' | 'lastSeenAt' | 'email' | 'credits'>('createdAt');
   const PAGE_SIZE = 20;
+
+  // System Stats State
+  const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
+  const [loadingSystemStats, setLoadingSystemStats] = useState(true);
+
+  // Credit Transactions State
+  const [creditTransactions, setCreditTransactions] = useState<CreditTransactionItem[]>([]);
+  const [creditTransactionsTotal, setCreditTransactionsTotal] = useState(0);
+  const [loadingCreditTransactions, setLoadingCreditTransactions] = useState(true);
+  const [creditTransactionsPage, setCreditTransactionsPage] = useState(1);
+
+  // Grant Credits Dialog State
+  const [grantingUserId, setGrantingUserId] = useState<string | null>(null);
+  const [grantAmount, setGrantAmount] = useState('500');
+  const [grantReason, setGrantReason] = useState('admin_grant');
+  const [submittingGrant, setSubmittingGrant] = useState(false);
 
   // API Base URL - defined outside hooks to avoid dependency issues
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
@@ -523,6 +567,7 @@ export default function AdminDashboardPage() {
       if (usersFilter.isActive !== undefined) params.set('isActive', String(usersFilter.isActive));
       if (usersFilter.isAdmin !== undefined) params.set('isAdmin', String(usersFilter.isAdmin));
       if (usersFilter.isDemo !== undefined) params.set('isDemo', String(usersFilter.isDemo));
+      if (usersFilter.neverLoggedIn) params.set('neverLoggedIn', 'true');
 
       const response = await fetch(`${API_BASE_URL}/admin/users?${params.toString()}`, {
         headers: buildHeaders(),
@@ -577,6 +622,74 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // ==================== SYSTEM STATS ====================
+
+  const fetchSystemStats = useCallback(async () => {
+    setLoadingSystemStats(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/stats`, { headers: buildHeaders() });
+      if (!response.ok) throw new Error('Failed to fetch stats');
+      setSystemStats(await response.json());
+    } catch (error) {
+      console.error('Error fetching system stats:', error);
+    } finally {
+      setLoadingSystemStats(false);
+    }
+  }, [API_BASE_URL, buildHeaders]);
+
+  // ==================== CREDIT TRANSACTIONS ====================
+
+  const fetchCreditTransactions = useCallback(async () => {
+    setLoadingCreditTransactions(true);
+    try {
+      const params = new URLSearchParams({
+        limit: '50',
+        offset: String((creditTransactionsPage - 1) * 50),
+      });
+      const response = await fetch(`${API_BASE_URL}/admin/credits/transactions?${params}`, { headers: buildHeaders() });
+      if (!response.ok) throw new Error('Failed to fetch transactions');
+      const data = await response.json();
+      setCreditTransactions(data.transactions);
+      setCreditTransactionsTotal(data.total);
+    } catch (error) {
+      console.error('Error fetching credit transactions:', error);
+      toast.error('Failed to load credit transactions');
+    } finally {
+      setLoadingCreditTransactions(false);
+    }
+  }, [API_BASE_URL, buildHeaders, creditTransactionsPage]);
+
+  useEffect(() => {
+    if (isAdminVerified) fetchCreditTransactions();
+  }, [creditTransactionsPage, isAdminVerified, fetchCreditTransactions]);
+
+  const handleGrantCredits = async () => {
+    const amount = parseInt(grantAmount);
+    if (!grantingUserId || isNaN(amount) || amount <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+    setSubmittingGrant(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/users/${grantingUserId}/credits`, {
+        method: 'POST',
+        headers: buildHeaders(true),
+        body: JSON.stringify({ amount, reason: grantReason || 'admin_grant' }),
+      });
+      if (!response.ok) throw new Error('Failed to grant credits');
+      const data = await response.json();
+      toast.success(`Granted ${amount.toLocaleString()} credits. New balance: ${data.credits.toLocaleString()}`);
+      setGrantingUserId(null);
+      setGrantAmount('500');
+      setGrantReason('admin_grant');
+      await Promise.all([fetchUsers(), fetchSystemStats(), fetchCreditTransactions()]);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to grant credits');
+    } finally {
+      setSubmittingGrant(false);
+    }
+  };
+
   // Verify admin access by calling backend (SECURITY: Don't trust frontend state)
   // This MUST be after all other hooks to avoid "hooks called in different order" error
   useEffect(() => {
@@ -625,7 +738,9 @@ export default function AdminDashboardPage() {
         fetchCodeStats();
         fetchKillSwitch();
         fetchCodeRequirement();
-        fetchUsers(); // Initial load - don't wait for debounced effect
+        fetchUsers();
+        fetchSystemStats();
+        fetchCreditTransactions();
       } catch (error) {
         console.error('Admin verification failed:', error);
         router.replace('/');
@@ -661,74 +776,97 @@ export default function AdminDashboardPage() {
 
         {/* Tabs */}
         <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid h-10 w-full grid-cols-5">
+          <TabsList className="grid h-10 w-full grid-cols-6">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="codes">Registration Codes</TabsTrigger>
-            <TabsTrigger value="controls">Access Controls</TabsTrigger>
+            <TabsTrigger value="codes">Reg. Codes</TabsTrigger>
+            <TabsTrigger value="controls">Controls</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
+            <TabsTrigger value="credits">Credits</TabsTrigger>
             <TabsTrigger value="api-keys">API Keys</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Ticket className="w-4 h-4" />
-                    Total Codes
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" /> Total Users
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="px-4 pb-3">
                   <div className="text-2xl font-bold">
-                    {codeStats?.total ?? <Loader2 className="w-5 h-5 animate-spin" />}
+                    {loadingSystemStats ? <Loader2 className="w-5 h-5 animate-spin" /> : systemStats?.totalUsers ?? '—'}
                   </div>
                 </CardContent>
               </Card>
 
               <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    Active Codes
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> Active Users
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="px-4 pb-3">
                   <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    {codeStats?.active ?? <Loader2 className="w-5 h-5 animate-spin" />}
+                    {loadingSystemStats ? <Loader2 className="w-5 h-5 animate-spin" /> : systemStats?.activeUsers ?? '—'}
                   </div>
                 </CardContent>
               </Card>
 
               <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Users className="w-4 h-4" />
-                    Total Users
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <UserX className="w-3.5 h-3.5 text-orange-400" /> Never Logged In
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {usersTotal ?? <Loader2 className="w-5 h-5 animate-spin" />}
+                <CardContent className="px-4 pb-3">
+                  <div className="text-2xl font-bold text-orange-500 dark:text-orange-400">
+                    {loadingSystemStats ? <Loader2 className="w-5 h-5 animate-spin" /> : systemStats?.usersNeverLoggedIn ?? '—'}
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className={killSwitch?.enabled ? "border-red-500" : ""}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Power className="w-4 h-4" />
-                    Kill Switch
+              <Card>
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Coins className="w-3.5 h-3.5 text-yellow-500" /> Credits in Circulation
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="px-4 pb-3">
+                  <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                    {loadingSystemStats ? <Loader2 className="w-5 h-5 animate-spin" /> : systemStats?.totalCreditsInCirculation.toLocaleString() ?? '—'}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Ticket className="w-3.5 h-3.5" /> Active Codes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-3">
+                  <div className="text-2xl font-bold">
+                    {codeStats ? `${codeStats.active} / ${codeStats.total}` : <Loader2 className="w-5 h-5 animate-spin" />}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className={killSwitch?.enabled ? 'border-red-500' : ''}>
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <Power className="w-3.5 h-3.5" /> Kill Switch
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-3">
                   <div className="text-2xl font-bold">
                     {loadingKillSwitch ? (
                       <Loader2 className="w-5 h-5 animate-spin" />
                     ) : (
-                      <Badge variant={killSwitch?.enabled ? "destructive" : "default"}>
-                        {killSwitch?.enabled ? "ENABLED" : "Disabled"}
+                      <Badge variant={killSwitch?.enabled ? 'destructive' : 'default'}>
+                        {killSwitch?.enabled ? 'ON' : 'OFF'}
                       </Badge>
                     )}
                   </div>
@@ -869,6 +1007,46 @@ export default function AdminDashboardPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Recent Credit Activity */}
+            <Card>
+              <CardHeader className="py-4">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Activity className="w-4 h-4" />
+                  Recent Credit Activity
+                </CardTitle>
+                <CardDescription>Last 10 credit transactions across all users</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingCreditTransactions ? (
+                  <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+                ) : creditTransactions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">No transactions yet</p>
+                ) : (
+                  <div className="space-y-2">
+                    {creditTransactions.slice(0, 10).map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between text-sm py-1.5 border-b last:border-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {tx.delta > 0
+                            ? <Plus className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                            : <Minus className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+                          <span className="truncate text-muted-foreground">
+                            {tx.user.displayName || tx.user.email || tx.userId}
+                          </span>
+                          <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">{tx.reason}</Badge>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0 ml-2">
+                          <span className={`font-medium ${tx.delta > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {tx.delta > 0 ? '+' : ''}{tx.delta.toLocaleString()}
+                          </span>
+                          <span className="text-muted-foreground text-xs">{new Date(tx.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Registration Codes Tab */}
@@ -1308,6 +1486,22 @@ export default function AdminDashboardPage() {
                   </SelectContent>
                 </Select>
 
+                <Select
+                  value={usersFilter.neverLoggedIn ? 'never' : 'all'}
+                  onValueChange={(v) => {
+                    setUsersFilter({ ...usersFilter, neverLoggedIn: v === 'never' ? true : undefined });
+                    setUsersPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Activity</SelectItem>
+                    <SelectItem value="never">Never Logged In</SelectItem>
+                  </SelectContent>
+                </Select>
+
                 <Select value={usersSortBy} onValueChange={(v: any) => setUsersSortBy(v)}>
                   <SelectTrigger className="w-[160px]">
                     <SelectValue />
@@ -1317,6 +1511,7 @@ export default function AdminDashboardPage() {
                     <SelectItem value="lastLoginAt">Recent Login</SelectItem>
                     <SelectItem value="lastSeenAt">Recent Activity</SelectItem>
                     <SelectItem value="email">Email A-Z</SelectItem>
+                    <SelectItem value="credits">Most Credits</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1388,25 +1583,24 @@ export default function AdminDashboardPage() {
                                   <div>Last login: {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</div>
                                   <div>Last active: {u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleString() : 'Never'}</div>
                                 </div>
-                                <div className="flex md:justify-end gap-2">
+                                <div className="flex md:justify-end gap-1.5 flex-wrap">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setGrantingUserId(u.id);
+                                      setGrantAmount('500');
+                                      setGrantReason('admin_grant');
+                                    }}
+                                  >
+                                    <Coins className="w-3.5 h-3.5 mr-1" />
+                                    Grant
+                                  </Button>
                                   {u.id !== user?.id && (
                                     <AlertDialog>
                                       <AlertDialogTrigger asChild>
-                                        <Button
-                                          variant={u.isActive ? "outline" : "default"}
-                                          size="sm"
-                                        >
-                                          {u.isActive ? (
-                                            <>
-                                              <Ban className="w-4 h-4 mr-1" />
-                                              Disable
-                                            </>
-                                          ) : (
-                                            <>
-                                              <CheckCircle2 className="w-4 h-4 mr-1" />
-                                              Enable
-                                            </>
-                                          )}
+                                        <Button variant={u.isActive ? 'outline' : 'default'} size="sm">
+                                          {u.isActive ? <Ban className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                                         </Button>
                                       </AlertDialogTrigger>
                                       <AlertDialogContent>
@@ -1460,6 +1654,72 @@ export default function AdminDashboardPage() {
                           >
                             Next
                           </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Credits Tab */}
+          <TabsContent value="credits" className="space-y-4">
+            <Card>
+              <CardHeader className="py-4">
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  Credit Transactions
+                </CardTitle>
+                <CardDescription>{creditTransactionsTotal} total transactions</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingCreditTransactions ? (
+                  <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+                ) : creditTransactions.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">No transactions yet</p>
+                ) : (
+                  <>
+                    <div className="rounded-md border">
+                      <div className="hidden md:grid grid-cols-[minmax(200px,1.5fr)_80px_180px_160px_120px] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                        <span>User</span>
+                        <span>Delta</span>
+                        <span>Reason</span>
+                        <span>Balance After</span>
+                        <span>Date</span>
+                      </div>
+                      <ScrollArea className="h-[62vh] min-h-[420px]">
+                        <div className="divide-y">
+                          {creditTransactions.map((tx) => (
+                            <div key={tx.id} className="grid gap-2 md:grid-cols-[minmax(200px,1.5fr)_80px_180px_160px_120px] md:items-center px-3 py-2.5">
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium truncate">
+                                  {tx.user.displayName || tx.user.email || tx.userId}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground truncate">{tx.userId}</div>
+                              </div>
+                              <div className={`text-sm font-bold ${tx.delta > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {tx.delta > 0 ? '+' : ''}{tx.delta.toLocaleString()}
+                              </div>
+                              <div>
+                                <Badge variant="outline" className="text-xs">{tx.reason}</Badge>
+                                {tx.refId && <div className="text-[10px] text-muted-foreground mt-0.5 truncate">{tx.refId}</div>}
+                              </div>
+                              <div className="text-sm text-muted-foreground">{tx.balanceAfter.toLocaleString()}</div>
+                              <div className="text-xs text-muted-foreground">{new Date(tx.createdAt).toLocaleString()}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                    {creditTransactionsTotal > 50 && (
+                      <div className="flex items-center justify-between mt-4">
+                        <div className="text-sm text-muted-foreground">
+                          Page {creditTransactionsPage} of {Math.ceil(creditTransactionsTotal / 50)} — {creditTransactionsTotal} total
+                        </div>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => setCreditTransactionsPage(p => Math.max(1, p - 1))} disabled={creditTransactionsPage <= 1}>Previous</Button>
+                          <Button variant="outline" size="sm" onClick={() => setCreditTransactionsPage(p => p + 1)} disabled={creditTransactionsPage >= Math.ceil(creditTransactionsTotal / 50)}>Next</Button>
                         </div>
                       </div>
                     )}
@@ -1679,6 +1939,56 @@ export default function AdminDashboardPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Grant Credits Dialog */}
+      <Dialog open={!!grantingUserId} onOpenChange={(open) => { if (!open) setGrantingUserId(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Coins className="w-5 h-5" />
+              Grant Credits
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {grantingUserId && (() => {
+              const target = users.find(u => u.id === grantingUserId);
+              return target ? (
+                <div className="text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+                  <span className="font-medium text-foreground">{target.displayName || target.email || target.id}</span>
+                  {target.credits !== null && <span className="ml-2">— current balance: <strong>{target.credits.toLocaleString()}</strong></span>}
+                </div>
+              ) : null;
+            })()}
+            <div className="space-y-2">
+              <Label htmlFor="grantAmount">Amount</Label>
+              <Input
+                id="grantAmount"
+                type="number"
+                min="1"
+                value={grantAmount}
+                onChange={(e) => setGrantAmount(e.target.value)}
+                placeholder="e.g. 500"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="grantReason">Reason</Label>
+              <Input
+                id="grantReason"
+                value={grantReason}
+                onChange={(e) => setGrantReason(e.target.value)}
+                placeholder="e.g. admin_grant, beta_grant"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGrantingUserId(null)} disabled={submittingGrant}>Cancel</Button>
+            <Button onClick={handleGrantCredits} disabled={submittingGrant}>
+              {submittingGrant ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Coins className="w-4 h-4 mr-2" />}
+              Grant
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

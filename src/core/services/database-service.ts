@@ -751,6 +751,7 @@ export class DatabaseService {
             isActive?: boolean;
             isAdmin?: boolean;
             isDemo?: boolean;
+            neverLoggedIn?: boolean;
         },
         sortBy: string = 'createdAt',
         sortOrder: 'asc' | 'desc' = 'desc'
@@ -760,18 +761,11 @@ export class DatabaseService {
         try {
             const where: Prisma.UserWhereInput = {};
 
-            // Apply boolean filters
-            if (filters?.isActive !== undefined) {
-                where.isActive = filters.isActive;
-            }
-            if (filters?.isAdmin !== undefined) {
-                where.isAdmin = filters.isAdmin;
-            }
-            if (filters?.isDemo !== undefined) {
-                where.isDemo = filters.isDemo;
-            }
+            if (filters?.isActive !== undefined) where.isActive = filters.isActive;
+            if (filters?.isAdmin !== undefined) where.isAdmin = filters.isAdmin;
+            if (filters?.isDemo !== undefined) where.isDemo = filters.isDemo;
+            if (filters?.neverLoggedIn) where.lastLoginAt = null;
 
-            // Apply search filter (case-insensitive search on email or displayName)
             if (filters?.search) {
                 where.OR = [
                     { email: { contains: filters.search, mode: 'insensitive' } },
@@ -779,7 +773,10 @@ export class DatabaseService {
                 ];
             }
 
-            // Execute queries in parallel for performance
+            const orderBy = sortBy === 'credits'
+                ? { creditBalance: { credits: sortOrder } }
+                : { [sortBy]: sortOrder };
+
             const [users, total] = await Promise.all([
                 this.prismaClient.user.findMany({
                     where,
@@ -797,7 +794,7 @@ export class DatabaseService {
                         lastSeenAt: true,
                         creditBalance: { select: { credits: true } },
                     },
-                    orderBy: { [sortBy]: sortOrder },
+                    orderBy,
                     take: limit,
                     skip: offset,
                 }),
@@ -815,10 +812,75 @@ export class DatabaseService {
         }
     }
 
+    async grantCredits(userId: string, amount: number, reason: string): Promise<{ credits: number }> {
+        return await this.prismaClient.$transaction(async (tx) => {
+            const balance = await tx.creditBalance.upsert({
+                where: { userId },
+                create: { userId, credits: amount },
+                update: { credits: { increment: amount } },
+            });
+            await tx.creditTransaction.create({
+                data: { userId, delta: amount, reason, balanceAfter: balance.credits },
+            });
+            return { credits: balance.credits };
+        });
+    }
+
+    async listCreditTransactions(limit = 50, offset = 0, userId?: string): Promise<{
+        transactions: Array<{
+            id: string; userId: string; delta: number; reason: string;
+            refId: string | null; balanceAfter: number; createdAt: Date;
+            user: { email: string | null; displayName: string | null };
+        }>;
+        total: number;
+    }> {
+        const where = userId ? { userId } : {};
+        const [transactions, total] = await Promise.all([
+            this.prismaClient.creditTransaction.findMany({
+                where,
+                select: {
+                    id: true, userId: true, delta: true, reason: true,
+                    refId: true, balanceAfter: true, createdAt: true,
+                    user: { select: { email: true, displayName: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: limit,
+                skip: offset,
+            }),
+            this.prismaClient.creditTransaction.count({ where }),
+        ]);
+        return { transactions, total };
+    }
+
+    async getSystemStats(): Promise<{
+        totalUsers: number;
+        activeUsers: number;
+        usersNeverLoggedIn: number;
+        totalCreditsInCirculation: number;
+        usersWithCredits: number;
+    }> {
+        const [totalUsers, activeUsers, usersNeverLoggedIn, creditAgg] = await Promise.all([
+            this.prismaClient.user.count(),
+            this.prismaClient.user.count({ where: { isActive: true } }),
+            this.prismaClient.user.count({ where: { lastLoginAt: null } }),
+            this.prismaClient.creditBalance.aggregate({
+                _sum: { credits: true },
+                _count: { userId: true },
+            }),
+        ]);
+        return {
+            totalUsers,
+            activeUsers,
+            usersNeverLoggedIn,
+            totalCreditsInCirculation: creditAgg._sum.credits ?? 0,
+            usersWithCredits: creditAgg._count.userId,
+        };
+    }
+
     /**
      * Ensures a wallet record exists in the database.
      * If the wallet doesn't exist, it creates a new one with default values.
-     * 
+     *
      * @param walletAddress The address of the wallet to find or create.
      * @returns A promise that resolves to the found or newly created Wallet object.
      * @throws Throws an error if the database operation fails unexpectedly.

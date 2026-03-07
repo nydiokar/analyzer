@@ -105,6 +105,16 @@ class CreateCodeDto {
   expiresAt?: string;
 }
 
+class GrantCreditsDto {
+  @IsNumber()
+  @Min(1)
+  amount: number;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 class CreateBulkCodesDto {
   @IsInt()
   @Min(1)
@@ -489,10 +499,11 @@ export class AdminController {
   @ApiQuery({ name: 'isActive', required: false, type: Boolean, description: 'Filter by active status' })
   @ApiQuery({ name: 'isAdmin', required: false, type: Boolean, description: 'Filter by admin status' })
   @ApiQuery({ name: 'isDemo', required: false, type: Boolean, description: 'Filter by demo status' })
-  @ApiQuery({ name: 'sortBy', required: false, enum: ['createdAt', 'lastLoginAt', 'lastSeenAt', 'email'], description: 'Field to sort by (default: createdAt)' })
+  @ApiQuery({ name: 'sortBy', required: false, enum: ['createdAt', 'lastLoginAt', 'lastSeenAt', 'email', 'credits'], description: 'Field to sort by (default: createdAt)' })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'], description: 'Sort direction (default: desc)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 50, description: 'Max results per page (default: 50, max: 1000)' })
   @ApiQuery({ name: 'offset', required: false, type: Number, example: 0, description: 'Number of results to skip (default: 0)' })
+  @ApiQuery({ name: 'neverLoggedIn', required: false, type: Boolean, description: 'Filter users who have never logged in' })
   @ApiResponse({ status: HttpStatus.OK, description: 'List of users', type: UsersListResponseDto })
   @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Admin privileges required' })
   async listUsers(
@@ -500,16 +511,15 @@ export class AdminController {
     @Query('isActive') isActive?: string,
     @Query('isAdmin') isAdmin?: string,
     @Query('isDemo') isDemo?: string,
+    @Query('neverLoggedIn') neverLoggedInStr?: string,
     @Query('sortBy') sortBy: string = 'createdAt',
     @Query('sortOrder') sortOrder: string = 'desc',
     @Query('limit') limitStr?: string,
     @Query('offset') offsetStr?: string,
   ): Promise<UsersListResponseDto> {
-    // Parse and validate pagination parameters
     const limit = Math.min(Math.max(1, parseInt(limitStr || '50', 10)), 1000);
     const offset = Math.max(0, parseInt(offsetStr || '0', 10));
 
-    // Parse boolean filters (handle string 'true'/'false' from query params)
     const parseBoolean = (val: string | undefined): boolean | undefined => {
       if (val === undefined) return undefined;
       return val.toLowerCase() === 'true';
@@ -520,15 +530,16 @@ export class AdminController {
       isActive?: boolean;
       isAdmin?: boolean;
       isDemo?: boolean;
+      neverLoggedIn?: boolean;
     } = {};
 
     if (search) filters.search = search;
     filters.isActive = parseBoolean(isActive);
     filters.isAdmin = parseBoolean(isAdmin);
     filters.isDemo = parseBoolean(isDemo);
+    if (neverLoggedInStr === 'true') filters.neverLoggedIn = true;
 
-    // Validate sortBy and sortOrder
-    const validSortFields = ['createdAt', 'lastLoginAt', 'lastSeenAt', 'email'];
+    const validSortFields = ['createdAt', 'lastLoginAt', 'lastSeenAt', 'email', 'credits'];
     const finalSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
     const finalSortOrder = sortOrder === 'asc' ? 'asc' : 'desc';
 
@@ -575,5 +586,47 @@ export class AdminController {
     }
     this.logger.log(`Admin ${req.user?.id} enabled user ${userId}`);
     return { success: true, message: `User ${userId} has been enabled` };
+  }
+
+  // ========================================
+  // CREDITS
+  // ========================================
+
+  @Post('users/:userId/credits')
+  @ApiOperation({ summary: 'Grant credits to a user (admin only)' })
+  @ApiParam({ name: 'userId', type: String })
+  @ApiBody({ type: GrantCreditsDto })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Credits granted successfully' })
+  async grantCredits(
+    @Param('userId') userId: string,
+    @Body(ValidationPipe) dto: GrantCreditsDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const result = await this.databaseService.grantCredits(userId, dto.amount, dto.reason ?? 'admin_grant');
+    this.logger.log(`Admin ${req.user?.id} granted ${dto.amount} credits to user ${userId}. New balance: ${result.credits}`);
+    return { success: true, credits: result.credits };
+  }
+
+  @Get('credits/transactions')
+  @ApiOperation({ summary: 'List all credit transactions (admin only)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'offset', required: false, type: Number })
+  @ApiQuery({ name: 'userId', required: false, type: String })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Credit transactions list' })
+  async listCreditTransactions(
+    @Query('limit') limitStr?: string,
+    @Query('offset') offsetStr?: string,
+    @Query('userId') userId?: string,
+  ) {
+    const limit = Math.min(Math.max(1, parseInt(limitStr || '50', 10)), 500);
+    const offset = Math.max(0, parseInt(offsetStr || '0', 10));
+    return this.databaseService.listCreditTransactions(limit, offset, userId);
+  }
+
+  @Get('stats')
+  @ApiOperation({ summary: 'Get system-wide stats (admin only)' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'System stats' })
+  async getSystemStats() {
+    return this.databaseService.getSystemStats();
   }
 }
