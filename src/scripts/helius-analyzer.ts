@@ -339,7 +339,7 @@ async function analyzeWalletWithHelius(
           logger.info(`--- Performing P/L Analysis for ${walletAddress}: --force flag set, bypassing skip logic. ---`);
           // pnlAnalysisSkipped remains false
         } else {
-          let reason = [];
+          const reason = [];
           if (!noNewOlderData) reason.push(`older data (batch min ${effectiveMinFetchedForPnlCheck} < analyzed start ${wallet.analyzedTimestampStart})`);
           if (!noNewNewerData) reason.push(`newer data (batch max ${effectiveMaxFetchedForPnlCheck} > analyzed end ${wallet.analyzedTimestampEnd})`);
           logger.info(`--- Performing P/L Analysis for ${walletAddress}: New transactions detected (${reason.join(' and ')}). Analyzed range: ${wallet.analyzedTimestampStart}-${wallet.analyzedTimestampEnd}. Effective fetched range for check: ${effectiveMinFetchedForPnlCheck}-${effectiveMaxFetchedForPnlCheck}. (Wallet fields: firstProcessedTimestamp=${globalFirstProcessedTs}, newestProcessedTimestamp=${globalNewestProcessedTs}) ---`);

@@ -67,7 +67,7 @@ async function fetchRpcSignaturesPage(apiKey: string, address: string, limit: nu
 
 async function getAllRpcSignatures(apiKey: string, address: string, maxSignatures: number | null = null, outputPath: string | null = null): Promise<void> {
     logger.info(`Starting RPC signature fetch for address: ${address}`);
-    let allSignatures: SignatureInfo[] = [];
+    const allSignatures: SignatureInfo[] = [];
     let lastSignature: string | null = null;
     let hasMore = true;
     let fetchedCount = 0;

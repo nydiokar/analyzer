@@ -188,11 +188,11 @@ export class WalletsController {
 
       // 5. Use data from these persisted overall summaries
       // Use realized PNL for summary card to avoid misleading inflated numbers
-      let latestPnl = overallPnlSummary.realizedPnl ?? 0;
-      let tokenWinRate = overallPnlSummary.advancedStats?.tokenWinRatePercent;
-      let behaviorClassification = overallBehaviorProfile?.tradingStyle || 'N/A';
-      let currentSolBalance = overallPnlSummary.currentSolBalance;
-      let balancesFetchedAt = overallPnlSummary.solBalanceFetchedAt;
+      const latestPnl = overallPnlSummary.realizedPnl ?? 0;
+      const tokenWinRate = overallPnlSummary.advancedStats?.tokenWinRatePercent;
+      const behaviorClassification = overallBehaviorProfile?.tradingStyle || 'N/A';
+      const currentSolBalance = overallPnlSummary.currentSolBalance;
+      const balancesFetchedAt = overallPnlSummary.solBalanceFetchedAt;
       
       // Calculate trade-level winrate for the summary card (canonical: WalletPnlSummary)
       let tradeLevelWinRate = tokenWinRate;
@@ -210,7 +210,7 @@ export class WalletsController {
 
       // For lastActiveTimestamp and daysActive, use overall wallet info if available
       // Fallback to PNL summary timestamps if wallet entity doesn't have them directly or is not fetched
-      let finalLastActiveTimestamp = overallPnlSummary.wallet?.newestProcessedTimestamp || overallPnlSummary.advancedStats?.lastTransactionTimestamp || null;
+      const finalLastActiveTimestamp = overallPnlSummary.wallet?.newestProcessedTimestamp || overallPnlSummary.advancedStats?.lastTransactionTimestamp || null;
       let finalDaysActive: string | number = 0;
       const firstProcessedOverallTs = overallPnlSummary.wallet?.firstProcessedTimestamp || overallPnlSummary.advancedStats?.firstTransactionTimestamp || null;
 

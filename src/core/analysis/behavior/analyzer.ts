@@ -104,7 +104,7 @@ export class BehaviorAnalyzer {
     if (metrics.totalTradeCount > 0 && firstTransactionTimestamp && lastTransactionTimestamp && lastTransactionTimestamp >= firstTransactionTimestamp) {
       const wallClockDurationSeconds = lastTransactionTimestamp - firstTransactionTimestamp;
       // actualDurationDays can be 0 if first and last timestamp are the same.
-      let actualDurationDays = wallClockDurationSeconds / (60 * 60 * 24);
+      const actualDurationDays = wallClockDurationSeconds / (60 * 60 * 24);
 
       // For tradesPerDay:
       // If activity spans less than a day (i.e., actualDurationDays < 1),

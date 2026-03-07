@@ -164,7 +164,7 @@ export class DatabaseService {
         const maxRetries: number = DB_CONFIG.maxRetries ?? 3;
         const baseDelayMs: number = DB_CONFIG.retryDelayMs ?? 1000;
         let attempt: number = 0;
-        // eslint-disable-next-line no-constant-condition
+         
         while (true) {
             try {
                 return await fn();
@@ -2567,7 +2567,7 @@ export class DatabaseService {
         ]);
     }
 
-    async getTokenLots(walletAddress: string): Promise<Array<Prisma.TokenLotGetPayload<{}>>> {
+    async getTokenLots(walletAddress: string): Promise<Array<Prisma.TokenLotGetPayload<object>>> {
         return this.prismaClient.tokenLot.findMany({ where: { walletAddress } });
     }
 
