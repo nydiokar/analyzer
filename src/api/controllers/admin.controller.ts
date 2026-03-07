@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, Logger, ValidationPipe, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery, ApiBody, ApiProperty } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 import { AdminOnly } from '../shared/decorators/admin-only.decorator';
@@ -216,6 +217,7 @@ interface AuthenticatedRequest extends Request {
 @Controller('admin')
 @AdminOnly()
 @ApiBearerAuth()
+@SkipThrottle()
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
 
