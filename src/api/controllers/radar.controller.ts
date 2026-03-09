@@ -82,10 +82,16 @@ export class RadarController {
     const existing = await prisma.radarWallet.findUnique({ where: { wallet: address } });
     if (!existing) throw new NotFoundException('Wallet not found on radar');
 
-    await prisma.radarWallet.update({
-      where: { wallet: address },
-      data: { isActive: false },
-    });
+    await prisma.$transaction([
+      prisma.radarWallet.update({
+        where: { wallet: address },
+        data: { isActive: false },
+      }),
+      prisma.radarHolding.updateMany({
+        where: { wallet: address, reviewStatus: { not: 'ignored' } },
+        data: { reviewStatus: 'ignored', reviewedAt: new Date() },
+      }),
+    ]);
   }
 
   // POST /analyst/radar/:address/snapshot — run snapshot

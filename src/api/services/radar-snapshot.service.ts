@@ -6,6 +6,9 @@ import { TokenBalanceDetails } from '../../types/wallet';
 
 const DUST_USD_THRESHOLD = 80;
 const DUST_BALANCE_THRESHOLD = 200;
+// Tokens with no price data are held to a stricter balance threshold to prevent
+// garbage memecoins (huge supply, no liquidity) from flooding the feed.
+const DUST_BALANCE_THRESHOLD_NO_PRICE = 500_000;
 
 export interface SnapshotResult {
   wallet: string;
@@ -29,14 +32,9 @@ export class RadarSnapshotService {
     const walletBalance = await this.balanceCacheService.getBalances(walletAddress);
     const rawBalances: TokenBalanceDetails[] = walletBalance?.tokenBalances ?? [];
 
-    // Enrich with USD prices — batch fetch all mints in one query
+    // Fetch live prices via Redis cache → DexScreener (same path as wallet-hud, similarity, etc.)
     const mints = rawBalances.map((t) => t.mint);
-    const tokenInfos = mints.length > 0 ? await this.tokenInfoService.findMany(mints) : [];
-    const priceByMint = new Map(
-      tokenInfos
-        .filter((info) => info.priceUsd != null)
-        .map((info) => [info.tokenAddress, parseFloat(info.priceUsd!)]),
-    );
+    const priceByMint = mints.length > 0 ? await this.tokenInfoService.getTokenPrices(mints) : new Map<string, number>();
 
     const tokenBalances: TokenBalanceDetails[] = rawBalances.map((t) => {
       const price = priceByMint.get(t.mint);
@@ -77,7 +75,9 @@ export class RadarSnapshotService {
         });
         newTokens++;
       } else {
-        // Existing token — always refresh balance + price regardless of current value
+        // Existing token — refresh balance + price, and re-apply dust filter.
+        // Tokens that no longer pass (price now known and below threshold) get auto-ignored.
+        const passes = this.passesDustFilter(token);
         await prisma.radarHolding.update({
           where: { wallet_tokenMint: { wallet: walletAddress, tokenMint: token.mint } },
           data: {
@@ -85,6 +85,7 @@ export class RadarSnapshotService {
             uiBalance: token.uiBalance,
             usdValue: token.valueUsd ?? null,
             isActiveHolding: true,
+            ...(passes ? {} : { reviewStatus: 'ignored', reviewedAt: now }),
           },
         });
         updatedTokens++;
@@ -112,12 +113,10 @@ export class RadarSnapshotService {
   }
 
   private passesDustFilter(token: TokenBalanceDetails): boolean {
-    if (token.valueUsd !== undefined && token.valueUsd < DUST_USD_THRESHOLD) {
-      return false;
+    if (token.valueUsd !== undefined) {
+      return token.valueUsd >= DUST_USD_THRESHOLD;
     }
-    if (token.uiBalance < DUST_BALANCE_THRESHOLD) {
-      return false;
-    }
-    return true;
+    // No price data — apply strict balance threshold to avoid garbage memecoins
+    return token.uiBalance >= DUST_BALANCE_THRESHOLD_NO_PRICE;
   }
 }

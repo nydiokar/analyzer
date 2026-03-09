@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/tracked-wallets-page`  **Last Updated:** 2026-03-09  **Status:** Holdings Radar backend complete — frontend wiring next
+**Branch:** `feat/tracked-wallets-page`  **Last Updated:** 2026-03-09  **Status:** Holdings Radar fully wired — frontend + backend bugs fixed, page functional
 
 **Base:** `main` (Credit ledger + Intel API layer + X402 agent payments + TypeScript SDK — all merged)
 
@@ -20,11 +20,11 @@ Full spec: `spec.md` in repo root.
 | ⏭️ | **[TRK-4] ATA acquisition time** — deferred, not needed for v1 | Backend | Skipped. `acquiredAt` field exists on schema for future use. |
 | ✅ | **[TRK-5] Radar controller + module** — all 7 endpoints (`/analyst/radar/...`), all guarded by `@IsAnalyst()` | Backend | `src/api/controllers/radar.controller.ts`, `src/api/modules/radar.module.ts`. Wired into `ApiModule`. |
 | ✅ | **[TRK-AUTH] `isAnalyst` propagation** — field missing from all auth responses and frontend User type | Backend + Frontend | `auth.service.ts` (3 return blocks), `auth.controller.ts` (`getProfile`), `auth-store.ts` (User + AuthResponse), `useAuth.ts` (login + register). |
-| ⚪ | **[TRK-6] Frontend page scaffold** — `/radar` route, access gate, AppShell nav item | Frontend | `src/app/radar/page.tsx`. Redirect non-analyst users. |
-| ⚪ | **[TRK-7] Event feed view** — unreviewed-first, `firstSeenAt DESC`, `TokenBadge inline s`, review actions | Frontend | Default landing view. Uses `GET /analyst/radar/feed`. |
-| ⚪ | **[TRK-8] Holdings view** — per-wallet expandable, sortable table, `TokenBadge inline s` | Frontend | Secondary view. Uses `GET /analyst/radar/:address/holdings`. |
-| ⚪ | **[TRK-9] Add wallet input + snapshot trigger** — address validation, POST, immediate snapshot, show result | Frontend | Top of page. On add: POST wallet → POST snapshot → refresh feed. |
-| ⚪ | **[TRK-10] Review status actions** — mark reviewed / ignore inline in feed and holdings table | Frontend | PATCH `/analyst/radar/holdings/:id/review`. Optimistic update. |
+| ✅ | **[TRK-6] Frontend page scaffold** — `/radar` route, access gate, `AppShell` wrapper, nav item | Frontend | `dashboard/src/app/radar/page.tsx`. |
+| ✅ | **[TRK-7] Event feed view** — `FeedRow` component with live USD via `useLiveUsdValue`, review actions | Frontend | `GET /analyst/radar/feed`. `FeedRow` calls `useTokenMetadata` — same batcher as `TokenBadge`. |
+| ✅ | **[TRK-8] Holdings view** — per-wallet expandable, `HoldingRow` with live USD, sortable table | Frontend | `GET /analyst/radar/:address/holdings`. Lazy-loaded on expand. |
+| ✅ | **[TRK-9] Add wallet input + snapshot trigger** — address validation, POST, immediate snapshot, refresh feed | Frontend | POST wallet → POST snapshot → refresh. |
+| ✅ | **[TRK-10] Review status actions** — mark reviewed / ignore inline in feed and holdings table | Frontend | `PATCH /analyst/radar/holdings/:id/review`. Optimistic update in both views. |
 
 ---
 
@@ -56,13 +56,11 @@ Full spec: `spec.md` in repo root.
 
 ##  Current Focus & Priorities
 
-### P0: Holdings Radar — Backend ✅ COMPLETE, Frontend next (Mar 9, 2026)
+### P0: Holdings Radar — ✅ COMPLETE (Mar 9, 2026)
 
 New feature on `feat/tracked-wallets-page`. Full spec in `.ai/context/holding_feed/spec.md`.
 
 **What this is:** Operational monitoring page for specific wallets — ATA holdings via Helius, no analysis pipeline dependency. First-seen token detection feed. Analyst-gated access (`isAnalyst` flag, not admin).
-
-**Backend complete. Next: TRK-6 through TRK-10 (frontend).**
 
 **Key design decisions:**
 - `isAnalyst` on `User` (not `isAdmin`) — operational role separate from administrative role
@@ -99,17 +97,19 @@ New feature on `feat/tracked-wallets-page`. Full spec in `.ai/context/holding_fe
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
-| 9.1 | 🎯 FEAT | TRK-1: `RadarWallet` + `RadarHolding` Prisma models + `User.isAnalyst` flag, migration applied | 🟢 S | `prisma/schema.prisma`, migration `20260309091049` |
-| 9.2 | 🎯 FEAT | TRK-2: `AnalystGuard` + `@IsAnalyst()` decorator, registered as global guard | 🟢 S | `src/api/shared/guards/analyst.guard.ts`, `src/api/shared/decorators/analyst.decorator.ts`, `src/app.module.ts` |
-| 9.3 | 🎯 FEAT | TRK-3: `RadarSnapshotService` — `BalanceCacheService` reuse, dust filter, upsert with firstSeenAt/deactivation | 🟢 S | `src/api/services/radar-snapshot.service.ts` |
-| 9.4 | 🎯 FEAT | TRK-5: `RadarController` (7 endpoints at `/analyst/radar/...`) + `RadarModule` wired into `ApiModule` | 🟡 M | `src/api/controllers/radar.controller.ts`, `src/api/modules/radar.module.ts`, `src/api.module.ts` |
-| 9.5 | 🐛 FIX | `isAnalyst` missing from all auth responses and frontend `User` type — propagated through full auth chain | 🟡 M | `src/api/shared/services/auth.service.ts`, `src/api/controllers/auth.controller.ts`, `src/store/auth-store.ts`, `src/hooks/useAuth.ts` |
+| 9.1 | 🎯 FEAT | TRK-1–5: Full Holdings Radar backend — models, guard, snapshot service, 7 endpoints | 🟡 M | `radar.controller.ts`, `radar-snapshot.service.ts`, `radar.module.ts`, schema migration |
+| 9.2 | 🐛 FIX | `isAnalyst` missing from all auth responses and frontend `User` type | 🟡 M | `auth.service.ts`, `auth.controller.ts`, `auth-store.ts`, `useAuth.ts` |
+| 9.3 | 🎯 FEAT | TRK-6–10: Holdings Radar frontend — event feed, holdings view, add/remove wallet, review actions | 🟡 M | `dashboard/src/app/radar/page.tsx` |
+| 9.4 | 🐛 FIX | Radar page missing `<AppShell>` — no nav, white mode, completely detached from app chrome | 🟢 S | `radar/page.tsx` |
+| 9.5 | 🐛 FIX | `fetchFeed` declared after `runSnapshot` caused "used before declaration" TS build error | 🟢 S | `radar/page.tsx` |
+| 9.6 | 🐛 FIX | Wallet removal: `DELETE` only soft-deleted `RadarWallet`, holdings stayed in feed on next refresh — cascaded `ignored` status to all holdings in same transaction | 🟢 S | `radar.controller.ts` |
+| 9.7 | 🐛 FIX | Snapshot used `tokenInfoService.findMany()` (cold DB read) for prices — always stale. Switched to `tokenInfoService.getTokenPrices()` (Redis→DexScreener, same path as wallet-hud/similarity) | 🟢 S | `radar-snapshot.service.ts` |
+| 9.8 | 🐛 FIX | Dust filter only ran on new token inserts — existing garbage tokens admitted before price data was available stayed forever. Re-apply filter on every update; tokens that now fail get auto-ignored | 🟢 S | `radar-snapshot.service.ts` |
+| 9.9 | 🐛 FIX | USD value column showed `—` everywhere — snapshot's `usdValue` is stale between runs. Switched to live price via `useTokenMetadata` (same batcher as `TokenBadge`, zero extra API calls) | 🟢 S | `radar/page.tsx` — `FeedRow`, `HoldingRow`, `useLiveUsdValue` components |
 
 **Summary:**
 
-**9.1–9.4:** Full Holdings Radar backend. `RadarWallet` tracks monitored addresses; `RadarHolding` stores per-wallet-token state with `firstSeenAt`, `reviewStatus`, `isActiveHolding`. Snapshot service calls `BalanceCacheService.getBalances()`, applies dust filter (usdValue < 80 OR uiBalance < 200), upserts new tokens with `reviewStatus=unreviewed`, updates existing, deactivates absent. All 7 REST endpoints at `/analyst/radar/...` gated by `@IsAnalyst()`. `GET feed` declared before `GET :address/holdings` to prevent NestJS route shadowing. `ValidationPipe` applied per `@Body()` param.
-
-**9.5:** `isAnalyst` was not included in login/register/refresh responses or `GET /auth/me`. Frontend `User` type and auth store also lacked the field. Fixed across all three auth service return blocks, the `getProfile` endpoint, the frontend `User` + `AuthResponse` interfaces, and both login/register paths in `useAuth.ts`. Frontend access gate (`user.isAnalyst || user.isAdmin`) will now work correctly.
+Full Holdings Radar page is now functional. The main session work after initial scaffold was fixing a cascade of price-related bugs: the snapshot was doing a passive DB read for prices (always stale or missing for new tokens), the dust filter only ran at insert time so early garbage tokens could never be evicted, and the frontend USD column was reading the stale stored `usdValue` instead of live prices. All three are fixed: snapshot now fetches live prices via the same Redis→DexScreener path used everywhere else, the dust filter re-runs on every update and auto-ignores tokens that fail, and the frontend computes USD value from `useTokenMetadata` which shares the batcher with `TokenBadge` (no extra calls). Wallet removal now cascades `ignored` status to holdings in a transaction so they don't reappear on next feed refresh.
 
 ---
 
@@ -259,7 +259,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-09  **Branch:** `feat/tracked-wallets-page`  **Backend TRK-1–5 complete, frontend TRK-6–10 next**
+**Last Updated:** 2026-03-09  **Branch:** `feat/tracked-wallets-page`  **Holdings Radar fully functional — all TRK tasks complete**
 
 
 
