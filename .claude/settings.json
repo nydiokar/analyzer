@@ -1,5 +1,51 @@
 {
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": false
+  },
+  "permissions": {
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)",
+      "Write(.env)",
+      "Write(.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Glob(**/.env)",
+      "Glob(**/.env.*)",
+      "Grep(**/.env)",
+      "Grep(**/.env.*)",
+      "Bash(cat*/.env*)",
+      "Bash(grep*/.env*)",
+      "Bash(awk*/.env*)",
+      "Bash(sed*/.env*)",
+      "Bash(less*/.env*)",
+      "Bash(more*/.env*)",
+      "Bash(tail*/.env*)",
+      "Bash(head*/.env*)",
+      "Bash(strings*/.env*)",
+      "Bash(xxd*/.env*)",
+      "Bash(od*/.env*)",
+      "Bash(hexdump*/.env*)",
+      "Bash(tee*/.env*)",
+      "Bash(cp*/.env*)",
+      "Bash(mv*/.env*)",
+      "Bash(sort*/.env*)",
+      "Bash(cut*/.env*)",
+      "Bash(tr*/.env*)",
+      "Bash(wc*/.env*)",
+      "Bash(diff*/.env*)",
+      "Bash(python*/.env*)",
+      "Bash(node*/.env*)",
+      "Bash(perl*/.env*)",
+      "Bash(ruby*/.env*)",
+      "Bash(jq*/.env*)",
+      "Bash(*/.env*)"
+    ]
   }
 }

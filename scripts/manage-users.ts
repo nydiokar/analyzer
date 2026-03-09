@@ -158,21 +158,22 @@ async function main() {
             console.log('═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════');
             console.log('🔑 All Users:');
             console.log('═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════');
-            console.log('ID                                    | Display Name       | Email                              | Active | Admin  | Demo   | Email Ver. | Last Login  | Last Seen   | Description            | Created');
-            console.log('──────────────────────────────────────|────────────────────|────────────────────────────────────|────────|────────|────────|────────────|─────────────|─────────────|────────────────────────|─────────────');
+            console.log('ID                                    | Display Name       | Email                              | Active | Admin  | Analyst | Demo   | Email Ver. | Last Login  | Last Seen   | Description            | Created');
+            console.log('──────────────────────────────────────|────────────────────|────────────────────────────────────|────────|────────|─────────|────────|────────────|─────────────|─────────────|────────────────────────|─────────────');
             users.forEach(user => {
               const id = user.id.padEnd(36);
               const displayName = ((user as any).displayName || 'N/A').padEnd(18);
               const email = (user.email || 'N/A').padEnd(35);
               const active = user.isActive ? '✅ Yes' : '❌ No ';
               const isAdmin = (user as any).isAdmin ? '👑 Yes' : 'No    ';
+              const isAnalyst = (user as any).isAnalyst ? '🔬 Yes  ' : 'No      ';
               const isDemo = user.isDemo ? '✅ Yes' : 'No    ';
               const emailVerified = (user as any).emailVerified ? '✅ Yes    ' : '❌ No     ';
               const lastLogin = (user as any).lastLoginAt ? new Date((user as any).lastLoginAt).toISOString().substring(0, 10) : 'Never      ';
               const lastSeen = (user as any).lastSeenAt ? new Date((user as any).lastSeenAt).toISOString().substring(0, 10) : 'Never      ';
               const description = (user.description || 'N/A').padEnd(22);
               const createdAt = new Date(user.createdAt).toISOString().substring(0, 10);
-              console.log(`${id} | ${displayName} | ${email} | ${active} | ${isAdmin} | ${isDemo} | ${emailVerified} | ${lastLogin} | ${lastSeen} | ${description} | ${createdAt}`);
+              console.log(`${id} | ${displayName} | ${email} | ${active} | ${isAdmin} | ${isAnalyst} | ${isDemo} | ${emailVerified} | ${lastLogin} | ${lastSeen} | ${description} | ${createdAt}`);
             });
             console.log('═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════');
           } else {
@@ -504,6 +505,39 @@ async function main() {
           }
         } catch (error) {
           logger.error('❌ Error setting admin status:', getErrorMessage(error));
+        }
+      }
+    )
+    .command(
+      'set-analyst <id> <status>',
+      'Set analyst privileges for a user (e.g., set-analyst <user-id> true)',
+      (yargs) => {
+        return yargs
+          .positional('id', {
+            describe: 'The ID of the user to modify',
+            type: 'string',
+            demandOption: true,
+          })
+          .positional('status', {
+            describe: 'Analyst status to set (true or false)',
+            type: 'boolean',
+            demandOption: true,
+          });
+      },
+      async (argv) => {
+        console.log(`\nAttempting to set analyst status for user ${argv.id} to ${argv.status}...`);
+        try {
+          const user: any = await prisma.user.update({
+            where: { id: argv.id as string },
+            data: { isAnalyst: argv.status as boolean } as any,
+          });
+
+          if (user) {
+            const emoji = user.isAnalyst ? '🔬' : '👤';
+            console.log(`${emoji} User ${user.id} (${user.email || user.description || 'N/A'}) analyst status set to: ${user.isAnalyst}`);
+          }
+        } catch (error) {
+          logger.error('❌ Error setting analyst status:', getErrorMessage(error));
         }
       }
     )
