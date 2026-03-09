@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/telegram-bot-intel`  **Last Updated:** 2026-03-09  **Status:** Scaffolding
+**Branch:** `feat/telegram-bot-intel`  **Last Updated:** 2026-03-09  **Status:** TG-1–TG-9 complete — awaiting E2E test
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -14,16 +14,16 @@ Full spec: `.ai/context/telegram-bot/spec.md`
 
 | Status | Task | Area | Notes |
 |:------:|:-----|:----:|:------|
-| ⬜ | **[TG-1] Schema + migration** — `TelegramBotLog` model | Backend | New Prisma model for per-invocation attribution. Fire-and-forget write after each command. |
-| ⬜ | **[TG-2] API key seed script** — `prisma/seed-telegram-bot.ts` | Backend | Creates `system-telegram-bot` User + hashed ApiKey. Prints raw key once to stdout. Manual credit top-up after. |
-| ⬜ | **[TG-3] Bot scaffold** — `src/bot/intel/` entry point + auth middleware | Bot | `index.ts`, `bot.ts`, `config.ts`. Telegraf setup, `ALLOWED_USER_IDS` allowlist, command skeleton. |
-| ⬜ | **[TG-4] Intel API client** — `intel-client.ts` | Bot | Typed axios wrapper for `/hud`, `/intel/wallet/:addr`, `/intel/token/:mint/holders`, `/api/v1/jobs/:jobId`. API key via header. |
-| ⬜ | **[TG-5] /hud command + formatter** | Bot | `commands/hud.ts` + `formatters/hud.formatter.ts`. Send ⏳ msg → await API (holds 30s) → edit msg with result. |
-| ⬜ | **[TG-6] /profile command + formatter** | Bot | `commands/profile.ts` + `formatters/profile.formatter.ts`. Same ⏳ → edit pattern. Bold PnL, behavior tags. |
-| ⬜ | **[TG-7] /holders command + formatter + async poll** | Bot | `commands/holders.ts` + `formatters/holders.formatter.ts`. POST → 202 → poll job every 3s (up to 2min) → edit msg. |
-| ⬜ | **[TG-8] Attribution logging** — write `TelegramBotLog` rows | Bot | Fire-and-forget after each command resolves. Wrap in try/catch, never blocks response. |
-| ⬜ | **[TG-9] PM2 process config** — add `sova-tg-bot` entry to `ecosystem.config.js` | DevOps | `script: 'src/bot/intel/index.ts', interpreter: 'ts-node', args: '-r tsconfig-paths/register'`. Env vars from `.env`. |
-| ⬜ | **[TG-10] E2E test** — all three commands with real addresses in Telegram | Manual | Verify formatted output, credit deduction, attribution rows in DB. |
+| ✅ | **[TG-1] Schema + migration** — `TelegramBotLog` model | Backend | Migration `20260309153328_add_telegram_bot_log` applied. |
+| ✅ | **[TG-2] API key seed script** — `prisma/seed-telegram-bot.ts` | Backend | Creates `system-telegram-bot` User + `ak_<hex>` ApiKey (bcrypt hash). Run once — prints raw key to stdout. |
+| ✅ | **[TG-3] Bot scaffold** — `src/bot/intel/` entry point + auth middleware | Bot | `index.ts`, `bot.ts`, `config.ts`. Telegraf setup, `ALLOWED_USER_IDS` allowlist, SIGINT/SIGTERM, `process.send('ready')`. |
+| ✅ | **[TG-4] Intel API client** — `intel-client.ts` | Bot | Typed axios wrapper: `getHud` / `getProfile` (35s timeout), `postHolders`, `pollJob` (5s). Header: `x-api-key`. Types copied from pft-bot_v2. |
+| ✅ | **[TG-5] /hud command + formatter** | Bot | `commands/hud.ts` + `formatters/hud.formatter.ts`. ⏳ → await API → edit msg with Telegram HTML. |
+| ✅ | **[TG-6] /profile command + formatter** | Bot | `commands/profile.ts` + `formatters/profile.formatter.ts`. Same ⏳ → edit pattern, 5cr. |
+| ✅ | **[TG-7] /holders command + formatter + async poll** | Bot | `commands/holders.ts` + `formatters/holders.formatter.ts`. POST → poll every 3s (up to 120s) → edit. Formatter adapted from pft-bot_v2. |
+| ✅ | **[TG-8] Attribution logging** — write `TelegramBotLog` rows | Bot | `attribution.ts` — fire-and-forget `logInvocation()` called in all three handlers. |
+| ✅ | **[TG-9] PM2 process config** — add `sova-tg-bot` entry to `ecosystem.config.js` | DevOps | ts-node interpreter, `wait_ready: true`, `exp_backoff_restart_delay: 100`, `max_memory_restart: 512M`. |
+| ⬜ | **[TG-10] E2E test** — all three commands with real addresses in Telegram | Manual | Requires: `TELEGRAM_BOT_TOKEN`, `INTEL_API_KEY` in `.env`, credits topped up for bot user, `ALLOWED_TELEGRAM_USER_IDS` set. |
 
 ---
 
@@ -104,6 +104,7 @@ New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
+| 9.11 | 🎯 FEAT | TG-1–TG-9: Full Telegram Bot Intel implementation — schema, seed, scaffold, client, commands, formatters, attribution, PM2 | 🟡 M | `prisma/schema.prisma`, `prisma/seed-telegram-bot.ts`, `src/bot/intel/` (11 files), `ecosystem.config.js` |
 | 9.10 | 🎯 FEAT | Branch `feat/telegram-bot-intel` created — spec + CONTEXT updated | 🟢 S | `.ai/context/telegram-bot/spec.md`, `.ai/CONTEXT.md` |
 
 ### March 9, 2026 — Holdings Radar (previous branch)
@@ -265,7 +266,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-09  **Branch:** `feat/telegram-bot-intel`  **Scaffold complete — TG-1 through TG-9 ready to implement**
+**Last Updated:** 2026-03-09  **Branch:** `feat/telegram-bot-intel`  **TG-1 through TG-9 implemented — TG-10 (E2E test) pending**
 
 
 

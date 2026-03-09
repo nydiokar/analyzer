@@ -718,3 +718,23 @@ model RadarHolding {
   @@index([reviewStatus])
   @@index([isActiveHolding])
 }
+
+// ---------------------------------------------------------------------------
+// Telegram Bot Intel — per-invocation attribution log
+// ---------------------------------------------------------------------------
+
+model TelegramBotLog {
+  id             String   @id @default(cuid())
+  telegramUserId String
+  username       String?
+  command        String   // 'hud' | 'holders' | 'profile'
+  address        String   // wallet addr or mint
+  creditCost     Int
+  success        Boolean
+  errorCode      String?
+  createdAt      DateTime @default(now())
+
+  @@index([telegramUserId])
+  @@index([command])
+  @@index([createdAt])
+}
