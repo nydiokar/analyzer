@@ -45,6 +45,7 @@ export interface AuthResponse {
     isDemo: boolean;
     emailVerified: boolean;
     isAdmin: boolean;
+    isAnalyst: boolean;
     displayName?: string;
   };
 }
@@ -150,6 +151,7 @@ export class AuthService {
           isDemo: user.isDemo,
           emailVerified: user.emailVerified,
           isAdmin: false,
+          isAnalyst: user.isAnalyst,
           displayName: user.displayName || undefined,
         },
       };
@@ -206,6 +208,7 @@ export class AuthService {
           isDemo: user.isDemo,
           emailVerified: user.emailVerified,
           isAdmin: false,
+          isAnalyst: user.isAnalyst,
           displayName: user.displayName || undefined,
         },
       };
@@ -597,6 +600,7 @@ export class AuthService {
           isDemo: user.isDemo,
           emailVerified: user.emailVerified,
           isAdmin: false,
+          isAnalyst: user.isAnalyst,
           displayName: user.displayName || undefined,
         },
       };

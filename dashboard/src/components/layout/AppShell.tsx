@@ -49,7 +49,7 @@ export function AppShell({ children }: AppShellProps) {
 
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { balance } = useCredits();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -71,6 +71,7 @@ export function AppShell({ children }: AppShellProps) {
     { href: '/similarity-lab', label: 'Similarity Lab' },
     { href: '/tools/holder-profiles', label: 'Holder Profiles' },
     { href: '/wallet-hunt', label: 'Wallet Hunt' },
+    ...(user?.isAnalyst || user?.isAdmin ? [{ href: '/radar', label: 'Radar' }] : []),
   ];
 
   const isActiveRoute = (href: string) => {

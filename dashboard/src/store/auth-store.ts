@@ -7,6 +7,7 @@ export interface User {
   isDemo: boolean;
   emailVerified: boolean;
   isAdmin: boolean;
+  isAnalyst: boolean;
   createdAt: string;
   lastLoginAt: string | null;
   displayName?: string;
@@ -21,6 +22,7 @@ export interface AuthResponse {
     isDemo: boolean;
     emailVerified: boolean;
     isAdmin: boolean;
+    isAnalyst: boolean;
   };
 }
 
@@ -281,6 +283,7 @@ export const useAuthStore = create<AuthStore>()(
                 isDemo: data.user.isDemo,
                 emailVerified: data.user.emailVerified,
                 isAdmin: data.user.isAdmin,
+                isAnalyst: data.user.isAnalyst || false,
                 createdAt: new Date().toISOString(),
                 lastLoginAt: new Date().toISOString(),
               },

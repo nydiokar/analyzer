@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/tracked-wallets-page`  **Last Updated:** 2026-03-09  **Status:** New feature — Tracked Holdings Page (analysis-pipeline-independent, ATA-based, analyst access control)
+**Branch:** `feat/tracked-wallets-page`  **Last Updated:** 2026-03-09  **Status:** Holdings Radar backend complete — frontend wiring next
 
 **Base:** `main` (Credit ledger + Intel API layer + X402 agent payments + TypeScript SDK — all merged)
 
@@ -14,16 +14,17 @@ Full spec: `spec.md` in repo root.
 
 | Status | Task | Area | Notes |
 |:------:|:-----|:----:|:------|
-| ⚪ | **[TRK-1] Schema** — add `TrackedWallet`, `TrackedWalletHolding` models + `User.isAnalyst` flag | Backend | New Prisma models, no FK to existing `Wallet`. Migration needed. |
-| ⚪ | **[TRK-2] AnalystGuard** — new guard checking `user.isAnalyst \|\| user.isAdmin` | Backend | `src/api/shared/guards/analyst.guard.ts` + `@IsAnalyst()` decorator. Wire into new module. |
-| ⚪ | **[TRK-3] Snapshot service** — upsert holdings from `BalanceCacheService`, dust filter, first-seen detection | Backend | `src/api/services/tracked-wallet-snapshot.service.ts`. Reuses existing `BalanceCacheService`. |
-| ⚪ | **[TRK-4] ATA acquisition time** (optional v1) — for newly seen tokens, compute ATA address, query `getTransactionsForAddress` on ATA to get actual first-transfer timestamp | Backend | One Helius call per new token. Store as `acquiredAt` on `TrackedWalletHolding`. |
-| ⚪ | **[TRK-5] Analyst controller + module** — all 7 endpoints (`/analyst/tracked-wallets/...`), all guarded by `AnalystGuard` | Backend | `src/api/controllers/analyst.controller.ts`, `src/api/modules/analyst.module.ts` |
-| ⚪ | **[TRK-6] Frontend page scaffold** — `/tracked-holdings` route, access gate, AppShell nav item | Frontend | `dashboard/src/app/tracked-holdings/page.tsx`, layout file. Redirect non-analyst users. |
-| ⚪ | **[TRK-7] Event feed view** — unreviewed-first, `firstSeenAt DESC`, `TokenBadge inline s`, review actions | Frontend | Default landing view. Uses `GET /analyst/tracked-wallets/feed`. |
-| ⚪ | **[TRK-8] Holdings view** — per-wallet expandable, sortable table, `TokenBadge inline s` | Frontend | Secondary view. Uses `GET /analyst/tracked-wallets/:address/holdings`. |
+| ✅ | **[TRK-1] Schema** — `RadarWallet`, `RadarHolding` models + `User.isAnalyst` flag | Backend | Migration `20260309091049_add_radar_models_and_analyst_flag` applied. |
+| ✅ | **[TRK-2] AnalystGuard** — guard checking `user.isAnalyst \|\| user.isAdmin` | Backend | `src/api/shared/guards/analyst.guard.ts` + `src/api/shared/decorators/analyst.decorator.ts`. Registered as global guard in `AppModule`. |
+| ✅ | **[TRK-3] Snapshot service** — upsert holdings from `BalanceCacheService`, dust filter, first-seen detection | Backend | `src/api/services/radar-snapshot.service.ts`. No ATA calls — firstSeenAt is radar-detection time only. |
+| ⏭️ | **[TRK-4] ATA acquisition time** — deferred, not needed for v1 | Backend | Skipped. `acquiredAt` field exists on schema for future use. |
+| ✅ | **[TRK-5] Radar controller + module** — all 7 endpoints (`/analyst/radar/...`), all guarded by `@IsAnalyst()` | Backend | `src/api/controllers/radar.controller.ts`, `src/api/modules/radar.module.ts`. Wired into `ApiModule`. |
+| ✅ | **[TRK-AUTH] `isAnalyst` propagation** — field missing from all auth responses and frontend User type | Backend + Frontend | `auth.service.ts` (3 return blocks), `auth.controller.ts` (`getProfile`), `auth-store.ts` (User + AuthResponse), `useAuth.ts` (login + register). |
+| ⚪ | **[TRK-6] Frontend page scaffold** — `/radar` route, access gate, AppShell nav item | Frontend | `src/app/radar/page.tsx`. Redirect non-analyst users. |
+| ⚪ | **[TRK-7] Event feed view** — unreviewed-first, `firstSeenAt DESC`, `TokenBadge inline s`, review actions | Frontend | Default landing view. Uses `GET /analyst/radar/feed`. |
+| ⚪ | **[TRK-8] Holdings view** — per-wallet expandable, sortable table, `TokenBadge inline s` | Frontend | Secondary view. Uses `GET /analyst/radar/:address/holdings`. |
 | ⚪ | **[TRK-9] Add wallet input + snapshot trigger** — address validation, POST, immediate snapshot, show result | Frontend | Top of page. On add: POST wallet → POST snapshot → refresh feed. |
-| ⚪ | **[TRK-10] Review status actions** — mark reviewed / ignore inline in feed and holdings table | Frontend | PATCH `/analyst/tracked-wallets/holdings/:id/review`. Optimistic update. |
+| ⚪ | **[TRK-10] Review status actions** — mark reviewed / ignore inline in feed and holdings table | Frontend | PATCH `/analyst/radar/holdings/:id/review`. Optimistic update. |
 
 ---
 
@@ -35,7 +36,6 @@ Full spec: `spec.md` in repo root.
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[INTEL-DEEP-BUG]** Fix `/intel/token/:mint/holders/deep` similarity chaining — add `chainSimilarity: true` flag to job, processor auto-queues similarity after holder-profiles completes | 🟡 M | `src/queues/jobs/types/index.ts`, `intel.controller.ts`, `analysis-operations.processor.ts` |
 | ⚪ | **[PAY-X402-RECEIPT] Fix `X-Payment-Response` receipt header on fresh x402 calls** | 🟢 S | Current flow: guard does `validateOnly` (local only, fast), sets `x402PendingTxBytes` on request, handler runs, interceptor `tap` calls `confirmAndRecord` async (fire-and-forget). Problem: `tap` doesn't await async callbacks — response flushes before `confirmAndRecord` resolves, so `response.setHeader('X-Payment-Response', txSig)` throws "Cannot set headers after they are sent to the client". **The errors are harmless** (payment IS confirmed, call succeeded) but the agent never receives the receipt header. **Fix:** split `confirmAndRecord` into two steps: (1) `broadcastAndGetSig(txBytes)` → calls `sendRawTransaction`, returns `txSig` fast (~100-200ms); (2) `confirmAndRecord(txSig, ...)` → waits for finality + Redis SET NX + ledger record (slow, ~5s). Move step 1 to the guard (store `txSig` on request alongside `x402PendingTxBytes`), then in the interceptor `tap` set the header synchronously with the known sig, and fire-and-forget step 2. No latency added to the response. **Files:** `src/api/services/x402-verification.service.ts` (split method), `src/api/shared/guards/credit.guard.ts` (broadcast in guard), `src/api/shared/interceptors/credit.interceptor.ts` (sync setHeader + async confirm). |
-| ⚪ | **[PAY-5d] Blocked wallet E2E test** | 🟢 S | Verify `isActive=false` on an agent user row returns HTTP 403. Manual DB flip + script check. |
 | ⚪ | **[INTEL-DEEP-BUG] Fix `POST /intel/token/:mint/holders/deep` similarity chaining** | 🟡 M | Endpoint currently requires caller to pass `wallets[]` upfront, but callers can't know the holders before the job runs — circular dependency. Fix: add `chainSimilarity: true` flag to `AnalyzeHolderProfilesJobData`, processor auto-queues similarity job using discovered holder addresses after completion. Controller removes `wallets[]` from request body, returns `chainedSimilarityRequestId` upfront so agent can poll result key directly. No round-trip needed. **Full spec + proposed implementation:** `.ai/context/monetization/INTEL-DEEP-CHAIN-BUG.md`. Files: `src/queues/jobs/types/index.ts`, `src/api/controllers/intel.controller.ts`, `src/queues/processors/analysis-operations.processor.ts`, `documentation/skill/SKILL.md`. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
@@ -56,30 +56,23 @@ Full spec: `spec.md` in repo root.
 
 ##  Current Focus & Priorities
 
-### P0: Tracked Holdings Page — IN PROGRESS (Mar 9, 2026)
+### P0: Holdings Radar — Backend ✅ COMPLETE, Frontend next (Mar 9, 2026)
 
-New feature on `feat/tracked-wallets-page`. Full spec in `spec.md`.
+New feature on `feat/tracked-wallets-page`. Full spec in `.ai/context/holding_feed/spec.md`.
 
 **What this is:** Operational monitoring page for specific wallets — ATA holdings via Helius, no analysis pipeline dependency. First-seen token detection feed. Analyst-gated access (`isAnalyst` flag, not admin).
 
-**Implementation order:**
-1. `[TRK-1]` Schema — new models + `User.isAnalyst`
-2. `[TRK-2]` `AnalystGuard` + decorator
-3. `[TRK-3]` Snapshot service (reuses `BalanceCacheService`)
-4. `[TRK-5]` Controller + module (`/analyst/tracked-wallets/...`)
-5. `[TRK-6]` Frontend scaffold + access gate
-6. `[TRK-7]` Event feed view
-7. `[TRK-8]` Holdings view
-8. `[TRK-9]` Add wallet + snapshot trigger
-9. `[TRK-10]` Review status actions
-10. `[TRK-4]` ATA acquisition time (optional, add last)
+**Backend complete. Next: TRK-6 through TRK-10 (frontend).**
 
 **Key design decisions:**
 - `isAnalyst` on `User` (not `isAdmin`) — operational role separate from administrative role
-- `AnalystGuard`: `user.isAnalyst === true || user.isAdmin === true`
-- No FK to existing `Wallet` model — standalone models
-- `firstSeenAt` = first detected by tracker, not actual wallet buy time (framed clearly in UI)
-- ATA acquisition time: compute ATA from mint+wallet, query `getTransactionsForAddress` on ATA (not wallet) for precise first-transfer timestamp — optional v1 enhancement
+- `AnalystGuard`: `user.isAnalyst === true || user.isAdmin === true` — global guard, `@IsAnalyst()` applied at controller class level
+- No FK to existing `Wallet` model — standalone `RadarWallet` / `RadarHolding` models
+- `firstSeenAt` = first detected by radar, not wallet buy time — intentional framing
+- TRK-4 (ATA acquisition time) deferred — `acquiredAt` field on schema reserved for future use
+- Route `/analyst/radar/...` (not `/analyst/tracked-wallets/...` as originally drafted)
+- `GET /analyst/radar/feed` declared before `GET /analyst/radar/:address/holdings` in controller to avoid NestJS param shadowing
+- `isAnalyst` propagated through all auth paths: login, register, token refresh, `/auth/me`
 
 ### P1: Helius API Optimization — ✅ COMPLETE (Feb 16-17)
 
@@ -102,7 +95,25 @@ New feature on `feat/tracked-wallets-page`. Full spec in `spec.md`.
 
 ##  Recent Activity
 
-### March 4, 2026 (Latest)
+### March 9, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 9.1 | 🎯 FEAT | TRK-1: `RadarWallet` + `RadarHolding` Prisma models + `User.isAnalyst` flag, migration applied | 🟢 S | `prisma/schema.prisma`, migration `20260309091049` |
+| 9.2 | 🎯 FEAT | TRK-2: `AnalystGuard` + `@IsAnalyst()` decorator, registered as global guard | 🟢 S | `src/api/shared/guards/analyst.guard.ts`, `src/api/shared/decorators/analyst.decorator.ts`, `src/app.module.ts` |
+| 9.3 | 🎯 FEAT | TRK-3: `RadarSnapshotService` — `BalanceCacheService` reuse, dust filter, upsert with firstSeenAt/deactivation | 🟢 S | `src/api/services/radar-snapshot.service.ts` |
+| 9.4 | 🎯 FEAT | TRK-5: `RadarController` (7 endpoints at `/analyst/radar/...`) + `RadarModule` wired into `ApiModule` | 🟡 M | `src/api/controllers/radar.controller.ts`, `src/api/modules/radar.module.ts`, `src/api.module.ts` |
+| 9.5 | 🐛 FIX | `isAnalyst` missing from all auth responses and frontend `User` type — propagated through full auth chain | 🟡 M | `src/api/shared/services/auth.service.ts`, `src/api/controllers/auth.controller.ts`, `src/store/auth-store.ts`, `src/hooks/useAuth.ts` |
+
+**Summary:**
+
+**9.1–9.4:** Full Holdings Radar backend. `RadarWallet` tracks monitored addresses; `RadarHolding` stores per-wallet-token state with `firstSeenAt`, `reviewStatus`, `isActiveHolding`. Snapshot service calls `BalanceCacheService.getBalances()`, applies dust filter (usdValue < 80 OR uiBalance < 200), upserts new tokens with `reviewStatus=unreviewed`, updates existing, deactivates absent. All 7 REST endpoints at `/analyst/radar/...` gated by `@IsAnalyst()`. `GET feed` declared before `GET :address/holdings` to prevent NestJS route shadowing. `ValidationPipe` applied per `@Body()` param.
+
+**9.5:** `isAnalyst` was not included in login/register/refresh responses or `GET /auth/me`. Frontend `User` type and auth store also lacked the field. Fixed across all three auth service return blocks, the `getProfile` endpoint, the frontend `User` + `AuthResponse` interfaces, and both login/register paths in `useAuth.ts`. Frontend access gate (`user.isAnalyst || user.isAdmin`) will now work correctly.
+
+---
+
+### March 4, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
@@ -206,6 +217,10 @@ Holder Profiles: NO LOCK (relies on service idempotency)
 | Analysis API | `src/api/controllers/analyses.controller.ts` | Backend endpoints |
 | Queue System | `src/queues/processors/` | Job processing |
 | Core Analysis | `src/core/analysis/` | Math & logic |
+| **Holdings Radar controller** | `src/api/controllers/radar.controller.ts` | 7 endpoints at `/analyst/radar/...` |
+| **Holdings Radar service** | `src/api/services/radar-snapshot.service.ts` | Snapshot + dust filter |
+| **Holdings Radar module** | `src/api/modules/radar.module.ts` | Imports `BalanceCacheModule` |
+| **AnalystGuard** | `src/api/shared/guards/analyst.guard.ts` | `isAnalyst \|\| isAdmin` |
 
 ### Documentation Files
 
@@ -244,7 +259,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-09  **Branch:** `feat/tracked-wallets-page`
+**Last Updated:** 2026-03-09  **Branch:** `feat/tracked-wallets-page`  **Backend TRK-1–5 complete, frontend TRK-6–10 next**
 
 
 

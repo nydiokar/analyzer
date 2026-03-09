@@ -11,6 +11,7 @@ import { QueueModule } from './queues/queue.module'; // Add BullMQ queue integra
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { CompositeAuthGuard } from './api/shared/guards/composite-auth.guard';
 import { AdminGuard } from './api/shared/guards/admin.guard';
+import { AnalystGuard } from './api/shared/guards/analyst.guard';
 import { CreditGuard } from './api/shared/guards/credit.guard';
 import { CreditInterceptor } from './api/shared/interceptors/credit.interceptor';
 import { SentryModule } from '@sentry/nestjs/setup';
@@ -49,6 +50,10 @@ import { CreditsModule } from './api/modules/credits.module';
     {
       provide: APP_GUARD,
       useClass: AdminGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AnalystGuard,
     },
     {
       provide: APP_GUARD,

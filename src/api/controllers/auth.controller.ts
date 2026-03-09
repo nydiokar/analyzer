@@ -293,6 +293,7 @@ export class AuthController {
         isDemo: { type: 'boolean' },
         emailVerified: { type: 'boolean' },
         isAdmin: { type: 'boolean', description: 'Whether user has admin privileges' },
+        isAnalyst: { type: 'boolean', description: 'Whether user has analyst privileges' },
         createdAt: { type: 'string', format: 'date-time' },
         lastLoginAt: { type: 'string', format: 'date-time', nullable: true },
       }
@@ -305,6 +306,7 @@ export class AuthController {
     isDemo: boolean;
     emailVerified: boolean;
     isAdmin: boolean;
+    isAnalyst: boolean;
     createdAt: Date;
     lastLoginAt: Date | null;
   }> {
@@ -315,6 +317,7 @@ export class AuthController {
       isDemo: user.isDemo,
       emailVerified: user.emailVerified,
       isAdmin: this.adminGuard.isUserAdmin(user),
+      isAnalyst: user.isAnalyst,
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
     };
@@ -561,6 +564,7 @@ export class AuthController {
       email: response.user.email,
     } as User;
     response.user.isAdmin = this.adminGuard.isUserAdmin(pseudoUser);
+    // isAnalyst is already set from the DB user object in AuthService
     return response;
   }
 }
