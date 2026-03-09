@@ -365,12 +365,13 @@ export default function RadarPage() {
   const router = useRouter();
   const { user, isAuthenticated, isInitialized } = useAuth();
 
-  // ── Access gate ──
+  // ── Access gate — derived synchronously, redirect once known unauthorized ──
+  const isAuthorized = isInitialized && isAuthenticated && (!!user?.isAnalyst || !!user?.isAdmin);
+
   useEffect(() => {
     if (!isInitialized) return;
-    if (!isAuthenticated) { router.replace('/'); return; }
-    if (!user?.isAnalyst && !user?.isAdmin) { router.replace('/'); }
-  }, [isInitialized, isAuthenticated, user, router]);
+    if (!isAuthorized) router.replace('/');
+  }, [isInitialized, isAuthorized, router]);
 
   // ── View + sort state ──
   const [view, setView] = useState<View>('feed');
@@ -389,6 +390,7 @@ export default function RadarPage() {
   const [snapshotting, setSnapshotting] = useState<Set<string>>(new Set());
 
   // ── Add wallet ──
+  const [showAddForm, setShowAddForm] = useState(false);
   const [addAddress, setAddAddress] = useState('');
   const [addLabel, setAddLabel] = useState('');
   const [adding, setAdding] = useState(false);
@@ -518,7 +520,7 @@ export default function RadarPage() {
   // ─── Initial load ──────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!isInitialized || !isAuthenticated || (!user?.isAnalyst && !user?.isAdmin)) return;
+    if (!isAuthorized) return;
 
     const init = async () => {
       const [freshFeed, freshWallets] = await Promise.all([fetchFeed(), fetchWallets()]);
@@ -528,7 +530,7 @@ export default function RadarPage() {
     init();
   // fetchFeed, fetchWallets, triggerStaleSnapshots are all stable (no state deps)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInitialized, isAuthenticated, user]);
+  }, [isAuthorized]);
 
   // ─── Add wallet ────────────────────────────────────────────────────────────
 
@@ -548,6 +550,7 @@ export default function RadarPage() {
       });
       setAddAddress('');
       setAddLabel('');
+      setShowAddForm(false);
       toast.success('Wallet added — running snapshot…');
       await fetchWallets();
       // Snapshot not silent — analyst just added this wallet, wants to see result
@@ -680,22 +683,18 @@ export default function RadarPage() {
 
   // ─── Guard ────────────────────────────────────────────────────────────────
 
-  if (!isInitialized || !isAuthenticated || (!user?.isAnalyst && !user?.isAdmin)) {
-    return null;
-  }
+  if (!isAuthorized) return null;
 
   // ──────────────────────────────────────────────────────────────────────────
   return (
     <AppShell>
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-6 max-w-6xl mx-auto space-y-3">
 
-      {/* ── Header + stats ── */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Holdings Radar</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Operational monitoring — new token detection across tracked wallets</p>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
+      {/* ── Toolbar: title + stats + add + refresh ── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-sm font-semibold shrink-0">Holdings Radar</h1>
+        <div className="w-px h-4 bg-border shrink-0" />
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs">
             <span className="text-muted-foreground">Wallets:</span>
             <span className="font-semibold">{wallets.length}</span>
@@ -709,35 +708,62 @@ export default function RadarPage() {
             <span className="font-semibold">{last24hCount}</span>
           </div>
         </div>
-      </div>
-
-      {/* ── Add wallet ── */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Input
-          ref={addInputRef}
-          placeholder="Solana wallet address"
-          value={addAddress}
-          onChange={e => setAddAddress(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !adding && handleAddWallet()}
-          className="font-mono text-sm"
-          disabled={adding}
-        />
-        <Input
-          placeholder="Label (optional)"
-          value={addLabel}
-          onChange={e => setAddLabel(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !adding && handleAddWallet()}
-          className="text-sm sm:max-w-48"
-          disabled={adding}
-        />
-        <Button onClick={handleAddWallet} disabled={adding || !addAddress.trim()} className="shrink-0">
-          {adding ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+        <div className="flex-1" />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2.5 text-xs gap-1"
+          onClick={() => { setShowAddForm(prev => !prev); }}
+        >
+          <Plus className="h-3.5 w-3.5" />
           Add Wallet
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={handleRefresh}
+          disabled={loadingFeed || loadingWallets}
+          title="Refresh"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', (loadingFeed || loadingWallets) && 'animate-spin')} />
         </Button>
       </div>
 
+      {/* ── Collapsible add-wallet panel ── */}
+      {showAddForm && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center border border-border rounded-lg p-3 bg-card">
+          <Input
+            ref={addInputRef}
+            placeholder="Solana wallet address"
+            value={addAddress}
+            onChange={e => setAddAddress(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !adding && handleAddWallet()}
+            className="font-mono text-sm"
+            disabled={adding}
+          />
+          <Input
+            placeholder="Label (optional)"
+            value={addLabel}
+            onChange={e => setAddLabel(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !adding && handleAddWallet()}
+            className="text-sm sm:max-w-40"
+            disabled={adding}
+          />
+          <div className="flex gap-2 shrink-0">
+            <Button onClick={handleAddWallet} disabled={adding || !addAddress.trim()} size="sm" className="h-8">
+              {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
+              Add
+            </Button>
+            <Button variant="ghost" size="sm" className="h-8 px-3 text-xs" onClick={() => setShowAddForm(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── View toggle ── */}
-      <div className="flex items-center gap-2 border-b border-border pb-3">
+      <div className="flex items-center gap-2 border-b border-border pb-2">
         <button
           onClick={() => setView('feed')}
           className={cn(
@@ -761,27 +787,14 @@ export default function RadarPage() {
         >
           Holdings by Wallet
         </button>
-
-        <div className="ml-auto flex items-center gap-2">
-          {view === 'feed' && (
-            <button
-              onClick={() => setShowIgnored(prev => !prev)}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showIgnored ? 'Hide ignored' : 'Show ignored'}
-            </button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={handleRefresh}
-            disabled={loadingFeed || loadingWallets}
-            title="Refresh"
+        {view === 'feed' && (
+          <button
+            onClick={() => setShowIgnored(prev => !prev)}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <RefreshCw className={cn('h-3.5 w-3.5', (loadingFeed || loadingWallets) && 'animate-spin')} />
-          </Button>
-        </div>
+            {showIgnored ? 'Hide ignored' : 'Show ignored'}
+          </button>
+        )}
       </div>
 
       {/* ══ FEED VIEW ══════════════════════════════════════════════════════════ */}
