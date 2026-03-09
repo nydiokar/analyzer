@@ -1,3 +1,7 @@
+packages:
+  - '.'
+  - 'dashboard'
+
 onlyBuiltDependencies:
   - '@nestjs/core'
   - '@prisma/client'
