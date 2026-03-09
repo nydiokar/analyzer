@@ -280,6 +280,7 @@ model User {
   description         String?
   isDemo              Boolean                  @default(false)
   isAdmin             Boolean                  @default(false)
+  isAnalyst           Boolean                  @default(false)
   createdAt           DateTime                 @default(now())
   lastSeenAt          DateTime?
   isActive            Boolean                  @default(true)
@@ -683,4 +684,37 @@ model CreditTransaction {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Holdings Radar — analyst-gated wallet monitoring (pipeline-independent)
+// ---------------------------------------------------------------------------
+
+model RadarWallet {
+  wallet    String    @id
+  label     String?
+  addedAt   DateTime  @default(now())
+  isActive  Boolean   @default(true)
+  addedBy   String?
+}
+
+model RadarHolding {
+  id              String    @id @default(cuid())
+  wallet          String
+  tokenMint       String
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime
+  uiBalance       Float
+  usdValue        Float?
+  acquiredAt      DateTime?
+  isActiveHolding Boolean   @default(true)
+  reviewStatus    String    @default("unreviewed")
+  reviewedAt      DateTime?
+  note            String?
+
+  @@unique([wallet, tokenMint])
+  @@index([wallet])
+  @@index([firstSeenAt])
+  @@index([reviewStatus])
+  @@index([isActiveHolding])
 }
