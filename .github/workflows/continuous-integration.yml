@@ -36,10 +36,6 @@ jobs:
       - name: Build Backend
         run: pnpm run build
 
-      - name: Install Frontend Dependencies
-        working-directory: ./dashboard
-        run: pnpm install --frozen-lockfile
-
       - name: Build Frontend
         working-directory: ./dashboard
         run: pnpm run build
