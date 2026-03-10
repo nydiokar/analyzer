@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/telegram-bot-intel`  **Last Updated:** 2026-03-09  **Status:** TG-1–TG-9 complete — awaiting E2E test
+**Branch:** `feat/telegram-bot-intel`  **Last Updated:** 2026-03-10  **Status:** TG-1–TG-10 complete — E2E tested, running in production
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -23,7 +23,7 @@ Full spec: `.ai/context/telegram-bot/spec.md`
 | ✅ | **[TG-7] /holders command + formatter + async poll** | Bot | `commands/holders.ts` + `formatters/holders.formatter.ts`. POST → poll every 3s (up to 120s) → edit. Formatter adapted from pft-bot_v2. |
 | ✅ | **[TG-8] Attribution logging** — write `TelegramBotLog` rows | Bot | `attribution.ts` — fire-and-forget `logInvocation()` called in all three handlers. |
 | ✅ | **[TG-9] PM2 process config** — add `sova-tg-bot` entry to `ecosystem.config.js` | DevOps | ts-node interpreter, `wait_ready: true`, `exp_backoff_restart_delay: 100`, `max_memory_restart: 512M`. |
-| ⬜ | **[TG-10] E2E test** — all three commands with real addresses in Telegram | Manual | Requires: `TELEGRAM_BOT_TOKEN`, `INTEL_API_KEY` in `.env`, credits topped up for bot user, `ALLOWED_TELEGRAM_USER_IDS` set. |
+| ✅ | **[TG-10] E2E test** — all three commands verified with real addresses in Telegram | Manual | All three commands working. Attribution rows confirmed in `TelegramBotLog`. Bot running from `dist/` via PM2. |
 
 ---
 
@@ -100,7 +100,25 @@ New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot
 
 ##  Recent Activity
 
-### March 9, 2026 (Latest)
+### March 10, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 10.1 | 🔧 REFACTOR | Replace hand-rolled `IntelClient` + duplicate types with `@sova/intel-sdk` — bot now uses canonical SDK throughout | 🟡 M | `src/bot/intel/intel-client.ts` (deleted), `bot.ts`, all commands, all formatters |
+| 10.2 | 🐛 FIX | SDK `types.ts` was wrong — `WalletHud` had invented fields (`isBotFlagged`, `pnlSignal`) instead of real API fields (`isBot`, `isWhale`, `trimmedMeanPnl`, etc). Fixed against `WalletHudDto` source of truth | 🟡 M | `packages/sdk/src/types.ts`, `client.ts`, `index.ts`, `client.test.ts` |
+| 10.3 | 🎯 FEAT | Add `HolderProfile` + `HolderProfilesResult` types to SDK — were missing entirely | 🟢 S | `packages/sdk/src/types.ts`, `index.ts` |
+| 10.4 | 🎯 FEAT | Add contract tests (`contract.test.ts`) to SDK — hit real API, validate every field of every response type. `pnpm test` excludes them, `pnpm test:contract` runs them with env vars | 🟢 S | `packages/sdk/src/contract.test.ts`, `package.json` |
+| 10.5 | 🔧 REFACTOR | Add `packages/sdk` to pnpm workspace, add `@sova/intel-sdk: workspace:*` to root deps | 🟢 S | `pnpm-workspace.yaml`, `package.json` |
+| 10.6 | 🐛 FIX | Bot config env vars renamed to avoid collision with security/audit bot — `TELEGRAM_BOT_TOKEN` → `INTEL_BOT_TOKEN`, `ALLOWED_TELEGRAM_USER_IDS` → `INTEL_BOT_ALLOWED_USER_IDS` | 🟢 S | `src/bot/intel/config.ts` |
+| 10.7 | 🐛 FIX | Profile formatter was mixing hold time sources — `behavior.medianHoldTimeHours` vs `hud.medianHoldTimeHours` causing different values in `/hud` vs `/profile`. Both now use `hud.medianHoldTimeHours` (completed positions, more reliable) | 🟢 S | `formatters/profile.formatter.ts` |
+| 10.8 | 🎯 FEAT | Redesign `/hud` output — full address copyable in `<code>`, compact single-glance layout | 🟢 S | `formatters/hud.formatter.ts` |
+| 10.9 | 🎯 FEAT | Redesign `/profile` output — sectioned (PERFORMANCE / BEHAVIOR / PORTFOLIO / META), `timeAgo()` for last analyzed, full address copyable | 🟢 S | `formatters/profile.formatter.ts` |
+| 10.10 | 🎯 FEAT | Redesign `/holders` output — distribution elevated to top, sorted by hold-time spectrum (Sniper→Holder), system wallets demoted to footer, uncategorized wallets shown as `🆕 New` with supply % | 🟢 S | `formatters/holders.formatter.ts` |
+| 10.11 | 🔧 REFACTOR | PM2 ecosystem entry: switch from ts-node interpreter to compiled `dist/bot/intel/index.js` — eliminates 300MB ts-node memory footprint | 🟢 S | `ecosystem.config.js` |
+| 10.12 | 🐛 FIX | `@nestjs/core` upgraded to `11.1.9` by pnpm drift breaking `ScheduleModule` + `EventEmitterModule`. Pinned `@nestjs/core@11.1.2`, `@nestjs/common@11.1.6`, `@nestjs/schedule@6.0.0` | 🟢 S | `package.json` |
+| 10.13 | 🐛 FIX | `manage-api-keys.ts` script missing `EventEmitter2` arg after `ApiKeyService` constructor changed | 🟢 S | `scripts/manage-api-keys.ts` |
+
+### March 9, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
@@ -225,9 +243,11 @@ Holder Profiles: NO LOCK (relies on service idempotency)
 | **Holdings Radar controller** | `src/api/controllers/radar.controller.ts` | 7 endpoints at `/analyst/radar/...` |
 | **Holdings Radar service** | `src/api/services/radar-snapshot.service.ts` | Snapshot + dust filter |
 | **AnalystGuard** | `src/api/shared/guards/analyst.guard.ts` | `isAnalyst \|\| isAdmin` |
-| **Telegram bot entry** | `src/bot/intel/index.ts` | Standalone process — `npx ts-node -r tsconfig-paths/register src/bot/intel/index.ts` |
+| **Telegram bot entry** | `src/bot/intel/index.ts` | Standalone process — runs from `dist/bot/intel/index.js` via PM2 (`sova-tg-bot`) |
 | **Telegram bot spec** | `.ai/context/telegram-bot/spec.md` | Architecture decisions, file structure, API contract |
-| **Bot API key seed** | `prisma/seed-telegram-bot.ts` | Creates `system-telegram-bot` User + ApiKey |
+| **Bot API key script** | `scripts/manage-api-keys.ts` | `create <userId> -d "..." -s "full"` to generate key |
+| **Intel SDK** | `packages/sdk/src/` | `SovaIntelClient` — canonical types + HTTP client. `pnpm test` for unit, `pnpm test:contract` for live API validation |
+| **Bot env vars** | `.env` | `INTEL_BOT_TOKEN`, `INTEL_API_KEY`, `INTEL_BOT_ALLOWED_USER_IDS`, `INTEL_BASE_URL` (optional, defaults to localhost:3001) |
 
 ### Documentation Files
 
@@ -266,7 +286,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-09  **Branch:** `feat/telegram-bot-intel`  **TG-1 through TG-9 implemented — TG-10 (E2E test) pending**
+**Last Updated:** 2026-03-10  **Branch:** `feat/telegram-bot-intel`  **TG-1 through TG-10 complete — bot live, running from dist/, SDK aligned with API**
 
 
 
