@@ -52,6 +52,9 @@ async function bootstrap() {
   const port = process.env.PORT || 3001;
   const host = process.env.BACKEND_HOST || '::'; // Default to all IPv6 interfaces, or use configured host
 
+  // Respect x-forwarded-for/x-real-ip from nginx so rate limiting uses the real client IP.
+  app.getHttpAdapter().getInstance().set('trust proxy', true);
+
   app.setGlobalPrefix('api/v1');
 
   app.use(json({ limit: '5mb' }));

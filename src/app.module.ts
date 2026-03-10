@@ -17,6 +17,27 @@ import { CreditInterceptor } from './api/shared/interceptors/credit.interceptor'
 import { SentryModule } from '@sentry/nestjs/setup';
 import { MetricsModule } from './api/modules/metrics.module';
 import { CreditsModule } from './api/modules/credits.module';
+type RequestLike = {
+  headers?: Record<string, string | string[] | undefined>;
+  ip?: string;
+  socket?: {
+    remoteAddress?: string;
+  };
+};
+
+function getClientIp(request: RequestLike): string {
+  const forwardedFor = request.headers?.['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.length > 0) {
+    return forwardedFor.split(',')[0].trim();
+  }
+
+  const realIp = request.headers?.['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.length > 0) {
+    return realIp.trim();
+  }
+
+  return request.ip || request.socket.remoteAddress || 'unknown';
+}
 
 @Module({
   imports: [
@@ -26,6 +47,11 @@ import { CreditsModule } from './api/modules/credits.module';
     ThrottlerModule.forRoot([{
       ttl: 60000, // 1 minute in milliseconds
       limit: 200, // 500 requests per minute (increased for concurrent job testing)
+      getTracker: (request) => getClientIp(request),
+      skipIf: (context) => {
+        const request = context.switchToHttp().getRequest<{ user?: { isAdmin?: boolean } }>();
+        return request.user?.isAdmin === true;
+      },
     }]),
     ConfigModule.forRoot({ // Initialize ConfigModule to load .env variables
       isGlobal: true, // Make ConfigModule global
