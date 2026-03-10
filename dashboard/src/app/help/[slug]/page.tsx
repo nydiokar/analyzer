@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
@@ -40,6 +41,7 @@ export default async function HelpDocPage({ params }: HelpDocPageProps) {
 
   const { previous, next } = getAdjacentHelpDocs(slug);
   const Icon = doc.icon;
+  const imagePath = getHelpImagePath(slug);
 
   return (
     <AppShell>
@@ -96,47 +98,63 @@ export default async function HelpDocPage({ params }: HelpDocPageProps) {
                     </div>
                   </div>
 
-                  <div id="summary" className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-                    <div className="space-y-5">
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                          Why this exists
-                        </p>
-                        <p className="mt-3 max-w-3xl text-lg leading-8 text-foreground">
-                          {doc.value}
-                        </p>
+                  <div id="summary" className="space-y-8">
+                    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                      <div className="space-y-5">
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                            Why this exists
+                          </p>
+                          <p className="mt-3 max-w-3xl text-lg leading-8 text-foreground">
+                            {doc.value}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                            Best for
+                          </p>
+                          <ul className="mt-4 space-y-3">
+                            {doc.bestFor.map((item) => (
+                              <li key={item} className="flex gap-3 text-base leading-7 text-muted-foreground">
+                                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" />
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
 
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                          Best for
-                        </p>
-                        <ul className="mt-4 space-y-3">
-                          {doc.bestFor.map((item) => (
-                            <li key={item} className="flex gap-3 text-base leading-7 text-muted-foreground">
-                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" />
-                              <span>{item}</span>
-                            </li>
-                          ))}
-                        </ul>
+                      <div className="space-y-5 rounded-[28px] border border-border/60 bg-[rgba(4,10,22,0.55)] p-6">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Open the feature</p>
+                          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                            Use the guide for framing. Use the live page for actual analysis.
+                          </p>
+                        </div>
+                        <Button asChild className="w-full rounded-full">
+                          <Link href={getFeatureRoute(slug)}>Open {doc.title}</Link>
+                        </Button>
                       </div>
                     </div>
 
-                    <div className="space-y-5 rounded-[28px] border border-border/60 bg-[rgba(4,10,22,0.55)] p-6">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Open the feature</p>
-                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                          Use the guide for framing. Use the live page for actual analysis.
-                        </p>
-                      </div>
-                      <Button asChild className="w-full rounded-full">
-                        <Link href={getFeatureRoute(slug)}>Open {doc.title}</Link>
-                      </Button>
-                      <Separator />
+                    <div className="rounded-[32px] border border-border/60 bg-[linear-gradient(140deg,rgba(10,24,48,0.92),rgba(5,11,24,0.98))] p-6">
                       <div>
                         <p className="text-sm font-medium text-foreground">Screenshot</p>
-                        <div className="mt-3 flex min-h-[220px] items-center justify-center rounded-[24px] border border-dashed border-sky-400/30 bg-[linear-gradient(140deg,rgba(10,24,48,0.92),rgba(5,11,24,0.98))] px-5 text-center text-sm leading-6 text-muted-foreground">
-                          Add one focused screenshot of {doc.title} with short annotations.
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                          Main product view for {doc.title}.
+                        </p>
+                      </div>
+                      <div className="mt-4 overflow-hidden rounded-[24px] border border-border/60">
+                        <div className="bg-[linear-gradient(140deg,rgba(8,17,33,0.96),rgba(4,9,20,0.98))] p-4">
+                          <Image
+                            src={imagePath}
+                            alt={`${doc.title} dashboard screenshot`}
+                            width={1600}
+                            height={1000}
+                            className="h-auto w-full rounded-[18px] object-contain"
+                            priority
+                          />
                         </div>
                       </div>
                     </div>
@@ -273,7 +291,7 @@ function DocSection({
         {items.map((item, index) => (
           <div key={item} className="grid gap-3 md:grid-cols-[32px_minmax(0,1fr)] md:items-start">
             <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/60 text-sm font-semibold text-foreground">
-              {ordered ? index + 1 : "•"}
+              {ordered ? index + 1 : <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />}
             </div>
             <p className="text-base leading-8 text-muted-foreground">
               {item}
@@ -299,5 +317,22 @@ function getFeatureRoute(slug: string): string {
       return "/wallet-hunt";
     default:
       return "/help";
+  }
+}
+
+function getHelpImagePath(slug: string): string {
+  switch (slug) {
+    case "discovery":
+      return "/help/discovery-overview.png";
+    case "tracked-wallets":
+      return "/help/tracked-wallets-overview.png";
+    case "similarity-lab":
+      return "/help/similarity-lab-overview.png";
+    case "holder-profiles":
+      return "/help/holder-profiles-overview.jpg";
+    case "wallet-hunt":
+      return "/help/wallet-hunt-overview.png";
+    default:
+      return "/help/discovery-overview.png";
   }
 }

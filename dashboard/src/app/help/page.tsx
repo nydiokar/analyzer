@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, ExternalLink, MessageSquare, Send } from "lucide-react";
 
@@ -16,6 +17,8 @@ const principles = [
 ];
 
 export default function HelpPage() {
+  const overviewImage = getHelpImagePath("holder-profiles");
+
   return (
     <AppShell>
       <div className="min-h-full bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.06),transparent_22%)]">
@@ -26,49 +29,75 @@ export default function HelpPage() {
 
           <div className="min-w-0 space-y-10">
             <header className="border-b border-border/60 pb-10">
-              <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-end">
-                <div className="space-y-5">
-                  <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.2em]">
-                    Dashboard Docs
-                  </Badge>
-                  <div className="space-y-4">
-                    <h1 className="max-w-5xl text-4xl font-semibold tracking-tight text-foreground sm:text-6xl">
-                      Clear product documentation for every workflow in the dashboard.
-                    </h1>
-                    <p className="max-w-3xl text-lg leading-8 text-muted-foreground">
-                      Use the overview to pick the right tool, then open a focused guide for workflow, data, limits, and the live page.
-                    </p>
+              <div className="space-y-8">
+                <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+                  <div className="space-y-5">
+                    <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.2em]">
+                      Dashboard Docs
+                    </Badge>
+                    <div className="space-y-4">
+                      <h1 className="max-w-5xl text-4xl font-semibold tracking-tight text-foreground sm:text-6xl">
+                        Clear product documentation for every workflow in the dashboard.
+                      </h1>
+                      <p className="max-w-3xl text-lg leading-8 text-muted-foreground">
+                        Use the overview to pick the right tool, then open a focused guide for workflow, data, limits, and the live page.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <Button asChild size="lg" className="rounded-full">
+                        <Link href="#guides">
+                          Browse guides
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </Link>
+                      </Button>
+                      <Button variant="outline" size="lg" asChild className="rounded-full">
+                        <Link href="/help/discovery">Read first guide</Link>
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-3">
-                    <Button asChild size="lg" className="rounded-full">
-                      <Link href="#guides">
-                        Browse guides
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <Button variant="outline" size="lg" asChild className="rounded-full">
-                      <Link href="/help/discovery">Read first guide</Link>
-                    </Button>
+
+                  <div className="space-y-4 rounded-[28px] border border-border/60 bg-[rgba(4,10,22,0.55)] p-6">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">How to use this section</p>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        Start with the guide that matches the task. Then check the expectation and limits sections before you trust the output.
+                      </p>
+                    </div>
+                    <Separator />
+                    <div className="space-y-3 text-sm leading-6 text-muted-foreground">
+                      <p>Use the overview to choose the right page.</p>
+                      <p>Use the feature guide to understand the workflow.</p>
+                      <p>Use the live product page for actual interpretation.</p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="rounded-[32px] border border-border/60 bg-[linear-gradient(140deg,rgba(10,24,48,0.92),rgba(5,11,24,0.98))] p-6">
+                <div className="rounded-[32px] border border-border/60 bg-[linear-gradient(140deg,rgba(10,24,48,0.92),rgba(5,11,24,0.98))] p-5">
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-foreground">Overview screenshot</p>
-                      <p className="text-sm text-muted-foreground">Add one clean product image here.</p>
+                      <p className="text-sm font-medium text-foreground">Platform overview</p>
                     </div>
-                    <Badge variant="secondary">Placeholder</Badge>
+                    <Badge variant="secondary">Preview</Badge>
                   </div>
-                  <div className="flex min-h-[260px] items-center justify-center rounded-[24px] border border-dashed border-sky-400/30 px-6 text-center text-sm leading-7 text-muted-foreground">
-                    Use a single screenshot with 2-3 labels. This should orient the reader before they enter the guides.
+                  <div className="overflow-hidden rounded-[28px] border border-border/60">
+                    <div className="bg-[linear-gradient(140deg,rgba(8,17,33,0.96),rgba(4,9,20,0.98))] p-3">
+                      <Image
+                        src={overviewImage}
+                        alt="Platform overview screenshot"
+                        width={1200}
+                        height={820}
+                        className="h-auto max-h-[440px] w-full rounded-[18px] object-contain"
+                        priority
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             </header>
 
-            <section className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="space-y-5">
+            <section className="space-y-5">
+              <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="space-y-5">
                 <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
                   Design principles
                 </p>
@@ -79,20 +108,13 @@ export default function HelpPage() {
                     </div>
                   ))}
                 </div>
-              </div>
-
-              <div className="space-y-4 rounded-[28px] border border-border/60 bg-[rgba(4,10,22,0.55)] p-6">
-                <div>
-                  <p className="text-sm font-medium text-foreground">How to use this section</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Start with the guide that matches the task. Then check the expectation and limits sections before you trust the output.
-                  </p>
                 </div>
-                <Separator />
-                <div className="space-y-3 text-sm leading-6 text-muted-foreground">
-                  <p>Use the overview to choose the right page.</p>
-                  <p>Use the feature guide to understand the workflow.</p>
-                  <p>Use the live product page for actual interpretation.</p>
+
+                <div className="rounded-[28px] border border-border/60 bg-[rgba(4,10,22,0.55)] p-6">
+                  <p className="text-sm font-medium text-foreground">What this overview is doing</p>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    It gives you the map of the product surface. The individual guides explain one tool at a time.
+                  </p>
                 </div>
               </div>
             </section>
@@ -224,5 +246,22 @@ function getFeatureRoute(slug: string): string {
       return "/wallet-hunt";
     default:
       return "/help";
+  }
+}
+
+function getHelpImagePath(slug: string): string {
+  switch (slug) {
+    case "discovery":
+      return "/help/discovery-overview.png";
+    case "tracked-wallets":
+      return "/help/tracked-wallets-overview.png";
+    case "similarity-lab":
+      return "/help/similarity-lab-overview.png";
+    case "holder-profiles":
+      return "/help/holder-profiles-overview.jpg";
+    case "wallet-hunt":
+      return "/help/wallet-hunt-overview.png";
+    default:
+      return "/help/discovery-overview.png";
   }
 }
