@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
+  webpack: (config) => {
+    // Normalize module paths to prevent duplicate modules from Windows path casing differences
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      [path.resolve(__dirname, "../node_modules")]: path.resolve(__dirname, "../node_modules"),
+    };
+    config.resolve.symlinks = false;
+    return config;
+  },
   async headers() {
     return [
       {

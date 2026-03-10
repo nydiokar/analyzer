@@ -43,6 +43,7 @@ import { FavoriteWallet } from "@/types/api";
 import { getSpeedColor, getFlowColor, getSpeedColorHex, getFlowColorHex, getSpeedLabel, getFlowLabel } from "@/lib/strategy-colors";
 import EmptyState from "@/components/shared/EmptyState";
 import { PageTitle } from "@/components/shared/PageTitle";
+import { FeatureHelpLink } from "@/components/help/FeatureHelpLink";
 import { ErrorMessage, getErrorMessage } from "@/lib/error-messages";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -431,7 +432,7 @@ export default function DiscoverPage() {
     <AppShell>
       <div className="w-full px-6 py-4 space-y-3">
         {/* Header row */}
-        <PageTitle title="Discover" icon={Compass} />
+        <PageTitle title="Discover" icon={Compass} titleExtra={<FeatureHelpLink slug="discovery" />} />
 
         {/* Filter row */}
         <div className="flex items-center gap-2">

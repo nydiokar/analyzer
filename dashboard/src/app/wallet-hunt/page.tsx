@@ -2,6 +2,7 @@
 
 import { AppShell } from '@/components/layout/AppShell';
 import { PageTitle } from '@/components/shared/PageTitle';
+import { FeatureHelpLink } from '@/components/help/FeatureHelpLink';
 import EmptyState from '@/components/shared/EmptyState';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { WalletBadge } from '@/components/shared/WalletBadge';
@@ -405,6 +406,7 @@ export default function WalletHuntPage() {
             title="Wallet Hunt"
             icon={Crosshair}
             subtitle="Find recurring wallets across token launches"
+            titleExtra={<FeatureHelpLink slug="wallet-hunt" />}
           />
         </div>
 
