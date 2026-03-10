@@ -1,0 +1,235 @@
+{
+  "title": "Backend Memory Guardrails",
+  "tags": [
+    "prometheus",
+    "memory",
+    "anomaly",
+    "backend"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 0,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Backend Heap vs RSS",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "nodejs_memory_usage_bytes{job=\"app\",type=\"heapUsed\"}",
+          "legendFormat": "Heap Used",
+          "refId": "A"
+        },
+        {
+          "expr": "nodejs_memory_usage_bytes{job=\"app\",type=\"heapTotal\"}",
+          "legendFormat": "Heap Total",
+          "refId": "B"
+        },
+        {
+          "expr": "nodejs_memory_usage_bytes{job=\"app\",type=\"rss\"}",
+          "legendFormat": "RSS",
+          "refId": "C"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "bytes",
+          "show": true
+        },
+        {
+          "format": "short",
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Heap Pressure Ratio",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "nodejs_memory_usage_bytes{job=\"app\",type=\"heapUsed\"} / nodejs_memory_usage_bytes{job=\"app\",type=\"heapTotal\"}",
+          "legendFormat": "Heap Used / Heap Total",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "percentunit",
+          "show": true
+        },
+        {
+          "format": "short",
+          "show": true
+        }
+      ],
+      "thresholds": [
+        {
+          "value": 0.85,
+          "colorMode": "critical",
+          "op": "gt",
+          "fill": true,
+          "line": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Heap Growth Slope (30m)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "deriv(nodejs_memory_usage_bytes{job=\"app\",type=\"heapUsed\"}[30m])",
+          "legendFormat": "Heap Growth Bytes/s",
+          "refId": "A"
+        },
+        {
+          "expr": "deriv(nodejs_memory_usage_bytes{job=\"app\",type=\"rss\"}[30m])",
+          "legendFormat": "RSS Growth Bytes/s",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "Bps",
+          "show": true
+        },
+        {
+          "format": "short",
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Unmatched Traffic Rate",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"app\",route=\"unmatched\"}[5m]))",
+          "legendFormat": "Unmatched RPS",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "reqps",
+          "show": true
+        },
+        {
+          "format": "short",
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Top Matched Routes",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "topk(10, sum(rate(http_requests_total{job=\"app\",route!=\"unmatched\"}[5m])) by (route))",
+          "legendFormat": "{{route}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "reqps",
+          "show": true
+        },
+        {
+          "format": "short",
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Current Route Cardinality",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "count(count by (route) (http_requests_total{job=\"app\"}))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Current Backend Memory",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "nodejs_memory_usage_bytes{job=\"app\",type=\"rss\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 2
+        }
+      }
+    }
+  ]
+}

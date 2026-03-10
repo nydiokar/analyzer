@@ -1,0 +1,47 @@
+groups:
+  - name: sova-backend-memory
+    rules:
+      - alert: SovaBackendHighHeapRatio
+        expr: |
+          (
+            nodejs_memory_usage_bytes{job="app",type="heapUsed"}
+            /
+            nodejs_memory_usage_bytes{job="app",type="heapTotal"}
+          ) > 0.85
+        for: 15m
+        labels:
+          severity: warning
+          service: sova-backend-api
+        annotations:
+          summary: "Sova backend heap ratio is high"
+          description: "Heap usage has stayed above 85% for 15 minutes."
+
+      - alert: SovaBackendHighRSS
+        expr: nodejs_memory_usage_bytes{job="app",type="rss"} > 1.5e+09
+        for: 15m
+        labels:
+          severity: warning
+          service: sova-backend-api
+        annotations:
+          summary: "Sova backend RSS is high"
+          description: "RSS has stayed above 1.5 GB for 15 minutes."
+
+      - alert: SovaBackendHeapGrowth
+        expr: deriv(nodejs_memory_usage_bytes{job="app",type="heapUsed"}[30m]) > 200000
+        for: 30m
+        labels:
+          severity: warning
+          service: sova-backend-api
+        annotations:
+          summary: "Sova backend heap is growing steadily"
+          description: "Heap growth slope has stayed positive at more than 200 KB/s for 30 minutes."
+
+      - alert: SovaBackendUnmatchedTrafficSpike
+        expr: sum(rate(http_requests_total{job="app",route="unmatched"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: sova-backend-api
+        annotations:
+          summary: "Sova backend unmatched traffic spike"
+          description: "Unmatched request traffic has stayed above 1 req/s for 10 minutes."
