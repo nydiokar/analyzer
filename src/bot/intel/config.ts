@@ -11,10 +11,10 @@ function optional(key: string, fallback: string): string {
 }
 
 export const config = {
-  BOT_TOKEN: required('TELEGRAM_BOT_TOKEN'),
+  BOT_TOKEN: required('INTEL_BOT_TOKEN'),
   INTEL_API_KEY: required('INTEL_API_KEY'),
   INTEL_BASE_URL: optional('INTEL_BASE_URL', 'http://localhost:3001/api/v1'),
-  ALLOWED_USER_IDS: (process.env.ALLOWED_TELEGRAM_USER_IDS || '')
+  ALLOWED_USER_IDS: (process.env.INTEL_BOT_ALLOWED_USER_IDS || '')
     .split(',')
     .map(id => parseInt(id.trim(), 10))
     .filter(id => !isNaN(id) && id !== 0),

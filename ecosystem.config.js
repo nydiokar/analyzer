@@ -45,9 +45,8 @@ module.exports = {
     // === App 3: Sova Intel Telegram Bot ===
     {
       name: 'sova-tg-bot',
-      script: 'src/bot/intel/index.ts',
+      script: 'dist/bot/intel/index.js',
       interpreter: 'node',
-      interpreter_args: '-r ts-node/register -r tsconfig-paths/register',
       cwd: '.',
       exec_mode: 'fork',
       instances: 1,
@@ -58,8 +57,7 @@ module.exports = {
       min_uptime: '60s',
       max_restarts: 10,
       exp_backoff_restart_delay: 100,
-      max_memory_restart: '512M',
-      env_file: '.env',
+      max_memory_restart: '256M',
       out_file: './logs/sova-tg-bot-out.log',
       error_file: './logs/sova-tg-bot-err.log',
       merge_logs: true,

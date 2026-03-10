@@ -1,38 +1,30 @@
 import type { WalletHud } from '@sova/intel-sdk';
 
 export function formatHud(address: string, hud: WalletHud): string {
-  const short = `${address.slice(0, 4)}..${address.slice(-4)}`;
+  const flags: string[] = [];
+  if (hud.isWhale) flags.push('🐋');
+  if (hud.isBot)   flags.push('🤖');
+
   const style = formatStyle(hud.behaviorCategory, hud.behaviorCode);
+  const dataRange = hud.provenance?.dataRange;
+  const dataPeriod = dataRange?.from && dataRange?.to
+    ? `${formatDateCompact(dataRange.from)} – ${formatDateCompact(dataRange.to)}`
+    : formatDateCompact(hud.calculatedAt);
+
   const holdingsStr = hud.currentHoldingsUsd
     ? `${hud.currentHoldingsSol.toFixed(1)} SOL ($${formatUsd(hud.currentHoldingsUsd)})`
     : `${hud.currentHoldingsSol.toFixed(1)} SOL`;
 
-  const flags: string[] = [];
-  if (hud.isWhale) flags.push('🐋 Whale');
-  if (hud.isBot) flags.push('🤖 Bot');
-
-  const dataRange = hud.provenance?.dataRange;
-  const dateStr = dataRange?.from && dataRange?.to
-    ? `${formatDateShort(dataRange.from)} — ${formatDateShort(dataRange.to)}`
-    : hud.calculatedAt ? formatDateShort(hud.calculatedAt) : null;
-
   const lines: string[] = [
-    `<b>HUD: <code>${short}</code></b>`,
+    `🔍 <code>${address}</code>`,
     '',
-    `<b>PnL (trimmed):</b> ${formatSol(hud.trimmedMeanPnl)} / token`,
-    `<b>Avg Tx:</b> ${formatSol(hud.avgTxValueSol)}`,
-    `<b>Win Rate:</b> ${Math.round(hud.winRate * 100)}%`,
+    `<b>${style}</b>  ·  ${hud.dataQualityTier}  ·  ${dataPeriod}${flags.length ? '  ' + flags.join('') : ''}`,
     '',
-    `<b>Style:</b> ${style}`,
-    `<b>Hold Time:</b> ${formatHoldTime(hud.medianHoldTimeHours)}`,
-    `<b>Activity:</b> ${hud.avgTradesPerDay.toFixed(1)} trades/day · ${hud.uniqueTokensPerDay.toFixed(1)} tokens/day`,
-    '',
-    `<b>Holdings:</b> ${holdingsStr}`,
+    `PnL      ${formatSol(hud.trimmedMeanPnl)} / token  ·  Win ${Math.round(hud.winRate * 100)}%`,
+    `Avg Tx   ${formatSol(hud.avgTxValueSol)}  ·  Hold ${formatHoldTime(hud.medianHoldTimeHours)}`,
+    `Volume   ${hud.avgTradesPerDay.toFixed(1)} tx/day  ·  ${hud.uniqueTokensPerDay.toFixed(1)} tokens/day`,
+    `Bag      ${holdingsStr}`,
   ];
-
-  if (flags.length > 0) lines.push(`<b>Flags:</b> ${flags.join('  ')}`);
-  lines.push(`<b>Quality:</b> ${hud.dataQualityTier}`);
-  if (dateStr) lines.push(`<b>Data:</b> ${dateStr}`);
 
   return lines.join('\n');
 }
@@ -67,7 +59,7 @@ function formatUsd(n: number): string {
   return n.toFixed(0);
 }
 
-function formatDateShort(iso: string): string {
+function formatDateCompact(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
