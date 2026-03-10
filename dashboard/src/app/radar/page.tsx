@@ -493,16 +493,26 @@ export default function RadarPage() {
 
   // Fix #1 + #3: feedData is a required parameter — no stale closure on feed state.
   // Callers always pass the fresh data they just fetched.
-  const triggerStaleSnapshots = useCallback((walletList: RadarWallet[], feedData: RadarHolding[]) => {
+  const triggerStaleSnapshots = useCallback(async (walletList: RadarWallet[], feedData: RadarHolding[]) => {
     const lastSeenMap = buildLastSeenMap(feedData);
     const now = Date.now();
-    for (const w of walletList) {
-      const lastSeen = lastSeenMap.get(w.wallet);
-      if (lastSeen === undefined || now - lastSeen > STALE_MS) {
-        runSnapshot(w.wallet, true); // silent — no toast per wallet
-      }
+    const staleWallets = walletList
+      .map((w) => {
+        const lastSeen = lastSeenMap.get(w.wallet);
+        return lastSeen === undefined || now - lastSeen > STALE_MS ? w.wallet : null;
+      })
+      .filter((wallet): wallet is string => wallet !== null);
+
+    if (staleWallets.length === 0) return;
+
+    await Promise.all(staleWallets.map((wallet) => runSnapshot(wallet, true)));
+    await fetchFeed();
+
+    const expandedStaleWallets = staleWallets.filter((wallet) => expandedWallets.has(wallet));
+    if (expandedStaleWallets.length > 0) {
+      await Promise.all(expandedStaleWallets.map((wallet) => fetchHoldingsForWallet(wallet)));
     }
-  }, [runSnapshot]);
+  }, [expandedWallets, fetchFeed, fetchHoldingsForWallet, runSnapshot]);
 
   // ─── Fetch wallets ─────────────────────────────────────────────────────────
 
@@ -525,7 +535,7 @@ export default function RadarPage() {
 
   const handleRefresh = useCallback(async () => {
     const [freshFeed, freshWallets] = await Promise.all([fetchFeed(), fetchWallets()]);
-    triggerStaleSnapshots(freshWallets, freshFeed);
+    await triggerStaleSnapshots(freshWallets, freshFeed);
   }, [fetchFeed, fetchWallets, triggerStaleSnapshots]);
 
   // ─── Initial load ──────────────────────────────────────────────────────────
@@ -535,7 +545,7 @@ export default function RadarPage() {
 
     const init = async () => {
       const [freshFeed, freshWallets] = await Promise.all([fetchFeed(), fetchWallets()]);
-      triggerStaleSnapshots(freshWallets, freshFeed);
+      await triggerStaleSnapshots(freshWallets, freshFeed);
     };
 
     init();
