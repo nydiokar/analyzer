@@ -58,6 +58,7 @@ interface RadarHolding {
 // 30 minutes — aligns with BalanceCacheService default TTL. Below this threshold
 // a snapshot would return cached data with no new information.
 const STALE_MS = 30 * 60 * 1000;
+const RADAR_MIN_USD_VALUE = 80;
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -83,6 +84,12 @@ function formatBalance(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function getRenderableUsdValue(liveUsd: number | null, storedUsd: number | null): number | null {
+  const usdValue = liveUsd ?? storedUsd;
+  if (usdValue == null || usdValue < RADAR_MIN_USD_VALUE) return null;
+  return usdValue;
 }
 
 // Build max lastSeenAt (ms) per wallet from a feed snapshot.
@@ -269,7 +276,9 @@ function FeedRow({
   onCopy: (address: string) => void;
 }) {
   const liveUsd = useLiveUsdValue(holding.tokenMint, holding.uiBalance);
+  const renderUsd = getRenderableUsdValue(liveUsd, holding.usdValue);
   const eventType = getEventType(holding);
+  if (renderUsd == null) return null;
   return (
     <div
       className={cn(
@@ -310,7 +319,7 @@ function FeedRow({
             ? <span>{formatBalance(holding.uiBalance)} tokens</span>
             : <span className="text-red-400/70 line-through">{formatBalance(holding.uiBalance)} tokens</span>
           }
-          {liveUsd != null && <span>{formatUsd(liveUsd)}</span>}
+          <span>{formatUsd(renderUsd)}</span>
           <span title={new Date(holding.firstSeenAt).toLocaleString()}>
             first seen {formatRelativeTime(holding.firstSeenAt)}
           </span>
@@ -334,7 +343,9 @@ function HoldingRow({
   onReview: (id: string, status: RadarHolding['reviewStatus']) => void;
 }) {
   const liveUsd = useLiveUsdValue(holding.tokenMint, holding.uiBalance);
+  const renderUsd = getRenderableUsdValue(liveUsd, holding.usdValue);
   const eventType = getEventType(holding);
+  if (renderUsd == null) return null;
   return (
     <tr className="border-b border-border/40 last:border-0 hover:bg-accent/10 transition-colors">
       <td className="px-3 py-2">
@@ -344,7 +355,7 @@ function HoldingRow({
         {formatBalance(holding.uiBalance)}
       </td>
       <td className="px-3 py-2 text-right text-xs">
-        {formatUsd(liveUsd)}
+        {formatUsd(renderUsd)}
       </td>
       <td className="px-3 py-2 text-right text-xs text-muted-foreground" title={new Date(holding.firstSeenAt).toLocaleString()}>
         {formatRelativeTime(holding.firstSeenAt)}
