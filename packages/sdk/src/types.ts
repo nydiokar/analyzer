@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------------------
 // Sova Intel SDK — shared types
+// Source of truth: WalletHudDto / intel.controller.ts in the analyzer API
 // ---------------------------------------------------------------------------
 
 // --- Auth -----------------------------------------------------------------
@@ -30,7 +31,51 @@ export interface JobStatus {
   progress?: number;
 }
 
-// --- Wallet Intel ---------------------------------------------------------
+// --- Wallet HUD -----------------------------------------------------------
+// Matches WalletHudDto (src/api/shared/dto/wallet-hud.dto.ts)
+
+export type DataQualityTier = "GOLD" | "SILVER" | "BRONZE" | "INSUFFICIENT";
+
+export interface WalletHud {
+  walletAddress: string;
+  signalType: string;
+
+  // Core metrics
+  trimmedMeanPnl: number;
+  avgTxValueSol: number;
+  behaviorCategory?: string;
+  behaviorCode: string;
+  medianHoldTimeHours?: number;
+  avgTradesPerDay: number;
+  winRate: number;
+  dataQualityTier: DataQualityTier;
+
+  // Conditional badges
+  isBot: boolean;
+  isWhale: boolean;
+
+  // Supporting data
+  uniqueTokensPerDay: number;
+  currentHoldingsSol: number;
+  currentHoldingsUsd?: number;
+
+  // Metadata
+  calculatedAt: string;
+  provenance?: {
+    provider: string;
+    nodeId?: string;
+    schemaVersion: string;
+    generatedAt: string;
+    dataRange?: {
+      from: string;
+      to: string;
+    };
+    source?: "onchain" | "indexed_db" | "hybrid";
+  };
+}
+
+// --- Wallet Profile -------------------------------------------------------
+// Matches buildIntelResponse() in intel.controller.ts
 
 export interface WalletSummary {
   lastAnalyzedAt: string;
@@ -42,23 +87,13 @@ export interface WalletSummary {
   knownLabel: string | null;
 }
 
-export interface WalletHud {
-  pnlSignal: "positive" | "negative" | "neutral";
-  behaviorCode: string;
-  winRate: number;
-  dataQualityTier: "high" | "medium" | "low";
-  isBotFlagged: boolean;
-  isWhaleFlagged: boolean;
-  medianPnlPerToken?: number;
-}
-
 export interface WalletBehavior {
-  tradingStyle: string;
-  speedCategory: string;
-  avgHoldTimeHours: number;
-  medianHoldTimeHours: number;
-  buySellRatio: number;
-  exitPattern: string;
+  tradingStyle: string | null;
+  speedCategory: string | null;
+  avgHoldTimeHours: number | null;
+  medianHoldTimeHours: number | null;
+  buySellRatio: number | null;
+  exitPattern: string | null;
 }
 
 export interface PnlAllTime {
@@ -77,14 +112,7 @@ export interface WalletProfileResponse {
   pnl: { allTime: PnlAllTime | null; period: unknown | null } | null;
 }
 
-export interface WalletHudResponse {
-  pnlSignal: "positive" | "negative" | "neutral";
-  behaviorCode: string;
-  winRate: number;
-  isBotFlagged: boolean;
-  isWhaleFlagged: boolean;
-  medianPnlPerToken?: number;
-}
+// --- Token PnL ------------------------------------------------------------
 
 export interface TokenPnlRow {
   tokenAddress: string;
@@ -110,28 +138,18 @@ export interface TokenPnlParams {
 }
 
 // --- Batch HUD ------------------------------------------------------------
+// Matches BatchWalletHudResponseDto — note: notFound (not skipped), no queued array
 
-export type BatchHudResult = Record<string, WalletHudResponse>;
-
-export interface BatchQueuedEntry {
-  walletAddress: string;
-  jobId: string;
-  monitoringUrl: string;
-}
+export type BatchHudResult = Record<string, WalletHud>;
 
 export interface BatchHudResponse {
   huds: BatchHudResult;
-  queued: BatchQueuedEntry[];
-  skipped: string[];
+  notFound: string[];
   calculatedAt: string;
 }
 
 // --- Async job responses --------------------------------------------------
 
-/**
- * Returned by POST async endpoints (202).
- * GET /intel/wallet/:addr 202 omits requestId and includes walletAddress + message instead.
- */
 export interface JobAcceptedResponse {
   status: "queued";
   jobId: string;
@@ -167,6 +185,42 @@ export interface DeepPartialResponse {
   holderProfiles: JobRef;
   similarity: null;
   message: string;
+}
+
+// --- Holder Profiles ------------------------------------------------------
+// Matches HolderProfile / HolderProfilesResult in queues/jobs/types/index.ts
+
+export interface HolderProfile {
+  walletAddress: string;
+  rank: number;
+  supplyPercent: number;
+  tokenHoldingValueSol?: number | null;
+  knownType?: string;
+  knownLabel?: string;
+  analysisSkipped?: boolean;
+  medianHoldTimeHours: number | null;
+  avgHoldTimeHours: number | null;
+  behaviorType: string | null;
+  exitPattern: string | null;
+  dataQualityTier: DataQualityTier;
+  completedCycleCount: number;
+  confidence: number;
+  walletPnlSol?: number | null;
+  walletRealizedPnlSol?: number | null;
+  solBalance?: number | null;
+}
+
+export interface HolderProfilesResult {
+  mode: "token" | "wallet";
+  tokenMint?: string;
+  profiles: HolderProfile[];
+  metadata: {
+    totalHoldersRequested: number;
+    totalHoldersAnalyzed: number;
+    totalProcessingTimeMs: number;
+    avgProcessingTimePerWalletMs: number;
+    failedHolders?: number;
+  };
 }
 
 // --- X402 wire format -----------------------------------------------------

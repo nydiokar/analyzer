@@ -7,7 +7,7 @@ import { pollAndFetch } from "./poller.js";
 import type {
   SovaIntelClientConfig,
   WalletProfileResponse,
-  WalletHudResponse,
+  WalletHud,
   WalletGetQueuedResponse,
   TokenPnlResponse,
   TokenPnlParams,
@@ -60,19 +60,19 @@ export class SovaIntelClient {
   // GET /intel/wallet/:addr/hud — 1cr
   // Same timeout fallback contract as getWalletProfile.
   // -------------------------------------------------------------------------
-  async getWalletHud(walletAddress: string): Promise<WalletHudResponse> {
+  async getWalletHud(walletAddress: string): Promise<WalletHud> {
     const path = `/intel/wallet/${walletAddress}/hud`;
-    const res = await this.http.request<WalletHudResponse | WalletGetQueuedResponse>({ path });
+    const res = await this.http.request<WalletHud | WalletGetQueuedResponse>({ path });
     if ("status" in res && res.status === "queued") {
       const queued = res as WalletGetQueuedResponse;
       const prepaidJobId = queued.prepaidJobId ?? queued.jobId;
       await this.waitForJob(queued.jobId);
-      return this.http.request<WalletHudResponse>({
+      return this.http.request<WalletHud>({
         path,
         headers: { "X-Prepaid-Job-Id": prepaidJobId },
       });
     }
-    return res as WalletHudResponse;
+    return res as WalletHud;
   }
 
   // -------------------------------------------------------------------------

@@ -13,11 +13,11 @@ export type {
   X402Auth,
   // Wallet intel
   WalletProfileResponse,
-  WalletHudResponse,
   WalletSummary,
   WalletHud,
   WalletBehavior,
   PnlAllTime,
+  DataQualityTier,
   // Token PnL
   TokenPnlRow,
   TokenPnlResponse,
@@ -25,11 +25,14 @@ export type {
   // Batch
   BatchHudResponse,
   BatchHudResult,
-  BatchQueuedEntry,
+  // Holder profiles
+  HolderProfile,
+  HolderProfilesResult,
   // Async jobs
   JobRef,
   JobStatus,
   JobAcceptedResponse,
+  WalletGetQueuedResponse,
   DeepJobAcceptedResponse,
   DeepPartialResponse,
   // X402
