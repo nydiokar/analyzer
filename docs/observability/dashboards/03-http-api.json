@@ -22,24 +22,29 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total[5m]))",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\"}[5m]))",
           "legendFormat": "Total RPS",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(http_requests_total{status_code=~\"2..\"}[5m]))",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\",status_code=~\"2..\"}[5m]))",
           "legendFormat": "2xx RPS",
           "refId": "B"
         },
         {
-          "expr": "sum(rate(http_requests_total{status_code=~\"4..\"}[5m]))",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\",status_code=~\"4..\"}[5m]))",
           "legendFormat": "4xx RPS",
           "refId": "C"
         },
         {
-          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m]))",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\",status_code=~\"5..\"}[5m]))",
           "legendFormat": "5xx RPS",
           "refId": "D"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{route=\"unmatched\"}[5m]))",
+          "legendFormat": "Unmatched RPS",
+          "refId": "E"
         }
       ],
       "yaxes": [
@@ -67,12 +72,12 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\",status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total{route!=\"unmatched\"}[5m])) * 100",
           "legendFormat": "5xx Error Rate",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(http_requests_total{status_code=~\"4..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\",status_code=~\"4..\"}[5m])) / sum(rate(http_requests_total{route!=\"unmatched\"}[5m])) * 100",
           "legendFormat": "4xx Error Rate",
           "refId": "B"
         }
@@ -160,7 +165,7 @@
       },
       "targets": [
         {
-          "expr": "topk(10, histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (route, le)))",
+          "expr": "topk(10, histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{route!=\"unmatched\"}[5m])) by (route, le)))",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -184,7 +189,7 @@
     },
     {
       "id": 5,
-      "title": "Requests by Route",
+      "title": "Requests by Route (Matched)",
       "type": "graph",
       "gridPos": {
         "h": 8,
@@ -194,7 +199,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total[5m])) by (route)",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\"}[5m])) by (route)",
           "legendFormat": "{{route}}",
           "refId": "A"
         }
@@ -214,7 +219,7 @@
     },
     {
       "id": 6,
-      "title": "Requests by Status Code",
+      "title": "Requests by Status Code (Matched)",
       "type": "piechart",
       "gridPos": {
         "h": 8,
@@ -224,7 +229,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total[5m])) by (status_code)",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\"}[5m])) by (status_code)",
           "legendFormat": "{{status_code}}",
           "refId": "A"
         }
@@ -242,7 +247,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(http_requests_total[24h]))",
+          "expr": "sum(increase(http_requests_total{route!=\"unmatched\"}[24h]))",
           "refId": "A"
         }
       ],
@@ -270,7 +275,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_requests_total[1m]))",
+          "expr": "sum(rate(http_requests_total{route!=\"unmatched\"}[1m]))",
           "refId": "A"
         }
       ],
@@ -298,7 +303,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(http_request_duration_seconds_sum[5m])) / sum(rate(http_request_duration_seconds_count[5m]))",
+          "expr": "sum(rate(http_request_duration_seconds_sum{route!=\"unmatched\"}[5m])) / sum(rate(http_request_duration_seconds_count{route!=\"unmatched\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -373,6 +378,64 @@
               }
             ]
           }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Unmatched Traffic",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{route=\"unmatched\"}[5m])) by (method, status_code)",
+          "legendFormat": "{{method}} {{status_code}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "show": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Current Route Cardinality",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 28
+      },
+      "targets": [
+        {
+          "expr": "count(count by (route) (http_requests_total))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
         }
       }
     }
