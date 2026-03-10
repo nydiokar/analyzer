@@ -1,14 +1,17 @@
 import { Telegraf, Context } from 'telegraf';
 import { PrismaClient } from '@prisma/client';
+import { SovaIntelClient } from '@sova/intel-sdk';
 import { config } from './config';
-import { IntelClient } from './intel-client';
 import { hudHandler } from './commands/hud';
 import { profileHandler } from './commands/profile';
 import { holdersHandler } from './commands/holders';
 
 export function createBot(prisma: PrismaClient): Telegraf<Context> {
   const bot = new Telegraf<Context>(config.BOT_TOKEN);
-  const client = new IntelClient(config.INTEL_BASE_URL, config.INTEL_API_KEY);
+  const client = new SovaIntelClient({
+    baseUrl: config.INTEL_BASE_URL,
+    auth: { kind: 'apikey', apiKey: config.INTEL_API_KEY },
+  });
 
   // Allowlist middleware
   bot.use(async (ctx, next) => {

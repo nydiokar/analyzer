@@ -1,4 +1,4 @@
-import type { WalletHud } from '../intel-client';
+import type { WalletHud } from '@sova/intel-sdk';
 
 export function formatHud(address: string, hud: WalletHud): string {
   const short = `${address.slice(0, 4)}..${address.slice(-4)}`;
@@ -48,7 +48,7 @@ function formatSol(sol: number): string {
 }
 
 function formatHoldTime(hours?: number): string {
-  if (!hours) return '—';
+  if (hours === undefined || hours === null) return '—';
   if (hours < 1)  return `${Math.round(hours * 60)}min`;
   if (hours < 24) return `${hours.toFixed(1)}h`;
   return `${(hours / 24).toFixed(1)}d`;
@@ -69,5 +69,5 @@ function formatUsd(n: number): string {
 
 function formatDateShort(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }

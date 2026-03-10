@@ -1,6 +1,5 @@
-import type { HolderProfile, HolderProfilesResult } from '../intel-client';
+import type { HolderProfile, HolderProfilesResult } from '@sova/intel-sdk';
 
-// Copied from pft-bot_v2/src/formatters/holders.ts — adapted for Telegram HTML
 const BEHAVIOR_LABELS: Record<string, string> = {
   'SNIPER': 'Sniper',
   'SCALPER': 'Scalper',
@@ -41,9 +40,7 @@ const BEHAVIOR_EMOJIS: Record<string, string> = {
   'Flipper': '🔁',
 };
 
-export function formatHolderProfilesResult(
-  result: HolderProfilesResult,
-): string {
+export function formatHolderProfilesResult(result: HolderProfilesResult): string {
   const lines: string[] = [];
 
   const mint = result.tokenMint ?? '?';
@@ -139,7 +136,7 @@ function formatPnl(sol?: number): string {
 }
 
 function formatHoldTime(hours?: number): string {
-  if (!hours) return '—';
+  if (hours === undefined || hours === null) return '—';
   if (hours < 1) return `${Math.round(hours * 60)}min`;
   if (hours < 24) return `${hours.toFixed(1)}h`;
   return `${(hours / 24).toFixed(1)}d`;
