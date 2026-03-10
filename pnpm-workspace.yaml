@@ -1,6 +1,5 @@
 packages:
   - '.'
-  - 'dashboard'
 
 onlyBuiltDependencies:
   - '@nestjs/core'
