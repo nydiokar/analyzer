@@ -12,8 +12,23 @@ import * as dotenv from 'dotenv';
 import { json } from 'express';
 import { setupThrottledLogging } from './core/logging/setup-throttled-logging';
 import { MetricsService } from './api/services/metrics.service';
+import { METRICS_CONFIG } from './config/constants';
 
 dotenv.config();
+
+function normalizeMetricsRoute(req: { route?: { path?: string }; path?: string; originalUrl?: string }): string {
+  const routePath = req.route?.path;
+  if (routePath) {
+    return routePath.startsWith('/') ? routePath : `/${routePath}`;
+  }
+
+  const rawPath = req.path || req.originalUrl || METRICS_CONFIG.UNKNOWN_ROUTE_LABEL;
+  if (rawPath === '/' || rawPath === '') {
+    return rawPath || '/';
+  }
+
+  return METRICS_CONFIG.UNKNOWN_ROUTE_LABEL;
+}
 
 async function bootstrap() {
   // Enable throttled logging globally - prevents log spam when services fail repeatedly
@@ -47,8 +62,8 @@ async function bootstrap() {
     const start = process.hrtime.bigint();
 
     res.on('finish', () => {
-      // Extract route pattern (e.g., /api/v1/wallets/:address instead of actual address)
-      const route = req.route?.path || req.path || 'unknown';
+      // Use controller route templates when available, otherwise collapse unmatched traffic.
+      const route = normalizeMetricsRoute(req);
 
       // Increment request counter
       metricsService.httpRequestsTotal

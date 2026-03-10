@@ -193,6 +193,15 @@ export const HELIUS_CONFIG = {
   SIGNATURE_FETCH_SAFETY_MULTIPLIER: getEnvNumber('HELIUS_SIGNATURE_SAFETY_MULTIPLIER', 5), // Stop pagination if we massively overshoot requested maxSignatures
 } as const;
 
+export const METRICS_CONFIG = {
+  UNKNOWN_ROUTE_LABEL: 'unmatched',
+} as const;
+
+export const SYSTEM_WALLET_DETECTION_CACHE_CONFIG = {
+  MEMORY_MAX_ENTRIES: getEnvNumber('SYSTEM_WALLET_MEMORY_CACHE_MAX_ENTRIES', 10000),
+  MEMORY_TTL_MS: getEnvNumber('SYSTEM_WALLET_MEMORY_CACHE_TTL_MS', 6 * 60 * 60 * 1000),
+} as const;
+
 // --- Helius V2 Pagination Feature Flag & Tuning ---
 const boolFromEnv = (key: string, fallback: boolean): boolean => {
   const raw = process.env[key];
