@@ -16,8 +16,9 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --exclude src/contract.test.ts",
+    "test:watch": "vitest --exclude src/contract.test.ts",
+    "test:contract": "vitest run src/contract.test.ts"
   },
   "keywords": [
     "solana",

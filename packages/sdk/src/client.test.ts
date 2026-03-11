@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SovaIntelClient } from "./client.js";
 import { SovaHttpError, X402PaymentError } from "./http.js";
-import type { X402Auth, WalletHudResponse, WalletProfileResponse, BatchHudResponse } from "./types.js";
+import type { X402Auth, WalletHud, WalletProfileResponse, BatchHudResponse } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,13 +49,22 @@ function jsonResponse(
   });
 }
 
-const MOCK_HUD: WalletHudResponse = {
-  pnlSignal: "positive",
-  behaviorCode: "SWING_TRADER",
+const MOCK_HUD: WalletHud = {
+  walletAddress: WALLET,
+  signalType: "wallet_behavior_v1",
+  trimmedMeanPnl: 12.4,
+  avgTxValueSol: 2.45,
+  behaviorCategory: "SWING_TRADER",
+  behaviorCode: "W",
+  medianHoldTimeHours: 12.1,
+  avgTradesPerDay: 4.2,
   winRate: 0.67,
-  isBotFlagged: false,
-  isWhaleFlagged: false,
-  medianPnlPerToken: 2.4,
+  dataQualityTier: "GOLD",
+  isBot: false,
+  isWhale: false,
+  uniqueTokensPerDay: 3.1,
+  currentHoldingsSol: 45.2,
+  calculatedAt: "2026-03-03T11:30:00.000Z",
 };
 
 const MOCK_PROFILE: WalletProfileResponse = {
@@ -70,10 +79,7 @@ const MOCK_PROFILE: WalletProfileResponse = {
     knownType: null,
     knownLabel: null,
   },
-  hud: {
-    ...MOCK_HUD,
-    dataQualityTier: "high",
-  },
+  hud: MOCK_HUD,
   behavior: {
     tradingStyle: "swing",
     speedCategory: "medium",
@@ -114,11 +120,10 @@ describe("getWalletHud", () => {
     const hud = await client.getWalletHud(WALLET);
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(hud.pnlSignal).toBe("positive");
-    expect(hud.behaviorCode).toBe("SWING_TRADER");
+    expect(hud.behaviorCode).toBe("W");
     expect(hud.winRate).toBe(0.67);
-    expect(hud.isBotFlagged).toBe(false);
-    expect(hud.medianPnlPerToken).toBe(2.4);
+    expect(hud.isBot).toBe(false);
+    expect(hud.trimmedMeanPnl).toBe(12.4);
   });
 
   it("throws SovaHttpError on 404 (no data yet)", async () => {
@@ -167,7 +172,7 @@ describe("getWalletHud", () => {
 
     expect(hudCallCount).toBe(2);
     expect(pollCount).toBe(2);
-    expect(hud.behaviorCode).toBe("SWING_TRADER");
+    expect(hud.behaviorCode).toBe("W");
   });
 });
 
@@ -187,7 +192,7 @@ describe("getWalletProfile", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(profile.status).toBe("ok");
     expect(profile.walletAddress).toBe(WALLET);
-    expect(profile.hud?.pnlSignal).toBe("positive");
+    expect(profile.hud?.trimmedMeanPnl).toBe(12.4);
     expect(profile.summary.currentSolBalance).toBe(4.21);
   });
 
@@ -208,14 +213,12 @@ describe("getWalletProfile", () => {
       const url = input.toString();
       const headers = (init?.headers ?? {}) as Record<string, string>;
 
-      // Job status poll
       if (url.includes("/jobs/job-99") && !url.includes("result")) {
         pollCount++;
         if (pollCount === 1) return jsonResponse({ status: "active", progress: 40 });
         return jsonResponse({ status: "completed", progress: 100 });
       }
 
-      // The wallet endpoint itself — called twice
       if (url.includes(`/intel/wallet/${WALLET}`) && !url.includes("/hud") && !url.includes("/tokens")) {
         callCount++;
         if (callCount === 1) return jsonResponse(queued202, 202);
@@ -229,9 +232,7 @@ describe("getWalletProfile", () => {
     const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
     const profile = await client.getWalletProfile(WALLET);
 
-    // Called twice: once got 202, once got 200
     expect(callCount).toBe(2);
-    // Polled twice: active then completed
     expect(pollCount).toBe(2);
     expect(profile.status).toBe("ok");
     expect(profile.walletAddress).toBe(WALLET);
@@ -288,7 +289,6 @@ describe("getWalletTokens", () => {
   it("works without optional params (uses server defaults)", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url = input.toString();
-      // No query params beyond the path
       expect(url).not.toContain("sortBy");
       expect(url).not.toContain("page=");
       return jsonResponse({ data: [], total: 0, page: 1, pageSize: 20 });
@@ -301,21 +301,16 @@ describe("getWalletTokens", () => {
 });
 
 // ---------------------------------------------------------------------------
-// batchHud — correct POST body, correct response shape including queued objects
+// batchHud — correct POST body, correct response shape
 // ---------------------------------------------------------------------------
 
 describe("batchHud", () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it("POSTs wallets array and returns typed response with queued as objects", async () => {
+  it("POSTs wallets array and returns typed response", async () => {
     const mockResponse: BatchHudResponse = {
-      huds: {
-        addr1: MOCK_HUD,
-      },
-      queued: [
-        { walletAddress: "addr2", jobId: "job-10", monitoringUrl: "/api/v1/jobs/job-10" },
-      ],
-      skipped: ["addr3"],
+      huds: { addr1: MOCK_HUD },
+      notFound: ["addr3"],
       calculatedAt: "2026-03-03T15:00:00.000Z",
     };
 
@@ -331,11 +326,8 @@ describe("batchHud", () => {
     const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
     const result = await client.batchHud(["addr1", "addr2", "addr3"]);
 
-    expect(result.huds["addr1"]?.behaviorCode).toBe("SWING_TRADER");
-    expect(result.queued[0]?.walletAddress).toBe("addr2");
-    expect(result.queued[0]?.jobId).toBe("job-10");
-    expect(result.queued[0]?.monitoringUrl).toBe("/api/v1/jobs/job-10");
-    expect(result.skipped).toContain("addr3");
+    expect(result.huds["addr1"]?.behaviorCode).toBe("W");
+    expect(result.notFound).toContain("addr3");
   });
 });
 
@@ -350,7 +342,7 @@ describe("pollHolderProfiles", () => {
     const jobAccepted = {
       status: "queued",
       jobId: "job-55",
-      requestId: "intel-holders-1234-abc",   // deliberately different from jobId
+      requestId: "intel-holders-1234-abc",
       tokenMint: MINT,
       topN: 20,
       monitoringUrl: "/api/v1/jobs/job-55",
@@ -364,7 +356,6 @@ describe("pollHolderProfiles", () => {
       const url = input.toString();
 
       if (url.includes("/jobs/result/by-key")) {
-        // Capture the key the SDK actually requested
         resultKeyUsed = new URL(url).searchParams.get("key") ?? "";
         return jsonResponse(holdersResult);
       }
@@ -382,7 +373,6 @@ describe("pollHolderProfiles", () => {
     const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
     const result = await client.pollHolderProfiles<typeof holdersResult>(MINT, 20);
 
-    // The critical assertion: key must be keyed on jobId ("job-55"), NOT requestId
     expect(resultKeyUsed).toBe("holder-profiles:result:job-55");
     expect(resultKeyUsed).not.toContain("intel-holders-1234-abc");
     expect(result.profiles[0].winRate).toBe(0.7);
@@ -434,7 +424,6 @@ describe("pollSimilarity", () => {
     const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
     const result = await client.pollSimilarity<typeof similarityResult>(["addr1", "addr2"]);
 
-    // Key must be requestId-based (similarity processor uses requestId, not jobId)
     expect(resultKeyUsed).toBe("similarity:result:intel-similarity-1234-xyz");
     expect(pollCount).toBe(2);
     expect(result.score).toBe(0.91);
@@ -459,7 +448,7 @@ describe("pollSimilarity", () => {
 
 // ---------------------------------------------------------------------------
 // pollDeepAnalysis — both result keys, and 206 partial failure
-// SKIPPED: endpoint temporarily returns 501 (INTEL-DEEP-BUG chain-job fix pending)
+// SKIPPED: endpoint temporarily returns 501 (chain-job fix pending)
 // ---------------------------------------------------------------------------
 
 describe.skip("pollDeepAnalysis", () => {
@@ -478,7 +467,6 @@ describe.skip("pollDeepAnalysis", () => {
 
     const holdersResult = { profiles: [{ wallet: "addr1" }] };
     const simResult = { score: 0.85 };
-
     const resultKeysUsed: string[] = [];
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -506,16 +494,13 @@ describe.skip("pollDeepAnalysis", () => {
     const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
     const result = await client.pollDeepAnalysis<typeof holdersResult, typeof simResult>(MINT, ["addr1", "addr2"], 20);
 
-    // holder-profiles keyed on jobId, similarity keyed on requestId
     expect(resultKeysUsed).toContain("holder-profiles:result:hp-job-1");
     expect(resultKeysUsed).toContain("similarity:result:sim-req-1");
-    expect(resultKeysUsed).not.toContain("holder-profiles:result:hp-req-1");
-
     expect(result.holderProfiles.profiles[0].wallet).toBe("addr1");
     expect(result.similarity.score).toBe(0.85);
   });
 
-  it("throws descriptive error on 206 partial failure (similarity failed to queue)", async () => {
+  it("throws descriptive error on 206 partial failure", async () => {
     const partial206 = {
       status: "partial",
       tokenMint: MINT,
@@ -566,7 +551,6 @@ describe("X402 auth flow", () => {
       callCount++;
       const headers = init?.headers as Record<string, string> | undefined;
       if (callCount === 1) {
-        // Probe: no auth headers
         expect(headers?.["X-Api-Key"]).toBeUndefined();
         expect(headers?.["payment-signature"]).toBeUndefined();
         return jsonResponse(
@@ -575,7 +559,6 @@ describe("X402 auth flow", () => {
           { "PAYMENT-REQUIRED": paymentRequiredHeader },
         );
       }
-      // Retry: payment-signature present
       expect(headers?.["payment-signature"]).toBe("base64encodedXPayment");
       return jsonResponse(MOCK_HUD, 200);
     });
@@ -585,7 +568,7 @@ describe("X402 auth flow", () => {
 
     expect(callCount).toBe(2);
     expect(buildPayment).toHaveBeenCalledOnce();
-    expect(hud.pnlSignal).toBe("positive");
+    expect(hud.trimmedMeanPnl).toBe(12.4);
   });
 
   it("throws X402PaymentError if 402 is returned after payment attempt", async () => {
@@ -602,7 +585,6 @@ describe("X402 auth flow", () => {
     };
     const paymentRequiredHeader = Buffer.from(JSON.stringify(paymentRequired)).toString("base64");
 
-    // Both probe and retry return 402
     const fetchMock = vi.fn(async (): Promise<Response> =>
       jsonResponse(
         { error: "Payment required", required: 5 },

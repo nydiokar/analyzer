@@ -6,6 +6,7 @@ import { ApiKeyService, ApiKeyScope } from '../src/api/shared/services/api-key.s
 import { ApiKeyDatabaseService } from '../src/api/shared/services/api-key-database.service';
 import { JwtDatabaseService } from '../src/api/shared/services/jwt-database.service';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getErrorMessage, getErrorDetails } from '../src/core/utils/error-utils';
 import logger from '../src/core/utils/logger';
 
@@ -19,7 +20,8 @@ async function main() {
   const databaseService = new DatabaseService();
   const apiKeyDatabaseService = new ApiKeyDatabaseService(databaseService);
   const jwtDatabaseService = new JwtDatabaseService(databaseService);
-  const apiKeyService = new ApiKeyService(apiKeyDatabaseService, jwtDatabaseService, configService);
+  const eventEmitter = new EventEmitter2();
+  const apiKeyService = new ApiKeyService(apiKeyDatabaseService, jwtDatabaseService, configService, eventEmitter);
 
   await yargs(hideBin(process.argv))
     .command(

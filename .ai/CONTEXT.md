@@ -1,37 +1,37 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/tracked-wallets-page`  **Last Updated:** 2026-03-09  **Status:** Holdings Radar fully wired — frontend + backend bugs fixed, page functional
+**Branch:** `feat/telegram-bot-intel`  **Last Updated:** 2026-03-10  **Status:** TG-1–TG-10 complete — E2E tested, running in production
 
-**Base:** `main` (Credit ledger + Intel API layer + X402 agent payments + TypeScript SDK — all merged)
+**Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
 ---
 
 ##  Active Work
 
-### feat/tracked-wallets-page
+### feat/telegram-bot-intel
 
-Full spec: `spec.md` in repo root.
+Full spec: `.ai/context/telegram-bot/spec.md`
 
 | Status | Task | Area | Notes |
 |:------:|:-----|:----:|:------|
-| ✅ | **[TRK-1] Schema** — `RadarWallet`, `RadarHolding` models + `User.isAnalyst` flag | Backend | Migration `20260309091049_add_radar_models_and_analyst_flag` applied. |
-| ✅ | **[TRK-2] AnalystGuard** — guard checking `user.isAnalyst \|\| user.isAdmin` | Backend | `src/api/shared/guards/analyst.guard.ts` + `src/api/shared/decorators/analyst.decorator.ts`. Registered as global guard in `AppModule`. |
-| ✅ | **[TRK-3] Snapshot service** — upsert holdings from `BalanceCacheService`, dust filter, first-seen detection | Backend | `src/api/services/radar-snapshot.service.ts`. No ATA calls — firstSeenAt is radar-detection time only. |
-| ⏭️ | **[TRK-4] ATA acquisition time** — deferred, not needed for v1 | Backend | Skipped. `acquiredAt` field exists on schema for future use. |
-| ✅ | **[TRK-5] Radar controller + module** — all 7 endpoints (`/analyst/radar/...`), all guarded by `@IsAnalyst()` | Backend | `src/api/controllers/radar.controller.ts`, `src/api/modules/radar.module.ts`. Wired into `ApiModule`. |
-| ✅ | **[TRK-AUTH] `isAnalyst` propagation** — field missing from all auth responses and frontend User type | Backend + Frontend | `auth.service.ts` (3 return blocks), `auth.controller.ts` (`getProfile`), `auth-store.ts` (User + AuthResponse), `useAuth.ts` (login + register). |
-| ✅ | **[TRK-6] Frontend page scaffold** — `/radar` route, access gate, `AppShell` wrapper, nav item | Frontend | `dashboard/src/app/radar/page.tsx`. |
-| ✅ | **[TRK-7] Event feed view** — `FeedRow` component with live USD via `useLiveUsdValue`, review actions | Frontend | `GET /analyst/radar/feed`. `FeedRow` calls `useTokenMetadata` — same batcher as `TokenBadge`. |
-| ✅ | **[TRK-8] Holdings view** — per-wallet expandable, `HoldingRow` with live USD, sortable table | Frontend | `GET /analyst/radar/:address/holdings`. Lazy-loaded on expand. |
-| ✅ | **[TRK-9] Add wallet input + snapshot trigger** — address validation, POST, immediate snapshot, refresh feed | Frontend | POST wallet → POST snapshot → refresh. |
-| ✅ | **[TRK-10] Review status actions** — mark reviewed / ignore inline in feed and holdings table | Frontend | `PATCH /analyst/radar/holdings/:id/review`. Optimistic update in both views. |
+| ✅ | **[TG-1] Schema + migration** — `TelegramBotLog` model | Backend | Migration `20260309153328_add_telegram_bot_log` applied. |
+| ✅ | **[TG-2] API key seed script** — `prisma/seed-telegram-bot.ts` | Backend | Creates `system-telegram-bot` User + `ak_<hex>` ApiKey (bcrypt hash). Run once — prints raw key to stdout. |
+| ✅ | **[TG-3] Bot scaffold** — `src/bot/intel/` entry point + auth middleware | Bot | `index.ts`, `bot.ts`, `config.ts`. Telegraf setup, `ALLOWED_USER_IDS` allowlist, SIGINT/SIGTERM, `process.send('ready')`. |
+| ✅ | **[TG-4] Intel API client** — `intel-client.ts` | Bot | Typed axios wrapper: `getHud` / `getProfile` (35s timeout), `postHolders`, `pollJob` (5s). Header: `x-api-key`. Types copied from pft-bot_v2. |
+| ✅ | **[TG-5] /hud command + formatter** | Bot | `commands/hud.ts` + `formatters/hud.formatter.ts`. ⏳ → await API → edit msg with Telegram HTML. |
+| ✅ | **[TG-6] /profile command + formatter** | Bot | `commands/profile.ts` + `formatters/profile.formatter.ts`. Same ⏳ → edit pattern, 5cr. |
+| ✅ | **[TG-7] /holders command + formatter + async poll** | Bot | `commands/holders.ts` + `formatters/holders.formatter.ts`. POST → poll every 3s (up to 120s) → edit. Formatter adapted from pft-bot_v2. |
+| ✅ | **[TG-8] Attribution logging** — write `TelegramBotLog` rows | Bot | `attribution.ts` — fire-and-forget `logInvocation()` called in all three handlers. |
+| ✅ | **[TG-9] PM2 process config** — add `sova-tg-bot` entry to `ecosystem.config.js` | DevOps | ts-node interpreter, `wait_ready: true`, `exp_backoff_restart_delay: 100`, `max_memory_restart: 512M`. |
+| ✅ | **[TG-10] E2E test** — all three commands verified with real addresses in Telegram | Manual | All three commands working. Attribution rows confirmed in `TelegramBotLog`. Bot running from `dist/` via PM2. |
 
 ---
 
-### Pending from main (carry-over, not this branch)
+### Pending carry-over (not this branch)
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| ⚪ | **[SDK-PUBLISH]** Publish `@sova/intel-sdk` to npm — add `"type": "module"` + dual exports to `package.json`, write minimal `README.md`, bump to `0.1.0`, add `prepublishOnly: pnpm build`, then `pnpm publish --access public`. Keep `workspace:*` in monorepo; external consumers pin npm version. | 🟢 S | `packages/sdk/package.json`, `packages/sdk/README.md` |
 | ⚪ | **[PAY-X402-RECEIPT]** Fix `X-Payment-Response` receipt header — split `confirmAndRecord` into broadcast (fast, in guard) + confirm (slow, fire-and-forget), set header synchronously in interceptor with known sig | 🟢 S | `x402-verification.service.ts`, `credit.guard.ts`, `credit.interceptor.ts` |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[INTEL-DEEP-BUG]** Fix `/intel/token/:mint/holders/deep` similarity chaining — add `chainSimilarity: true` flag to job, processor auto-queues similarity after holder-profiles completes | 🟡 M | `src/queues/jobs/types/index.ts`, `intel.controller.ts`, `analysis-operations.processor.ts` |
@@ -56,21 +56,29 @@ Full spec: `spec.md` in repo root.
 
 ##  Current Focus & Priorities
 
-### P0: Holdings Radar — ✅ COMPLETE (Mar 9, 2026)
+### P0: Telegram Bot Intel — 🚧 IN PROGRESS (Mar 9, 2026)
 
-New feature on `feat/tracked-wallets-page`. Full spec in `.ai/context/holding_feed/spec.md`.
+New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot/spec.md`.
 
-**What this is:** Operational monitoring page for specific wallets — ATA holdings via Helius, no analysis pipeline dependency. First-seen token detection feed. Analyst-gated access (`isAnalyst` flag, not admin).
+**What this is:** Telegraf-based Telegram bot exposing `/hud`, `/profile`, and `/holders` commands — all wired to the Intel HTTP API via a single `system-telegram-bot` API key. First retail revenue surface for Sova Intel.
 
 **Key design decisions:**
-- `isAnalyst` on `User` (not `isAdmin`) — operational role separate from administrative role
-- `AnalystGuard`: `user.isAnalyst === true || user.isAdmin === true` — global guard, `@IsAnalyst()` applied at controller class level
+- Separate process (not NestJS module) — independent PM2 entry, no DI container needed
+- Single system API key for billing; per-user attribution via `TelegramBotLog` DB table
+- `ALLOWED_TELEGRAM_USER_IDS` env var allowlist — same pattern as legacy bot
+- No client-side polling: `/hud` and `/profile` use PAY-8 synchronous hold (API holds 30s, returns 200 + data). Bot sends ⏳ then edits the message — one message per command.
+- `/holders` is genuinely async (POST → 202 → job runs minutes) — bot polls `GET /jobs/:jobId` every 3s invisibly, edits the ⏳ message when done
+- File structure: `src/bot/intel/` — separate from legacy `src/core/bot/` (no reuse)
+
+### P1: Holdings Radar — ✅ COMPLETE (Mar 9, 2026)
+
+`feat/tracked-wallets-page` merged. Full spec in `.ai/context/holding_feed/spec.md`.
+
+**Key design decisions:**
+- `isAnalyst` on `User` — operational role separate from `isAdmin`
 - No FK to existing `Wallet` model — standalone `RadarWallet` / `RadarHolding` models
-- `firstSeenAt` = first detected by radar, not wallet buy time — intentional framing
-- TRK-4 (ATA acquisition time) deferred — `acquiredAt` field on schema reserved for future use
-- Route `/analyst/radar/...` (not `/analyst/tracked-wallets/...` as originally drafted)
-- `GET /analyst/radar/feed` declared before `GET /analyst/radar/:address/holdings` in controller to avoid NestJS param shadowing
-- `isAnalyst` propagated through all auth paths: login, register, token refresh, `/auth/me`
+- Route `/analyst/radar/...`; `GET /analyst/radar/feed` declared before `GET /analyst/radar/:address/holdings` to avoid NestJS param shadowing
+- `isAnalyst` propagated through all auth paths
 
 ### P1: Helius API Optimization — ✅ COMPLETE (Feb 16-17)
 
@@ -93,23 +101,39 @@ New feature on `feat/tracked-wallets-page`. Full spec in `.ai/context/holding_fe
 
 ##  Recent Activity
 
-### March 9, 2026 (Latest)
+### March 10, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 10.1 | 🔧 REFACTOR | Replace hand-rolled `IntelClient` + duplicate types with `@sova/intel-sdk` — bot now uses canonical SDK throughout | 🟡 M | `src/bot/intel/intel-client.ts` (deleted), `bot.ts`, all commands, all formatters |
+| 10.2 | 🐛 FIX | SDK `types.ts` was wrong — `WalletHud` had invented fields (`isBotFlagged`, `pnlSignal`) instead of real API fields (`isBot`, `isWhale`, `trimmedMeanPnl`, etc). Fixed against `WalletHudDto` source of truth | 🟡 M | `packages/sdk/src/types.ts`, `client.ts`, `index.ts`, `client.test.ts` |
+| 10.3 | 🎯 FEAT | Add `HolderProfile` + `HolderProfilesResult` types to SDK — were missing entirely | 🟢 S | `packages/sdk/src/types.ts`, `index.ts` |
+| 10.4 | 🎯 FEAT | Add contract tests (`contract.test.ts`) to SDK — hit real API, validate every field of every response type. `pnpm test` excludes them, `pnpm test:contract` runs them with env vars | 🟢 S | `packages/sdk/src/contract.test.ts`, `package.json` |
+| 10.5 | 🔧 REFACTOR | Add `packages/sdk` to pnpm workspace, add `@sova/intel-sdk: workspace:*` to root deps | 🟢 S | `pnpm-workspace.yaml`, `package.json` |
+| 10.6 | 🐛 FIX | Bot config env vars renamed to avoid collision with security/audit bot — `TELEGRAM_BOT_TOKEN` → `INTEL_BOT_TOKEN`, `ALLOWED_TELEGRAM_USER_IDS` → `INTEL_BOT_ALLOWED_USER_IDS` | 🟢 S | `src/bot/intel/config.ts` |
+| 10.7 | 🐛 FIX | Profile formatter was mixing hold time sources — `behavior.medianHoldTimeHours` vs `hud.medianHoldTimeHours` causing different values in `/hud` vs `/profile`. Both now use `hud.medianHoldTimeHours` (completed positions, more reliable) | 🟢 S | `formatters/profile.formatter.ts` |
+| 10.8 | 🎯 FEAT | Redesign `/hud` output — full address copyable in `<code>`, compact single-glance layout | 🟢 S | `formatters/hud.formatter.ts` |
+| 10.9 | 🎯 FEAT | Redesign `/profile` output — sectioned (PERFORMANCE / BEHAVIOR / PORTFOLIO / META), `timeAgo()` for last analyzed, full address copyable | 🟢 S | `formatters/profile.formatter.ts` |
+| 10.10 | 🎯 FEAT | Redesign `/holders` output — distribution elevated to top, sorted by hold-time spectrum (Sniper→Holder), system wallets demoted to footer, uncategorized wallets shown as `🆕 New` with supply % | 🟢 S | `formatters/holders.formatter.ts` |
+| 10.11 | 🔧 REFACTOR | PM2 ecosystem entry: switch from ts-node interpreter to compiled `dist/bot/intel/index.js` — eliminates 300MB ts-node memory footprint | 🟢 S | `ecosystem.config.js` |
+| 10.12 | 🐛 FIX | `@nestjs/core` upgraded to `11.1.9` by pnpm drift breaking `ScheduleModule` + `EventEmitterModule`. Pinned `@nestjs/core@11.1.2`, `@nestjs/common@11.1.6`, `@nestjs/schedule@6.0.0` | 🟢 S | `package.json` |
+| 10.13 | 🐛 FIX | `manage-api-keys.ts` script missing `EventEmitter2` arg after `ApiKeyService` constructor changed | 🟢 S | `scripts/manage-api-keys.ts` |
+
+### March 9, 2026
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------|
+| 9.11 | 🎯 FEAT | TG-1–TG-9: Full Telegram Bot Intel implementation — schema, seed, scaffold, client, commands, formatters, attribution, PM2 | 🟡 M | `prisma/schema.prisma`, `prisma/seed-telegram-bot.ts`, `src/bot/intel/` (11 files), `ecosystem.config.js` |
+| 9.10 | 🎯 FEAT | Branch `feat/telegram-bot-intel` created — spec + CONTEXT updated | 🟢 S | `.ai/context/telegram-bot/spec.md`, `.ai/CONTEXT.md` |
+
+### March 9, 2026 — Holdings Radar (previous branch)
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------|
 | 9.1 | 🎯 FEAT | TRK-1–5: Full Holdings Radar backend — models, guard, snapshot service, 7 endpoints | 🟡 M | `radar.controller.ts`, `radar-snapshot.service.ts`, `radar.module.ts`, schema migration |
 | 9.2 | 🐛 FIX | `isAnalyst` missing from all auth responses and frontend `User` type | 🟡 M | `auth.service.ts`, `auth.controller.ts`, `auth-store.ts`, `useAuth.ts` |
 | 9.3 | 🎯 FEAT | TRK-6–10: Holdings Radar frontend — event feed, holdings view, add/remove wallet, review actions | 🟡 M | `dashboard/src/app/radar/page.tsx` |
-| 9.4 | 🐛 FIX | Radar page missing `<AppShell>` — no nav, white mode, completely detached from app chrome | 🟢 S | `radar/page.tsx` |
-| 9.5 | 🐛 FIX | `fetchFeed` declared after `runSnapshot` caused "used before declaration" TS build error | 🟢 S | `radar/page.tsx` |
-| 9.6 | 🐛 FIX | Wallet removal: `DELETE` only soft-deleted `RadarWallet`, holdings stayed in feed on next refresh — cascaded `ignored` status to all holdings in same transaction | 🟢 S | `radar.controller.ts` |
-| 9.7 | 🐛 FIX | Snapshot used `tokenInfoService.findMany()` (cold DB read) for prices — always stale. Switched to `tokenInfoService.getTokenPrices()` (Redis→DexScreener, same path as wallet-hud/similarity) | 🟢 S | `radar-snapshot.service.ts` |
-| 9.8 | 🐛 FIX | Dust filter only ran on new token inserts — existing garbage tokens admitted before price data was available stayed forever. Re-apply filter on every update; tokens that now fail get auto-ignored | 🟢 S | `radar-snapshot.service.ts` |
-| 9.9 | 🐛 FIX | USD value column showed `—` everywhere — snapshot's `usdValue` is stale between runs. Switched to live price via `useTokenMetadata` (same batcher as `TokenBadge`, zero extra API calls) | 🟢 S | `radar/page.tsx` — `FeedRow`, `HoldingRow`, `useLiveUsdValue` components |
-
-**Summary:**
-
-Full Holdings Radar page is now functional. The main session work after initial scaffold was fixing a cascade of price-related bugs: the snapshot was doing a passive DB read for prices (always stale or missing for new tokens), the dust filter only ran at insert time so early garbage tokens could never be evicted, and the frontend USD column was reading the stale stored `usdValue` instead of live prices. All three are fixed: snapshot now fetches live prices via the same Redis→DexScreener path used everywhere else, the dust filter re-runs on every update and auto-ignores tokens that fail, and the frontend computes USD value from `useTokenMetadata` which shares the batcher with `TokenBadge` (no extra calls). Wallet removal now cascades `ignored` status to holdings in a transaction so they don't reappear on next feed refresh.
+| 9.4–9.9 | 🐛 FIX | Cascade of price/dust/USD bugs in radar snapshot and feed | 🟢 S | `radar-snapshot.service.ts`, `radar/page.tsx` |
 
 ---
 
@@ -219,8 +243,12 @@ Holder Profiles: NO LOCK (relies on service idempotency)
 | Core Analysis | `src/core/analysis/` | Math & logic |
 | **Holdings Radar controller** | `src/api/controllers/radar.controller.ts` | 7 endpoints at `/analyst/radar/...` |
 | **Holdings Radar service** | `src/api/services/radar-snapshot.service.ts` | Snapshot + dust filter |
-| **Holdings Radar module** | `src/api/modules/radar.module.ts` | Imports `BalanceCacheModule` |
 | **AnalystGuard** | `src/api/shared/guards/analyst.guard.ts` | `isAnalyst \|\| isAdmin` |
+| **Telegram bot entry** | `src/bot/intel/index.ts` | Standalone process — runs from `dist/bot/intel/index.js` via PM2 (`sova-tg-bot`) |
+| **Telegram bot spec** | `.ai/context/telegram-bot/spec.md` | Architecture decisions, file structure, API contract |
+| **Bot API key script** | `scripts/manage-api-keys.ts` | `create <userId> -d "..." -s "full"` to generate key |
+| **Intel SDK** | `packages/sdk/src/` | `SovaIntelClient` — canonical types + HTTP client. `pnpm test` for unit, `pnpm test:contract` for live API validation |
+| **Bot env vars** | `.env` | `INTEL_BOT_TOKEN`, `INTEL_API_KEY`, `INTEL_BOT_ALLOWED_USER_IDS`, `INTEL_BASE_URL` (optional, defaults to localhost:3001) |
 
 ### Documentation Files
 
@@ -259,7 +287,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-09  **Branch:** `feat/tracked-wallets-page`  **Holdings Radar fully functional — all TRK tasks complete**
+**Last Updated:** 2026-03-10  **Branch:** `feat/telegram-bot-intel`  **TG-1 through TG-10 complete — bot live, running from dist/, SDK aligned with API**
 
 
 

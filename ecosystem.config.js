@@ -40,6 +40,31 @@ module.exports = {
       env_production: {
          NODE_ENV: "production",
       }
-    }
+    },
+
+    // === App 3: Sova Intel Telegram Bot ===
+    {
+      name: 'sova-tg-bot',
+      script: 'dist/bot/intel/index.js',
+      interpreter: 'node',
+      cwd: '.',
+      exec_mode: 'fork',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      wait_ready: true,
+      listen_timeout: 10000,
+      min_uptime: '60s',
+      max_restarts: 10,
+      exp_backoff_restart_delay: 100,
+      max_memory_restart: '256M',
+      out_file: './logs/sova-tg-bot-out.log',
+      error_file: './logs/sova-tg-bot-err.log',
+      merge_logs: true,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      env: {
+        NODE_ENV: 'production',
+      },
+    },
   ],
-}; 
+};
