@@ -4,21 +4,22 @@ import { SovaIntelClient, SovaHttpError, HolderProfilesResult } from '@sova/inte
 import { formatSignalCard } from '../formatters/signal.formatter';
 import { logInvocation } from '../attribution';
 
-// Matches a standalone Solana base58 address anywhere in a message.
-// Requires word boundaries so it doesn't fire on URLs or partial strings.
 const SOLANA_MINT_RE = /(?<![/\w])([1-9A-HJ-NP-Za-km-z]{32,44})(?![/\w])/g;
 
-// Only respond in group/supergroup chats to avoid double-firing in DMs
-// (users can still use /holders <mint> in DMs).
-function isGroupChat(ctx: Context): boolean {
+function isSignalChat(ctx: Context): boolean {
   const type = ctx.chat?.type;
-  return type === 'group' || type === 'supergroup';
+  return type === 'group' || type === 'supergroup' || type === 'channel';
 }
+
+type TelegramTextMsg = {
+  text?: string;
+  message_id?: number;
+  message_thread_id?: number;
+};
 
 export function extractMint(text: string): string | null {
   const matches = [...text.matchAll(SOLANA_MINT_RE)];
   if (!matches.length) return null;
-  // Prefer the last match — signal bots typically put the mint near the end.
   return matches[matches.length - 1][1];
 }
 
@@ -27,9 +28,10 @@ export async function signalHandler(
   client: SovaIntelClient,
   prisma: PrismaClient,
 ): Promise<void> {
-  if (!isGroupChat(ctx)) return;
+  if (!isSignalChat(ctx)) return;
 
-  const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
+  const msg = getTextMessage(ctx);
+  const text = msg?.text ?? '';
   if (!text) return;
 
   const mint = extractMint(text);
@@ -38,12 +40,13 @@ export async function signalHandler(
   const chatId = ctx.chat?.id;
   if (!chatId) return;
 
-  // Reply to the original signal message so context is clear
-  const replyToId = ctx.message?.message_id;
   const pending = await ctx.telegram.sendMessage(
     chatId,
-    '⏳ Profiling holders...',
-    replyToId ? { reply_parameters: { message_id: replyToId } } : undefined,
+    'Profiling holders...',
+    {
+      ...(msg?.message_id ? { reply_parameters: { message_id: msg.message_id } } : {}),
+      ...(msg?.message_thread_id ? { message_thread_id: msg.message_thread_id } : {}),
+    },
   );
 
   let success = false;
@@ -62,20 +65,17 @@ export async function signalHandler(
     success = true;
   } catch (err: unknown) {
     errorCode = apiErrorCode(err);
-    // Silent fail for group listener — don't spam the group with error messages
-    // unless it's a genuine service issue (not "no data").
-    const msg = apiErrorMessage(err);
-    if (msg) {
-      await ctx.telegram.editMessageText(chatId, pending.message_id, undefined, msg);
+    const msgText = apiErrorMessage(err);
+    if (msgText) {
+      await ctx.telegram.editMessageText(chatId, pending.message_id, undefined, msgText);
     } else {
-      // Delete the ⏳ placeholder rather than leave it hanging
       await ctx.telegram.deleteMessage(chatId, pending.message_id).catch(() => {});
     }
   }
 
   logInvocation(prisma, {
-    telegramUserId: String(ctx.from?.id ?? 'group-signal'),
-    username: ctx.from?.username,
+    telegramUserId: String(ctx.from?.id ?? ctx.chat?.id ?? 'signal-chat'),
+    username: ctx.from?.username ?? getChatTitle(ctx),
     command: 'signal',
     address: mint,
     creditCost: 20,
@@ -86,15 +86,28 @@ export async function signalHandler(
 
 function apiErrorMessage(err: unknown): string | null {
   if (err instanceof SovaHttpError) {
-    if (err.status === 402) return '❌ Bot credit balance depleted. Contact admin.';
-    if (err.status === 400) return null; // invalid mint — silently delete
-    if (err.status === 422) return null; // system wallet — silently delete
-    if (err.status === 404) return null; // no data yet — silently delete
+    if (err.status === 402) return 'Bot credit balance depleted. Contact admin.';
+    if (err.status === 400) return null;
+    if (err.status === 422) return null;
+    if (err.status === 404) return null;
   }
-  return '❌ Service error. Try again shortly.';
+  return 'Service error. Try again shortly.';
 }
 
 function apiErrorCode(err: unknown): string | undefined {
   if (err instanceof SovaHttpError) return String(err.status);
   return 'unknown';
+}
+
+function getTextMessage(ctx: Context): TelegramTextMsg | undefined {
+  const msg = ctx.msg as TelegramTextMsg | undefined;
+  if (!msg?.text) return undefined;
+  return msg;
+}
+
+function getChatTitle(ctx: Context): string | undefined {
+  const chat = ctx.chat;
+  if (!chat) return undefined;
+  if ('title' in chat) return chat.title;
+  return undefined;
 }

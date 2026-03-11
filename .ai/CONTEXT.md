@@ -31,6 +31,7 @@ Full spec: `.ai/context/telegram-bot/spec.md`
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| ⚪ | **[SDK-PUBLISH]** Publish `@sova/intel-sdk` to npm — add `"type": "module"` + dual exports to `package.json`, write minimal `README.md`, bump to `0.1.0`, add `prepublishOnly: pnpm build`, then `pnpm publish --access public`. Keep `workspace:*` in monorepo; external consumers pin npm version. | 🟢 S | `packages/sdk/package.json`, `packages/sdk/README.md` |
 | ⚪ | **[PAY-X402-RECEIPT]** Fix `X-Payment-Response` receipt header — split `confirmAndRecord` into broadcast (fast, in guard) + confirm (slow, fire-and-forget), set header synchronously in interceptor with known sig | 🟢 S | `x402-verification.service.ts`, `credit.guard.ts`, `credit.interceptor.ts` |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[INTEL-DEEP-BUG]** Fix `/intel/token/:mint/holders/deep` similarity chaining — add `chainSimilarity: true` flag to job, processor auto-queues similarity after holder-profiles completes | 🟡 M | `src/queues/jobs/types/index.ts`, `intel.controller.ts`, `analysis-operations.processor.ts` |
