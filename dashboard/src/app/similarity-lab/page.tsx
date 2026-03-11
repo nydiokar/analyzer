@@ -18,6 +18,7 @@ import { isValidSolanaAddress } from "@/lib/solana-utils";
 import { AppShell } from '@/components/layout/AppShell';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { PageTitle } from '@/components/shared/PageTitle';
+import { FeatureHelpLink } from '@/components/help/FeatureHelpLink';
 import { useFavorites } from '@/hooks/useFavorites';
 import { BulkTrackModal } from '@/components/shared/BulkTrackModal';
 import { useSimilarityLabTrackersFlow } from '@/hooks/similarity-lab/useSimilarityLabTrackersFlow';
@@ -725,6 +726,7 @@ export default function AnalysisLabPage() {
           title="Similarity Lab"
           subtitle="Discover hidden connections between wallets through trading behavior and capital allocation patterns."
           icon={FlaskConical}
+          titleExtra={<FeatureHelpLink slug="similarity-lab" />}
         />
 
         {/* Main Input Card - 2-column layout with controlled widths */}

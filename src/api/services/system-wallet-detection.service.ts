@@ -5,6 +5,7 @@ import { DatabaseService } from './database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import {
   WALLET_CLASSIFICATIONS,
+  SYSTEM_WALLET_DETECTION_CACHE_CONFIG,
   SYSTEM_WALLET_DETECTION_CONFIG,
   SPL_TOKEN_PROGRAM_ID,
 } from '../../config/constants';
@@ -56,7 +57,7 @@ export interface FilterResult {
 @Injectable()
 export class SystemWalletDetectionService {
   private readonly logger = new Logger(SystemWalletDetectionService.name);
-  private readonly memoryCache = new Map<string, SystemWalletDetectionResult>();
+  private readonly memoryCache = new Map<string, { result: SystemWalletDetectionResult; expiresAt: number }>();
   private readonly knownWalletCount: number;
 
   constructor(
@@ -84,8 +85,9 @@ export class SystemWalletDetectionService {
    */
   async detectSystemWallet(address: string): Promise<SystemWalletDetectionResult> {
     // Tier 1: Memory cache
-    if (SYSTEM_WALLET_DETECTION_CONFIG.ENABLE_MEMORY_CACHE && this.memoryCache.has(address)) {
-      return this.memoryCache.get(address)!;
+    const cachedResult = this.getMemoryCache(address);
+    if (cachedResult) {
+      return cachedResult;
     }
 
     // Tier 1.5: Known wallet from registry
@@ -117,7 +119,7 @@ export class SystemWalletDetectionService {
       const cached = await this.redis.get(cacheKey);
       if (cached) {
         const result = JSON.parse(cached) as SystemWalletDetectionResult;
-        this.memoryCache.set(address, result); // Populate memory cache
+        this.setMemoryCache(result);
         return result;
       }
     } catch (error) {
@@ -262,8 +264,9 @@ export class SystemWalletDetectionService {
    */
   private async quickCheck(address: string): Promise<SystemWalletDetectionResult> {
     // Check memory
-    if (this.memoryCache.has(address)) {
-      return this.memoryCache.get(address)!;
+    const cachedResult = this.getMemoryCache(address);
+    if (cachedResult) {
+      return cachedResult;
     }
 
     // Check registry
@@ -466,7 +469,7 @@ export class SystemWalletDetectionService {
   private cacheResult(result: SystemWalletDetectionResult): void {
     // Memory cache
     if (SYSTEM_WALLET_DETECTION_CONFIG.ENABLE_MEMORY_CACHE) {
-      this.memoryCache.set(result.address, result);
+      this.setMemoryCache(result);
     }
 
     // Redis cache (fire and forget)
@@ -503,5 +506,40 @@ export class SystemWalletDetectionService {
       memoryCacheSize: this.memoryCache.size,
       knownWalletsInRegistry: this.knownWalletCount,
     };
+  }
+
+  private getMemoryCache(address: string): SystemWalletDetectionResult | null {
+    if (!SYSTEM_WALLET_DETECTION_CONFIG.ENABLE_MEMORY_CACHE) {
+      return null;
+    }
+
+    const entry = this.memoryCache.get(address);
+    if (!entry) {
+      return null;
+    }
+
+    if (entry.expiresAt <= Date.now()) {
+      this.memoryCache.delete(address);
+      return null;
+    }
+
+    // Touch recency for simple LRU eviction using Map insertion order.
+    this.memoryCache.delete(address);
+    this.memoryCache.set(address, entry);
+    return entry.result;
+  }
+
+  private setMemoryCache(result: SystemWalletDetectionResult): void {
+    const expiresAt = Date.now() + SYSTEM_WALLET_DETECTION_CACHE_CONFIG.MEMORY_TTL_MS;
+    this.memoryCache.delete(result.address);
+    this.memoryCache.set(result.address, { result, expiresAt });
+
+    while (this.memoryCache.size > SYSTEM_WALLET_DETECTION_CACHE_CONFIG.MEMORY_MAX_ENTRIES) {
+      const oldestKey = this.memoryCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.memoryCache.delete(oldestKey);
+    }
   }
 }

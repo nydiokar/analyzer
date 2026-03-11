@@ -20,6 +20,7 @@ import type { SimilarityStatus } from '@/components/holder-profiles/v2/Similarit
 import type { JobResult } from '@/types/websockets';
 import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
 import { PageTitle } from '@/components/shared/PageTitle';
+import { FeatureHelpLink } from '@/components/help/FeatureHelpLink';
 import {
   WalletClassifier,
   WalletClassifierEntry,
@@ -595,6 +596,7 @@ function HolderProfilesContent() {
             title="Holder Profiles"
             subtitle="Scan holder behavior patterns and conviction signals across top wallets."
             icon={Users}
+            titleExtra={<FeatureHelpLink slug="holder-profiles" />}
           />
         </div>
         <Card className="max-w-6xl mx-auto p-3">

@@ -2,6 +2,16 @@
 
 Full-stack Prometheus + Grafana observability for Sova Intel Wallet Analyzer.
 
+For the live server setup in this repo, use:
+
+- [Backend memory runbook](/home/luna/analyzer/ops/observability/BACKEND_MEMORY_RUNBOOK.md)
+- Provisioned dashboards in `docs/observability/dashboards/`
+- Grafana folder: `Sova Observability`
+
+The server-specific memory/leak dashboard added during production investigation is:
+
+- `07-backend-memory-guardrails.json` → `Backend Memory Guardrails`
+
 ---
 
 ## What You're Getting

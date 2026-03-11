@@ -1,54 +1,48 @@
 # Dashboard Help Review
 
-Purpose: keep user review narrow and fast while the Help page is being turned into real product docs.
+Purpose: keep your future review narrow and fast while the in-app Help center expands.
 
-## What was scaffolded
+## What now exists
 
-- Existing unauthenticated Help route was reused:
+- Existing unauthenticated Help route was reused and expanded:
   - `dashboard/src/app/help/page.tsx`
+  - `dashboard/src/app/help/[slug]/page.tsx`
+- Shared docs content now lives in:
+  - `dashboard/src/lib/help-docs.tsx`
+- Shared docs UI now lives in:
+  - `dashboard/src/components/help/`
 - Changelog was preserved.
-- The page now covers:
-  - Discovery
-  - Tracked Wallets
-  - Similarity Lab
-  - Holder Profiles
-  - Wallet Hunt
+- Contextual docs links were added into the main feature pages.
 
-## What I still need from you
+## Covered features
 
-Please review only these points:
+- Discovery
+- Tracked Wallets
+- Similarity Lab
+- Holder Profiles
+- Wallet Hunt
 
-1. Product truth
-   - Is the one-line summary for each feature accurate enough for users?
-   - Does any feature have a stronger "main job" than what is written?
+## What I may still want from you later
 
-2. Visibility of limits
-   - Confirm that user-facing limits should stay visible:
-     - tracked wallets: 300
-     - similarity: 2-30 wallets
-     - holder profiles token mode: top 1-50
-     - wallet hunt: 5 hunts, 10 snapshots
+1. Product-truth review
+   - Are the one-line summaries exactly right?
+   - Is any feature undersold or overstated?
+
+2. Screenshots
+   - Decide whether the next pass should add:
+     - no screenshots
+     - 1 screenshot per feature
+     - only 2-3 highest-value screenshots total
 
 3. Tone
-   - Current tone is short and operational.
-   - If needed, mark sections that should sound more premium / more direct / more beginner-friendly.
+   - Current tone is short, product-operational, and intentionally low-fluff.
+   - If needed, mark sections that should sound more premium or more beginner-friendly.
 
-4. Screenshots
-   - Decide whether the first version should ship:
-     - without screenshots
-     - with 1 screenshot per tool
-     - with only 2-3 high-value screenshots total
-
-5. Claims to avoid
-   - Mark any phrasing that feels too strong, too salesy, or too uncertain.
+4. Claims to avoid
+   - Mark any sentence that feels too strong, too weak, or too uncertain.
 
 ## Recommended next steps
 
-1. Approve the structure first.
-2. Tighten copy second.
-3. Add screenshots last.
-
-## Notes
-
-- This Help page is intentionally laconic so users will actually read it.
-- External API docs for `/intel` should stay a separate documentation task.
+1. Keep the current docs structure.
+2. Add screenshots only after structure and copy are stable.
+3. Build `/intel` external docs as a separate system later.

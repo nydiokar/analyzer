@@ -29,10 +29,22 @@ export class CreditsService {
   private readonly FREE_CREDITS_ON_SIGNUP: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.FREE_CREDITS_ON_SIGNUP = this.configService.get<number>(
-      'FREE_CREDITS_ON_SIGNUP',
-      100,
-    );
+    const rawSignupCredits =
+      this.configService.get<string | number>('FREE_CREDITS_ON_SIGNUP') ?? 100;
+    const parsedSignupCredits =
+      typeof rawSignupCredits === 'number'
+        ? rawSignupCredits
+        : Number.parseInt(rawSignupCredits, 10);
+
+    if (!Number.isFinite(parsedSignupCredits) || !Number.isInteger(parsedSignupCredits) || parsedSignupCredits <= 0) {
+      this.logger.warn(
+        `Invalid FREE_CREDITS_ON_SIGNUP value "${String(rawSignupCredits)}"; defaulting to 100`,
+      );
+      this.FREE_CREDITS_ON_SIGNUP = 100;
+      return;
+    }
+
+    this.FREE_CREDITS_ON_SIGNUP = parsedSignupCredits;
   }
 
   /**
@@ -62,7 +74,10 @@ export class CreditsService {
     reason: string,
     refId?: string,
   ): Promise<CreditBalanceInfo> {
-    if (amount <= 0) {
+    const normalizedAmount =
+      typeof amount === 'number' ? amount : Number.parseInt(String(amount), 10);
+
+    if (!Number.isFinite(normalizedAmount) || !Number.isInteger(normalizedAmount) || normalizedAmount <= 0) {
       throw new BadRequestException('topUp amount must be a positive integer');
     }
 
@@ -73,17 +88,17 @@ export class CreditsService {
           where: { userId },
           create: {
             userId,
-            credits: amount,
+            credits: normalizedAmount,
           },
           update: {
-            credits: { increment: amount },
+            credits: { increment: normalizedAmount },
           },
         });
 
         await tx.creditTransaction.create({
           data: {
             userId,
-            delta: amount,
+            delta: normalizedAmount,
             reason,
             refId: refId ?? null,
             balanceAfter: balance.credits,
@@ -94,13 +109,13 @@ export class CreditsService {
       });
 
       this.logger.log(
-        `topUp: user=${userId} +${amount} (${reason}) → balance=${result.credits}`,
+        `topUp: user=${userId} +${normalizedAmount} (${reason}) → balance=${result.credits}`,
       );
 
       return { credits: result.credits, updatedAt: result.updatedAt };
     } catch (error) {
       this.logger.error(
-        `topUp failed: user=${userId} amount=${amount} reason=${reason}: ${getErrorMessage(error)}`,
+        `topUp failed: user=${userId} amount=${normalizedAmount} reason=${reason}: ${getErrorMessage(error)}`,
       );
       throw error;
     }
@@ -121,7 +136,10 @@ export class CreditsService {
     reason: string,
     refId?: string,
   ): Promise<CreditBalanceInfo> {
-    if (amount <= 0) {
+    const normalizedAmount =
+      typeof amount === 'number' ? amount : Number.parseInt(String(amount), 10);
+
+    if (!Number.isFinite(normalizedAmount) || !Number.isInteger(normalizedAmount) || normalizedAmount <= 0) {
       throw new BadRequestException('deduct amount must be a positive integer');
     }
 
@@ -134,12 +152,12 @@ export class CreditsService {
 
         const currentCredits = current?.credits ?? 0;
 
-        if (currentCredits < amount) {
+        if (currentCredits < normalizedAmount) {
           throw new HttpException(
             {
               error: 'insufficient_credits',
               balance: currentCredits,
-              required: amount,
+              required: normalizedAmount,
             },
             HttpStatus.PAYMENT_REQUIRED,
           );
@@ -147,13 +165,13 @@ export class CreditsService {
 
         const balance = await tx.creditBalance.update({
           where: { userId },
-          data: { credits: { decrement: amount } },
+          data: { credits: { decrement: normalizedAmount } },
         });
 
         await tx.creditTransaction.create({
           data: {
             userId,
-            delta: -amount,
+            delta: -normalizedAmount,
             reason,
             refId: refId ?? null,
             balanceAfter: balance.credits,
@@ -164,7 +182,7 @@ export class CreditsService {
       });
 
       this.logger.log(
-        `deduct: user=${userId} -${amount} (${reason}) → balance=${result.credits}`,
+        `deduct: user=${userId} -${normalizedAmount} (${reason}) → balance=${result.credits}`,
       );
 
       return { credits: result.credits, updatedAt: result.updatedAt };
@@ -174,7 +192,7 @@ export class CreditsService {
         throw error;
       }
       this.logger.error(
-        `deduct failed: user=${userId} amount=${amount} reason=${reason}: ${getErrorMessage(error)}`,
+        `deduct failed: user=${userId} amount=${normalizedAmount} reason=${reason}: ${getErrorMessage(error)}`,
       );
       throw error;
     }

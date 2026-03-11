@@ -9,7 +9,7 @@
   "scripts": {
     "start": "ts-node -r tsconfig-paths/register src/main.ts",
     "build": "npx tsc",
-    "build:dashboard": "pnpm --prefix dashboard run build",
+    "build:dashboard": "pnpm --dir dashboard --ignore-workspace run build",
     "dev": "ts-node-dev -r tsconfig-paths/register --respawn --transpile-only src/main.ts",
     "clean": "rimraf dist logs",
     "build:watch": "tsc --watch",

@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { getCollectionColorFilled } from '@/lib/color-utils';
 import EmptyState from '@/components/shared/EmptyState';
 import { PageTitle } from '@/components/shared/PageTitle';
+import { FeatureHelpLink } from '@/components/help/FeatureHelpLink';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getErrorMessage } from '@/lib/error-messages';
 import { USER_FAVORITES_IMPORT_FLASH_BATCH, USER_FAVORITES_MAX } from '@/lib/constants';
@@ -1075,6 +1076,7 @@ export default function TrackersPage() {
                 icon={Bookmark}
                 titleExtra={
                   <div className="flex items-center gap-2">
+                    <FeatureHelpLink slug="tracked-wallets" />
                     {favoriteWallets && (
                       <Badge variant="outline" className="text-xs">
                         {favoriteWallets.length}/{USER_FAVORITES_MAX}

@@ -19,6 +19,8 @@ import { RadarSnapshotService } from '../services/radar-snapshot.service';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 import { prisma } from '../../core/services/database-service';
 
+const RADAR_MIN_USD_VALUE = 80;
+
 class AddRadarWalletDto {
   @IsString()
   address: string;
@@ -109,6 +111,7 @@ export class RadarController {
     return prisma.radarHolding.findMany({
       where: {
         reviewStatus: { not: 'ignored' },
+        usdValue: { gte: RADAR_MIN_USD_VALUE },
       },
       orderBy: [
         // unreviewed last alphabetically (desc puts "unreviewed" first: u > r > i)
@@ -122,7 +125,11 @@ export class RadarController {
   @Get(':address/holdings')
   async getHoldings(@Param('address') address: string) {
     return prisma.radarHolding.findMany({
-      where: { wallet: address, isActiveHolding: true },
+      where: {
+        wallet: address,
+        isActiveHolding: true,
+        usdValue: { gte: RADAR_MIN_USD_VALUE },
+      },
       orderBy: { usdValue: 'desc' },
     });
   }

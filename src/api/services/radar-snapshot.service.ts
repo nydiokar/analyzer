@@ -5,10 +5,6 @@ import { TokenInfoService } from './token-info.service';
 import { TokenBalanceDetails } from '../../types/wallet';
 
 const DUST_USD_THRESHOLD = 80;
-const DUST_BALANCE_THRESHOLD = 200;
-// Tokens with no price data are held to a stricter balance threshold to prevent
-// garbage memecoins (huge supply, no liquidity) from flooding the feed.
-const DUST_BALANCE_THRESHOLD_NO_PRICE = 500_000;
 
 export interface SnapshotResult {
   wallet: string;
@@ -113,10 +109,9 @@ export class RadarSnapshotService {
   }
 
   private passesDustFilter(token: TokenBalanceDetails): boolean {
-    if (token.valueUsd !== undefined) {
-      return token.valueUsd >= DUST_USD_THRESHOLD;
+    if (token.valueUsd == null) {
+      return false;
     }
-    // No price data — apply strict balance threshold to avoid garbage memecoins
-    return token.uiBalance >= DUST_BALANCE_THRESHOLD_NO_PRICE;
+    return token.valueUsd >= DUST_USD_THRESHOLD;
   }
 }
