@@ -1,70 +1,50 @@
-# @sova/intel-sdk
+# @sova-intel/sdk
 
-TypeScript SDK for the [Sova Intel](http://localhost:3001/api/v1) on-chain intelligence API.
+TypeScript SDK for the [Sova Intel API](https://sova-intel.github.io/docs) — on-chain intelligence for Solana wallets.
 
-Covers all 7 Intel endpoints, both API key and X402 (on-chain USDC) auth flows, and async job polling.
+Get trader profiles, realized/unrealized PnL, behavioral patterns, token holder maps, and wallet similarity scores. Pay per call with an API key or autonomously via [X402](https://x402.org) (Solana USDC).
+
+**[Interactive API Docs →](https://sova-intel.github.io/docs)**
 
 ---
 
-## Install
+## Installation
 
 ```bash
-npm install @sova/intel-sdk
+npm install @sova-intel/sdk
 # or
-pnpm add @sova/intel-sdk
+pnpm add @sova-intel/sdk
 ```
+
+Node 18+ required. No external runtime dependencies — uses the built-in `fetch` API.
 
 ---
 
-## Quick start — API key
+## Authentication
 
-`baseUrl` is required — set it to the live API base for your deployment.
+### Option A — API key (simplest)
 
 ```typescript
-import { SovaIntelClient } from "@sova/intel-sdk";
+import { SovaIntelClient } from "@sova-intel/sdk";
 
 const client = new SovaIntelClient({
-  baseUrl: "https://api.sova.io/api/v1",
-  auth: { kind: "apikey", apiKey: "ak_your_key" },
+  baseUrl: "https://api.sova-intel.com/api/v1",
+  auth: {
+    kind: "apikey",
+    apiKey: "ak_your_key_here",
+  },
 });
-
-// Wallet full profile (5cr)
-const profile = await client.getWalletProfile("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU");
-console.log(profile.hud.behaviorCode);   // "SWING_TRADER"
-console.log(profile.summary.realizedPnl); // 142.87
-
-// HUD only (1cr)
-const hud = await client.getWalletHud("7xKXtg...");
-console.log(hud.pnlSignal, hud.winRate);
-
-// Per-token PnL (3cr)
-const tokens = await client.getWalletTokens("7xKXtg...", {
-  pageSize: 50,
-  sortBy: "netSolProfitLoss",
-  sortOrder: "DESC",
-});
-console.log(tokens.data[0].realizedPnlSol);
-
-// Batch HUD — up to 30 wallets (5cr flat)
-const batch = await client.batchHud(["addr1", "addr2", "addr3"]);
-console.log(batch.huds["addr1"]?.behaviorCode);
-console.log(batch.queued); // addresses without fresh data
 ```
 
----
+Credits are deducted from the key owner's account on each successful call.
 
-## X402 — autonomous on-chain payment
+### Option B — X402 (autonomous Solana wallet)
 
-Use this when you want the SDK to pay per-call from a Solana wallet with no pre-funded API key.
+Supply a `buildPayment` callback. The SDK calls it automatically when it receives a `402` response, passing the treasury address and required USDC amount. You sign and return a base64-encoded payment header.
 
 ```typescript
-import { SovaIntelClient } from "@sova/intel-sdk";
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-} from "@solana/web3.js";
+import { SovaIntelClient } from "@sova-intel/sdk";
+import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
   createTransferCheckedInstruction,
@@ -72,135 +52,153 @@ import {
 } from "@solana/spl-token";
 
 const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-const connection = new Connection("https://api.mainnet-beta.solana.com", "confirmed");
-const keypair = Keypair.fromSecretKey(/* your secret key bytes */);
-
-async function buildPayment(payTo: string, amountBaseUnits: bigint): Promise<string> {
-  const agentAta    = await getAssociatedTokenAddress(USDC_MINT, keypair.publicKey);
-  const treasuryAta = await getAssociatedTokenAddress(USDC_MINT, new PublicKey(payTo));
-  const { blockhash } = await connection.getLatestBlockhash("confirmed");
-
-  const tx = new Transaction({ recentBlockhash: blockhash, feePayer: keypair.publicKey });
-  tx.add(createTransferCheckedInstruction(
-    agentAta, USDC_MINT, treasuryAta, keypair.publicKey, amountBaseUnits, 6, [], TOKEN_PROGRAM_ID,
-  ));
-  tx.sign(keypair);
-
-  return Buffer.from(JSON.stringify({
-    x402Version: 2,
-    scheme: "exact",
-    network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-    payload: { transaction: tx.serialize().toString("base64") },
-  })).toString("base64");
-}
+const connection = new Connection("https://api.mainnet-beta.solana.com");
+const keypair = Keypair.fromSecretKey(/* your wallet bytes */);
 
 const client = new SovaIntelClient({
-  baseUrl: "https://api.sova.io/api/v1",
-  auth: { kind: "x402", buildPayment },
+  baseUrl: "https://api.sova-intel.com/api/v1",
+  auth: {
+    kind: "x402",
+    buildPayment: async (payTo: string, amountBaseUnits: bigint) => {
+      const agentAta    = await getAssociatedTokenAddress(USDC_MINT, keypair.publicKey);
+      const treasuryAta = await getAssociatedTokenAddress(USDC_MINT, new PublicKey(payTo));
+      const { blockhash } = await connection.getLatestBlockhash("confirmed");
+      const tx = new Transaction({ recentBlockhash: blockhash, feePayer: keypair.publicKey });
+      tx.add(createTransferCheckedInstruction(
+        agentAta, USDC_MINT, treasuryAta, keypair.publicKey, amountBaseUnits, 6, [], TOKEN_PROGRAM_ID,
+      ));
+      tx.sign(keypair);
+      return Buffer.from(JSON.stringify({
+        x402Version: 2,
+        scheme: "exact",
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        payload: { transaction: tx.serialize().toString("base64") },
+      })).toString("base64");
+    },
+  },
 });
-
-// Token holder profiles — probe returns 402, SDK builds payment, retries (20cr)
-const holders = await client.pollHolderProfiles("TOKEN_MINT_ADDRESS", 20);
-console.log(holders);
 ```
 
 ---
 
-## Async job polling
+## Quickstart
 
-POST endpoints return HTTP 202 (job queued).  
-`GET /intel/wallet/:addr` and `GET /intel/wallet/:addr/hud` hold the request up to ~30s and only fall back to 202 on timeout/failure; the SDK handles this fallback automatically (poll + prepaid re-call).
+### Get a wallet HUD (1 credit — $0.015)
 
-The `poll*` convenience methods handle async job polling automatically:
+The fastest signal: behavior code, win rate, PnL, bot/whale flags.
 
 ```typescript
+import { SovaIntelClient } from "@sova-intel/sdk";
+
 const client = new SovaIntelClient({
-  baseUrl: "https://api.sova.io/api/v1",
-  auth: { kind: "apikey", apiKey: "ak_your_key" },
-  pollIntervalMs: 5000,   // default: 5s
-  maxPollAttempts: 60,    // default: 60 (~5 min)
+  baseUrl: "https://api.sova-intel.com/api/v1",
+  auth: { kind: "apikey", apiKey: process.env.SOVA_API_KEY! },
 });
 
-// Similarity analysis (20cr) — blocks until result ready
-const result = await client.pollSimilarity(["addr1", "addr2", "addr3"]);
-console.log(result);
+const hud = await client.getWalletHud("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU");
 
-// Holder profiles (20cr) — blocks until result ready
-const profiles = await client.pollHolderProfiles("TOKEN_MINT", 20);
+console.log(hud.behaviorCode);       // "SWING_TRADER"
+console.log(hud.winRate);            // 0.67
+console.log(hud.trimmedMeanPnl);     // 12.4 (SOL)
+console.log(hud.isBot);              // false
+console.log(hud.dataQualityTier);    // "GOLD"
+```
 
-// Deep bundled analysis (35cr) — two jobs polled in parallel
-const { holderProfiles, similarity } = await client.pollDeepAnalysis(
-  "TOKEN_MINT",
-  ["addr1", "addr2"],
-  20,
+The server holds the connection for cold wallets and returns data in the same call. If it times out, the SDK polls the queued job and re-calls automatically — you always receive a `WalletHud`.
+
+### Analyze top holders of a token (20 credits — $0.30)
+
+Async job — the SDK queues it, polls until complete, and returns the full result.
+
+```typescript
+import { SovaIntelClient } from "@sova-intel/sdk";
+import type { HolderProfilesResult } from "@sova-intel/sdk";
+
+const client = new SovaIntelClient({
+  baseUrl: "https://api.sova-intel.com/api/v1",
+  auth: { kind: "apikey", apiKey: process.env.SOVA_API_KEY! },
+});
+
+const result = await client.pollHolderProfiles<HolderProfilesResult>(
+  "So11111111111111111111111111111111111111112", // token mint
+  20,                                             // top N holders
 );
-```
 
-If you want to manage job polling yourself, use the raw queue methods:
-
-```typescript
-const job = await client.queueSimilarity(["addr1", "addr2"]);
-// job.jobId, job.requestId, job.monitoringUrl
-
-// poll manually
-import { pollAndFetch } from "@sova/intel-sdk";
-const result = await pollAndFetch(/* http client — advanced use */);
+for (const holder of result.profiles) {
+  console.log(holder.walletAddress, holder.behaviorType, holder.supplyPercent);
+}
 ```
 
 ---
 
-## Endpoint reference
+## All methods
 
-| Method | Endpoint | Credits | Returns |
-|:-------|:---------|--------:|:--------|
-| `getWalletProfile(addr)` | `GET /intel/wallet/:addr` | 5cr | Full profile |
-| `getWalletHud(addr)` | `GET /intel/wallet/:addr/hud` | 1cr | HUD signal |
-| `getWalletTokens(addr, params?)` | `GET /intel/wallet/:addr/tokens` | 3cr | Paginated PnL table |
-| `batchHud(wallets[])` | `POST /intel/wallets/batch-hud` | 5cr | Up to 30 HUDs |
-| `queueHolderProfiles(mint, topN?)` / `pollHolderProfiles(...)` | `POST /intel/token/:mint/holders` | 20cr | Async holder profiles |
-| `queueSimilarity(wallets[])` / `pollSimilarity(...)` | `POST /intel/wallets/similarity` | 20cr | Async similarity scores |
-| `queueDeepAnalysis(mint, wallets[], topN?)` / `pollDeepAnalysis(...)` | `POST /intel/token/:mint/holders/deep` | 35cr | Two async jobs |
+| Method | Endpoint | Credits |
+|:-------|:---------|--------:|
+| `getWalletProfile(address)` | `GET /intel/wallet/:addr` | 5 |
+| `getWalletHud(address)` | `GET /intel/wallet/:addr/hud` | 1 |
+| `getWalletTokens(address, params?)` | `GET /intel/wallet/:addr/tokens` | 3 |
+| `batchHud(wallets[])` | `POST /intel/wallets/batch-hud` | 5 flat |
+| `queueHolderProfiles(mint, topN?)` | `POST /intel/token/:mint/holders` | 20 |
+| `pollHolderProfiles(mint, topN?)` | same + auto-poll | 20 |
+| `queueSimilarity(wallets[])` | `POST /intel/wallets/similarity` | 20 |
+| `pollSimilarity(wallets[])` | same + auto-poll | 20 |
 
-1 credit = $0.015 USDC.
-
-Charging model:
-- Intel GET endpoints charge on successful 200 data delivery.
-- Intel GET timeout fallback 202 uses prepaid re-call flow (no double-charge).
-- Async Intel POST endpoints charge on accepted 202.
+1 credit = $0.015 USDC. Full reference with schemas: **[sova-intel.github.io/docs](https://sova-intel.github.io/docs)**
 
 ---
 
 ## Error handling
 
 ```typescript
-import { SovaHttpError, X402PaymentError } from "@sova/intel-sdk";
+import { SovaIntelClient, SovaHttpError, X402PaymentError } from "@sova-intel/sdk";
 
 try {
-  const hud = await client.getWalletHud("addr");
+  const hud = await client.getWalletHud(address);
 } catch (err) {
   if (err instanceof X402PaymentError) {
-    // Payment probe returned 402 and no payment was possible
-    console.error("Payment required:", err.body.required, "credits");
+    // Payment failed — check err.body for details
+    console.error("Payment error:", err.body);
   } else if (err instanceof SovaHttpError) {
-    // 404 → no data yet, 422 → system wallet, 500 → server error
-    console.error(`HTTP ${err.status}:`, err.body);
+    if (err.status === 422) console.error("System/program wallet — not analyzable");
+    if (err.status === 404) console.error("Wallet not found or result expired");
+    if (err.status === 500) console.error("Server error — retry with backoff");
   }
 }
 ```
 
-| Code | Meaning | Action |
-|:----:|:--------|:-------|
-| 400 | Invalid address or bad body | Fix input |
-| 402 | Payment required | Add credits or fund X402 wallet |
-| 404 | Route/result key not found | Verify base URL and endpoint/result key |
-| 422 | System/program wallet | Not analyzable — skip |
-| 500 | Server error | Retry with backoff |
+| Status | Meaning |
+|:------:|:--------|
+| 400 | Invalid address or request body |
+| 402 | Payment required (X402 flow) |
+| 403 | Key or wallet blocked |
+| 404 | Not found or result key expired (15min TTL) |
+| 422 | System/program wallet — not analyzable, skip |
+| 500 | Server error — retry with exponential backoff |
 
 ---
 
-## Build
+## TypeScript types
 
-```bash
-pnpm run build   # tsc → dist/
-pnpm test        # vitest run
+All request and response shapes are exported:
+
+```typescript
+import type {
+  WalletHud,
+  WalletProfileResponse,
+  HolderProfile,
+  HolderProfilesResult,
+  TokenPnlResponse,
+  BatchHudResponse,
+  JobAcceptedResponse,
+  SovaIntelClientConfig,
+  Auth,
+} from "@sova-intel/sdk";
 ```
+
+---
+
+## Links
+
+- [Interactive API Docs (Swagger UI)](https://sova-intel.github.io/docs)
+- [npm package](https://www.npmjs.com/package/@sova-intel/sdk)

@@ -1,21 +1,28 @@
 {
-  "name": "@sova/intel-sdk",
-  "version": "1.0.0",
-  "description": "TypeScript SDK for the Sova Intel on-chain intelligence API",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "name": "@sova-intel/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Sova Intel on-chain intelligence API — wallet profiles, PnL, holder maps, similarity scoring. Pay via API key or X402 (Solana USDC).",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/cjs/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json",
+    "prepublishOnly": "pnpm build",
     "test": "vitest run --exclude src/contract.test.ts",
     "test:watch": "vitest --exclude src/contract.test.ts",
     "test:contract": "vitest run src/contract.test.ts"
@@ -26,7 +33,10 @@
     "intelligence",
     "pnl",
     "on-chain",
-    "x402"
+    "x402",
+    "defi",
+    "crypto",
+    "sova"
   ],
   "author": "Sova",
   "license": "MIT",
@@ -37,5 +47,10 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sova-intel/sdk"
+  },
+  "homepage": "https://sova-intel.github.io/docs"
 }
