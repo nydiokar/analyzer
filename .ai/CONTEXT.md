@@ -27,6 +27,18 @@ Full spec: `.ai/context/telegram-bot/spec.md`
 
 ---
 
+### feat/self-serve-api-keys
+
+Full spec: `.ai/context/self-serve-api-keys/spec.md`
+
+| Status | Task | Area | Notes |
+|:------:|:-----|:----:|:------|
+| ⚪ | **[SELF-1] Self-serve API key endpoints** — `POST/GET/DELETE /users/api-keys` | Backend | Add 3 routes to `users.controller.ts`. Wires directly to existing `ApiKeyService` methods (already exported from global `AuthModule`). Scope hardcoded to `['read']`. Throttle POST to 5/hr. |
+| ⚪ | **[SELF-2] Developer settings page** — `dashboard/src/app/dashboard/developer/page.tsx` | Dashboard | 3 sections: credit balance (`GET /credits/balance`), key generator (POST → show raw key once with copy button), key list table (GET + per-row revoke). Follow fetch pattern from `admin/page.tsx:224`. Add nav link in `dashboard/src/components/layout/`. |
+| ⚪ | **[SELF-3] Open registration env var** — `REGISTRATION_OPEN=true` short-circuit | Backend | 3-line change in `RegistrationCodeService.areCodesRequired()`. Add `REGISTRATION_OPEN=true` to `.env`. Guarantees open registration independent of Redis state. |
+
+---
+
 ### Pending carry-over (not this branch)
 
 | Status | Task | Scope | Notes |
