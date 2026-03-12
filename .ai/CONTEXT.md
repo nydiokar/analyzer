@@ -31,7 +31,8 @@ Full spec: `.ai/context/telegram-bot/spec.md`
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| ⚪ | **[SDK-PUBLISH]** Publish `@sova/intel-sdk` to npm — add `"type": "module"` + dual exports to `package.json`, write minimal `README.md`, bump to `0.1.0`, add `prepublishOnly: pnpm build`, then `pnpm publish --access public`. Keep `workspace:*` in monorepo; external consumers pin npm version. | 🟢 S | `packages/sdk/package.json`, `packages/sdk/README.md` |
+| ✅ | **[SDK-PUBLISH]** Published `@sova-intel/sdk@0.1.0` to npm. Dual CJS+ESM build, production README, Docusaurus docs at `https://nydiokar.github.io/sova-intel/`. Repo: `nydiokar/sova-intel`. | 🟢 S | `packages/sdk/`, `C:\Users\solastic\prj\sova-intel-docs\` |
+| ⚪ | **[SDK-POLISH]** Post-publish polish: (1) add `SKILL.md` to sdk package as `llms.txt` or similar for LLM discoverability, (2) rename batch-token doc page to match sidebar label, (3) trim chattiness in docs, (4) consolidate async job explanation (currently in both batch-token and async-jobs pages), (5) smoke test published package end-to-end from fresh install. | 🟢 S | `packages/sdk/`, `nydiokar/sova-intel` docs repo |
 | ⚪ | **[PAY-X402-RECEIPT]** Fix `X-Payment-Response` receipt header — split `confirmAndRecord` into broadcast (fast, in guard) + confirm (slow, fire-and-forget), set header synchronously in interceptor with known sig | 🟢 S | `x402-verification.service.ts`, `credit.guard.ts`, `credit.interceptor.ts` |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[INTEL-DEEP-BUG]** Fix `/intel/token/:mint/holders/deep` similarity chaining — add `chainSimilarity: true` flag to job, processor auto-queues similarity after holder-profiles completes | 🟡 M | `src/queues/jobs/types/index.ts`, `intel.controller.ts`, `analysis-operations.processor.ts` |
@@ -287,7 +288,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-10  **Branch:** `feat/telegram-bot-intel`  **TG-1 through TG-10 complete — bot live, running from dist/, SDK aligned with API**
+**Last Updated:** 2026-03-12  **Branch:** `main`  **TG-1–TG-10 complete. SDK published as `@sova-intel/sdk@0.1.0`. Docs live at nydiokar.github.io/sova-intel.**
 
 
 
