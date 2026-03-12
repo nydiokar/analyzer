@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/telegram-bot-intel`  **Last Updated:** 2026-03-10  **Status:** TG-1–TG-10 complete — E2E tested, running in production
+**Branch:** `main`  **Last Updated:** 2026-03-13  **Status:** Self-serve API keys complete — E2E tested, merged to main
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -27,15 +27,14 @@ Full spec: `.ai/context/telegram-bot/spec.md`
 
 ---
 
-### feat/self-serve-api-keys
+### feat/self-serve-api-keys — ✅ COMPLETE (Mar 13, 2026)
 
 Full spec: `.ai/context/self-serve-api-keys/spec.md`
 
 | Status | Task | Area | Notes |
 |:------:|:-----|:----:|:------|
-| ⚪ | **[SELF-1] Self-serve API key endpoints** — `POST/GET/DELETE /users/api-keys` | Backend | Add 3 routes to `users.controller.ts`. Wires directly to existing `ApiKeyService` methods (already exported from global `AuthModule`). Scope hardcoded to `['read']`. Throttle POST to 5/hr. |
-| ⚪ | **[SELF-2] Developer settings page** — `dashboard/src/app/dashboard/developer/page.tsx` | Dashboard | 3 sections: credit balance (`GET /credits/balance`), key generator (POST → show raw key once with copy button), key list table (GET + per-row revoke). Follow fetch pattern from `admin/page.tsx:224`. Add nav link in `dashboard/src/components/layout/`. |
-| ⚪ | **[SELF-3] Open registration env var** — `REGISTRATION_OPEN=true` short-circuit | Backend | 3-line change in `RegistrationCodeService.areCodesRequired()`. Add `REGISTRATION_OPEN=true` to `.env`. Guarantees open registration independent of Redis state. |
+| ✅ | **[SELF-1] Self-serve API key endpoints** — `POST/GET/DELETE /users/api-keys` | Backend | `users.controller.ts` + `users.module.ts`. Scope hardcoded to `['read']`. Throttle 5/hr on POST. Ownership enforced by `ApiKeyService.revokeApiKey`. |
+| ✅ | **[SELF-2] Developer settings page** — `dashboard/src/app/dashboard/developer/page.tsx` | Dashboard | Credit balance, key generator (raw key shown once with copy button), key list with revoke. Nav link added to `UserMenu` dropdown. Dashboard build clean. |
 
 ---
 
@@ -115,7 +114,19 @@ New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot
 
 ##  Recent Activity
 
-### March 10, 2026 (Latest)
+### March 13, 2026 (Latest)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 13.1 | 🎯 FEAT | Self-serve API key endpoints — `POST/GET/DELETE /users/api-keys` (scope `['read']`, throttle 5/hr, ownership enforced) | 🟢 S | `src/api/controllers/users.controller.ts`, `src/api/modules/users.module.ts` |
+| 13.2 | 🎯 FEAT | Developer dashboard page — credit balance, one-time key reveal with copy button, key list + revoke. Nav link in UserMenu dropdown | 🟢 S | `dashboard/src/app/dashboard/developer/page.tsx`, `dashboard/src/components/auth/UserMenu.tsx` |
+| 13.3 | 🔧 FIX | `pnpm install` from root — linked `@sova-intel/sdk@0.1.1` workspace package into `node_modules` (was missing, caused bot TS errors) | 🟢 S | `pnpm-workspace.yaml`, `node_modules/@sova-intel/sdk` |
+
+**Summary:** Any developer can now register via email, receive signup credits automatically, open User Menu → API Keys, generate a key, and hit `/intel` endpoints immediately — zero manual intervention required. Registration gate (invite codes) toggled off via admin panel.
+
+---
+
+### March 10, 2026
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
@@ -301,7 +312,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-12  **Branch:** `main`  **TG-1–TG-10 complete. SDK published as `@sova-intel/sdk@0.1.0`. Docs live at nydiokar.github.io/sova-intel.**
+**Last Updated:** 2026-03-13  **Branch:** `main`  **Self-serve API keys complete. Any dev can register, get a key, and hit /intel endpoints without manual intervention. SDK published as `@sova-intel/sdk@0.1.1`.**
 
 
 
