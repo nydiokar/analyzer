@@ -1,4 +1,4 @@
-import type { HolderProfilesResult } from '@sova/intel-sdk';
+import type { HolderProfilesResult } from '@sova-intel/sdk';
 
 const BEHAVIOR_ORDER: string[] = [
   'Sniper', 'Ultra Flipper', 'Flipper', 'Scalper', 'Fast Trader',

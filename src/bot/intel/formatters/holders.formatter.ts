@@ -1,4 +1,4 @@
-import type { HolderProfile, HolderProfilesResult } from '@sova/intel-sdk';
+import type { HolderProfile, HolderProfilesResult } from '@sova-intel/sdk';
 
 // Canonical hold-time order: shortest → longest.
 // Any label not in this list gets appended at the end alphabetically.

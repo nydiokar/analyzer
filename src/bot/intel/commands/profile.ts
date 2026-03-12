@@ -1,6 +1,6 @@
 import { Context } from 'telegraf';
 import { PrismaClient } from '@prisma/client';
-import { SovaIntelClient, SovaHttpError } from '@sova/intel-sdk';
+import { SovaIntelClient, SovaHttpError } from '@sova-intel/sdk';
 import { formatProfile } from '../formatters/profile.formatter';
 import { logInvocation } from '../attribution';
 

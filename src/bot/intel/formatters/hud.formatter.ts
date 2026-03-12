@@ -1,4 +1,4 @@
-import type { WalletHud } from '@sova/intel-sdk';
+import type { WalletHud } from '@sova-intel/sdk';
 
 export function formatHud(address: string, hud: WalletHud): string {
   const flags: string[] = [];

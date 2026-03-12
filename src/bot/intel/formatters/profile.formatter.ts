@@ -1,4 +1,4 @@
-import type { WalletProfileResponse } from '@sova/intel-sdk';
+import type { WalletProfileResponse } from '@sova-intel/sdk';
 
 export function formatProfile(address: string, profile: WalletProfileResponse): string {
   const hud = profile.hud;

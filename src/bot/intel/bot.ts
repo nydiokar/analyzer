@@ -1,7 +1,7 @@
 import { Telegraf, Context } from 'telegraf';
 import { message } from 'telegraf/filters';
 import { PrismaClient } from '@prisma/client';
-import { SovaIntelClient } from '@sova/intel-sdk';
+import { SovaIntelClient } from '@sova-intel/sdk';
 import { config } from './config';
 import { hudHandler } from './commands/hud';
 import { profileHandler } from './commands/profile';
