@@ -187,6 +187,46 @@ export interface DeepPartialResponse {
   message: string;
 }
 
+// --- Similarity -----------------------------------------------------------
+// Matches CombinedSimilarityResult returned by similarity-operations.processor.ts
+// Source of truth: src/api/services/similarity.service.ts → runAnalysis()
+
+export interface SimilarityPairResult {
+  walletA: string;
+  walletB: string;
+  /** Jaccard (binary token overlap) similarity score */
+  binaryScore: number;
+  /** Capital-weighted similarity score */
+  capitalScore: number;
+  sharedTokens: { mint: string }[];
+  capitalAllocation: Record<string, { weightA: number; weightB: number }>;
+  binarySharedTokenCount: number;
+  binaryUniqueTokenCountA: number;
+  binaryUniqueTokenCountB: number;
+  capitalSharedTokenCount: number;
+  capitalUniqueTokenCountA: number;
+  capitalUniqueTokenCountB: number;
+}
+
+export interface SimilarityGlobalMetrics {
+  averageSimilarity: number;
+  mostSimilarPairs: {
+    walletA: string;
+    walletB: string;
+    similarityScore: number;
+    sharedTokenCount: number;
+  }[];
+}
+
+export interface SimilarityResult {
+  vectorTypeUsed: "combined";
+  pairwiseSimilarities: SimilarityPairResult[];
+  globalMetrics: SimilarityGlobalMetrics;
+  uniqueTokensPerWallet: Record<string, { binary: number; capital: number }>;
+  walletLabels?: Record<string, { knownType?: string; knownLabel?: string }>;
+  summary?: { walletCount: number; uniqueTokensTotal: number };
+}
+
 // --- Holder Profiles ------------------------------------------------------
 // Matches HolderProfile / HolderProfilesResult in queues/jobs/types/index.ts
 

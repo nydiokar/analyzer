@@ -25,6 +25,10 @@ export type {
   // Batch
   BatchHudResponse,
   BatchHudResult,
+  // Similarity
+  SimilarityPairResult,
+  SimilarityGlobalMetrics,
+  SimilarityResult,
   // Holder profiles
   HolderProfile,
   HolderProfilesResult,
