@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useCredits } from '@/hooks/useCredits';
-import { User, Settings, LogOut, Sparkles, HelpCircle, Coins } from 'lucide-react';
+import { User, Settings, LogOut, Sparkles, HelpCircle, Coins, Key } from 'lucide-react';
 import { AccountModal } from './AccountModal';
 import { SettingsModal } from './SettingsModal';
 import Link from 'next/link';
@@ -73,6 +73,13 @@ export function UserMenu({ className }: UserMenuProps) {
               <span className="ml-auto text-xs font-mono text-muted-foreground">
                 {balance !== null ? balance.toLocaleString() : '—'}
               </span>
+            </Link>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem asChild className="cursor-pointer">
+            <Link href="/dashboard/developer">
+              <Key className="w-4 h-4 mr-2" />
+              API Keys
             </Link>
           </DropdownMenuItem>
 
