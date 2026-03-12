@@ -1,10 +1,10 @@
 # @sova-intel/sdk
 
-TypeScript SDK for the [Sova Intel API](https://nydiokar.github.io/sova-intel) — on-chain intelligence for Solana wallets.
+TypeScript SDK for the [Sova Intel API](https://docs.sova-intel.com) — on-chain intelligence for Solana wallets.
 
-Get trader profiles, realized/unrealized PnL, behavioral patterns, token holder maps, and wallet similarity scores. Pay per call with an API key or autonomously via [X402](https://x402.org) (Solana USDC).
+Get trader profiles, behavioral patterns, token holder maps, and wallet similarity scores. Pay per call with an API key or autonomously via [X402](https://x402.org) (Solana USDC).
 
-**[Interactive API Docs →](https://nydiokar.github.io/sova-intel)**
+**[API Docs →](https://docs.sova-intel.com)**
 
 ---
 
@@ -83,7 +83,7 @@ const client = new SovaIntelClient({
 
 ## Quickstart
 
-### Get a wallet HUD (1 credit — $0.015)
+### Get a wallet HUD (1 credit)
 
 The fastest signal: behavior code, win rate, PnL, bot/whale flags.
 
@@ -106,7 +106,7 @@ console.log(hud.dataQualityTier);    // "GOLD"
 
 The server holds the connection for cold wallets and returns data in the same call. If it times out, the SDK polls the queued job and re-calls automatically — you always receive a `WalletHud`.
 
-### Analyze top holders of a token (20 credits — $0.30)
+### Analyze top holders of a token (20 credits)
 
 Async job — the SDK queues it, polls until complete, and returns the full result.
 
@@ -144,7 +144,7 @@ for (const holder of result.profiles) {
 | `queueSimilarity(wallets[])` | `POST /intel/wallets/similarity` | 20 |
 | `pollSimilarity(wallets[])` | same + auto-poll | 20 |
 
-1 credit = $0.015 USDC. Full reference with schemas: **[sova-intel.github.io/docs](https://nydiokar.github.io/sova-intel)**
+Full reference with schemas: **[docs.sova-intel.com](https://docs.sova-intel.com)**
 
 ---
 
@@ -203,5 +203,5 @@ import type {
 
 ## Links
 
-- [Interactive API Docs (Swagger UI)](https://nydiokar.github.io/sova-intel)
+- [API Docs](https://docs.sova-intel.com)
 - [npm package](https://www.npmjs.com/package/@sova-intel/sdk)
