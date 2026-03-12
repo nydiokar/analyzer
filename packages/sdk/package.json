@@ -21,7 +21,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json",
+    "build": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json",
     "prepublishOnly": "pnpm build",
     "test": "vitest run --exclude src/contract.test.ts",
     "test:watch": "vitest --exclude src/contract.test.ts",
@@ -50,7 +50,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/sova-intel/sdk"
+    "url": "git+https://github.com/nydiokar/sova-intel.git"
   },
-  "homepage": "https://sova-intel.github.io/docs"
+  "homepage": "https://nydiokar.github.io/sova-intel"
 }

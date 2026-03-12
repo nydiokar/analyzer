@@ -1,10 +1,10 @@
 # @sova-intel/sdk
 
-TypeScript SDK for the [Sova Intel API](https://sova-intel.github.io/docs) — on-chain intelligence for Solana wallets.
+TypeScript SDK for the [Sova Intel API](https://nydiokar.github.io/sova-intel) — on-chain intelligence for Solana wallets.
 
 Get trader profiles, realized/unrealized PnL, behavioral patterns, token holder maps, and wallet similarity scores. Pay per call with an API key or autonomously via [X402](https://x402.org) (Solana USDC).
 
-**[Interactive API Docs →](https://sova-intel.github.io/docs)**
+**[Interactive API Docs →](https://nydiokar.github.io/sova-intel)**
 
 ---
 
@@ -144,7 +144,7 @@ for (const holder of result.profiles) {
 | `queueSimilarity(wallets[])` | `POST /intel/wallets/similarity` | 20 |
 | `pollSimilarity(wallets[])` | same + auto-poll | 20 |
 
-1 credit = $0.015 USDC. Full reference with schemas: **[sova-intel.github.io/docs](https://sova-intel.github.io/docs)**
+1 credit = $0.015 USDC. Full reference with schemas: **[sova-intel.github.io/docs](https://nydiokar.github.io/sova-intel)**
 
 ---
 
@@ -200,5 +200,5 @@ import type {
 
 ## Links
 
-- [Interactive API Docs (Swagger UI)](https://sova-intel.github.io/docs)
+- [Interactive API Docs (Swagger UI)](https://nydiokar.github.io/sova-intel)
 - [npm package](https://www.npmjs.com/package/@sova-intel/sdk)
