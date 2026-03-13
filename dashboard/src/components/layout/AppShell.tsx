@@ -71,8 +71,12 @@ export function AppShell({ children }: AppShellProps) {
     { href: '/similarity-lab', label: 'Similarity Lab' },
     { href: '/tools/holder-profiles', label: 'Holder Profiles' },
     { href: '/wallet-hunt', label: 'Wallet Hunt' },
-    { href: '/tools/sig-buyers', label: 'Sig Buyers' },
-    ...(user?.isAnalyst || user?.isAdmin ? [{ href: '/radar', label: 'Radar' }] : []),
+    ...(user?.isAnalyst || user?.isAdmin
+      ? [
+          { href: '/tools/sig-buyers', label: 'Sig Buyers' },
+          { href: '/radar', label: 'Radar' },
+        ]
+      : []),
   ];
 
   const isActiveRoute = (href: string) => {

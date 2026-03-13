@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageTitle } from '@/components/shared/PageTitle';
 import { WalletBadge } from '@/components/shared/WalletBadge';
@@ -27,6 +29,7 @@ import {
   TrendingDown,
   Copy,
   AlertTriangle,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -224,6 +227,17 @@ function BuyerRow({ buyer, rank }: BuyerRowProps) {
 // ── Main Page ─────────────────────────────────────────────────────
 
 export default function SigBuyersPage() {
+  const router = useRouter();
+  const { user, isAuthenticated, isInitialized } = useAuth();
+
+  // ── Analyst gate ──
+  const isAuthorized = isInitialized && isAuthenticated && (!!user?.isAnalyst || !!user?.isAdmin);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!isAuthorized) router.replace('/');
+  }, [isInitialized, isAuthorized, router]);
+
   // Form state
   const [mint, setMint] = useState('');
   const [startDateStr, setStartDateStr] = useState('');
@@ -310,6 +324,39 @@ export default function SigBuyersPage() {
   // Keep ref in sync so callbacks always have the latest unsubscribe function
   unsubscribeFromJobRef.current = unsubscribeFromJob;
 
+  // ── Flash analysis ─────────────────────────────────────────────
+  const [isQueueingAnalysis, setIsQueueingAnalysis] = useState(false);
+
+  const handleRunFlashAnalysis = useCallback(async () => {
+    if (!result?.buyers.length) return;
+    const addresses = result.buyers.map((b) => b.walletAddress);
+    setIsQueueingAnalysis(true);
+    // Send in batches of 4 with a 1s gap to stay within the 5/min throttle
+    const BATCH_SIZE = 4;
+    try {
+      for (let i = 0; i < addresses.length; i += BATCH_SIZE) {
+        const chunk = addresses.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          chunk.map((walletAddress) =>
+            fetcher('/analyses/wallets/dashboard-analysis', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ walletAddress, analysisScope: 'flash', triggerSource: 'manual', queueWorkingAfter: false }),
+            }),
+          ),
+        );
+        if (i + BATCH_SIZE < addresses.length) {
+          await new Promise((resolve) => setTimeout(resolve, 1100));
+        }
+      }
+      toast.success(`Queued flash analysis for ${addresses.length} wallets`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to queue flash analysis');
+    } finally {
+      setIsQueueingAnalysis(false);
+    }
+  }, [result]);
+
   const handleSearch = useCallback(async () => {
     if (!canSubmit || !startTs || !endTs) return;
 
@@ -353,6 +400,8 @@ export default function SigBuyersPage() {
     setStartDateStr(unixToUtcDateStr(nowTs));
     setStartTimeStr(unixToUtcTimeStr(nowTs));
   }, []);
+
+  if (!isAuthorized) return null;
 
   return (
     <AppShell>
@@ -521,21 +570,43 @@ export default function SigBuyersPage() {
                   )}
                 </div>
                 {result && result.buyers.length > 0 && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={handleCopyAll}
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Copy all addresses</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <div className="flex items-center gap-1">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[11px] gap-1 text-amber-400 hover:text-amber-300 hover:bg-amber-400/10"
+                            onClick={handleRunFlashAnalysis}
+                            disabled={isQueueingAnalysis}
+                          >
+                            {isQueueingAnalysis
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : <Zap className="h-3 w-3" />
+                            }
+                            Run Flash Analysis
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Queue a flash analysis for all {result.buyers.length} wallets</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={handleCopyAll}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Copy all addresses</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                 )}
               </div>
 

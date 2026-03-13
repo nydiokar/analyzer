@@ -12,11 +12,13 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { SigBuyersQueryDto } from '../shared/dto/sig-buyers.dto';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
+import { IsAnalyst } from '../shared/decorators/analyst.decorator';
 import * as crypto from 'crypto';
 
 @ApiTags('Significant Buyers')
 @Controller('sig-buyers')
 @ApiBearerAuth()
+@IsAnalyst()
 export class SigBuyersController {
   private readonly logger = new Logger(SigBuyersController.name);
 

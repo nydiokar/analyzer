@@ -18,7 +18,7 @@
 - All times UTC throughout (matches Solscan/explorers) — `T...Z` suffix in date parsing, `getUTC*()` methods, ISO slice for display
 - System wallet filtering uses `isKnownWallet()` (registry, O(1)) inline in grouping + `SystemWalletDetectionService.filterSystemWallets({ skipDynamic: true })` after grouping (memory/redis/DB cache only — no live RPC token-count during request)
 - Frontend renders max 200 rows, "Copy All" gives full list
-- **NOT YET DONE:** the service runs synchronously in an HTTP request — will timeout for large windows. Must be converted to async BullMQ job + WebSocket completion (same pattern as holder-profiles page)
+- **SB-7 done:** async BullMQ job + WebSocket working. **SB-8 pending:** gate to `isAnalyst` users only (AnalystGuard on controller + frontend access check).
 
 | Status | Task | Area | Notes |
 |:------:|:-----|:----:|:------|
@@ -28,7 +28,9 @@
 | ✅ | **[SB-4]** Module wired into `api.module.ts` | Backend | `src/api/modules/sig-buyers.module.ts` |
 | ✅ | **[SB-5]** Frontend page — form (mint, UTC date/time picker, duration presets, min SOL presets) + results table | Frontend | `dashboard/src/app/tools/sig-buyers/page.tsx` |
 | ✅ | **[SB-6]** Nav link added | Frontend | `AppShell.tsx` — "Sig Buyers" |
-| ⚪ | **[SB-7]** Convert to async job — add `SigBuyersJobData` type, queue method, processor case, `POST /sig-buyers` returns `{ jobId }`, frontend uses `useJobProgress` hook, shows live progress % + final result via WebSocket | Backend + Frontend | Pattern: exactly like holder-profiles page (`dashboard/src/app/tools/holder-profiles/page.tsx`) + `analysis-operations.queue.ts`. Job name: `sig-buyers-run`. Store result in Redis via pointer (same as holder-profiles). |
+| ✅ | **[SB-7]** Convert to async job — `SigBuyersJobData` type, queue method, processor case, `POST /sig-buyers` returns `{ jobId }`, frontend uses `useJobProgress` hook, shows live progress % + final result via WebSocket | Backend + Frontend | Pattern: exactly like holder-profiles page (`dashboard/src/app/tools/holder-profiles/page.tsx`) + `analysis-operations.queue.ts`. Job name: `sig-buyers-run`. Store result in Redis via pointer (same as holder-profiles). |
+| ✅ | **[SB-8]** Gate sig-buyers page + endpoint to `isAnalyst` users only — `@IsAnalyst()` on controller, `isAuthorized` gate + `router.replace('/')` in frontend, Sig Buyers nav link moved inside analyst-only condition | Backend + Frontend | `sig-buyers.controller.ts`, `tools/sig-buyers/page.tsx`, `AppShell.tsx` |
+| ✅ | **[SB-9]** "Run Flash Analysis" button in results header — queues flash analysis for all found wallets via `POST /analyses/wallets/dashboard-analysis` (scope=flash), batched 4 at a time with 1.1s gap to respect 5/min throttle | Frontend | `tools/sig-buyers/page.tsx` |
 
 **Files created/modified on branch `feature/sig-buyers-ui`:**
 - `src/api/shared/dto/sig-buyers.dto.ts` ← new
@@ -39,12 +41,7 @@
 - `dashboard/src/app/tools/sig-buyers/page.tsx` ← new
 - `dashboard/src/components/layout/AppShell.tsx` ← added nav entry
 
-**To finish SB-7 (async job) — what to read first:**
-1. `src/queues/jobs/types/index.ts` — add `SigBuyersJobData` + `SigBuyersJobResult`
-2. `src/queues/queues/analysis-operations.queue.ts` — add `addSigBuyersJob()` method
-3. `src/queues/processors/analysis-operations.processor.ts` — add `case 'sig-buyers-run'`, call `sigBuyersService.findSignificantBuyers()`, store result in Redis with pointer key (same as holder-profiles around line 100–110)
-4. Replace `GET /sig-buyers` controller with `POST /sig-buyers` returning `{ jobId, requestId }`
-5. Frontend: replace `fetcher()` call with `POST /sig-buyers` → get jobId → `subscribeToJob(jobId)` → `onJobCompleted` sets result. Show progress bar. Exact pattern: `dashboard/src/app/tools/holder-profiles/page.tsx` lines 84–200.
+**SB-8 + SB-9 done. Sig Buyers feature is complete.**
 
 ---
 
@@ -162,7 +159,7 @@ New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot
 | 13.5 | 🔧 FIX | System wallet filtering uses centralized registry (`isKnownWallet` + `SystemWalletDetectionService.filterSystemWallets`) — removed hardcoded address list | 🟢 S | `sig-buyers.service.ts` |
 | 13.6 | 🔧 FIX | All times UTC throughout — `T...Z` parsing, `getUTC*()` display, ISO slice in results, "UTC" labels in UI | 🟢 S | `tools/sig-buyers/page.tsx` |
 
-**⚠️ SB-7 not done — service is synchronous, will timeout for large windows. Must convert to async BullMQ job before production use. See Active Work section above for exact plan.**
+**SB-1–9 complete. Feature fully shipped.**
 
 ---
 
@@ -364,7 +361,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-13  **Branch:** `feature/sig-buyers-ui`  **Sig Buyers UI scaffolded (SB-1–6 done). SB-7 (async BullMQ job + WebSocket) is the one remaining task before this is testable. See Active Work for exact implementation plan.**
+**Last Updated:** 2026-03-13  **Branch:** `feature/sig-buyers-ui`  **SB-1–7 done (async job + WebSocket working). SB-8 remaining: gate sig-buyers to `isAnalyst` users only.**
 
 
 
