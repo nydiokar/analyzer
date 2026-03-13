@@ -288,7 +288,7 @@ export default function DeveloperPage() {
             <p>Pass your key in the <code className="text-xs bg-muted px-1 py-0.5 rounded">x-api-key</code> header:</p>
             <pre className="rounded bg-muted px-3 py-2 text-xs font-mono overflow-x-auto">
 {`curl -H "x-api-key: YOUR_KEY" \\
-  https://api.sova.intel/intel/wallet/ADDRESS/hud`}
+  https://api.sova-intel/api/v1/intel/wallet/ADDRESS/hud`}
             </pre>
             <p>
               Or use the{' '}
