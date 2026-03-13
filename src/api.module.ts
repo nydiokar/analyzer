@@ -19,6 +19,7 @@ import { WalletHuntModule } from './api/modules/wallet-hunt.module';
 import { PaymentModule } from './api/modules/payment.module';
 import { IntelModule } from './api/modules/intel.module';
 import { RadarModule } from './api/modules/radar.module';
+import { SigBuyersModule } from './api/modules/sig-buyers.module';
 
 
 @Module({
@@ -41,6 +42,7 @@ import { RadarModule } from './api/modules/radar.module';
     PaymentModule,    // Solana Pay credit pack checkout
     IntelModule,      // External product API for devs and agents
     RadarModule,      // Holdings Radar — analyst-gated wallet monitoring
+    SigBuyersModule,  // Significant Buyers — find wallets that bought a token in a time window
     // QueueModule, HeliusModule, DatabaseModule are already global from AppModule
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
   ],

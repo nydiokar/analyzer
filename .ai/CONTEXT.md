@@ -1,12 +1,52 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-03-13  **Status:** Self-serve API keys complete — E2E tested, merged to main
+**Branch:** `main` / `feature/sig-buyers-ui`  **Last Updated:** 2026-03-13  **Status:** Sig Buyers UI — backend + frontend scaffolded, needs async job wiring
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
 ---
 
 ##  Active Work
+
+### feature/sig-buyers-ui — 🚧 IN PROGRESS (Mar 13, 2026)
+
+**What this is:** Frontend UI + backend API for "Significant Buyers" — find all wallets that bought a token during a specific UTC time window, ranked by SOL spent. Replaces the manual script `.ai/context/sig_buyers/test-wallet-discovery.ts` (validated, working).
+
+**Validated logic (do not change):** Two-phase: (1) collect signatures via `getTransactionsForAddressSignatures` RPC with `blockTime` filters — only method that works for mint time-filtering. (2) enrich via `getTransactionsBySignatures` in batches of 100. Then group by wallet → `mapHeliusTransactionsToIntermediateRecords` → sum `associatedSolValue` where `direction === 'in'` = SOL spent.
+
+**Key decisions made:**
+- All times UTC throughout (matches Solscan/explorers) — `T...Z` suffix in date parsing, `getUTC*()` methods, ISO slice for display
+- System wallet filtering uses `isKnownWallet()` (registry, O(1)) inline in grouping + `SystemWalletDetectionService.filterSystemWallets({ skipDynamic: true })` after grouping (memory/redis/DB cache only — no live RPC token-count during request)
+- Frontend renders max 200 rows, "Copy All" gives full list
+- **NOT YET DONE:** the service runs synchronously in an HTTP request — will timeout for large windows. Must be converted to async BullMQ job + WebSocket completion (same pattern as holder-profiles page)
+
+| Status | Task | Area | Notes |
+|:------:|:-----|:----:|:------|
+| ✅ | **[SB-1]** DTO — `SigBuyersQueryDto` + `SigBuyersResponseDto` | Backend | `src/api/shared/dto/sig-buyers.dto.ts` |
+| ✅ | **[SB-2]** Service — `SigBuyersService` with 5-phase pipeline | Backend | `src/api/services/sig-buyers.service.ts` — uses `isKnownWallet` + `SystemWalletDetectionService` |
+| ✅ | **[SB-3]** Controller — `GET /sig-buyers` | Backend | `src/api/controllers/sig-buyers.controller.ts` — validation, 24h window cap |
+| ✅ | **[SB-4]** Module wired into `api.module.ts` | Backend | `src/api/modules/sig-buyers.module.ts` |
+| ✅ | **[SB-5]** Frontend page — form (mint, UTC date/time picker, duration presets, min SOL presets) + results table | Frontend | `dashboard/src/app/tools/sig-buyers/page.tsx` |
+| ✅ | **[SB-6]** Nav link added | Frontend | `AppShell.tsx` — "Sig Buyers" |
+| ⚪ | **[SB-7]** Convert to async job — add `SigBuyersJobData` type, queue method, processor case, `POST /sig-buyers` returns `{ jobId }`, frontend uses `useJobProgress` hook, shows live progress % + final result via WebSocket | Backend + Frontend | Pattern: exactly like holder-profiles page (`dashboard/src/app/tools/holder-profiles/page.tsx`) + `analysis-operations.queue.ts`. Job name: `sig-buyers-run`. Store result in Redis via pointer (same as holder-profiles). |
+
+**Files created/modified on branch `feature/sig-buyers-ui`:**
+- `src/api/shared/dto/sig-buyers.dto.ts` ← new
+- `src/api/services/sig-buyers.service.ts` ← new
+- `src/api/controllers/sig-buyers.controller.ts` ← new
+- `src/api/modules/sig-buyers.module.ts` ← new
+- `src/api.module.ts` ← added `SigBuyersModule` import
+- `dashboard/src/app/tools/sig-buyers/page.tsx` ← new
+- `dashboard/src/components/layout/AppShell.tsx` ← added nav entry
+
+**To finish SB-7 (async job) — what to read first:**
+1. `src/queues/jobs/types/index.ts` — add `SigBuyersJobData` + `SigBuyersJobResult`
+2. `src/queues/queues/analysis-operations.queue.ts` — add `addSigBuyersJob()` method
+3. `src/queues/processors/analysis-operations.processor.ts` — add `case 'sig-buyers-run'`, call `sigBuyersService.findSignificantBuyers()`, store result in Redis with pointer key (same as holder-profiles around line 100–110)
+4. Replace `GET /sig-buyers` controller with `POST /sig-buyers` returning `{ jobId, requestId }`
+5. Frontend: replace `fetcher()` call with `POST /sig-buyers` → get jobId → `subscribeToJob(jobId)` → `onJobCompleted` sets result. Show progress bar. Exact pattern: `dashboard/src/app/tools/holder-profiles/page.tsx` lines 84–200.
+
+---
 
 ### feat/telegram-bot-intel
 
@@ -114,7 +154,19 @@ New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot
 
 ##  Recent Activity
 
-### March 13, 2026 (Latest)
+### March 13, 2026 (Latest) — Sig Buyers UI (branch: feature/sig-buyers-ui)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 13.4 | 🎯 FEAT | SB-1–6: Significant Buyers scaffold — backend service (5-phase pipeline: RPC signatures → enrich → group → filter → analyze), controller, module, frontend page with UTC date/time picker + duration presets + min SOL presets + results table (max 200 rows, copy-all) | 🟡 M | `sig-buyers.dto.ts`, `sig-buyers.service.ts`, `sig-buyers.controller.ts`, `sig-buyers.module.ts`, `tools/sig-buyers/page.tsx`, `AppShell.tsx` |
+| 13.5 | 🔧 FIX | System wallet filtering uses centralized registry (`isKnownWallet` + `SystemWalletDetectionService.filterSystemWallets`) — removed hardcoded address list | 🟢 S | `sig-buyers.service.ts` |
+| 13.6 | 🔧 FIX | All times UTC throughout — `T...Z` parsing, `getUTC*()` display, ISO slice in results, "UTC" labels in UI | 🟢 S | `tools/sig-buyers/page.tsx` |
+
+**⚠️ SB-7 not done — service is synchronous, will timeout for large windows. Must convert to async BullMQ job before production use. See Active Work section above for exact plan.**
+
+---
+
+### March 13, 2026 — Self-serve API keys
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
@@ -312,7 +364,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-13  **Branch:** `main`  **Self-serve API keys complete. Any dev can register, get a key, and hit /intel endpoints without manual intervention. SDK published as `@sova-intel/sdk@0.1.1`.**
+**Last Updated:** 2026-03-13  **Branch:** `feature/sig-buyers-ui`  **Sig Buyers UI scaffolded (SB-1–6 done). SB-7 (async BullMQ job + WebSocket) is the one remaining task before this is testable. See Active Work for exact implementation plan.**
 
 
 
