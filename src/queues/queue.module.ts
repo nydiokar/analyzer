@@ -43,6 +43,7 @@ import { HolderProfilesCacheModule } from '../api/modules/holder-profiles-cache.
 import { WalletHudModule } from '../api/modules/wallet-hud.module';
 import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
+import { SigBuyersModule } from '../api/modules/sig-buyers.module';
 import { PaymentConfirmationService } from '../api/services/payment-confirmation.service';
 import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
 
@@ -82,6 +83,7 @@ import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
     BalanceCacheModule, // Provides BalanceCacheService
     HolderProfilesCacheModule, // Provides HolderProfilesCacheService
     WalletHudModule,   // Provides WalletHudService
+    SigBuyersModule,   // Provides SigBuyersService for the sig-buyers-run processor
   ],
   
   providers: [
