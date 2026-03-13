@@ -566,7 +566,7 @@ export class JobsService {
    *   - holder-profiles:result:{jobId}
    */
   async getResultByKey(key: string): Promise<unknown> {
-    const allowedPrefixes = ['similarity:result:', 'holder-profiles:result:'];
+    const allowedPrefixes = ['similarity:result:', 'holder-profiles:result:', 'sig-buyers:result:'];
     const isAllowed = allowedPrefixes.some((prefix) => key.startsWith(prefix));
     if (!isAllowed) {
       throw new BadRequestException(`Invalid result key prefix`);

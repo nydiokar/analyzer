@@ -5,5 +5,6 @@ import { SigBuyersService } from '../services/sig-buyers.service';
 @Module({
   controllers: [SigBuyersController],
   providers: [SigBuyersService],
+  exports: [SigBuyersService],
 })
 export class SigBuyersModule {}

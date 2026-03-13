@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, Inject } from '@nestjs/common';
 import { Job, Worker, UnrecoverableError } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts, JobPriority } from '../config/queue.config';
-import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult, HolderProfile } from '../jobs/types';
+import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalysisResult, AnalyzeHolderProfilesJobData, HolderProfilesResult, HolderProfile, SigBuyersJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { buildHolderProfilesJobId } from '../utils/holder-profiles-job-id';
 import { BatchProcessor, BatchResult } from '../utils/batch-processor';
@@ -25,6 +25,7 @@ import { CreditsService } from '../../api/services/credits.service';
 import { SKIP_BEHAVIOR_ANALYSIS, SKIP_PNL_CALCULATION, getKnownWallet } from '../../config/known-wallets';
 import type { KnownWalletType } from '../../config/known-wallets';
 import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
+import { SigBuyersService } from '../../api/services/sig-buyers.service';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
 import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
@@ -59,6 +60,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly creditsService: CreditsService,
     private readonly metricsService: MetricsService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
+    private readonly sigBuyersService: SigBuyersService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -102,6 +104,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         return this.processAnalyzeHolderProfilesWithMetrics(job as Job<AnalyzeHolderProfilesJobData>);
       case 'mint-participants-run':
         return this.processMintParticipants(job as Job<{ mint: string; cutoffTs: number; signature?: string }>);
+      case 'sig-buyers-run':
+        return this.processSigBuyers(job as Job<SigBuyersJobData>);
       default:
         this.logger.error(`Unknown job name: ${jobName} for job ID ${job.id}`);
         throw new Error(`Unknown job type: ${jobName}`);
@@ -2626,6 +2630,56 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await this.shutdown();
     } catch (err) {
       this.logger.warn(`Error shutting down AnalysisOperationsProcessor worker: ${getErrorMessage(err)}`);
+    }
+  }
+
+  private readonly sigBuyersResultTtlSeconds = 15 * 60; // 15 minutes
+
+  /**
+   * Process a significant buyers job.
+   *
+   * Mirrors the holder-profiles pointer pattern:
+   * - Calls SigBuyersService synchronously (the job IS the work)
+   * - Stores the full SigBuyersResponseDto in Redis under `sig-buyers:result:{jobId}`
+   * - Returns only { resultKey, success } as the BullMQ return value
+   * - Frontend hydrates via GET /jobs/result/by-key?key=...
+   */
+  private async processSigBuyers(job: Job<SigBuyersJobData>): Promise<object> {
+    const { mint, startTime, endTime, minSolSpent, maxTransactions, requestId } = job.data;
+    const t0 = Date.now();
+
+    this.logger.log(`sig-buyers-run: mint=${mint} window=${startTime}-${endTime} requestId=${requestId}`);
+
+    await job.updateProgress(5);
+
+    const result = await this.sigBuyersService.findSignificantBuyers(
+      mint,
+      startTime,
+      endTime,
+      minSolSpent,
+      maxTransactions,
+    );
+
+    await job.updateProgress(95);
+
+    const resultKey = `sig-buyers:result:${job.id}`;
+    try {
+      await this.redisClient.set(resultKey, JSON.stringify(result), 'EX', this.sigBuyersResultTtlSeconds);
+      this.logger.log(`sig-buyers-run completed for ${mint} in ${Date.now() - t0}ms — ${result.qualifyingWallets} wallets`);
+      await job.updateProgress(100);
+      return {
+        success: true,
+        data: { resultKey },
+        metadata: {
+          qualifyingWallets: result.qualifyingWallets,
+          totalTransactionsFetched: result.totalTransactionsFetched,
+          durationMs: result.durationMs,
+        },
+      };
+    } catch (storeError) {
+      this.logger.error(`Failed to store sig-buyers result in Redis for job ${job.id}: ${getErrorMessage(storeError)}`);
+      // Fall back to returning the full result inline
+      return { success: true, data: result };
     }
   }
 } 

@@ -107,6 +107,17 @@ export interface ComprehensiveSimilarityFlowData {
 
 
 
+// Significant Buyers Job Data
+export interface SigBuyersJobData {
+  mint: string;
+  startTime: number;
+  endTime: number;
+  minSolSpent: number;
+  maxTransactions: number;
+  userId?: string;
+  requestId: string;
+}
+
 // Enrichment Operations Job Data
 export interface EnrichTokenBalancesJobData {
   walletBalances?: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;

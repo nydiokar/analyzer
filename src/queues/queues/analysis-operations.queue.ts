@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
-import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData } from '../jobs/types';
+import { AnalyzePnlJobData, AnalyzeBehaviorJobData, DashboardWalletAnalysisJobData, AnalyzeHolderProfilesJobData, SigBuyersJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { buildHolderProfilesJobId } from '../utils/holder-profiles-job-id';
 import { REDIS_CLIENT } from '../config/redis.provider';
@@ -77,6 +77,28 @@ export class AnalysisOperationsQueue {
     });
 
     // Persist routing metadata once per job
+    if (data.userId) {
+      const key = `job:user:${jobId}`;
+      await this.redisClient.set(key, data.userId, 'EX', 24 * 60 * 60);
+    }
+
+    return job;
+  }
+
+  /**
+   * Add a significant buyers job to the queue
+   */
+  async addSigBuyersJob(data: SigBuyersJobData, options?: { priority?: number }) {
+    const jobId = `sig-buyers-${data.requestId}`;
+
+    const job = await this.queue.add('sig-buyers-run', data, {
+      jobId,
+      priority: options?.priority ?? 8,
+      removeOnComplete: 50,
+      removeOnFail: 100,
+      attempts: 1, // sig-buyers is expensive — no retries
+    });
+
     if (data.userId) {
       const key = `job:user:${jobId}`;
       await this.redisClient.set(key, data.userId, 'EX', 24 * 60 * 60);

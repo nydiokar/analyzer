@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageTitle } from '@/components/shared/PageTitle';
 import { WalletBadge } from '@/components/shared/WalletBadge';
@@ -10,20 +10,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { fetcher } from '@/lib/fetcher';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { useJobProgress } from '@/hooks/useJobProgress';
+import type { JobProgressData, JobCompletionData, JobFailedData } from '@/types/websockets';
 import {
   Users,
   CalendarIcon,
   Loader2,
   TrendingUp,
   TrendingDown,
-  Minus,
   Copy,
   AlertTriangle,
 } from 'lucide-react';
@@ -94,8 +95,18 @@ interface DateTimePickerProps {
 
 function DateTimePicker({ label, dateStr, timeStr, onDateChange, onTimeChange }: DateTimePickerProps) {
   const [open, setOpen] = useState(false);
-  // Parse as UTC noon to avoid the date shifting by one day due to local timezone offset
-  const selectedDate = dateStr ? new Date(`${dateStr}T12:00:00Z`) : undefined;
+
+  // dateStr is "YYYY-MM-DD". Parse parts directly — no Date object, no timezone involvement.
+  const displayLabel = dateStr
+    ? (() => {
+        const [y, m, d] = dateStr.split('-').map(Number);
+        return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1]} ${d}, ${y}`;
+      })()
+    : 'Pick date';
+
+  // Calendar needs a Date to highlight the selected day. Use local noon so no timezone
+  // rolls the date forward or back regardless of where the browser is running.
+  const selectedDate = dateStr ? new Date(`${dateStr}T12:00:00`) : undefined;
 
   return (
     <div className="flex flex-col gap-1">
@@ -111,7 +122,7 @@ function DateTimePicker({ label, dateStr, timeStr, onDateChange, onTimeChange }:
               )}
             >
               <CalendarIcon className="h-3 w-3 mr-1.5 shrink-0" />
-              {dateStr ? format(new Date(`${dateStr}T12:00:00Z`), 'MMM d, yyyy') : 'Pick date'}
+              {displayLabel}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
@@ -120,8 +131,9 @@ function DateTimePicker({ label, dateStr, timeStr, onDateChange, onTimeChange }:
               selected={selectedDate}
               onSelect={(d) => {
                 if (d) {
-                  // Use UTC date components to avoid timezone shift
-                  onDateChange(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`);
+                  // Calendar gives local-midnight Date. Read local parts — that's exactly
+                  // the calendar date the user clicked, no conversion needed.
+                  onDateChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
                 }
                 setOpen(false);
               }}
@@ -153,14 +165,14 @@ function BuyerRow({ buyer, rank }: BuyerRowProps) {
   const pnlNeutral = Math.abs(buyer.netPnl) < 0.001;
 
   return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-accent/30 group">
-      {/* Rank */}
-      <span className="text-[11px] text-muted-foreground/50 w-5 text-right shrink-0 tabular-nums">
-        {rank}
+    <div className="flex items-center gap-3 py-2.5 px-3 rounded-md hover:bg-accent/40 group border-b border-border/20 last:border-0">
+      {/* Time */}
+      <span className="text-xs tabular-nums text-muted-foreground shrink-0 w-[48px]">
+        {formatTime(buyer.firstTransactionAt)}
       </span>
 
       {/* Wallet */}
-      <div className="flex-1 min-w-0">
+      <div className="w-[220px] shrink-0 min-w-0">
         <WalletBadge
           address={buyer.walletAddress}
           size="s"
@@ -176,42 +188,35 @@ function BuyerRow({ buyer, rank }: BuyerRowProps) {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex flex-col items-end shrink-0 w-[70px]">
-              <span className="text-xs font-semibold tabular-nums text-foreground">
-                {formatSol(buyer.solSpent)} SOL
-              </span>
-              <span className="text-[10px] text-muted-foreground/60">spent</span>
-            </div>
+            <span className="text-sm font-semibold tabular-nums text-foreground shrink-0 w-[80px] text-right cursor-default">
+              {formatSol(buyer.solSpent)}{' '}
+              <span className="text-xs text-muted-foreground font-normal">SOL</span>
+            </span>
           </TooltipTrigger>
-          <TooltipContent side="left">
-            <p className="text-xs">
-              Received: {formatSol(buyer.solReceived)} SOL
-            </p>
+          <TooltipContent side="top">
+            <p className="text-xs">Received back: {formatSol(buyer.solReceived)} SOL</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
       {/* Net PnL */}
       <div className={cn(
-        'flex items-center gap-0.5 shrink-0 w-[72px] justify-end',
-        pnlNeutral ? 'text-muted-foreground' : pnlPositive ? 'text-emerald-500' : 'text-rose-500'
+        'flex items-center gap-1 shrink-0 w-[72px] justify-end',
+        pnlNeutral ? 'text-muted-foreground' : pnlPositive ? 'text-emerald-400' : 'text-rose-400'
       )}>
-        {pnlNeutral
-          ? <Minus className="h-3 w-3" />
-          : pnlPositive
-            ? <TrendingUp className="h-3 w-3" />
-            : <TrendingDown className="h-3 w-3" />
-        }
+        {!pnlNeutral && (pnlPositive
+          ? <TrendingUp className="h-3 w-3 shrink-0" />
+          : <TrendingDown className="h-3 w-3 shrink-0" />
+        )}
         <span className="text-xs font-medium tabular-nums">
           {pnlNeutral ? '—' : `${pnlPositive ? '+' : ''}${formatSol(buyer.netPnl)}`}
         </span>
       </div>
 
-      {/* TX count + time */}
-      <div className="flex flex-col items-end shrink-0 w-[52px]">
-        <span className="text-[11px] tabular-nums text-muted-foreground">{buyer.transactionCount} tx</span>
-        <span className="text-[10px] text-muted-foreground/50">{formatTime(buyer.firstTransactionAt)}</span>
-      </div>
+      {/* TX count */}
+      <span className="text-xs tabular-nums text-muted-foreground shrink-0 w-[28px] text-right">
+        {buyer.transactionCount}
+      </span>
     </div>
   );
 }
@@ -226,10 +231,13 @@ export default function SigBuyersPage() {
   const [durationMinutes, setDurationMinutes] = useState('5');
   const [minSolSpent, setMinSolSpent] = useState('0.5');
 
-  // Results state
+  // Job state
   const [isLoading, setIsLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<SigBuyersResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const jobIdRef = useRef<string | null>(null);
+  const unsubscribeFromJobRef = useRef<((jobId: string) => void) | null>(null);
 
   const mintValid = mint.length > 0 && isValidSolanaAddress(mint);
   const mintTouched = mint.length > 0;
@@ -241,37 +249,96 @@ export default function SigBuyersPage() {
 
   const canSubmit = mintValid && startTs !== null && !isLoading;
 
+  const { subscribeToJob, unsubscribeFromJob } = useJobProgress({
+    onJobProgress: useCallback((data: JobProgressData) => {
+      if (jobIdRef.current && data.jobId === jobIdRef.current) {
+        if (typeof data.progress === 'number') {
+          setProgress(data.progress);
+        }
+      }
+    }, []),
+
+    onJobCompleted: useCallback(async (data: JobCompletionData) => {
+      if (!jobIdRef.current || data.jobId !== jobIdRef.current) return;
+
+      unsubscribeFromJobRef.current?.(jobIdRef.current);
+
+      // Hydrate via result pointer if present
+      const resultKey = (data.result as any)?.data?.resultKey as string | undefined;
+      let resolved: SigBuyersResponse | null = null;
+
+      if (resultKey) {
+        try {
+          resolved = await fetcher(`/jobs/result/by-key?key=${encodeURIComponent(resultKey)}`) as SigBuyersResponse;
+        } catch {
+          // fall through to inline result
+        }
+      }
+
+      if (!resolved) {
+        resolved = ((data.result as any)?.data ?? data.result) as SigBuyersResponse | null;
+      }
+
+      setProgress(100);
+      setIsLoading(false);
+      jobIdRef.current = null;
+
+      if (resolved) {
+        setResult(resolved);
+        if (resolved.buyers.length === 0) {
+          toast.info('No qualifying wallets found in this window.');
+        } else {
+          toast.success(`Found ${resolved.qualifyingWallets} wallets spending ≥ ${resolved.minSolSpent} SOL`);
+        }
+      }
+    }, []),
+
+    onJobFailed: useCallback((data: JobFailedData) => {
+      if (!jobIdRef.current || data.jobId !== jobIdRef.current) return;
+      unsubscribeFromJobRef.current?.(jobIdRef.current);
+      jobIdRef.current = null;
+      setIsLoading(false);
+      setProgress(0);
+      const msg = data.failedReason || 'Job failed';
+      setError(msg);
+      toast.error(msg);
+    }, []),
+
+    onEnrichmentComplete: useCallback(() => {}, []),
+  });
+
+  // Keep ref in sync so callbacks always have the latest unsubscribe function
+  unsubscribeFromJobRef.current = unsubscribeFromJob;
+
   const handleSearch = useCallback(async () => {
     if (!canSubmit || !startTs || !endTs) return;
 
     setIsLoading(true);
+    setProgress(0);
     setError(null);
     setResult(null);
 
     try {
-      const params = new URLSearchParams({
-        mint,
-        startTime: String(startTs),
-        endTime: String(endTs),
-        minSolSpent: minSolSpent || '0.5',
-      });
+      const data = await fetcher('/sig-buyers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mint,
+          startTime: startTs,
+          endTime: endTs,
+          minSolSpent: parseFloat(minSolSpent) || 0.5,
+        }),
+      }) as { jobId: string };
 
-      const data: SigBuyersResponse = await fetcher(`/sig-buyers?${params}`);
-      setResult(data);
-
-      if (data.buyers.length === 0) {
-        toast.info('No qualifying wallets found in this window.');
-      } else {
-        toast.success(`Found ${data.qualifyingWallets} wallets spending ≥ ${data.minSolSpent} SOL`);
-      }
+      jobIdRef.current = data.jobId;
+      subscribeToJob(data.jobId);
     } catch (err: any) {
-      const msg = err?.message || 'Failed to fetch significant buyers';
+      const msg = err?.message || 'Failed to queue significant buyers job';
       setError(msg);
       toast.error(msg);
-    } finally {
       setIsLoading(false);
     }
-  }, [canSubmit, startTs, endTs, mint, minSolSpent]);
+  }, [canSubmit, startTs, endTs, mint, minSolSpent, subscribeToJob]);
 
   const handleCopyAll = useCallback(() => {
     if (!result?.buyers.length) return;
@@ -427,9 +494,14 @@ export default function SigBuyersPage() {
               </Button>
 
               {isLoading && (
-                <p className="text-[10px] text-muted-foreground/60 text-center -mt-1">
-                  This can take a few minutes depending on transaction volume
-                </p>
+                <div className="flex flex-col gap-1.5 -mt-1">
+                  <div className={progress > 0 && progress < 90 ? 'animate-pulse' : ''}>
+                    <Progress value={progress} className="h-1" />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60 text-center">
+                    {progress === 0 ? 'Queued…' : progress < 90 ? 'Fetching transactions…' : 'Finalising…'} — may take a few minutes
+                  </p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -482,12 +554,17 @@ export default function SigBuyersPage() {
             </CardHeader>
 
             <CardContent className="flex-1 overflow-auto px-4 pb-4 pt-0">
-              {/* Loading skeleton */}
+              {/* Loading state */}
               {isLoading && (
-                <div className="space-y-2 pt-2">
-                  {[...Array(8)].map((_, i) => (
-                    <Skeleton key={i} className="h-10 w-full rounded-md" />
-                  ))}
+                <div className="space-y-3 pt-2">
+                  <div className={progress > 0 && progress < 90 ? 'animate-pulse' : ''}>
+                    <Progress value={progress} className="h-1.5" />
+                  </div>
+                  <div className="space-y-2">
+                    {[...Array(8)].map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full rounded-md" />
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -521,27 +598,30 @@ export default function SigBuyersPage() {
                 </div>
               )}
 
-              {/* Column headers */}
+              {/* Column headers + rows — constrained to left ~60% to reserve space for future detail panel */}
               {!isLoading && result && result.buyers.length > 0 && (
-                <>
-                  <div className="flex items-center gap-3 px-3 py-1 text-[10px] text-muted-foreground/50 uppercase tracking-wider border-b border-border/30 mb-1">
-                    <span className="w-5 text-right shrink-0">#</span>
-                    <span className="flex-1">Wallet</span>
-                    <span className="w-[70px] text-right shrink-0">Spent</span>
+                <div className="max-w-[560px]">
+                  <div className="flex items-center gap-3 px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border/50 mb-0.5">
+                    <span className="w-[48px] shrink-0">Time</span>
+                    <span className="w-[220px] shrink-0">Wallet</span>
+                    <span className="w-[80px] text-right shrink-0">Spent</span>
                     <span className="w-[72px] text-right shrink-0">Net PnL</span>
-                    <span className="w-[52px] text-right shrink-0">Tx / Time</span>
+                    <span className="w-[28px] text-right shrink-0">Tx</span>
                   </div>
                   <div className="divide-y divide-border/20">
-                    {result.buyers.slice(0, 200).map((buyer, i) => (
-                      <BuyerRow key={buyer.walletAddress} buyer={buyer} rank={i + 1} />
-                    ))}
+                    {[...result.buyers]
+                      .sort((a, b) => new Date(a.firstTransactionAt).getTime() - new Date(b.firstTransactionAt).getTime())
+                      .slice(0, 200)
+                      .map((buyer, i) => (
+                        <BuyerRow key={buyer.walletAddress} buyer={buyer} rank={i + 1} />
+                      ))}
                   </div>
                   {result.buyers.length > 200 && (
                     <p className="text-[10px] text-muted-foreground/50 text-center py-3">
-                      Showing top 200 of {result.buyers.length} — use Copy All to get the full list
+                      Showing first 200 of {result.buyers.length} — use Copy All to get the full list
                     </p>
                   )}
-                </>
+                </div>
               )}
             </CardContent>
           </Card>
