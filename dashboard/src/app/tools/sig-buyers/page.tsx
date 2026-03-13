@@ -543,6 +543,30 @@ export default function SigBuyersPage() {
               </Button>
 
               {isLoading && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full -mt-2 text-xs text-muted-foreground hover:text-destructive"
+                  onClick={async () => {
+                    const jobId = jobIdRef.current;
+                    if (!jobId) return;
+                    unsubscribeFromJobRef.current?.(jobId);
+                    jobIdRef.current = null;
+                    setIsLoading(false);
+                    setProgress(0);
+                    try {
+                      await fetcher(`/jobs/${jobId}`, { method: 'DELETE' });
+                    } catch {
+                      // best-effort — UI is already reset
+                    }
+                    toast.info('Job cancelled');
+                  }}
+                >
+                  Cancel
+                </Button>
+              )}
+
+              {isLoading && (
                 <div className="flex flex-col gap-1.5 -mt-1">
                   <div className={progress > 0 && progress < 90 ? 'animate-pulse' : ''}>
                     <Progress value={progress} className="h-1" />

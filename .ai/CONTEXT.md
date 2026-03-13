@@ -30,7 +30,9 @@
 | ✅ | **[SB-6]** Nav link added | Frontend | `AppShell.tsx` — "Sig Buyers" |
 | ✅ | **[SB-7]** Convert to async job — `SigBuyersJobData` type, queue method, processor case, `POST /sig-buyers` returns `{ jobId }`, frontend uses `useJobProgress` hook, shows live progress % + final result via WebSocket | Backend + Frontend | Pattern: exactly like holder-profiles page (`dashboard/src/app/tools/holder-profiles/page.tsx`) + `analysis-operations.queue.ts`. Job name: `sig-buyers-run`. Store result in Redis via pointer (same as holder-profiles). |
 | ✅ | **[SB-8]** Gate sig-buyers page + endpoint to `isAnalyst` users only — `@IsAnalyst()` on controller, `isAuthorized` gate + `router.replace('/')` in frontend, Sig Buyers nav link moved inside analyst-only condition | Backend + Frontend | `sig-buyers.controller.ts`, `tools/sig-buyers/page.tsx`, `AppShell.tsx` |
-| ✅ | **[SB-9]** "Run Flash Analysis" button in results header — queues flash analysis for all found wallets via `POST /analyses/wallets/dashboard-analysis` (scope=flash), batched 4 at a time with 1.1s gap to respect 5/min throttle | Frontend | `tools/sig-buyers/page.tsx` |
+| ✅ | **[SB-9]** "Run Flash Analysis" button in results header — queues flash analysis for all found wallets via `POST /analyses/wallets/dashboard-analysis` (scope=flash, queueWorkingAfter=false), batched 4 at a time with 1.1s gap to respect 5/min throttle | Frontend | `tools/sig-buyers/page.tsx` |
+| ✅ | **[SB-10]** Cancel button — appears while job in-flight, unsubscribes WS + resets UI immediately, fires `DELETE /jobs/:jobId` best-effort | Frontend | `tools/sig-buyers/page.tsx` |
+| ✅ | **[SB-11]** Processor logging — `processSigBuyers` logs START (mint + window + params) and DONE (txFetched + wallets + elapsed) at info level. Dispatch-level log kept at debug to avoid spam. | Backend | `analysis-operations.processor.ts` |
 
 **Files created/modified on branch `feature/sig-buyers-ui`:**
 - `src/api/shared/dto/sig-buyers.dto.ts` ← new
@@ -159,7 +161,7 @@ New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot
 | 13.5 | 🔧 FIX | System wallet filtering uses centralized registry (`isKnownWallet` + `SystemWalletDetectionService.filterSystemWallets`) — removed hardcoded address list | 🟢 S | `sig-buyers.service.ts` |
 | 13.6 | 🔧 FIX | All times UTC throughout — `T...Z` parsing, `getUTC*()` display, ISO slice in results, "UTC" labels in UI | 🟢 S | `tools/sig-buyers/page.tsx` |
 
-**SB-1–9 complete. Feature fully shipped.**
+**SB-1–11 complete. Feature fully shipped.**
 
 ---
 
@@ -361,7 +363,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-13  **Branch:** `feature/sig-buyers-ui`  **SB-1–7 done (async job + WebSocket working). SB-8 remaining: gate sig-buyers to `isAnalyst` users only.**
+**Last Updated:** 2026-03-13  **Branch:** `feature/sig-buyers-ui`  **SB-1–11 complete. Ready to merge.**
 
 
 

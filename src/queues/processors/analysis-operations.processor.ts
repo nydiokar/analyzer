@@ -2648,7 +2648,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     const { mint, startTime, endTime, minSolSpent, maxTransactions, requestId } = job.data;
     const t0 = Date.now();
 
-    this.logger.log(`sig-buyers-run: mint=${mint} window=${startTime}-${endTime} requestId=${requestId}`);
+    this.logger.log(`sig-buyers-run START: mint=${mint} window=${new Date(startTime * 1000).toISOString()}–${new Date(endTime * 1000).toISOString()} minSol=${minSolSpent} requestId=${requestId}`);
 
     await job.updateProgress(5);
 
@@ -2660,6 +2660,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       maxTransactions,
     );
 
+    this.logger.log(`sig-buyers-run DONE: mint=${mint} txFetched=${result.totalTransactionsFetched} wallets=${result.qualifyingWallets} elapsed=${Date.now() - t0}ms`);
     await job.updateProgress(95);
 
     const resultKey = `sig-buyers:result:${job.id}`;
