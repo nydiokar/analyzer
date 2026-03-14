@@ -1,18 +1,16 @@
 import type { HolderProfile } from '../../../holder-profiles/types';
 
 export function getMeanBehaviorSimilarity(profiles: HolderProfile[]): number | null {
-  if (!profiles.length) return null;
+  const classified = profiles.filter((p) => p.behaviorType);
+  const N = classified.length;
+  if (N < 2) return null;
   const counts = new Map<string, number>();
-  let total = 0;
-  profiles.forEach((profile) => {
-    const key = profile.behaviorType ?? 'UNCLASSIFIED';
+  classified.forEach((profile) => {
+    const key = profile.behaviorType as string;
     counts.set(key, (counts.get(key) ?? 0) + 1);
-    total += 1;
   });
-  if (!total) return null;
-  const similarity = Array.from(counts.values()).reduce((sum, count) => {
-    const ratio = count / total;
-    return sum + ratio * ratio;
-  }, 0);
-  return similarity * 100;
+  // Largest cluster share: % of classified holders in the dominant behavior type.
+  // Surfaces the strongest signal subgroup rather than being diluted by noise wallets.
+  const dominantCount = Math.max(...counts.values());
+  return (dominantCount / N) * 100;
 }

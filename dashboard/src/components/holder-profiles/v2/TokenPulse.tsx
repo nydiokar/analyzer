@@ -44,14 +44,14 @@ export function TokenPulse({
   const similarityValue = meanBehaviorSimilarity === null ? '—' : `${Math.round(meanBehaviorSimilarity)}%`;
   const similarityCategory = meanBehaviorSimilarity === null
     ? 'Unknown'
-    : meanBehaviorSimilarity >= 75
-      ? 'Very high'
-      : meanBehaviorSimilarity >= 50
-        ? 'High'
-        : meanBehaviorSimilarity >= 25
-          ? 'Moderate'
-          : 'Low';
-  const similarityDescription = 'Average pairwise behavior overlap';
+    : meanBehaviorSimilarity >= 60
+      ? 'Strong cluster'
+      : meanBehaviorSimilarity >= 35
+        ? 'Notable cluster'
+        : meanBehaviorSimilarity >= 15
+          ? 'Weak cluster'
+          : 'Dispersed';
+  const similarityDescription = 'Largest behavior cluster';
   const [selectedProfile, setSelectedProfile] = useState<HolderProfilesResult['profiles'][number] | null>(null);
 
   // Track which wallets are highlighted from similarity pair or cluster selection
@@ -164,7 +164,7 @@ export function TokenPulse({
         <CognitiveMetricCard
           primitive={{
             id: 'similarity',
-            label: 'Mean Similarity',
+            label: 'Behavior Cluster',
             value: similarityValue,
             category: similarityCategory,
             description: similarityDescription,

@@ -104,24 +104,29 @@ export const stripHudEncoding = (name: string): string => {
     return trimmed; // No HUD encoding present
   }
 
-  // Check if this looks like HUD encoding by looking for characteristic patterns
-  // HUD should have behavior codes (single letters) and metric patterns
+  // Check if this looks like HUD encoding by looking for characteristic patterns.
+  // HUD should start with a behavior code (single [A-Z?]) either as the first segment
+  // or as the segment immediately after the first pipe.
+  const beforeFirstPipe = trimmed.slice(0, firstPipeIndex);
   const afterFirstPipe = trimmed.slice(firstPipeIndex + 1);
-  const hasHudPattern = /^[A-Z?](\||$)/.test(afterFirstPipe); // Starts with behavior code
 
-  if (!hasHudPattern) {
+  const isPureTag = /^[A-Z?]$/.test(beforeFirstPipe); // whole tag, no base name: "D|7.2h|..."
+  const hasHudPattern = /^[A-Z?](\||$)/.test(afterFirstPipe); // name prefix: "rouch|D|..."
+
+  if (!isPureTag && !hasHudPattern) {
     return trimmed; // Not a HUD encoding, just a name with pipes
+  }
+
+  if (isPureTag) {
+    return ''; // Entire string is a HUD tag — no base name
   }
 
   // Strip everything from the first pipe onwards
   return trimmed.slice(0, firstPipeIndex).trimEnd();
 };
 
-export const encodeHudName = (name: string | undefined, hud: WalletHudDto): string => {
-  const base = stripHudEncoding(name ?? '');
-  const tag = buildHudEncodingTag(hud);
-  // Use pipe separator: rouch|D|7.2h|6.9td|20%wr|qG|🤖
-  return base ? `${base}${HUD_SEPARATOR}${tag}` : tag;
+export const encodeHudName = (_name: string | undefined, hud: WalletHudDto): string => {
+  return buildHudEncodingTag(hud);
 };
 
 /**

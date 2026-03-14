@@ -13,7 +13,7 @@ function getTooltip(primitiveId: string): string {
     conviction: 'Conviction = 100% - daily flip rate.',
     consistency: 'Share of holders with 30+ exits used in classification.',
     quality: 'Holders with 10+ exited tokens / total.',
-    similarity: 'Average overlap across holder pairs (0-100%).',
+    similarity: '% of classified holders sharing the dominant behavior type. High = a meaningful cluster exists worth investigating.',
     fresh: 'Token supply % held by wallets with no exit history yet.',
   };
   return tooltips[primitiveId] || 'Behavioral metric';
@@ -51,7 +51,7 @@ function getCategoryTooltip(primitiveId: string, category: string): string {
     return 'Usually low trust in the data.';
   }
   if (primitiveId === 'similarity') {
-    return 'Low <25%, Moderate 25-49%, High 50-74%, Very high >=75%.';
+    return 'Dispersed <15%, Weak cluster 15-34%, Notable cluster 35-59%, Strong cluster >=60%.';
   }
   return category;
 }
