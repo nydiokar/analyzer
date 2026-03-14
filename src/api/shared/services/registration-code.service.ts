@@ -288,7 +288,7 @@ export class RegistrationCodeService {
    * Make registration codes optional (open registration)
    */
   async makeCodesOptional(): Promise<void> {
-    await this.redisClient.del(this.CODES_REQUIRED_KEY);
+    await this.redisClient.set(this.CODES_REQUIRED_KEY, '0');
     this.logger.warn('⚠️  Registration codes are now OPTIONAL - Open registration enabled');
   }
 
@@ -298,8 +298,8 @@ export class RegistrationCodeService {
    */
   async areCodesRequired(): Promise<boolean> {
     const value = await this.redisClient.get(this.CODES_REQUIRED_KEY);
-    // If key doesn't exist, default to required (safer)
-    return value !== '0';
+    // Missing key keeps the safer default: codes required.
+    return value === null ? true : value !== '0';
   }
 
   /**

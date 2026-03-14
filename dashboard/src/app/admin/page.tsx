@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -135,6 +135,7 @@ export default function AdminDashboardPage() {
   // Admin verification state
   const [isVerifyingAdmin, setIsVerifyingAdmin] = useState(true);
   const [isAdminVerified, setIsAdminVerified] = useState(false);
+  const hasStartedAdminBootstrap = useRef(false);
 
   // API Keys State
   const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>([]);
@@ -711,6 +712,12 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      if (hasStartedAdminBootstrap.current) {
+        return;
+      }
+
+      hasStartedAdminBootstrap.current = true;
+
       try {
         // Use /admin/stats for verification — it's @SkipThrottle and doubles as the first data load
         const response = await fetch(`${API_BASE_URL}/admin/stats`, {
@@ -728,15 +735,14 @@ export default function AdminDashboardPage() {
         setIsAdminVerified(true);
         setSystemStats(stats);
         setLoadingSystemStats(false);
-        fetchApiKeys();
-        fetchRegistrationCodes();
-        fetchCodeStats();
-        fetchKillSwitch();
-        fetchCodeRequirement();
-        fetchUsers();
-        fetchCreditTransactions();
+        void fetchApiKeys();
+        void fetchRegistrationCodes();
+        void fetchCodeStats();
+        void fetchKillSwitch();
+        void fetchCodeRequirement();
       } catch (error) {
         console.error('Admin verification failed:', error);
+        hasStartedAdminBootstrap.current = false;
         router.replace('/');
       } finally {
         setIsVerifyingAdmin(false);

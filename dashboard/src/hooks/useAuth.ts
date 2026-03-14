@@ -9,6 +9,7 @@ interface LoginCredentials {
 interface RegisterCredentials {
   email: string;
   password: string;
+  registrationCode?: string;
 }
 
 interface AuthError {

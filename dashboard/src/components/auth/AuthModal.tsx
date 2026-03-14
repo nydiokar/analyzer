@@ -89,8 +89,7 @@ export function AuthModal({ open, onOpenChange, defaultTab = 'login', onSuccess,
     canSubmitLogin &&
     formData.confirmPassword &&
     formData.password === formData.confirmPassword &&
-    isValidPassword(formData.password) &&
-    formData.registrationCode
+    isValidPassword(formData.password)
   );
 
   return (
