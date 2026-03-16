@@ -24,7 +24,8 @@ That separation is intentional:
 
 - `build` - compile TypeScript
 - `verify` - type-check only
-- `test:render` - write a local holder-distribution SVG card and summary JSON
+- `test:render` - write local holder-distribution SVG/PNG cards and summary JSON
+- `test:live-render <mint>` - call the live SDK and write real holder-distribution SVG/PNG cards and summary JSON
 - `test:parse` - validate mint extraction from a mention string
 - `test:x:mentions` - fetch mentions for the configured bot user
 - `test:x:post` - post a simple text tweet with the configured X credentials
@@ -33,12 +34,15 @@ That separation is intentional:
 
 1. Build the project
 2. Run `test:render`
-3. Inspect `out/holder-distribution-card.svg`
-4. Run `test:x:mentions` and `test:x:post` separately when credentials are configured
+3. Inspect `out/holder-distribution-card.png`
+4. Run `test:live-render <mint>` to validate live holder-profile output
+5. Run `test:x:mentions` and `test:x:post` separately when credentials are configured
 
 ## Important limitations in the scaffold
 
 - live Sova Intel SDK integration is not wired yet
-- token metadata lookup is stubbed
+- live Sova Intel SDK integration is available via `test:live-render`
+- token metadata lookup uses lightweight Dexscreener fetch with fallback-to-mint behavior
+- PNG generation is wired
 - PNG upload to X is not wired yet
 - media posting is intentionally deferred until render output is finalized locally

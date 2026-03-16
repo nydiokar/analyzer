@@ -11,11 +11,16 @@
     "build": "npx tsc -p tsconfig.json",
     "verify": "npx tsc -p tsconfig.json --noEmit",
     "test:render": "node dist/scripts/test-render.js",
+    "test:live-render": "node dist/scripts/test-live-render.js",
     "test:parse": "node dist/scripts/test-parse-parent.js",
     "test:x:mentions": "node dist/scripts/test-x-mentions.js",
     "test:x:post": "node dist/scripts/test-x-post.js"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@sova-intel/sdk": "^0.1.1",
+    "dotenv": "^17.2.2",
+    "sharp": "^0.34.5"
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.4.5"

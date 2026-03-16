@@ -95,10 +95,22 @@ export function calculateFreshSupplyPercent(profiles: HolderProfile[]): number {
     if (profile.knownType && SYSTEM_WALLET_TYPES.has(profile.knownType)) {
       continue;
     }
-    if (profile.realizedMedianHoldTimeHours != null && Number.isFinite(profile.realizedMedianHoldTimeHours)) {
+
+    const behavior: string | null = normalizeBehavior(profile);
+    if (behavior === 'HODLER') {
+      total += profile.supplyPercent ?? 0;
       continue;
     }
-    total += profile.supplyPercent ?? 0;
+
+    const realizedHours: number | null = profile.realizedMedianHoldTimeHours ?? null;
+    const medianHours: number | null = profile.medianHoldTimeHours ?? null;
+    const hasExitHistorySignal: boolean =
+      (realizedHours != null && Number.isFinite(realizedHours)) ||
+      (medianHours != null && Number.isFinite(medianHours) && (profile.completedCycleCount ?? 0) > 0);
+
+    if (!hasExitHistorySignal && !behavior) {
+      total += profile.supplyPercent ?? 0;
+    }
   }
 
   return total;
