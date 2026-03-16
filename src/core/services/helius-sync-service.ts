@@ -227,7 +227,7 @@ export class HeliusSyncService {
                    if (currentCount % 500 === 0 || currentCount <= 200) {
                        // logger.debug(`[Sync] Phase 1 progress: ${newerTransactionsFetchedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
                    }
-               }
+               },
            );
            newerTransactionsFetchedCount = newerTransactionsFetchedCount || newerTransactions.length;
            logger.debug(`[Sync] SmartFetch Phase 1 (Newer): ✅ Completed processing ${newerTransactionsFetchedCount} newer transactions for ${walletAddress}.`);
@@ -279,7 +279,7 @@ export class HeliusSyncService {
                                 if (currentCount % 500 === 0) {
                                     // logger.debug(`[Sync] Phase 2 progress: ${totalOlderProcessedCount} older txs fetched → ${currentCount} total processed & saved for ${walletAddress}`);
                                 }
-                            }
+                            },
                         );
                         totalOlderProcessedCount = totalOlderProcessedCount || olderTransactions.length;
                         const finalTotalCount = walletTransactionCounters.get(walletAddress) || 0;
@@ -389,7 +389,7 @@ export class HeliusSyncService {
                     if (currentCount % 500 === 0 || currentCount <= 200) {
                         // logger.debug(`[Sync] Standard progress: ${totalStandardProcessedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
                     }
-                }
+                },
             );
             totalStandardProcessedCount = totalStandardProcessedCount || transactions.length;
             const finalStandardCount = walletTransactionCounters.get(walletAddress) || 0;

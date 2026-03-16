@@ -438,6 +438,7 @@ export class SystemWalletDetectionService {
     }
   }
 
+
   /**
    * Auto-tag wallet in database
    */

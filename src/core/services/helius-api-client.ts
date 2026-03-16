@@ -928,19 +928,22 @@ export class HeliusApiClient {
     // Use the dbService instance method - now returns lightweight cache info
     const cachedTxMap = await this.dbService.getCachedTransaction(uniqueSignatures) as Map<string, { timestamp: number }>;
     const cacheHits = cachedTxMap.size;
+    const cachedSignatures = uniqueSignatures.filter((sig) => cachedTxMap.has(sig));
+    const existingWalletMappedSignatures = await this.dbService.getExistingSwapSignaturesForWallet(address, cachedSignatures);
     
     // Separate cached signatures and signatures that need to be fetched
     for (const sig of uniqueSignatures) {
       const cachedInfo = cachedTxMap.get(sig);
-      if (cachedInfo) {
-        // Signature exists in cache - skip fetching details
-        // logger.debug(`Signature ${sig} found in cache, skipping fetch`);
-        // cache hit
-      } else {
-        // Signature not in cache - need to fetch details
-        signaturesToFetchDetails.add(sig);
-        // cache miss
+      if (cachedInfo && existingWalletMappedSignatures.has(sig)) {
+        // Signature exists in the lightweight raw cache AND this wallet already
+        // has persisted mapped rows for it, so we can safely skip re-fetching.
+        continue;
       }
+
+      // Signature is uncached, or raw details were cached from another wallet's
+      // run but this wallet has never persisted mapped rows for it. Re-fetch
+      // the parsed transaction so the mapper can run in this wallet's context.
+      signaturesToFetchDetails.add(sig);
     }
     
     logger.debug(`Found ${cacheHits} signatures in cache. Need to fetch details for ${signaturesToFetchDetails.size} signatures.`);

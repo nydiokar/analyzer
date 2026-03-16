@@ -46,11 +46,12 @@ export class SigBuyersService {
 
     // Phase 3: group by wallet (registry-known addresses already stripped inline)
     const transactionsByWallet = this.groupByWallet(transactions, mint);
+    const initiatorWallets = this.getInitiatorWallets(transactionsByWallet);
 
     // Phase 4: filter remaining wallets through SystemWalletDetectionService
     // (catches vaults/pools that aren't in the static registry via DB + token-count RPC)
     const { valid: validWallets } = await this.systemWalletDetection.filterSystemWallets(
-      Array.from(transactionsByWallet.keys()),
+      initiatorWallets,
       { skipDynamic: true }, // skip live RPC token-count — too slow for hundreds of wallets
     );
     const validSet = new Set(validWallets);
@@ -215,5 +216,17 @@ export class SigBuyersService {
     }
 
     return result;
+  }
+
+  private getInitiatorWallets(transactionsByWallet: Map<string, HeliusTransaction[]>): string[] {
+    const initiators: string[] = [];
+
+    for (const [walletAddress, walletTxs] of transactionsByWallet) {
+      if (walletTxs.some((tx) => tx.feePayer === walletAddress)) {
+        initiators.push(walletAddress);
+      }
+    }
+
+    return initiators;
   }
 }
