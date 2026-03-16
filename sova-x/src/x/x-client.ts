@@ -1,11 +1,15 @@
 import type { XCreatePostRequest, XCreatePostResponse, XMention, XTweet } from '../types/x';
+import { buildOAuth1Header, type OAuth1Credentials } from './oauth1';
+import { fetchWithRetry } from './http';
 
 type HttpMethod = 'GET' | 'POST';
 
 export class XClient {
   constructor(
     private readonly baseUrl: string,
-    private readonly bearerToken: string,
+    private readonly auth:
+      | { kind: 'bearer'; token: string }
+      | { kind: 'oauth1'; credentials: OAuth1Credentials },
   ) {}
 
   async getMentions(userId: string, sinceId?: string): Promise<XMention[]> {
@@ -18,6 +22,14 @@ export class XClient {
   async getTweet(tweetId: string): Promise<XTweet> {
     const response = await this.request<{ data: unknown }>('GET', `/tweets/${tweetId}`);
     return mapTweet(response.data);
+  }
+
+  async getAuthenticatedUser(): Promise<{ id: string; username?: string; name?: string }> {
+    const response = await this.request<{ data: { id: string; username?: string; name?: string } }>(
+      'GET',
+      '/users/me',
+    );
+    return response.data;
   }
 
   async createPost(input: XCreatePostRequest): Promise<XCreatePostResponse> {
@@ -41,17 +53,37 @@ export class XClient {
   }
 
   private async request<T>(method: HttpMethod, pathname: string, body?: Record<string, unknown>): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${pathname}`, {
+    const url = `${this.baseUrl}${pathname}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.auth.kind === 'bearer') {
+      headers.Authorization = `Bearer ${this.auth.token}`;
+    } else {
+      headers.Authorization = buildOAuth1Header({
+        url,
+        method,
+        credentials: this.auth.credentials,
+      });
+    }
+
+    const response = await fetchWithRetry(url, {
       method,
-      headers: {
-        Authorization: `Bearer ${this.bearerToken}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
 
     if (!response.ok) {
-      throw new Error(`X API request failed (${response.status}): ${await response.text()}`);
+      const responseText = await response.text();
+      const headerDump = Array.from(response.headers.entries())
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\n');
+      throw new Error(
+        `X API request failed (${response.status}) ${method} ${pathname}\n` +
+        `Headers:\n${headerDump}\n` +
+        `Body:\n${responseText}`,
+      );
     }
 
     return response.json() as Promise<T>;

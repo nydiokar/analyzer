@@ -7,7 +7,7 @@ async function main(): Promise<void> {
     throw new Error('X_BEARER_TOKEN and X_BOT_USER_ID are required for mention tests.');
   }
 
-  const client = new XClient(env.xApiBaseUrl, env.xBearerToken);
+  const client = new XClient(env.xApiBaseUrl, { kind: 'bearer', token: env.xBearerToken });
   const mentions = await client.getMentions(env.xBotUserId);
   console.log(JSON.stringify(mentions, null, 2));
 }

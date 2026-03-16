@@ -14,11 +14,17 @@
     "test:live-render": "node dist/scripts/test-live-render.js",
     "test:parse": "node dist/scripts/test-parse-parent.js",
     "test:x:mentions": "node dist/scripts/test-x-mentions.js",
-    "test:x:post": "node dist/scripts/test-x-post.js"
+    "test:x:oauth1-me": "node dist/scripts/test-x-oauth1-me.js",
+    "test:x:oauth2-start": "node dist/scripts/test-x-oauth2-start.js",
+    "test:x:oauth2-complete": "node dist/scripts/test-x-oauth2-complete.js",
+    "test:x:oauth2-me": "node dist/scripts/test-x-oauth2-me.js",
+    "test:x:post": "node dist/scripts/test-x-post.js",
+    "test:x:media-post": "node dist/scripts/test-x-media-post.js"
   },
   "dependencies": {
     "@sova-intel/sdk": "^0.1.1",
     "dotenv": "^17.2.2",
+    "oauth-1.0a": "^2.2.6",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
