@@ -1,0 +1,23 @@
+{
+  "name": "sova-x",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone X bot for Sova Intel holder-profile replies",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.0.0 <25.0.0"
+  },
+  "scripts": {
+    "build": "npx tsc -p tsconfig.json",
+    "verify": "npx tsc -p tsconfig.json --noEmit",
+    "test:render": "node dist/scripts/test-render.js",
+    "test:parse": "node dist/scripts/test-parse-parent.js",
+    "test:x:mentions": "node dist/scripts/test-x-mentions.js",
+    "test:x:post": "node dist/scripts/test-x-post.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,22 @@
+export const SOVA_BADGE_SVG: string = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" preserveAspectRatio="xMidYMid meet">
+  <circle cx="512" cy="512" r="448" fill="#0A1A2F"/>
+  <g fill="#FFFFFF" stroke="none" fill-rule="evenodd" transform="translate(0,-50) scale(1.12) translate(-46,0)">
+    <path d="M256 300
+             c0 0 120 -16 200 34
+             c34 21 64 56 80 98
+             h-16
+             c16 -42 46 -77 80 -98
+             c80 -50 200 -34 200 -34
+             v152
+             c0 68 -24 118 -72 176
+             c-44 54 -108 98 -216 156
+             c-108 -58 -172 -102 -216 -156
+             c-48 -58 -72 -108 -72 -176
+             Z
+             M368 400 a60 60 0 1 0 0.1 0 Z
+             M656 400 a60 60 0 1 0 0.1 0 Z
+             M496 540 L528 540 L512 600 Z"/>
+  </g>
+</svg>
+`.trim();

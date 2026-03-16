@@ -1,0 +1,81 @@
+{
+  "tokenMint": "9xQeWvG816bUx9EPfEZkLqN2YtY1YfB9F9r3uL6kP7z",
+  "profiles": [
+    {
+      "walletAddress": "7abc111111111111111111111111111111111111111",
+      "rank": 1,
+      "supplyPercent": 15.4,
+      "behaviorType": "SNIPER",
+      "analysisSkipped": false,
+      "completedCycleCount": 18,
+      "currentHoldingsCount": 1,
+      "realizedMedianHoldTimeHours": 0.001
+    },
+    {
+      "walletAddress": "7abc222222222222222222222222222222222222222",
+      "rank": 2,
+      "supplyPercent": 5.9,
+      "behaviorType": "SCALPER",
+      "analysisSkipped": false,
+      "completedCycleCount": 10,
+      "currentHoldingsCount": 2,
+      "realizedMedianHoldTimeHours": 0.01
+    },
+    {
+      "walletAddress": "7abc333333333333333333333333333333333333333",
+      "rank": 3,
+      "supplyPercent": 5.5,
+      "behaviorType": "MOMENTUM",
+      "analysisSkipped": false,
+      "completedCycleCount": 12,
+      "currentHoldingsCount": 2,
+      "realizedMedianHoldTimeHours": 0.2
+    },
+    {
+      "walletAddress": "7abc444444444444444444444444444444444444444",
+      "rank": 4,
+      "supplyPercent": 3.1,
+      "behaviorType": "SWING",
+      "analysisSkipped": false,
+      "completedCycleCount": 9,
+      "currentHoldingsCount": 4,
+      "realizedMedianHoldTimeHours": 48
+    },
+    {
+      "walletAddress": "7abc555555555555555555555555555555555555555",
+      "rank": 5,
+      "supplyPercent": 4.7,
+      "behaviorType": null,
+      "analysisSkipped": false,
+      "completedCycleCount": 0,
+      "currentHoldingsCount": 3,
+      "realizedMedianHoldTimeHours": null
+    },
+    {
+      "walletAddress": "7abc666666666666666666666666666666666666666",
+      "rank": 6,
+      "supplyPercent": 8.2,
+      "behaviorType": "POSITION",
+      "analysisSkipped": false,
+      "completedCycleCount": 5,
+      "currentHoldingsCount": 5,
+      "realizedMedianHoldTimeHours": 220
+    },
+    {
+      "walletAddress": "7abc777777777777777777777777777777777777777",
+      "rank": 7,
+      "supplyPercent": 12.5,
+      "behaviorType": null,
+      "analysisSkipped": true,
+      "knownType": "LP",
+      "completedCycleCount": 0,
+      "currentHoldingsCount": 0,
+      "realizedMedianHoldTimeHours": null
+    }
+  ],
+  "metadata": {
+    "totalHoldersRequested": 10,
+    "totalHoldersAnalyzed": 6,
+    "totalProcessingTimeMs": 4200
+  }
+}
