@@ -2013,6 +2013,40 @@ export class DatabaseService {
     }
 
     /**
+     * Returns the subset of signatures that already have at least one persisted
+     * SwapAnalysisInput row for the given wallet. Used to decide whether a cached
+     * raw transaction still needs to be re-fetched and re-mapped for this wallet.
+     */
+    async getExistingSwapSignaturesForWallet(
+        walletAddress: string,
+        signatures: string[],
+    ): Promise<Set<string>> {
+        if (signatures.length === 0) {
+            return new Set<string>();
+        }
+
+        try {
+            const rows = await this.executeWithRetry('swapAnalysisInput.findMany (wallet-signatures)', async () => {
+                return this.prismaClient.swapAnalysisInput.findMany({
+                    where: {
+                        walletAddress,
+                        signature: { in: signatures },
+                    },
+                    select: {
+                        signature: true,
+                    },
+                    distinct: ['signature'],
+                });
+            });
+
+            return new Set(rows.map((row) => row.signature));
+        } catch (error) {
+            this.logger.error(`Error fetching existing swap signatures for ${walletAddress}`, { error });
+            throw error;
+        }
+    }
+
+    /**
      * Batch fetch swap analysis inputs for multiple wallets
      * Used by holder profiles analysis to avoid N+1 queries
      * @param walletAddresses Array of wallet addresses to fetch swaps for

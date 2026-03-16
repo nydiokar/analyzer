@@ -101,6 +101,26 @@ STEP 8 — DB / ARCH INTEGRATION CHECK
 - Example PowerShell style:
   - `npm install ttkbootstrap pydantic openai`
 
+## 6.1) CANONICAL DB ACCESS (DO NOT REDISCOVER)
+- PostgreSQL investigations go through Docker.
+- Canonical container: `analyzer-postgres`
+- Canonical application DB: `sova_analyzer`
+- Canonical read-only command shape:
+  - `docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c "<SQL>"`
+- Minimal connectivity check:
+  - `docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c "SELECT current_database(), current_user;"`
+- Baseline size check:
+  - `docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c "SELECT pg_size_pretty(pg_database_size('sova_analyzer')), pg_database_size('sova_analyzer');"`
+- Runtime sanity before DB work:
+  - `pm2 status`
+  - `docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}'`
+- Do not investigate app tables against the default `postgres` DB unless you are explicitly listing databases.
+- For “ghost token” / missing-wallet-token investigations, check in this order:
+  - `SwapAnalysisInput` -> token mapped at ingest
+  - `AnalysisResult` -> token survived aggregation/API source table
+  - `TokenLot` -> FIFO lots exist
+  - `HolderProfileSnapshot` / `SignificantBuyersCache` -> downstream caches/views include it
+
 ## 7) USER PREFERENCES (OPERATIONAL)
 - Confirm before destructive commands/changes.
 - Minimal logging only; add logs only when essential.
