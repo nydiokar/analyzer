@@ -174,8 +174,8 @@ export default function DiscoverPage() {
 
   const cacheKey = useMemo(
     () =>
-      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${PAGE_SIZE}`,
-    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias],
+      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${active48H ? '48h' : 'all'}:${PAGE_SIZE}`,
+    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias, active48H],
   );
 
   const pageCount = useMemo(
@@ -199,6 +199,7 @@ export default function DiscoverPage() {
       if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
       if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
       if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
+      if (active48H) params.set('minFreshnessHours', '48');
 
       const data = (await fetcher(`/discover/wallets?${params.toString()}`)) as DiscoverWalletsResponse;
       setWallets(data.items || []);
@@ -210,7 +211,7 @@ export default function DiscoverPage() {
       setLoading(false);
       setIsUpdating(false);
     }
-  }, [cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern]);
+  }, [active48H, cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern]);
 
   useEffect(() => {
     const cached = readCache(cacheKey);
@@ -244,6 +245,7 @@ export default function DiscoverPage() {
     setHoldBias('any');
     setMinTradeCount('');
     setMinUniqueTokens('');
+    setActive48H(false);
     setPage(1);
     setActivePreset(null);
   };
@@ -292,6 +294,7 @@ export default function DiscoverPage() {
       if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
       if (flowPattern && flowPattern !== 'any') params.set('flowPattern', flowPattern);
       if (holdBias && holdBias !== 'any') params.set('holdBias', holdBias);
+      if (active48H) params.set('minFreshnessHours', '48');
 
       const data = await fetcher(`/discover/aggregation?${params.toString()}`);
       setSpeedDistribution(data.speedDistribution || []);
@@ -301,7 +304,7 @@ export default function DiscoverPage() {
       console.error('Failed to fetch aggregation stats:', err);
       // Non-critical, just log it
     }
-  }, [minTradeCount, minUniqueTokens, speedCategory, flowPattern, holdBias, sort]);
+  }, [active48H, minTradeCount, minUniqueTokens, speedCategory, flowPattern, holdBias, sort]);
 
   useEffect(() => {
     fetchAggregation();

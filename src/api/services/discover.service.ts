@@ -190,16 +190,21 @@ export class DiscoverService {
     // Build the same where clause as getDiscoverWallets, but we need ALL results (no pagination)
     const minTradeCount = query.minTradeCount;
     const minUniqueTokens = query.minUniqueTokens;
+    const minFreshnessHours = query.minFreshnessHours;
     const speedCategory = query.speedCategory;
     const flowPattern = query.flowPattern;
     const holdBias = query.holdBias;
     const minVelocity = query.minVelocity;
     const maxVelocity = query.maxVelocity;
+    const updatedSince = minFreshnessHours
+      ? new Date(Date.now() - minFreshnessHours * 60 * 60 * 1000)
+      : undefined;
 
     const where: Prisma.WalletWhereInput = {
       pnlSummary: { isNot: null },
       behaviorProfile: { isNot: null },
     };
+    const andFilters: Prisma.WalletWhereInput[] = [];
 
     if (typeof minTradeCount === 'number' && minTradeCount > 0) {
       where.behaviorProfile = { is: { totalTradeCount: { gte: minTradeCount } } };
@@ -254,6 +259,19 @@ export class DiscoverService {
           velocityScore: velocityFilter,
         },
       };
+    }
+
+    if (updatedSince) {
+      andFilters.push({
+        OR: [
+          { pnlSummary: { is: { updatedAt: { gte: updatedSince } } } },
+          { behaviorProfile: { is: { updatedAt: { gte: updatedSince } } } },
+        ],
+      });
+    }
+
+    if (andFilters.length) {
+      where.AND = andFilters;
     }
 
     // Fetch speedCategory, flowPattern, and PnL fields (efficient)

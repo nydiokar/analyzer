@@ -37,6 +37,7 @@ export class SigBuyersQueryDto {
 
 export interface SigBuyerResult {
   walletAddress: string;
+  tokensBought: number;
   solSpent: number;
   solReceived: number;
   netPnl: number;

@@ -64,6 +64,7 @@ export class SigBuyersService {
       .sort(([, a], [, b]) => b.solSpent - a.solSpent)
       .map(([walletAddress, a]): SigBuyerResult => ({
         walletAddress,
+        tokensBought: a.tokensBought,
         solSpent: a.solSpent,
         solReceived: a.solReceived,
         netPnl: a.solReceived - a.solSpent,
@@ -179,8 +180,8 @@ export class SigBuyersService {
     transactionsByWallet: Map<string, HeliusTransaction[]>,
     mint: string,
     validSet: Set<string>,
-  ): Map<string, { solSpent: number; solReceived: number; transactionCount: number; firstTransaction: number; lastTransaction: number }> {
-    const result = new Map<string, { solSpent: number; solReceived: number; transactionCount: number; firstTransaction: number; lastTransaction: number }>();
+  ): Map<string, { tokensBought: number; solSpent: number; solReceived: number; transactionCount: number; firstTransaction: number; lastTransaction: number }> {
+    const result = new Map<string, { tokensBought: number; solSpent: number; solReceived: number; transactionCount: number; firstTransaction: number; lastTransaction: number }>();
 
     for (const [walletAddress, walletTxs] of transactionsByWallet) {
       if (!validSet.has(walletAddress)) continue;
@@ -192,12 +193,16 @@ export class SigBuyersService {
         const solSpent = relevant
           .filter((r) => r.direction === 'in')
           .reduce((s, r) => s + (r.associatedSolValue ?? 0), 0);
+        const tokensBought = relevant
+          .filter((r) => r.direction === 'in')
+          .reduce((s, r) => s + Math.abs(r.amount ?? 0), 0);
         const solReceived = relevant
           .filter((r) => r.direction === 'out')
           .reduce((s, r) => s + (r.associatedSolValue ?? 0), 0);
         const timestamps = relevant.map((r) => r.timestamp).filter((t: number) => t > 0);
 
         result.set(walletAddress, {
+          tokensBought,
           solSpent,
           solReceived,
           transactionCount: relevant.length,

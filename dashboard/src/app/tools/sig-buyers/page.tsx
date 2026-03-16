@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 
 interface SigBuyerResult {
   walletAddress: string;
+  tokensBought: number;
   solSpent: number;
   solReceived: number;
   netPnl: number;
@@ -61,6 +62,14 @@ interface SigBuyersResponse {
 
 function formatSol(val: number): string {
   return val.toFixed(3);
+}
+
+function formatTokenAmount(val: number): string {
+  if (val >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(2)}B`;
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(2)}M`;
+  if (val >= 1_000) return `${(val / 1_000).toFixed(2)}K`;
+  if (val >= 1) return val.toFixed(2);
+  return val.toFixed(4);
 }
 
 function formatTime(iso: string): string {
@@ -198,6 +207,20 @@ function BuyerRow({ buyer, rank }: BuyerRowProps) {
           </TooltipTrigger>
           <TooltipContent side="top">
             <p className="text-xs">Received back: {formatSol(buyer.solReceived)} SOL</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      {/* Tokens Bought */}
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-sm font-medium tabular-nums text-foreground shrink-0 w-[88px] text-right cursor-default">
+              {formatTokenAmount(buyer.tokensBought)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p className="text-xs">{buyer.tokensBought.toLocaleString(undefined, { maximumFractionDigits: 6 })} tokens bought</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -695,11 +718,12 @@ export default function SigBuyersPage() {
 
               {/* Column headers + rows — constrained to left ~60% to reserve space for future detail panel */}
               {!isLoading && result && result.buyers.length > 0 && (
-                <div className="max-w-[560px]">
+                <div className="max-w-[660px]">
                   <div className="flex items-center gap-3 px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border/50 mb-0.5">
                     <span className="w-[48px] shrink-0">Time</span>
                     <span className="w-[220px] shrink-0">Wallet</span>
                     <span className="w-[80px] text-right shrink-0">Spent</span>
+                    <span className="w-[88px] text-right shrink-0">Tokens</span>
                     <span className="w-[72px] text-right shrink-0">Net PnL</span>
                     <span className="w-[28px] text-right shrink-0">Tx</span>
                   </div>
