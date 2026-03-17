@@ -16,6 +16,7 @@
     "test:x:mentions": "node dist/scripts/test-x-mentions.js",
     "test:x:oauth1-me": "node dist/scripts/test-x-oauth1-me.js",
     "test:x:oauth2-start": "node dist/scripts/test-x-oauth2-start.js",
+    "test:x:oauth2-listen": "node dist/scripts/test-x-oauth2-listen.js",
     "test:x:oauth2-complete": "node dist/scripts/test-x-oauth2-complete.js",
     "test:x:oauth2-me": "node dist/scripts/test-x-oauth2-me.js",
     "test:x:post": "node dist/scripts/test-x-post.js",

@@ -4,7 +4,12 @@
 
 `sova-x` is a separate service that uses Sova Intel strictly as an intelligence layer.
 
-It does not embed analytics logic. It listens for mentions to `@sova_intel` on X, extracts the target token mint from the mention text, calls Sova Intel holder profiles through the SDK, computes the Twitter-sized summary fields, and posts a single final reply in-thread from the appointed Sova account.
+It does not embed analytics logic. It accepts a human-triggered request containing:
+
+- a target X post URL
+- a Solana token mint
+
+It then calls Sova Intel holder profiles through the SDK, computes the X-sized summary fields, and posts a single final reply in-thread from the appointed Sova account.
 
 Primary product goal:
 
@@ -14,7 +19,9 @@ Primary product goal:
 
 Non-goals for v1:
 
-- no admin/manual trigger flow
+- no mention monitoring
+- no always-on polling loop
+- no autonomous bot behavior
 - no acknowledgement tweet
 - no multi-step conversation with the user
 - no posting full holder lists
@@ -26,46 +33,49 @@ Non-goals for v1:
 
 ### User-facing behavior
 
-The natural contract is:
+The v1 contract is human-triggered:
 
-1. Someone replies under a post and tags `@sova_intel`
-2. `sova-x` detects the mention
-3. `sova-x` extracts exactly one Solana mint from the mention text
-4. If inference succeeds and the caller is authorized, `sova-x` runs holder profiles through Sova Intel
-5. When the result is ready, `sova-x` posts one final reply in the same thread
+1. An operator decides a post is worth replying to
+2. The operator opens an internal Sova page/tool
+3. The operator submits:
+   - the target X post URL
+   - the token mint
+4. `sova-x` runs holder profiles through Sova Intel
+5. When the result is ready, `sova-x` posts one final reply under the target post
 
 No ack reply is posted.
 
 ### Invocation contract
 
-V1 invocation is mention-only:
+V1 invocation is manual and explicit:
 
-- required: mention of `@sova_intel`
-- mint source: mention text
-- explicit command syntax: not required; the caller includes the CA in the mention
+- required: target X post URL
+- required: token mint
+- optional later: custom intro text or operator notes
 
-Example:
+Example request shape:
 
-- authorized user replies: `@sova_intel 9xQeWvG816bUx9EPfEZkLqN2YtY1YfB9F9r3uL6kP7z`
-- bot eventually replies with the compact holder-profile summary
+```json
+{
+  "tweetUrl": "https://x.com/someuser/status/1899999999999999999",
+  "mint": "9xQeWvG816bUx9EPfEZkLqN2YtY1YfB9F9r3uL6kP7z"
+}
+```
 
 ### Authorization contract
 
-V1 does not answer everyone.
+V1 is internal-only.
 
-It answers only if the mention author is in an allowlist:
+Only trusted operators with access to the internal trigger page can submit jobs.
 
-- initially one X account
-- later 1-2 more accounts can be added
-
-This matches the intended operational control without needing admin/manual tweet IDs.
+There is no public trigger surface on X in v1.
 
 ### Duplicate behavior contract
 
-If multiple mentions happen in the same thread for the same mint:
+If multiple requests are submitted for the same target post + mint combination:
 
-- first accepted invocation wins
-- later duplicate invocations for the same `conversation_id + mint` are ignored for a cooldown window
+- first accepted request wins
+- later duplicate requests for the same `target_tweet_id + mint` are ignored for a cooldown window
 
 This keeps the thread clean and avoids duplicate replies.
 
@@ -84,9 +94,10 @@ This means the service must be robust enough that silent processing is acceptabl
 
 Optional future behavior:
 
-- post a short failure reply for trusted operators only
+- expose failure state in the internal trigger UI
+- allow an operator to retry manually
 
-### Twitter-sized output
+### X-sized output
 
 The reply should contain only compact, high-signal holder-profile fields.
 
@@ -224,7 +235,7 @@ Recommended:
 Reason:
 
 - still compact enough for social output
-- aligns with the public intuition of “top holders”
+- aligns with the public intuition of "top holders"
 - gives a more representative distribution chart
 
 ---
@@ -301,39 +312,50 @@ Relevant reference implementation:
 
 ---
 
-## Mint Extraction Contract
+## Input Contract
 
 ### Source of truth
 
-V1 extracts the mint from the mention text.
+V1 takes the mint from explicit operator input, not from X content.
 
 ### Resolution flow
 
-1. Fetch the mention tweet
-2. Extract candidate Solana addresses from the mention text
-3. If exactly one candidate exists, treat it as the mint
-4. If zero or multiple candidates exist, do not run
+1. Receive target X post URL
+2. Receive mint string
+3. Validate the X post URL shape
+4. Validate the mint shape
+5. Extract the target tweet ID from the URL
+6. If both are valid, run
 
-### V1 mint extraction rule
+### V1 mint validation rule
 
 Use a strict Solana address regex and simple deterministic parsing.
 
 Accept only if:
 
-- exactly one valid-looking base58 address is found in the mention text
+- exactly one valid-looking base58 address is provided in the request
 
 Do not attempt in v1:
 
-- infer from the parent tweet
-- symbol resolution
+- infer from the target post
+- symbol resolution from the X post text
 - OCR on images
 - URL expansion scraping
 
 ### Why this strictness is correct
 
-This is still natural enough for X usage, but it removes ambiguity and avoids the extra read/parse step for the parent tweet.
+The operator already knows the intended token.
 
-A false positive mint inference is much worse than a missed invocation.
+A false positive mint inference is much worse than asking the operator to paste the mint explicitly.
+
+### X post URL parsing contract
+
+V1 should accept common X URL shapes:
+
+- `https://x.com/<user>/status/<tweetId>`
+- `https://twitter.com/<user>/status/<tweetId>`
+
+Store and operate on the extracted `tweetId`.
 
 ---
 
@@ -373,111 +395,80 @@ The holder-profile reply must not fail purely because token metadata is unavaila
 
 ---
 
-## X API Contract
+## X Posting Contract
 
-## Required X API capabilities
+## Required X capabilities
 
-`sova-x` needs these capabilities:
+`sova-x` needs only one X capability in v1:
 
-- read mentions to `@sova_intel`
 - create a reply tweet
+
+There is no read-side dependency on mentions or parent-tweet lookups in the primary flow.
 
 ### Recommended API surfaces
 
-Use X API v2.
+Use X API v2 for reply creation if feasible.
 
 Use the current X docs as the source of truth:
 
 - `https://docs.x.com/x-api/`
-- not the legacy Twitter docs/migration pages unless needed for historical reference only
 
-Required endpoint families:
+Required endpoint family:
 
-- mention retrieval: `GET /2/users/:id/mentions`
 - reply creation: `POST /2/tweets`
-
-### Why polling mentions is the right v1 choice
-
-For v1:
-
-- simpler than webhooks/streaming
-- easier to reason about
-- enough for a controlled allowlisted bot
-- current X docs expose a workable per-user rate limit for mentions polling
-
-Polling loop:
-
-- every 3-10 seconds is technically feasible within current rate limits
-- fetch latest mentions since last seen mention ID
-- process only unseen items
-
-Current docs checked on March 16, 2026:
-
-- `GET /2/users/:id/mentions` exists at `docs.x.com/x-api/users/get-mentions`
-- X rate limits are documented separately from billing
-- the rate-limit docs show per-endpoint 15-minute windows
-
-Practical v1 implication:
-
-- an aggressive mention listener is acceptable from a rate-limit perspective
-- parent-tweet lookup is not needed in v1
 
 ### Reply creation contract
 
-The final tweet must be created as a reply to the mention or thread target using the X reply metadata for `POST /2/tweets`.
+The final tweet must be created as a reply to the target tweet ID using the X reply metadata for `POST /2/tweets`.
 
 The exact implementation detail is:
 
 - reply into the same conversation
 - authored by the appointed Sova account
+- attach PNG media when enabled
+
+### Transport flexibility
+
+The trigger model and the posting model are separate concerns.
+
+That means v1 should preserve the same render/post pipeline regardless of whether the final posting transport is:
+
+- official X API write path
+- or a later fallback transport if needed
+
+The primary change in this spec is the trigger method, not the post method.
 
 ---
 
 ## Rate Limits And Billing
 
-The spec must follow the current X docs and keep rate limits separate from billing.
-
-### Current docs to use
-
-- rate limits: `https://docs.x.com/x-api/fundamentals/rate-limits`
-- usage and billing / post cap: `https://docs.x.com/x-api/fundamentals/post-cap`
+The spec should minimize X read-side cost and operational risk by removing public-trigger polling from v1.
 
 ### Important distinction
 
-These are two different constraints:
+These are different concerns:
 
-- rate limits control how often requests can be made
-- billing/usage controls which successful responses count toward usage
+- trigger cost
+- posting cost
+- operational account risk
 
-For implementation, both must be modeled independently.
+### V1 product implication
 
-### What is safe to assume from the latest docs
+By moving to an internal trigger page:
 
-- `GET /2/users/:id/mentions` has a documented per-user request rate limit
-- `GET /2/tweets` and user mention timelines are tracked in the usage/billing docs
-- `POST /2/tweets` is required for reply creation and must be treated as a separate cost/control surface
+- no X read polling is needed
+- no mention timeline consumption is needed
+- no parent-tweet fetch is needed
+- X cost is concentrated in the final post action only
 
-### Product implication
+### Product choice
 
-Two viable invocation modes exist:
+V1 uses:
 
-#### Mode A: mention-only with mint in mention text
-
-- mention polling required
-- parent tweet lookup not required
-- lower read usage
-- deterministic parsing
-
-Because current rate limits are generous enough for aggressive polling, this mode is viable from a request-limit perspective.
-
-Billing/usage should be verified against the active app plan in the Developer Console before launch.
-
-### V1 product choice
-
-Keep the mention-only contract with explicit CA in the mention:
-
-- mention-only invocation
-- mint extracted from the mention text
+- internal manual trigger
+- explicit mint input
+- explicit target tweet URL input
+- one reply post per operator request
 
 ---
 
@@ -485,33 +476,32 @@ Keep the mention-only contract with explicit CA in the mention:
 
 ### Happy path
 
-1. Poll mentions for `@sova_intel`
-2. Ignore mentions not authored by an allowlisted account
-3. Ignore mentions already processed
-4. Extract exactly one mint from mention text
-6. Fetch token metadata for symbol/icon if available
-7. Call Sova Intel SDK: `pollHolderProfiles(mint, 20)`
-8. Compute:
+1. Operator submits `tweetUrl + mint` in the internal trigger page
+2. Validate input
+3. Extract `targetTweetId`
+4. Fetch token metadata for symbol/icon if available
+5. Call Sova Intel SDK: `pollHolderProfiles(mint, 20)`
+6. Compute:
    - distribution by behavior type
    - fresh wallet %
-9. Render deterministic PNG social card
-10. Format compact X reply text
-11. Post reply under the thread with attached image
-12. Persist processed state and reply tweet ID
+7. Render deterministic PNG social card
+8. Format compact X reply text
+9. Post reply under the target tweet with attached image
+10. Persist request state and reply tweet ID
 
 ### No-op paths
 
-Ignore silently if:
+Ignore or reject before work if:
 
-- mention author is not allowlisted
-- mention does not contain exactly one mint
-- duplicate `conversation_id + mint` is already in progress or recently completed
+- target tweet URL is invalid
+- mint is invalid
+- duplicate `target_tweet_id + mint` is already in progress or recently completed
 
 ### Failure paths
 
 Persist failure internally if:
 
-- X lookup fails
+- target tweet ID cannot be parsed
 - token metadata lookup fails only if it blocks rendering entirely
 - Intel request fails
 - reply post fails
@@ -529,33 +519,25 @@ Minimal durable state needed:
 - target bot username
 - target bot user ID
 
-### 2. Allowed callers
+### 2. Trigger request state
 
-- list of allowed X user IDs
-- optional label/notes
-- active flag
-
-### 3. Mention processing state
-
-- mention tweet ID
-- mention author user ID
-- conversation ID
-- mention text snapshot
-- inferred mint
+- request ID
+- operator ID or label
+- target tweet URL
+- target tweet ID
+- mint
 - status: `pending | processing | completed | failed | ignored`
-- ignore reason if ignored
 - failure reason if failed
 - created at
 - updated at
 
-### 4. Deduplication state
+### 3. Deduplication state
 
-- key: `conversation_id + mint`
-- last processed mention ID
+- key: `target_tweet_id + mint`
 - status
 - cooldown expiry
 
-### 5. Output state
+### 4. Output state
 
 - final reply tweet ID
 - final reply text
@@ -567,8 +549,8 @@ Minimal durable state needed:
 
 Without durable state:
 
-- the bot can double-reply after restart
-- mention polling offsets are fragile
+- the service can double-reply after restart
+- retries are impossible to reason about
 - failures are impossible to audit
 
 ---
@@ -583,8 +565,9 @@ Initial repository contents:
 - `src/x/` X client wrapper
 - `src/intel/` Sova Intel SDK wrapper
 - `src/metadata/` token symbol/icon lookup
-- `src/core/` mention pipeline, parser, formatter, idempotency
+- `src/core/` trigger pipeline, formatter, idempotency
 - `src/render/` deterministic social-card generation
+- `src/web/` or equivalent internal trigger UI later
 - `prisma/` or another simple persistence layer if a DB is used
 
 Suggested implementation style:
@@ -611,16 +594,16 @@ Recommendation:
 
 - use `@sova_intel` if the goal is product promotion and brand visibility
 
-### 2. Parent tweet target
+### 2. Trigger UI shape
 
-Need to confirm whether the final reply should be:
+Need to confirm whether the internal trigger UI should be:
 
-- reply to the mention tweet
-- or reply directly into the same parent thread target
+- a very small page inside this repo
+- or a later integration into the main dashboard
 
 Recommendation:
 
-- reply to the mention tweet for deterministic threading
+- start with a tiny page in this repo or a dead-simple internal form
 
 ### 3. Fresh wallet definition
 
@@ -658,15 +641,15 @@ Recommendation:
 - separate repository: yes
 - separate service from analyzer: yes
 - use SDK: yes
-- use mention-only invocation: yes
-- extract mint from mention text: yes
+- use internal manual trigger: yes
+- require explicit mint input: yes
+- require explicit target tweet URL: yes
+- no X mention monitoring: yes
 - no ack tweet: yes
 - one final reply only: yes
 - default response should include deterministic PNG social card: yes
 - bound v1 strictly to holder profiles, not similarity: yes
 - include token metadata for symbol/icon when available: yes
-- allowlist callers: yes
-- answer everyone: no
-- use latest `docs.x.com` docs as source of truth: yes
-- model rate limits separately from billing: yes
-- keep explicit command mode as fallback: yes
+- answer everyone publicly on X: no
+- minimize X read-side dependency: yes
+- keep posting transport replaceable: yes
