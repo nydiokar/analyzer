@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { HeliusIdentityResolver } from '../../core/services/helius-identity-resolver';
 import type { GetTokenLargestAccountsResult, TokenLargestAccount, GetMultipleAccountsResult, RpcAccountInfo } from '../../types/helius-api';
 import { getKnownWallet, type KnownWalletType } from '../../config/known-wallets';
 import { getErrorMessage } from 'core/utils/error-utils';
@@ -35,7 +36,10 @@ export interface TopHoldersResponse {
 export class TokenHoldersService {
   private readonly logger = new Logger(TokenHoldersService.name);
 
-  constructor(private readonly heliusClient: HeliusApiClient) {}
+  constructor(
+    private readonly heliusClient: HeliusApiClient,
+    private readonly identityResolver: HeliusIdentityResolver,
+  ) {}
 
   async getTopHolders(mint: string, commitment?: string): Promise<TopHoldersResponse> {
     let rpcResult: GetTokenLargestAccountsResult;
@@ -104,11 +108,12 @@ export class TokenHoldersService {
     const holdersWithLabels: HolderWithLabel[] = [];
     let rank = 1;
 
+    // Phase 1: Label from local registry
+    const unlabeledOwners: string[] = [];
     for (let idx = 0; idx < rpcResult.value.length; idx++) {
       const acc = rpcResult.value[idx];
       const owner = owners[idx];
 
-      // Build the holder entry with basic info
       const holder: HolderWithLabel = {
         tokenAccount: acc.address,
         ownerAccount: owner,
@@ -119,38 +124,58 @@ export class TokenHoldersService {
         rank: rank++,
       };
 
-      // Attach known wallet label if this owner is in the registry
       if (owner) {
         const knownEntry = getKnownWallet(owner);
         if (knownEntry) {
           holder.knownType = knownEntry.type;
           holder.knownLabel = knownEntry.label;
         } else {
-          // Check if this is a program-owned account (AMM PDA, lock vault, etc.)
-          const info = ownerAccountInfo[owner];
-          if (info) {
-            const programOwner = info.owner;
-            const isProgramOwned = programOwner && programOwner !== SYSTEM_PROGRAM_ID;
-            const hasNonEmptyData = Array.isArray((info as any).data) && typeof (info as any).data[0] === 'string'
-              ? (info as any).data[0].length > 0
-              : false;
-            const isExecutable = Boolean((info as any).executable);
-
-            // Check for specific programs first (Streamflow lock vaults, etc.)
-            if (programOwner === STREAMFLOW_PROGRAM_ID) {
-              holder.knownType = 'PROTOCOL';
-              holder.knownLabel = '🔒 Lock Vault';
-            }
-            // Generic program-owned accounts → treat as LP/Protocol
-            else if (isProgramOwned || hasNonEmptyData || isExecutable) {
-              holder.knownType = 'LP';
-              holder.knownLabel = 'LIQ POOL 💧';
-            }
-          }
+          unlabeledOwners.push(owner);
         }
       }
 
       holdersWithLabels.push(holder);
+    }
+
+    // Phase 2: Batch-resolve unlabeled owners via Helius Identity API
+    let heliusIdentities = new Map<string, import('../../config/known-wallets').KnownWalletEntry>();
+    if (unlabeledOwners.length > 0) {
+      try {
+        heliusIdentities = await this.identityResolver.resolveBatch(unlabeledOwners);
+      } catch (e) {
+        this.logger.debug(`Helius identity batch lookup failed: ${getErrorMessage(e)}`);
+      }
+    }
+
+    // Phase 3: Apply Helius identities + on-chain heuristic fallback
+    for (const holder of holdersWithLabels) {
+      if (holder.knownType || !holder.ownerAccount) continue; // already labeled or no owner
+
+      const heliusEntry = heliusIdentities.get(holder.ownerAccount);
+      if (heliusEntry) {
+        holder.knownType = heliusEntry.type;
+        holder.knownLabel = heliusEntry.label;
+        continue;
+      }
+
+      // On-chain heuristic fallback for program-owned accounts
+      const info = ownerAccountInfo[holder.ownerAccount];
+      if (info) {
+        const programOwner = info.owner;
+        const isProgramOwned = programOwner && programOwner !== SYSTEM_PROGRAM_ID;
+        const hasNonEmptyData = Array.isArray((info as any).data) && typeof (info as any).data[0] === 'string'
+          ? (info as any).data[0].length > 0
+          : false;
+        const isExecutable = Boolean((info as any).executable);
+
+        if (programOwner === STREAMFLOW_PROGRAM_ID) {
+          holder.knownType = 'PROTOCOL';
+          holder.knownLabel = 'Lock Vault';
+        } else if (isProgramOwned || hasNonEmptyData || isExecutable) {
+          holder.knownType = 'LP';
+          holder.knownLabel = 'LIQ POOL';
+        }
+      }
     }
 
     return {

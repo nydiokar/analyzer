@@ -3,6 +3,7 @@ import { createLogger } from 'core/utils/logger';
 import {
   HeliusApiConfig,
   HeliusTransaction,
+  HeliusWalletIdentity,
   GetMultipleAccountsResult,
   GetTokenAccountsByOwnerResult,
   GetTokenLargestAccountsResult,
@@ -1968,5 +1969,68 @@ export class HeliusApiClient {
 
     logger.info(`Fetched ${allTransactions.length} total transactions for mint ${mintAddress}`);
     return allTransactions.slice(0, maxTransactions);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Wallet Identity API
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Batch-resolve wallet identities via the Helius Wallet Identity API.
+   * Returns a Map of address → identity for all recognized addresses.
+   * Unrecognized addresses are simply absent from the map.
+   *
+   * Automatically chunks into batches of 100 (API limit).
+   */
+  async batchGetWalletIdentities(addresses: string[]): Promise<Map<string, HeliusWalletIdentity>> {
+    const results = new Map<string, HeliusWalletIdentity>();
+    if (!addresses.length) return results;
+
+    const unique = [...new Set(addresses)];
+    const BATCH_LIMIT = 100;
+
+    for (let i = 0; i < unique.length; i += BATCH_LIMIT) {
+      const chunk = unique.slice(i, i + BATCH_LIMIT);
+      try {
+        await this.rateLimit();
+        const response = await this.api.post<HeliusWalletIdentity[]>(
+          `/v1/wallet/batch-identity?api-key=${this.apiKey}`,
+          { addresses: chunk },
+        );
+        for (const identity of response.data) {
+          results.set(identity.address, identity);
+        }
+      } catch (error) {
+        // 404 = none recognized in this chunk, not an error
+        if (axios.isAxiosError(error) && error.response?.status === 404) {
+          continue;
+        }
+        // Log but don't throw — identity is enrichment, not critical
+        logger.warn(
+          `Wallet identity batch lookup failed for ${chunk.length} addresses: ${this.sanitizeError(error)}`,
+        );
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Resolve a single wallet identity. Returns null if unrecognized.
+   */
+  async getWalletIdentity(address: string): Promise<HeliusWalletIdentity | null> {
+    try {
+      await this.rateLimit();
+      const response = await this.api.get<HeliusWalletIdentity>(
+        `/v1/wallet/${address}/identity?api-key=${this.apiKey}`,
+      );
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
+      logger.warn(`Wallet identity lookup failed for ${address}: ${this.sanitizeError(error)}`);
+      return null;
+    }
   }
 }

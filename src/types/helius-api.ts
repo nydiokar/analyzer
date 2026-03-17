@@ -4,6 +4,18 @@
 
 import { TokenBalanceDetails } from '@/types/wallet';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Helius Wallet Identity API types
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface HeliusWalletIdentity {
+  address: string;
+  type: string;       // e.g. "exchange", "protocol", "program"
+  name: string;       // e.g. "Binance 1", "Raydium AMM"
+  category: string;   // e.g. "Centralized Exchange", "DeFi"
+  tags: string[];     // e.g. ["Centralized Exchange"]
+}
+
 export interface HeliusApiConfig {
   apiKey: string;
   network?: 'mainnet' | 'devnet';

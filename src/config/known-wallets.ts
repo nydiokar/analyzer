@@ -1,11 +1,13 @@
 /**
- * Known Wallet Registry
+ * Known Wallet Registry — Local Overrides
  *
- * Central registry for known wallet types (burn addresses, LPs, DEX vaults, etc.)
- * Used to:
- * - Label wallets in holder lists and UI
- * - Skip expensive analysis operations on non-trader wallets
- * - Keep consistent classification across services
+ * This is a small, curated set of wallet addresses that either:
+ * - Helius Identity API doesn't cover (burn addresses, niche vaults)
+ * - Need custom labels that differ from what Helius provides
+ *
+ * The bulk of wallet identification (5,100+ accounts, 1,900+ programs)
+ * is handled dynamically by HeliusIdentityResolver at runtime.
+ * Only add entries here when Helius doesn't recognize them.
  */
 
 export type KnownWalletType =
@@ -29,177 +31,24 @@ export interface KnownWalletEntry {
  */
 export const KNOWN_WALLETS: Record<string, KnownWalletEntry> = {
   // ═══════════════════════════════════════════════════════════════════════════
-  // BURN ADDRESSES
+  // BURN ADDRESSES (Helius doesn't tag these)
   // ═══════════════════════════════════════════════════════════════════════════
   '1nc1nerator11111111111111111111111111111111': {
     type: 'BURN',
-    label: 'Burn Address 🔥',
+    label: 'Burn Address',
     shortLabel: 'Burn',
-  },
-  'gasTzr94Pmp4Gf8vknQnqxeYxdgwFjbgdJa4msYRpnB': {
-    type: 'PROTOCOL',
-    label: 'Jupiter: Gas Wallet 🪐',
-    shortLabel: 'Jupiter',
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // JUPITER AGGREGATOR ACCOUNTS
+  // LOCAL OVERRIDES
+  // Only for wallets Helius doesn't recognize or where we need a custom label.
+  // The vast majority of exchanges, protocols, and programs are now resolved
+  // dynamically via HeliusIdentityResolver (5,100+ accounts, 1,900+ programs).
   // ═══════════════════════════════════════════════════════════════════════════
-  '2MFoS3MPtvyQ4Wh4M9pdfPjz6UhVoNbFbGJAskCPCj3h': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '3CgvbiM3op4vjrrjH2zcrQUwsqh5veNVRjFCB9N6sRoD': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '3LoAYHuSd7Gh8d7RTFnhvYtiTiefdZ5ByamU42vkzd76': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '4xDsmeTWPNjgSVSS1VTfzFq3iHZhp77ffPkAmkZkdu71': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '69yhtoJR4JYPPABZcSNkzuqbaFbwHsCkja1sP1Q2aVT5': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '6LXutJvKUw8Q5ue2gCgKHQdAN4suWW8awzFVC6XCguFx': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '6U91aKa8pmMxkJwBCfPTmUEfZi6dHe7DcFq2ALvB2tbB': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '7iWnBRRhBCiNXXPhqiGzvvBkKrvFSWqqmxRyu9VyYBxE': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '9nnLbotNTcUhvbrsA6Mdkx45Sm82G35zo28AqUvjExn8': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'CapuXNQoDviLvU1PxFiizLgPNQCxrsag1uMeyk6zLVps': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'D8cy77BBepLMngZx6ZukaTff5hCt1HrWyKk3Hnd9oitf': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'DSN3j1ykL3obAVNv7ZX49VsFCPe4LqzxHnmtLiPwY6xg': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'GGztQqQ6pCPaJQnNpXBgELr5cs3WwDakRbh1iEMzjgSJ': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'GP8StUXNYSZjPikyRsvkTbvRV1GBxMErb59cpeCJnDf1': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'HFqp6ErWHY6Uzhj8rFyjYuDya2mXUpYEk8VW75K9PSiY': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'HU23r7UoZbqTUuh3vA7emAGztFtqwTeVips789vqxxBw': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'Jx2c1k5iYrtk52KeBPSykEutbUMfS4Sjv9kmZm33LKn': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA': {
-    type: 'PROTOCOL',
-    label: ' Jupiter Aggregator  🪐',
-    shortLabel: 'Jupiter',
-  },
-  '45ruCyfdRkWpRNGEqWzjCiXRHkZs8WXCLQ67Pnpye7Hp': {
-    type: 'PROTOCOL',
-    label: 'Jupiter Referral Vault 🪐',
-    shortLabel: 'Jupiter',
-  },
-  'HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC': {
-    type: 'SYSTEM',
-    label: 'Meteora Pool',
-    shortLabel: 'Meteora',
-  },
   'FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM': {
     type: 'PROTOCOL',
     label: 'BAGS VAULT',
-    shortLabel: 'Jupiter',
-  },
-  'ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ': {
-    type: 'PROTOCOL',
-    label: 'MEXC',
-    shortLabel: 'MEXC',
-  },
-  'u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w': {
-    type: 'PROTOCOL',
-    label: 'GATE.IO',
-    shortLabel: 'GATE.IO',
-  },
-  
-
-  
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RAYDIUM ACCOUNTS
-  // ═══════════════════════════════════════════════════════════════════════════
-  'GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL': {
-    type: 'PROTOCOL',
-    label: 'Raydium Vault 💧',
-    shortLabel: 'Raydium',
-  },
-
- // '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1': {
-   // type: 'SYSTEM',
-   // label: 'Raydium Auth',
-   // shortLabel: 'Raydium',
-    // },
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SYSTEM / LARGE TOKEN ACCOUNTS
-  // ═══════════════════════════════════════════════════════════════════════════
-  '34FKjAdVcTax2DHqV2XnbXa9J3zmyKcFuFKWbcmgxjgm': {
-    type: 'SYSTEM',
-    label: '⚙️ System Account',
-    shortLabel: 'System',
-  },
-  'ZG98FUCjb8mJ824Gbs6RsgVmr1FhXb2oNiJHa2dwmPd': {
-    type: 'SYSTEM',
-    label: '⚙️ System Account',
-    shortLabel: 'System',
-  },
-  '8psNvWTrdNTiVRNzAgsou9kETXNJm2SXZyaKuJraVRtf': {
-    type: 'SYSTEM',
-    label: '⚙️ System Account',
-    shortLabel: 'System',
+    shortLabel: 'Bags',
   },
 };
 

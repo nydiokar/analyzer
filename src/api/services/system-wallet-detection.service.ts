@@ -3,6 +3,7 @@ import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import { DatabaseService } from './database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { HeliusIdentityResolver } from '../../core/services/helius-identity-resolver';
 import {
   WALLET_CLASSIFICATIONS,
   SYSTEM_WALLET_DETECTION_CACHE_CONFIG,
@@ -40,11 +41,14 @@ export interface FilterResult {
  * System Wallet Detection Service
  *
  * Centralized service for detecting and filtering system wallets (vaults, AMM accounts, etc.)
- * Uses a 3-tier detection strategy:
+ * Uses a multi-tier detection strategy:
  *
- * Tier 1: Memory cache (O(1), ultra-fast)
- * Tier 2: Redis cache (50ms, fast)
- * Tier 3: Database + Dynamic detection (500ms, thorough)
+ * Tier 1:   Memory cache (O(1), ultra-fast)
+ * Tier 1.5: Local known-wallets registry (~30 hardcoded addresses)
+ * Tier 2:   Redis cache (50ms, fast)
+ * Tier 3:   Database lookup
+ * Tier 3.5: Helius Identity API (5,100+ tagged accounts, 1,900+ programs)
+ * Tier 4:   Dynamic RPC token-count heuristic (70k+ tokens = SYSTEM)
  *
  * Unified Classification:
  * - Registry wallets → knownType set → skip analysis (based on service exclusion sets)
@@ -62,11 +66,12 @@ export class SystemWalletDetectionService {
 
   constructor(
     private readonly heliusClient: HeliusApiClient,
+    private readonly identityResolver: HeliusIdentityResolver,
     private readonly databaseService: DatabaseService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {
     this.knownWalletCount = Object.keys(KNOWN_WALLETS).length;
-    this.logger.log(`Initialized with ${this.knownWalletCount} known wallets from registry`);
+    this.logger.log(`Initialized with ${this.knownWalletCount} known wallets from registry + Helius identity (5100+ accounts)`);
   }
 
   /**
@@ -176,6 +181,30 @@ export class SystemWalletDetectionService {
       this.logger.debug(`Database lookup failed for ${address}:`, getErrorMessage(error));
     }
 
+    // Tier 3.5: Helius Identity API (5,100+ tagged accounts, 1,900+ programs)
+    try {
+      const identity = await this.identityResolver.resolve(address);
+      if (identity) {
+        const result: SystemWalletDetectionResult = {
+          address,
+          shouldLog: true,
+          reason: `Helius identity: ${identity.label} (${identity.type})`,
+          method: 'helius_identity',
+          confidence: 0.95,
+          knownType: identity.type,
+          knownLabel: identity.label,
+        };
+
+        if (SYSTEM_WALLET_DETECTION_CONFIG.AUTO_TAG_DATABASE) {
+          await this.tagWallet(result);
+        }
+        this.cacheResult(result);
+        return result;
+      }
+    } catch (error) {
+      this.logger.debug(`Helius identity lookup failed for ${address}: ${getErrorMessage(error)}`);
+    }
+
     // Tier 4: Dynamic detection via RPC (token count)
     try {
       const tokenCount = await this.getTokenCount(address);
@@ -225,6 +254,41 @@ export class SystemWalletDetectionService {
     const filtered = new Map<string, string>();
     const filteredDetails = new Map<string, SystemWalletDetectionResult>();
     const largeWallets: string[] = [];
+
+    // Pre-warm: batch-resolve Helius identities for addresses not in local registry or cache.
+    // This turns N individual API calls into one batch call, and populates memory cache
+    // so detectSystemWallet() hits at Tier 1 for these addresses.
+    const unknownAddresses = addresses.filter(addr => !getKnownWallet(addr) && !this.getMemoryCache(addr));
+    if (unknownAddresses.length > 0) {
+      try {
+        const identities = await this.identityResolver.resolveBatch(unknownAddresses);
+        const tagPromises: Promise<void>[] = [];
+        for (const [addr, entry] of identities) {
+          const result: SystemWalletDetectionResult = {
+            address: addr,
+            shouldLog: true,
+            reason: `Helius identity: ${entry.label} (${entry.type})`,
+            method: 'helius_identity',
+            confidence: 0.95,
+            knownType: entry.type,
+            knownLabel: entry.label,
+          };
+          this.cacheResult(result); // memory + redis (fire-and-forget)
+          if (SYSTEM_WALLET_DETECTION_CONFIG.AUTO_TAG_DATABASE) {
+            tagPromises.push(this.tagWallet(result));
+          }
+        }
+        // Parallel DB writes — tagWallet already has its own error handling
+        if (tagPromises.length > 0) {
+          await Promise.all(tagPromises);
+        }
+        if (identities.size > 0) {
+          this.logger.debug(`Pre-warmed ${identities.size} identities from Helius for batch of ${unknownAddresses.length}`);
+        }
+      } catch (error) {
+        this.logger.debug(`Batch identity pre-warm failed: ${getErrorMessage(error)}`);
+      }
+    }
 
     // Process in parallel with concurrency limit
     const CONCURRENCY = 5;

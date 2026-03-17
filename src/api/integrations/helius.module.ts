@@ -2,6 +2,7 @@ import { Module, Global, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseService } from '../services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { HeliusIdentityResolver } from '../../core/services/helius-identity-resolver';
 import { HeliusSyncService } from '../../core/services/helius-sync-service';
 import { SmartFetchService } from '../../core/services/smart-fetch-service';
 import { WalletClassificationService } from '../../core/services/wallet-classification.service';
@@ -29,6 +30,7 @@ import { DatabaseModule } from '../modules/database.module';
       },
       inject: [ConfigService, DatabaseService],
     },
+    HeliusIdentityResolver,
     WalletClassificationService,
     {
       provide: SmartFetchService,
@@ -69,6 +71,6 @@ import { DatabaseModule } from '../modules/database.module';
       inject: [ConfigService, DatabaseService, HeliusApiClient],
     },
   ],
-  exports: [HeliusApiClient, HeliusSyncService, SmartFetchService, WalletClassificationService, OnchainMetadataService],
+  exports: [HeliusApiClient, HeliusIdentityResolver, HeliusSyncService, SmartFetchService, WalletClassificationService, OnchainMetadataService],
 })
 export class HeliusModule {}
