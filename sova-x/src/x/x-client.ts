@@ -13,10 +13,28 @@ export class XClient {
   ) {}
 
   async getMentions(userId: string, sinceId?: string): Promise<XMention[]> {
-    const query: string = sinceId ? `?since_id=${encodeURIComponent(sinceId)}` : '';
-    const response = await this.request<{ data?: unknown[] }>('GET', `/users/${userId}/mentions${query}`);
+    const searchParams = new URLSearchParams({
+      expansions: 'author_id',
+      'user.fields': 'username',
+    });
+    if (sinceId) {
+      searchParams.set('since_id', sinceId);
+    }
+
+    const response = await this.request<{ data?: unknown[]; includes?: { users?: unknown[] } }>(
+      'GET',
+      `/users/${userId}/mentions?${searchParams.toString()}`,
+    );
     const rows: unknown[] = response.data ?? [];
-    return rows.map(mapTweet);
+    const includedUsers = new Map<string, string>();
+    for (const user of response.includes?.users ?? []) {
+      const row = user as { id?: string; username?: string };
+      if (row.id && row.username) {
+        includedUsers.set(row.id, row.username);
+      }
+    }
+
+    return rows.map((row) => mapTweet(row, includedUsers));
   }
 
   async getTweet(tweetId: string): Promise<XTweet> {
@@ -90,19 +108,22 @@ export class XClient {
   }
 }
 
-function mapTweet(raw: unknown): XTweet {
+function mapTweet(raw: unknown, includedUsers?: Map<string, string>): XTweet {
   const row = raw as {
     id: string;
     text: string;
     author_id?: string;
+    author_username?: string;
     conversation_id?: string;
     referenced_tweets?: Array<{ type: 'replied_to' | 'quoted' | 'retweeted'; id: string }>;
   };
+  const authorId: string = row.author_id ?? '';
 
   return {
     id: row.id,
     text: row.text,
-    authorId: row.author_id ?? '',
+    authorId,
+    authorUsername: row.author_username ?? includedUsers?.get(authorId) ?? null,
     conversationId: row.conversation_id ?? row.id,
     referencedTweets: row.referenced_tweets ?? [],
   };

@@ -7,6 +7,7 @@ export type XTweet = {
   id: string;
   text: string;
   authorId: string;
+  authorUsername: string | null;
   conversationId: string;
   referencedTweets: XReferencedTweet[];
 };

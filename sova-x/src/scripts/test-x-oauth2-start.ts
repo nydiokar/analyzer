@@ -24,10 +24,13 @@ async function main(): Promise<void> {
   await fs.writeFile(sessionPath, JSON.stringify(session, null, 2), 'utf8');
 
   console.log(`Saved PKCE session to ${sessionPath}`);
+  console.log('Start the local callback listener first:');
+  console.log('node dist\\scripts\\test-x-oauth2-listen.js');
+  console.log('');
   console.log('Open this URL in a browser and approve the app:');
   console.log(authorizeUrl);
   console.log('');
-  console.log('After redirect, copy the full callback URL and run:');
+  console.log('Fallback if you do not run the listener: after redirect, copy the full callback URL and run:');
   console.log('node dist\\scripts\\test-x-oauth2-complete.js "<PASTED_CALLBACK_URL>"');
 }
 
