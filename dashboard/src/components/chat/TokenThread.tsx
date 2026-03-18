@@ -214,17 +214,19 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
 
   return (
     <div className="flex h-full min-h-0 flex-col" {...chat.containerProps} aria-label="Token thread keyboard area">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-5 py-3 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-white/5 bg-[#181820] px-5 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <TokenBadge
               mint={tokenAddress}
+              size="md"
               metadata={{
                 name: watchedMeta?.name ?? undefined,
                 symbol: watchedMeta?.symbol ?? undefined,
-                imageUrl: (watchedMeta?.imageUrl as any) ?? undefined,
+                imageUrl: watchedMeta?.imageUrl ?? undefined,
+                marketCapUsd: watchedMeta?.marketCapUsd ?? undefined,
+                priceUsd: watchedMeta?.priceUsd ?? undefined,
               }}
-              size="md"
             />
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>Trend {trend > 0 ? 'up' : trend < 0 ? 'down' : 'flat'}</span>

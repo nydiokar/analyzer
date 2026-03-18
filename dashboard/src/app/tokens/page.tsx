@@ -7,12 +7,15 @@ import TokenThread from '@/components/chat/TokenThread';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { AppShell } from '@/components/layout/AppShell';
 
 export default function TokensPage() {
   return (
-    <Suspense fallback={<div className="p-3 text-sm">Loading...</div>}>
-      <TokensPageInner />
-    </Suspense>
+    <AppShell>
+      <Suspense fallback={<div className="p-3 text-sm">Loading...</div>}>
+        <TokensPageInner />
+      </Suspense>
+    </AppShell>
   );
 }
 
@@ -56,7 +59,7 @@ function TokensPageInner() {
   }, [qpMid, router]);
 
   return (
-    <div className="min-h-[100dvh] h-[100dvh] overflow-hidden bg-background">
+    <div className="h-full overflow-hidden bg-background">
       <div className="h-full grid grid-cols-1 xl:grid-cols-[minmax(300px,0.33fr)_minmax(320px,0.34fr)_minmax(0,0.33fr)] 2xl:grid-cols-[minmax(340px,0.33fr)_minmax(360px,0.34fr)_minmax(0,0.33fr)] gap-0 overflow-hidden">
         {/* Left: Global chat */}
         <section className="order-1 flex min-h-0 flex-col border-b border-border/60 xl:border-b-0 xl:border-r bg-[#0E0E12] text-white/80" aria-label="Global chat panel">
@@ -80,7 +83,7 @@ function TokensPageInner() {
           aria-label="Token thread drawer"
         >
           {selectedToken ? (
-            <TokenThread tokenAddress={selectedToken} highlightId={qpMid || undefined} />
+            <TokenThread key={selectedToken} tokenAddress={selectedToken} highlightId={qpMid || undefined} />
           ) : (
             <div className="h-full w-full flex items-center justify-center text-sm text-muted-foreground/80 p-6">
               Select a token to open its thread

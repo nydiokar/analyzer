@@ -400,12 +400,14 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                       <div className="flex items-center gap-2">
                         <TokenBadge
                           mint={token.tokenAddress}
+                          size="md"
                           metadata={{
                             name: token.name ?? undefined,
                             symbol: token.symbol ?? undefined,
                             imageUrl: token.imageUrl ?? undefined,
+                            marketCapUsd: token.marketCapUsd ?? undefined,
+                            priceUsd: token.priceUsd ?? undefined,
                           }}
-                          size="md"
                         />
                         {unread && (
                           <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" aria-label="Unread messages" />
@@ -450,25 +452,6 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                       </div>
                     </div>
 
-                    {/* Market Cap + Price Row */}
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-[9px] uppercase tracking-wider text-white/50">MC</span>
-                        {marketCapLabel ? (
-                          <span className="text-lg font-bold text-white">{marketCapLabel}</span>
-                        ) : (
-                          <span className="text-lg font-bold text-white/30">--</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {priceLabel && <span className="text-base font-semibold text-white/80">{priceLabel}</span>}
-                        {changeLabel && (
-                          <span className={cn('rounded-md px-2 py-0.5 text-xs font-bold', changeColor)}>
-                            {changeLabel}
-                          </span>
-                        )}
-                      </div>
-                    </div>
 
                     {/* Sparkline with hour span label */}
                     {sparkline && sparkline.series.length > 1 && (

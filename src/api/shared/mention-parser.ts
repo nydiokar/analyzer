@@ -5,7 +5,7 @@ export type ParsedMention = {
   metaJson?: Record<string, unknown>;
 };
 
-const CA_RE = /@ca:([1-9A-HJ-NP-Za-km-z]{32,44})/g;
+const CA_RE = /@ca:\s?([1-9A-HJ-NP-Za-km-z]{32,44})/g;
 const SYM_RE = /@sym:([A-Za-z0-9_\.\-]{1,15})/g;
 const TAG_RE = /@(meta|risk|thesis):([a-z0-9_\-]+)/gi;
 const TIME_RE = /@time:(\d+)(m|h|d)/gi;

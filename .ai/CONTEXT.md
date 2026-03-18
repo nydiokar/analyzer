@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-18  **Status:** Token Dashboard — transplant from feature/token-dash complete, builds clean, migration applied
+**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-18  **Status:** Token Dashboard — transplant complete, bugs fixed, `/tokens` page fully functional
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -29,8 +29,10 @@
 | ✅ | Token validation endpoint — DexScreener-backed address check | Backend | `token-validation.controller.ts` |
 | ✅ | Schema migration — `MessageReadState`, `TokenAlert`, `AlertNotification` | DB | Migration `20260318102646_add_token_dash_models` applied |
 | ✅ | Socket.IO namespaces — `/jobs` + `/messages` on shared `/socket.io/` path | Backend + Frontend | `job-progress.gateway.ts`, `message.gateway.ts`, `useJobProgress.ts`, `useMessagesSocket.ts` |
+| ✅ | `/tokens` page bugs fixed — `@ca:` space regex, sparkline endpoint, AppShell dark theme, page height, thread key remount, TokenBadge card variant with metadata | Frontend + Backend | `mention-parser.ts`, `token-info.controller.ts`, `tokens/page.tsx`, `WatchedTokenList.tsx`, `TokenThread.tsx` |
 | ⚪ | Wire chat into nav — add entry point to existing AppShell/nav for `/tokens` and `/chat` routes | Frontend | `AppShell.tsx` or equivalent nav component |
 | ⚪ | Rate-limit `POST /watched-tokens/:addr/tags` — add `@Throttle` decorator | Backend | `watched-tokens.controller.ts` |
+| ⚪ | **[TOKEN-FAV-MODAL]** Wire navbar star button ("Favorite tokens — Coming Soon") to open a modal/sheet showing `WatchedTokenList`. Add "Watch" button to token pages/badges that calls `POST /watched-tokens/:addr/watch { on: true }` then mutates SWR key. Infrastructure fully ready: `useWatchedTokens()`, `WatchedTokensService`, `watchToken()` in `useChat.ts`. | Frontend | `AppShell.tsx` (star button), `WatchedTokenList.tsx` (reuse as modal content) |
 
 **Files added (backend):**
 - `src/api/controllers/messages.controller.ts`, `alerts.controller.ts`, `watched-tokens.controller.ts`, `token-validation.controller.ts`
@@ -341,7 +343,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-18  **Branch:** `feature/token-dash-v2`  **Transplant complete. 2 tasks remain before merge.**
+**Last Updated:** 2026-03-18  **Branch:** `feature/token-dash-v2`  **Transplant complete + bugs fixed. `/tokens` page functional. 3 tasks remain before merge.**
 
 
 

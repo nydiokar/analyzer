@@ -16,7 +16,7 @@ export class AlertEvaluatorJob {
   @Cron('*/30 * * * * *') // Every 30 seconds
   async evaluateAlerts() {
     const startTime = Date.now();
-    this.logger.log('🔔 AlertEvaluatorJob started');
+   //  this.logger.debug('🔔 AlertEvaluatorJob started');
 
     try {
       // Fetch active alerts
@@ -26,7 +26,7 @@ export class AlertEvaluatorJob {
         take: 500, // Max 500 per run
       });
 
-      this.logger.log(`Found ${alerts.length} active alerts to evaluate`);
+     //  this.logger.debug(`Found ${alerts.length} active alerts to evaluate`);
 
       if (alerts.length === 0) {
         this.logger.debug('No active alerts to evaluate');
