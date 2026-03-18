@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main` / `feature/sig-buyers-ui`  **Last Updated:** 2026-03-13  **Status:** Sig Buyers UI — backend + frontend scaffolded, needs async job wiring
+**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-18  **Status:** Token Dashboard — transplant from feature/token-dash complete, builds clean, migration applied
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,6 +8,50 @@
 
 ##  Active Work
 
+### feature/token-dash-v2 — 🚧 IN PROGRESS (Mar 18, 2026)
+
+**What this is:** Clean transplant of the token dashboard feature (originally `feature/token-dash`, Sep–Oct 2025) onto current main. New branch from main — no merge, surgical file-by-file port. Backend TS clean, frontend builds clean, migration applied.
+
+**Key decisions made:**
+- All new services use `prisma` singleton (matches pattern of newer services: radar, wallet-hud, credits)
+- Two WS gateways on **Socket.IO namespaces** (not separate paths): `/jobs` (JobProgressGateway) and `/messages` (MessageGateway) — both on default `/socket.io/` path, one TCP connection per tab, multiplexed
+- `alerts.controller.ts` fixed: userId sourced from `req.user` (not body/query) — auth via global `APP_GUARD`
+- No existing main components modified — Sidebar.tsx (branch nav replacement) removed, TokenBadge/dialog reverted to main versions
+
+| Status | Task | Area | Notes |
+|:------:|:-----|:----:|:------|
+| ✅ | Chat system — GlobalChat, TokenThread, MessageComposer, MessageRow, SymbolResolverModal | Frontend | `dashboard/src/components/chat/` |
+| ✅ | WatchedTokens list — price metrics, tags, sparklines | Frontend | `dashboard/src/components/tokens/WatchedTokenList.tsx` |
+| ✅ | Token Alerts — price/% alerts with BullMQ cron evaluator (30s) | Backend + Frontend | `alerts.service.ts`, `alert-evaluator.job.ts`, `AlertCreator.tsx`, `AlertsList.tsx` |
+| ✅ | Read state tracking — per-user/scope unread markers | Backend + Frontend | `MessageReadState` model, `useMessagesSocket.ts` |
+| ✅ | Mention parser — `@ca:`, `@sym:` namespaces with server re-validation | Backend | `mention-parser.ts` |
+| ✅ | SparklineService — Redis-backed mini price series | Backend | `sparkline.service.ts` |
+| ✅ | Token validation endpoint — DexScreener-backed address check | Backend | `token-validation.controller.ts` |
+| ✅ | Schema migration — `MessageReadState`, `TokenAlert`, `AlertNotification` | DB | Migration `20260318102646_add_token_dash_models` applied |
+| ✅ | Socket.IO namespaces — `/jobs` + `/messages` on shared `/socket.io/` path | Backend + Frontend | `job-progress.gateway.ts`, `message.gateway.ts`, `useJobProgress.ts`, `useMessagesSocket.ts` |
+| ⚪ | Wire chat into nav — add entry point to existing AppShell/nav for `/tokens` and `/chat` routes | Frontend | `AppShell.tsx` or equivalent nav component |
+| ⚪ | Rate-limit `POST /watched-tokens/:addr/tags` — add `@Throttle` decorator | Backend | `watched-tokens.controller.ts` |
+
+**Files added (backend):**
+- `src/api/controllers/messages.controller.ts`, `alerts.controller.ts`, `watched-tokens.controller.ts`, `token-validation.controller.ts`
+- `src/api/services/messages.service.ts`, `alerts.service.ts`, `watched-tokens.service.ts`, `sparkline.service.ts`
+- `src/api/modules/messages.module.ts`
+- `src/api/shared/mention-parser.ts`, `message.gateway.ts`
+- `src/queues/jobs/alert-evaluator.job.ts`
+
+**Files added (frontend):**
+- `dashboard/src/app/chat/`, `app/tokens/`, `app/m/[id]/`
+- `dashboard/src/components/chat/`, `components/alerts/`, `components/sidebar/`, `components/tokens/`, `components/shared/Sparkline.tsx`
+- `dashboard/src/hooks/useChat.ts`, `useMessages.ts`, `useMessagesSocket.ts`, `useAlerts.ts`, `useWatchedTokens.ts`, `useTokenInfo.ts`, `useTokenInfoMany.ts`, `useMiniPriceSeries.ts`, `useInfiniteScroll.ts`, `useMediaQuery.ts`, `useCurrentUser.ts`
+- `dashboard/src/chat/types.ts`, `chat/utils.ts`, `lib/mention-grammar.ts`, `lib/tokenInfoAggregator.ts`
+
+**Modified (main files, additive only):**
+- `prisma/schema.prisma` — 3 new models + relations on User + TokenInfo
+- `src/api.module.ts` — MessagesModule + HttpModule + TokenValidationController added
+- `src/api/modules/websocket.module.ts` — MessageGateway added
+- `src/api/integrations/token-info.module.ts` — SparklineService added
+- `src/api/shared/job-progress.gateway.ts` — namespace `/jobs` (was path `/socket.io/`)
+- `dashboard/src/hooks/useJobProgress.ts` — connects to namespace `/jobs`
 
 ---
 
@@ -297,7 +341,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-13  **Branch:** `feature/sig-buyers-ui`  **SB-1–11 complete. Ready to merge.**
+**Last Updated:** 2026-03-18  **Branch:** `feature/token-dash-v2`  **Transplant complete. 2 tasks remain before merge.**
 
 
 
