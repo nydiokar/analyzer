@@ -6,11 +6,12 @@ import { DexscreenerModule } from './dexscreener.module';
 import { HeliusModule } from './helius.module';
 import { TokenInfoController } from '../controllers/token-info.controller';
 import { RedisModule } from '../../queues/config/redis.module';
+import { SparklineService } from '../services/sparkline.service';
 
 @Module({
   imports: [DatabaseModule, DexscreenerModule, HeliusModule, RedisModule],
   controllers: [TokenInfoController],
-  providers: [TokenInfoService, TokenHoldersService],
-  exports: [TokenInfoService, TokenHoldersService],
+  providers: [TokenInfoService, TokenHoldersService, SparklineService],
+  exports: [TokenInfoService, TokenHoldersService, SparklineService],
 })
 export class TokenInfoModule {} 

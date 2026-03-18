@@ -20,6 +20,9 @@ import { PaymentModule } from './api/modules/payment.module';
 import { IntelModule } from './api/modules/intel.module';
 import { RadarModule } from './api/modules/radar.module';
 import { SigBuyersModule } from './api/modules/sig-buyers.module';
+import { MessagesModule } from './api/modules/messages.module';
+import { TokenValidationController } from './api/controllers/token-validation.controller';
+import { HttpModule } from '@nestjs/axios';
 
 
 @Module({
@@ -43,11 +46,14 @@ import { SigBuyersModule } from './api/modules/sig-buyers.module';
     IntelModule,      // External product API for devs and agents
     RadarModule,      // Holdings Radar — analyst-gated wallet monitoring
     SigBuyersModule,  // Significant Buyers — find wallets that bought a token in a time window
+    MessagesModule,   // Chat, token threads, watched tokens, alerts
+    HttpModule,       // For token validation controller
     // QueueModule, HeliusModule, DatabaseModule are already global from AppModule
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
   ],
   controllers: [
     TestController,
+    TokenValidationController,
      // WalletsController is now part of WalletsModule, so remove from here
      // HeliusWebhookController is now part of HeliusWebhookModule
   ],

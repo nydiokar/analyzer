@@ -301,6 +301,9 @@ model User {
   registrationCode    RegistrationCode?
   creditBalance       CreditBalance?
   creditTransactions  CreditTransaction[]
+  messageReadStates   MessageReadState[]
+  tokenAlerts         TokenAlert[]
+  alertNotifications  AlertNotification[]
 
   @@index([lastBulkImportAt])
 }
@@ -489,6 +492,7 @@ model TokenInfo {
   metadataSource          String?
   TokenTag                TokenTag[]
   WatchedToken            WatchedToken[]
+  tokenAlerts             TokenAlert[]
 
   @@index([name])
   @@index([symbol])
@@ -737,4 +741,58 @@ model TelegramBotLog {
   @@index([telegramUserId])
   @@index([command])
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Token Dashboard — read state, alerts, alert notifications
+// ---------------------------------------------------------------------------
+
+model MessageReadState {
+  id         Int      @id @default(autoincrement())
+  userId     String
+  scope      String
+  lastReadAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope])
+  @@index([scope])
+}
+
+model TokenAlert {
+  id              String              @id @default(cuid())
+  userId          String
+  tokenAddress    String
+  label           String?
+  condition       Json
+  isActive        Boolean             @default(true)
+  channels        Json
+  lastTriggeredAt DateTime?
+  triggerCount    Int                 @default(0)
+  cooldownMinutes Int                 @default(60)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  baselinePrice   String?
+  notifications   AlertNotification[]
+  tokenInfo       TokenInfo           @relation(fields: [tokenAddress], references: [tokenAddress], onDelete: Cascade)
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([tokenAddress, isActive])
+}
+
+model AlertNotification {
+  id          String     @id @default(cuid())
+  alertId     String
+  userId      String
+  triggeredAt DateTime   @default(now())
+  snapshot    Json
+  delivered   Boolean    @default(false)
+  isRead      Boolean    @default(false)
+  readAt      DateTime?
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alert       TokenAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([triggeredAt])
 }
