@@ -433,3 +433,22 @@ Before the Manager marks any task complete in PROGRESS.md:
 | Publishing to npm/PyPI/GitHub | Code review before public release |
 | Strategic pivots (day 14/21/30 decisions) | Judgment calls requiring business context |
 | Updating real-time API metrics | Agents don't have dashboard access |
+
+---
+
+## 8. Campaign Package Routing Clarification
+
+For `campaign_package` work, the manager should not treat all four specialists as fully independent.
+
+- Keep independent work parallel only where there is no cross-output dependency.
+- `outreach-researcher` can run in parallel with `integration-engineer`.
+- If the package includes a technical deliverable, `technical-content-writer` must receive `integration-engineer.output.summary` and relevant output paths before drafting or finalizing the guide.
+- `social-content-generator` must receive `integration-engineer.output.summary` and, when available, `technical-content-writer.output.summary` before drafting the final social copy.
+- The manager's aggregation step is also a consistency gate: if social or guide drafts no longer match the shipped technical artifact, reroute them for one alignment pass before marking the package complete.
+
+Preferred order for code-backed campaign packages:
+
+1. `outreach-researcher` and `integration-engineer` in parallel
+2. `technical-content-writer` using the integration summary
+3. `social-content-generator` using the integration summary and guide summary
+4. `sova-playbook-manager` final aggregation and verification
