@@ -34,15 +34,13 @@ export const useMessagesSocket = ({ tokenAddress, onMessageCreated, onMessageEdi
   tokenRef.current = tokenAddress;
 
   const connectionOptions = useMemo(() => ({
-    baseUrl: process.env.NEXT_PUBLIC_WEBSOCKET_URL || '',
-    path: '/socket.io/messages',
+    url: `${process.env.NEXT_PUBLIC_WEBSOCKET_URL || ''}/messages`,
   }), []);
 
   // Establish a single socket connection for the lifetime of the component
   useEffect(() => {
     if (socketRef.current) return;
-    const socket: Socket = io(connectionOptions.baseUrl, {
-      path: connectionOptions.path,
+    const socket: Socket = io(connectionOptions.url, {
       transports: ['websocket'], // avoid long-polling noise
       withCredentials: true,
     });

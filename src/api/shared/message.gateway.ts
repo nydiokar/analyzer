@@ -14,9 +14,9 @@ import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 @WebSocketGateway({
+  namespace: '/messages',
   cors: { origin: true, methods: ['GET', 'POST'], credentials: true },
   transports: ['websocket', 'polling'],
-  path: '/socket.io/messages',
 })
 export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()

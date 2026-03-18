@@ -207,12 +207,10 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const user = useAuthStore.getState().user;
     const userId = user?.id;
 
-    // Prefer explicit env; fall back to same-origin in dev
     const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '';
     const forceNewSocket = (process.env.NEXT_PUBLIC_SOCKET_FORCE_NEW === 'true');
 
-    // In dev, avoid polling noise and upgrade confusion
-    const transportsEnv = (process.env.NEXT_PUBLIC_SOCKET_TRANSPORTS || 'websocket') as string;
+    const transportsEnv = (process.env.NEXT_PUBLIC_SOCKET_TRANSPORTS || 'polling,websocket') as string;
     const transports = transportsEnv
       .split(',')
       .map((t) => t.trim())
@@ -221,9 +219,8 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const includeNonce = process.env.NEXT_PUBLIC_SOCKET_NONCE === 'true';
     const query = includeNonce ? { nonce: Date.now().toString(36) } : undefined;
 
-    const newSocket = io(baseUrl, {
+    const newSocket = io(`${baseUrl}/jobs`, {
       autoConnect: true,
-      path: "/socket.io/jobs",
       transports,
       upgrade,
       reconnectionAttempts: Infinity, // Never give up reconnecting

@@ -59,13 +59,13 @@ type JobEventCounter = {
 };
 
 @WebSocketGateway({
+  namespace: '/jobs',
   cors: {
     origin: true,
     methods: ['GET', 'POST'],
     credentials: true,
   },
   transports: [ 'websocket', 'polling'],
-  path: "/socket.io/jobs",
 })
 export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
