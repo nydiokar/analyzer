@@ -293,7 +293,7 @@ model User {
   activityLogs        ActivityLog[]
   apiKeys             ApiKey[]
   verificationTokens  EmailVerificationToken[]
-  Message             Message[]
+  messages            Message[]
   passwordResetTokens PasswordResetToken[]
   favoriteWallets     UserFavoriteWallet[]
   walletHunts         WalletHunt[]
@@ -502,27 +502,27 @@ model TokenInfo {
 }
 
 model Message {
-  id              String            @id
+  id              String            @id @default(cuid())
   body            String
   authorUserId    String?
   source          String
   createdAt       DateTime          @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime          @updatedAt
   deletedAt       DateTime?
   isPinned        Boolean           @default(false)
   parentId        String?
-  User            User?             @relation(fields: [authorUserId], references: [id])
-  Message         Message?          @relation("MessageToMessage", fields: [parentId], references: [id])
-  other_Message   Message[]         @relation("MessageToMessage")
-  MessageMention  MessageMention[]
-  MessageReaction MessageReaction[]
-  MessageRevision MessageRevision[]
+  author          User?             @relation(fields: [authorUserId], references: [id])
+  parent          Message?          @relation("MessageThread", fields: [parentId], references: [id])
+  replies         Message[]         @relation("MessageThread")
+  mentions        MessageMention[]
+  reactions       MessageReaction[]
+  revisions       MessageRevision[]
 
   @@index([createdAt, id])
 }
 
 model MessageMention {
-  id        String  @id
+  id        String  @id @default(cuid())
   messageId String
   kind      String
   refId     String?
@@ -539,7 +539,7 @@ model MessageReaction {
   type      String
   count     Int      @default(0)
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt
   Message   Message  @relation(fields: [messageId], references: [id])
 
   @@id([messageId, type])
@@ -547,7 +547,7 @@ model MessageReaction {
 }
 
 model MessageRevision {
-  id        String   @id
+  id        String   @id @default(cuid())
   messageId String
   body      String
   editedAt  DateTime @default(now())
@@ -555,7 +555,7 @@ model MessageRevision {
 }
 
 model Tag {
-  id       String     @id
+  id       String     @id @default(cuid())
   name     String     @unique
   type     String
   TokenTag TokenTag[]
@@ -575,7 +575,7 @@ model TokenTag {
 }
 
 model WatchedToken {
-  id           String    @id
+  id           String    @id @default(cuid())
   tokenAddress String
   list         String
   createdAt    DateTime  @default(now())
