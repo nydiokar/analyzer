@@ -98,6 +98,7 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
 
   const validateInput = async () => {
     const trimmed = query.trim();
+    setSelectedAddress(null);
     if (!looksLikeSolanaAddress(trimmed)) {
       setValidation({
         valid: false,
@@ -135,6 +136,7 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
       if (on) {
         toast.success('Token added to your watchlist');
         setSelectedAddress(tokenAddress);
+        setValidation(null);
       } else {
         toast.success('Token removed from your watchlist');
         if (selectedAddress === tokenAddress) {
@@ -149,19 +151,19 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
     }
   };
 
-  const previewAddress = selectedToken?.tokenAddress ?? validation?.token?.address ?? null;
-  const previewMetadata = selectedToken
+  const previewAddress = validation ? (validation.token?.address ?? null) : (selectedToken?.tokenAddress ?? null);
+  const previewMetadata = validation?.token
     ? {
-        name: selectedToken.name ?? undefined,
-        symbol: selectedToken.symbol ?? undefined,
-        imageUrl: selectedToken.imageUrl ?? undefined,
-        marketCapUsd: selectedToken.marketCapUsd ?? undefined,
-        priceUsd: selectedToken.priceUsd ?? undefined,
+        name: validation.token.name ?? undefined,
+        symbol: validation.token.symbol ?? undefined,
       }
-    : validation?.token
+    : selectedToken
       ? {
-          name: validation.token.name ?? undefined,
-          symbol: validation.token.symbol ?? undefined,
+          name: selectedToken.name ?? undefined,
+          symbol: selectedToken.symbol ?? undefined,
+          imageUrl: selectedToken.imageUrl ?? undefined,
+          marketCapUsd: selectedToken.marketCapUsd ?? undefined,
+          priceUsd: selectedToken.priceUsd ?? undefined,
         }
       : undefined;
 
@@ -311,7 +313,26 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
                     </div>
                   </div>
 
-                  {selectedToken ? (
+                  {validation?.valid ? (
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                        Token validated via DexScreener. Add it to your personal watchlist.
+                      </div>
+                      <Button
+                        type="button"
+                        disabled={isSaving || !validation.token?.address}
+                        onClick={() => validation.token?.address && setWatched(validation.token.address, true)}
+                        className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        <Star className="h-4 w-4" />
+                        Watch Token
+                      </Button>
+                    </div>
+                  ) : validation ? (
+                    <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                      {validation.error || 'Token validation failed.'}
+                    </div>
+                  ) : selectedToken ? (
                     <div className="space-y-4">
                       {selectedToken.tags.length > 0 && (
                         <div>
@@ -354,25 +375,6 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
                           </Button>
                         )}
                       </div>
-                    </div>
-                  ) : validation?.valid ? (
-                    <div className="space-y-4">
-                      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-                        Token validated via DexScreener. Add it to your personal watchlist.
-                      </div>
-                      <Button
-                        type="button"
-                        disabled={isSaving || !validation.token?.address}
-                        onClick={() => validation.token?.address && setWatched(validation.token.address, true)}
-                        className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
-                      >
-                        <Star className="h-4 w-4" />
-                        Watch Token
-                      </Button>
-                    </div>
-                  ) : validation ? (
-                    <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                      {validation.error || 'Token validation failed.'}
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-10 text-sm text-white/55">

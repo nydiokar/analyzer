@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { prisma } from '../../core/services/database-service';
 import { WatchedTokensService, type WatchedTokenRow } from './watched-tokens.service';
+import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 
 @Injectable()
 export class UserWatchedTokensService {
@@ -16,6 +17,10 @@ export class UserWatchedTokensService {
   }
 
   async setWatched(userId: string, tokenAddress: string, on: boolean) {
+    if (!isValidSolanaAddress(tokenAddress)) {
+      throw new BadRequestException('Invalid Solana token address');
+    }
+
     if (on) {
       await this.watchedTokensService.ensureTokenInfoRecords([tokenAddress]);
       await prisma.userWatchedToken.upsert({
