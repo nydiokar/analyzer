@@ -472,6 +472,10 @@ model TokenInfo {
   marketCapUsd            Float?
   liquidityUsd            Float?
   pairCreatedAt           BigInt?
+  mintCreatedAt           BigInt?
+  mintCreationSignature   String?
+  detectedCreatorAddress  String?
+  mintCreationFetchedAt   DateTime?
   fdv                     Float?
   volume24h               Float?
   priceUsd                String?
@@ -501,6 +505,7 @@ model TokenInfo {
   @@index([marketCapUsd])
   @@index([liquidityUsd])
   @@index([pairCreatedAt])
+  @@index([mintCreatedAt])
 }
 
 model Message {
@@ -591,6 +596,7 @@ model UserWatchedToken {
   userId       String
   tokenAddress String
   createdAt    DateTime  @default(now())
+  tags         String[]  @default([])
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   tokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress], onDelete: Cascade)
 

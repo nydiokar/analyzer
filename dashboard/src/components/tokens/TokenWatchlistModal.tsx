@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Plus, Star, Trash2, ExternalLink, Waves, MessageSquare, BarChart3 } from 'lucide-react';
+import { Search, Plus, Star, Trash2, ExternalLink, MessageSquare, BarChart3, Waves, Tag, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,23 +30,18 @@ interface TokenWatchlistModalProps {
   canOpenWorkspace: boolean;
 }
 
-type CandidateState =
-  | { kind: 'idle' }
-  | { kind: 'invalid'; message: string }
-  | {
-      kind: 'valid';
-      tokenAddress: string;
-      name?: string | null;
-      symbol?: string | null;
-      hasLiquidity: boolean;
-    };
+const TAG_PRESETS = ['meme', 'ai', 'utility', 'news', 'high-conviction', 'watch-later', 'trading'] as const;
+
+function normalizeTag(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, '-');
+}
 
 function looksLikeSolanaAddress(value: string) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value.trim());
 }
 
 function formatCompactUsd(value?: number | null) {
-  if (value == null || !Number.isFinite(value)) return '—';
+  if (value == null || !Number.isFinite(value)) return '--';
   if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
@@ -66,123 +61,163 @@ function formatRelativeTime(iso?: string | null) {
   return `${days}d ago`;
 }
 
-function candidateFromValidation(result: TokenValidationResult, fallbackAddress: string): CandidateState {
+function normalizeTags(tags: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const tag = normalizeTag(raw);
+    if (!tag) continue;
+    if (!/^[a-z0-9_-]+$/.test(tag)) continue;
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+function candidateFromValidation(result: TokenValidationResult, fallbackAddress: string) {
   if (!result.valid || !result.token) {
     return {
-      kind: 'invalid',
+      valid: false as const,
       message: result.error || 'Token validation failed.',
     };
   }
 
   return {
-    kind: 'valid',
+    valid: true as const,
     tokenAddress: result.token.address || fallbackAddress,
-    name: result.token.name,
-    symbol: result.token.symbol,
-    hasLiquidity: result.token.hasLiquidity,
   };
 }
 
 export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: TokenWatchlistModalProps) {
   const router = useRouter();
   const { data, isLoading, mutate } = useUserWatchedTokens(open);
+
   const [filterText, setFilterText] = useState('');
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [candidateInput, setCandidateInput] = useState('');
-  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
-  const [candidate, setCandidate] = useState<CandidateState>({ kind: 'idle' });
+  const [candidateTags, setCandidateTags] = useState<string[]>([]);
+  const [candidateTagInput, setCandidateTagInput] = useState('');
+  const [showCandidateTagEditor, setShowCandidateTagEditor] = useState(false);
+  const [expandedTokenAddress, setExpandedTokenAddress] = useState<string | null>(null);
+  const [editTagInput, setEditTagInput] = useState('');
+  const [candidateError, setCandidateError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmittingCandidate, setIsSubmittingCandidate] = useState(false);
+  const wasOpenRef = useRef(open);
 
   useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+
     if (!open) {
+      if (!wasOpen) return;
       setFilterText('');
+      setActiveTagFilter(null);
       setCandidateInput('');
-      setCandidate({ kind: 'idle' });
+      setCandidateTags([]);
+      setCandidateTagInput('');
+      setShowCandidateTagEditor(false);
+      setExpandedTokenAddress(null);
+      setEditTagInput('');
+      setCandidateError(null);
       setIsSaving(false);
       setIsSubmittingCandidate(false);
-      return;
     }
-
-    if (!selectedAddress && data.length > 0) {
-      setSelectedAddress(data[0].tokenAddress);
-    }
-  }, [open, data, selectedAddress]);
+  }, [open]);
 
   const filteredTokens = useMemo(() => {
     const term = filterText.trim().toLowerCase();
-    if (!term) return data;
     return data.filter((token) => {
-      const fields = [
+      const userTags = token.userTags ?? [];
+      const matchesTag = !activeTagFilter
+        ? true
+        : activeTagFilter === '__untagged__'
+          ? userTags.length === 0
+          : userTags.includes(activeTagFilter);
+      if (!matchesTag) return false;
+      if (!term) return true;
+
+      return [
         token.symbol?.toLowerCase() ?? '',
         token.name?.toLowerCase() ?? '',
         token.tokenAddress.toLowerCase(),
-        ...(token.tags || []).map((tag) => tag.name.toLowerCase()),
-      ];
-      return fields.some((field) => field.includes(term));
+        ...userTags,
+      ].some((field) => field.includes(term));
     });
-  }, [data, filterText]);
+  }, [data, filterText, activeTagFilter]);
 
-  const selectedToken = useMemo<WatchedTokenRow | null>(() => {
-    if (!selectedAddress) return null;
-    return data.find((token) => token.tokenAddress === selectedAddress) ?? null;
-  }, [data, selectedAddress]);
+  const availableUserTags = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const token of data) {
+      for (const tag of token.userTags ?? []) {
+        if (seen.has(tag)) continue;
+        seen.add(tag);
+        out.push(tag);
+      }
+    }
+    return out.sort();
+  }, [data]);
 
-  const inspectedAddress = candidate.kind === 'valid' ? candidate.tokenAddress : selectedToken?.tokenAddress ?? null;
-  const inspectedMetadata =
-    candidate.kind === 'valid'
-      ? {
-          name: candidate.name ?? undefined,
-          symbol: candidate.symbol ?? undefined,
-        }
-      : selectedToken
-        ? {
-            name: selectedToken.name ?? undefined,
-            symbol: selectedToken.symbol ?? undefined,
-            imageUrl: selectedToken.imageUrl ?? undefined,
-            marketCapUsd: selectedToken.marketCapUsd ?? undefined,
-            priceUsd: selectedToken.priceUsd ?? undefined,
-          }
-        : undefined;
+  const expandedToken = useMemo<WatchedTokenRow | null>(() => {
+    if (!expandedTokenAddress) return null;
+    return data.find((token) => token.tokenAddress === expandedTokenAddress) ?? null;
+  }, [data, expandedTokenAddress]);
 
-  const selectWatchedToken = (tokenAddress: string) => {
-    setSelectedAddress(tokenAddress);
-    setCandidate({ kind: 'idle' });
-    setCandidateInput('');
+  const expandedTags = expandedToken?.userTags ?? [];
+  const addPresetOptions = TAG_PRESETS.filter((tag) => !candidateTags.includes(tag));
+  const editPresetOptions = TAG_PRESETS.filter((tag) => !expandedTags.includes(tag));
+
+  const toggleCandidateTag = (tag: string) => {
+    setCandidateTags((prev) => (
+      prev.includes(tag)
+        ? prev.filter((item) => item !== tag)
+        : [...prev, tag]
+    ));
+  };
+
+  const addCandidateCustomTag = () => {
+    setCandidateTags((prev) => normalizeTags([...prev, candidateTagInput]));
+    setCandidateTagInput('');
   };
 
   const addCandidateToWatchlist = async () => {
     const trimmed = candidateInput.trim();
     if (!trimmed) {
-      setCandidate({ kind: 'invalid', message: 'Paste a token address first.' });
+      setCandidateError('Paste a token address first.');
       return;
     }
     if (!looksLikeSolanaAddress(trimmed)) {
-      setCandidate({ kind: 'invalid', message: 'Paste a valid Solana token address.' });
+      setCandidateError('Paste a valid Solana token address.');
       return;
     }
 
     setIsSubmittingCandidate(true);
-    setCandidate({ kind: 'idle' });
+    setCandidateError(null);
     try {
       const result = await fetcher(`/token-validation/${encodeURIComponent(trimmed)}`) as TokenValidationResult;
-      const nextCandidate = candidateFromValidation(result, trimmed);
-      setCandidate(nextCandidate);
-
-      if (nextCandidate.kind !== 'valid') {
+      const validation = candidateFromValidation(result, trimmed);
+      if (!validation.valid) {
+        setCandidateError(validation.message);
         return;
       }
 
-      await fetcher(`/users/me/watched-tokens/${encodeURIComponent(nextCandidate.tokenAddress)}/watch`, {
+      await fetcher(`/users/me/watched-tokens/${encodeURIComponent(validation.tokenAddress)}/watch`, {
         method: 'POST',
-        body: JSON.stringify({ on: true }),
+        body: JSON.stringify({ on: true, tags: candidateTags }),
       });
+
       await mutate();
-      setSelectedAddress(nextCandidate.tokenAddress);
+      setExpandedTokenAddress(validation.tokenAddress);
       setCandidateInput('');
-      setCandidate({ kind: 'idle' });
+      setCandidateTags([]);
+      setCandidateTagInput('');
+      setShowCandidateTagEditor(false);
       toast.success('Token added to your watchlist');
-    } catch (error) {
-      setCandidate({ kind: 'invalid', message: 'Failed to add token. Please try again.' });
+    } catch {
+      setCandidateError('Failed to add token. Please try again.');
       toast.error('Failed to add token');
     } finally {
       setIsSubmittingCandidate(false);
@@ -197,11 +232,30 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
         body: JSON.stringify({ on: false }),
       });
       await mutate();
-      const next = data.find((token) => token.tokenAddress !== tokenAddress);
-      setSelectedAddress(next?.tokenAddress ?? null);
+      if (expandedTokenAddress === tokenAddress) {
+        setExpandedTokenAddress(null);
+        setEditTagInput('');
+      }
       toast.success('Token removed from your watchlist');
-    } catch (error) {
+    } catch {
       toast.error('Failed to remove token');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateExpandedTags = async (nextTags: string[]) => {
+    if (!expandedToken) return;
+    setIsSaving(true);
+    try {
+      await fetcher(`/users/me/watched-tokens/${encodeURIComponent(expandedToken.tokenAddress)}/tags`, {
+        method: 'POST',
+        body: JSON.stringify({ tags: normalizeTags(nextTags) }),
+      });
+      await mutate();
+      toast.success('Tags updated');
+    } catch {
+      toast.error('Failed to update tags');
     } finally {
       setIsSaving(false);
     }
@@ -213,232 +267,329 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
         <DialogHeader className="border-b border-white/10 px-6 py-5">
           <DialogTitle className="text-white">Favorite Tokens</DialogTitle>
           <DialogDescription className="text-white/60">
-            Left: your personal watchlist. Right: inspect the selected token or add a new one by contract address.
+            Keep a personal shortlist here. Add fast and cluster with your own tags when needed.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-h-[70vh] grid-cols-1 lg:grid-cols-[minmax(360px,0.95fr)_minmax(0,1.05fr)]">
-          <section className="border-b border-white/10 bg-[#14151d] lg:border-b-0 lg:border-r">
-            <div className="space-y-3 border-b border-white/10 px-5 py-4">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
-                <Input
-                  value={filterText}
-                  onChange={(event) => setFilterText(event.target.value)}
-                  placeholder="Search your watchlist"
-                  className="h-10 border-white/10 bg-white/5 pl-9 text-white placeholder:text-white/35"
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs text-white/55">
-                <span>{data.length} watched</span>
-                <span>Filter only</span>
-              </div>
+        <div className="border-b border-white/10 px-6 py-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(340px,0.9fr)]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+              <Input
+                value={filterText}
+                onChange={(event) => setFilterText(event.target.value)}
+                placeholder="Search by name, symbol, address, or tag"
+                className="h-10 border-white/10 bg-white/5 pl-9 text-white placeholder:text-white/35"
+              />
             </div>
 
-            <div className="max-h-[56vh] overflow-auto px-3 py-3 lg:max-h-[calc(70vh-102px)]">
-              {isLoading ? (
-                <div className="px-3 py-10 text-sm text-white/55">Loading watchlist...</div>
-              ) : filteredTokens.length === 0 ? (
-                <div className="px-3 py-10 text-sm text-white/55">
-                  {data.length === 0
-                    ? 'No watched tokens yet. Add one on the right.'
-                    : 'No watched tokens match this filter.'}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {filteredTokens.map((token) => {
-                    const isSelected = token.tokenAddress === selectedToken?.tokenAddress && candidate.kind === 'idle';
-                    return (
-                      <div
-                        key={token.tokenAddress}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => selectWatchedToken(token.tokenAddress)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            selectWatchedToken(token.tokenAddress);
-                          }
-                        }}
-                        className={cn(
-                          'rounded-2xl border px-3 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/60',
-                          isSelected
-                            ? 'border-blue-500/60 bg-blue-500/10'
-                            : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <TokenBadge
-                            mint={token.tokenAddress}
-                            size="sm"
-                            variant="inline"
-                            metadata={{
-                              name: token.name ?? undefined,
-                              symbol: token.symbol ?? undefined,
-                              imageUrl: token.imageUrl ?? undefined,
-                              marketCapUsd: token.marketCapUsd ?? undefined,
-                              priceUsd: token.priceUsd ?? undefined,
-                            }}
-                            className="min-w-0 flex-1"
-                          />
-                          <Star className="mt-1 h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-xs text-white/55">
-                          <span>{formatRelativeTime(token.latestMessageAt)}</span>
-                          <span>{formatCompactUsd(token.marketCapUsd)} mcap</span>
-                        </div>
-                        {token.tags.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {token.tags.slice(0, 3).map((tag) => (
-                              <span
-                                key={`${token.tokenAddress}-${tag.name}`}
-                                className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
-                              >
-                                {tag.name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+            <div className="flex gap-3">
+              <Input
+                value={candidateInput}
+                onChange={(event) => setCandidateInput(event.target.value)}
+                placeholder="Paste token address to add"
+                className="h-10 border-white/10 bg-white/5 text-white placeholder:text-white/35"
+              />
+              <Button
+                type="button"
+                onClick={addCandidateToWatchlist}
+                disabled={isSubmittingCandidate || isSaving}
+                className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+              >
+                <Plus className="h-4 w-4" />
+                {isSubmittingCandidate ? 'Adding...' : 'Add'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTagFilter(null)}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-wide transition-colors',
+                activeTagFilter === null
+                  ? 'border-blue-500/50 bg-blue-500/10 text-white'
+                  : 'border-white/10 bg-white/[0.03] text-white/55 hover:bg-white/[0.06]'
               )}
-            </div>
-          </section>
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTagFilter('__untagged__')}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-wide transition-colors',
+                activeTagFilter === '__untagged__'
+                  ? 'border-blue-500/50 bg-blue-500/10 text-white'
+                  : 'border-white/10 bg-white/[0.03] text-white/55 hover:bg-white/[0.06]'
+              )}
+            >
+              Untagged
+            </button>
+            {availableUserTags.map((tag) => (
+              <button
+                key={`filter-${tag}`}
+                type="button"
+                onClick={() => setActiveTagFilter(tag)}
+                className={cn(
+                  'rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-wide transition-colors',
+                  activeTagFilter === tag
+                    ? 'border-blue-500/50 bg-blue-500/10 text-white'
+                    : 'border-white/10 bg-white/[0.03] text-white/55 hover:bg-white/[0.06]'
+                )}
+              >
+                {tag}
+              </button>
+            ))}
 
-          <section className="flex min-h-0 flex-col bg-[#101118]">
-            <div className="border-b border-white/10 px-6 py-4">
-              <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowCandidateTagEditor((prev) => !prev)}
+              className="ml-auto h-8 border-white/10 bg-transparent px-3 text-xs text-white/65 hover:bg-white/10"
+            >
+              <Tag className="mr-1.5 h-3.5 w-3.5" />
+              {candidateTags.length > 0 ? `New Token Tags (${candidateTags.length})` : 'Tag New Token'}
+            </Button>
+          </div>
+
+          {showCandidateTagEditor && (
+            <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                {candidateTags.map((tag) => (
+                  <button
+                    key={`candidate-tag-${tag}`}
+                    type="button"
+                    onClick={() => toggleCandidateTag(tag)}
+                    className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-[11px] uppercase tracking-wide text-white"
+                  >
+                    {tag}
+                    <X className="h-3 w-3" />
+                  </button>
+                ))}
+                {addPresetOptions.map((tag) => (
+                  <button
+                    key={`preset-${tag}`}
+                    type="button"
+                    onClick={() => toggleCandidateTag(tag)}
+                    className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] uppercase tracking-wide text-white/55 transition-colors hover:bg-white/[0.06]"
+                  >
+                    + {tag}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-3 flex gap-2">
                 <Input
-                  value={candidateInput}
-                  onChange={(event) => setCandidateInput(event.target.value)}
-                  placeholder="Paste token address to add"
-                  className="h-10 border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                  value={candidateTagInput}
+                  onChange={(event) => setCandidateTagInput(event.target.value)}
+                  placeholder="Custom tag"
+                  className="h-8 min-w-0 border-white/10 bg-white/5 text-white placeholder:text-white/35"
                 />
                 <Button
                   type="button"
-                  onClick={addCandidateToWatchlist}
-                  disabled={isSubmittingCandidate || isSaving}
-                  className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+                  variant="outline"
+                  onClick={addCandidateCustomTag}
+                  className="h-8 border-white/10 bg-transparent px-3 text-white hover:bg-white/10"
                 >
-                  <Plus className="h-4 w-4" />
-                  {isSubmittingCandidate ? 'Adding...' : 'Add To Watchlist'}
+                  Add
                 </Button>
               </div>
             </div>
+          )}
 
-            <div className="flex-1 overflow-auto px-6 py-6">
-              {candidate.kind === 'invalid' ? (
-                <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                  {candidate.message}
-                </div>
-              ) : inspectedAddress ? (
-                <div className="space-y-5">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div className="text-xs uppercase tracking-[0.2em] text-white/45">
-                        {candidate.kind === 'valid' ? 'New Token' : 'Watched Token'}
-                      </div>
-                      {candidate.kind === 'valid' && (
-                        <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-200">
-                          Validated and added
-                        </span>
-                      )}
-                    </div>
-
-                    <TokenBadge
-                      mint={inspectedAddress}
-                      size="lg"
-                      metadata={inspectedMetadata}
-                    />
-
-                    <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                        <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/45">
-                          <Waves className="h-3.5 w-3.5" />
-                          Liquidity
-                        </div>
-                        <div className="font-medium text-white">
-                          {selectedToken
-                            ? formatCompactUsd(selectedToken.liquidityUsd)
-                            : candidate.kind === 'valid'
-                              ? (candidate.hasLiquidity ? 'Available' : 'No liquidity detected')
-                              : '—'}
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                        <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/45">
-                          <BarChart3 className="h-3.5 w-3.5" />
-                          24h Volume
-                        </div>
-                        <div className="font-medium text-white">
-                          {selectedToken ? formatCompactUsd(selectedToken.volume24h) : '—'}
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                        <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/45">
-                          <MessageSquare className="h-3.5 w-3.5" />
-                          Thread Activity
-                        </div>
-                        <div className="font-medium text-white">
-                          {selectedToken ? formatRelativeTime(selectedToken.latestMessageAt) : 'No thread activity yet'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedToken?.tags.length ? (
-                    <div>
-                      <div className="mb-2 text-xs uppercase tracking-wide text-white/45">Tags</div>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedToken.tags.map((tag) => (
-                          <span
-                            key={`${selectedToken.tokenAddress}-${tag.name}-detail`}
-                            className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-white/70"
-                          >
-                            {tag.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {candidate.kind === 'idle' && selectedToken ? (
-                    <div className="flex flex-wrap gap-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={isSaving}
-                        onClick={() => removeWatchedToken(selectedToken.tokenAddress)}
-                        className="gap-2 border-white/15 bg-transparent text-white hover:bg-white/10"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Remove From Watchlist
-                      </Button>
-                      {canOpenWorkspace && (
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            router.push(`/tokens?view=token&addr=${encodeURIComponent(selectedToken.tokenAddress)}`, { scroll: false });
-                            onOpenChange(false);
-                          }}
-                          className="gap-2 bg-white text-black hover:bg-white/90"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                          Open In Analyst Workspace
-                        </Button>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-10 text-sm text-white/55">
-                  Select a watched token on the left, or paste a contract address above to add a new one directly to your watchlist.
-                </div>
-              )}
+          {candidateError && (
+            <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              {candidateError}
             </div>
-          </section>
+          )}
+        </div>
+
+        <div className="max-h-[70vh] overflow-auto px-4 py-4">
+          <div className="mb-3 flex items-center justify-between px-2 text-xs text-white/50">
+            <span>{data.length} watched</span>
+            <span>{filteredTokens.length} shown</span>
+          </div>
+
+          {isLoading ? (
+            <div className="px-3 py-10 text-sm text-white/55">Loading watchlist...</div>
+          ) : filteredTokens.length === 0 ? (
+            <div className="px-3 py-10 text-sm text-white/55">
+              {data.length === 0 ? 'No watched tokens yet.' : 'No watched tokens match this filter.'}
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {filteredTokens.map((token) => {
+                const isExpanded = token.tokenAddress === expandedTokenAddress;
+                const userTags = token.userTags ?? [];
+
+                return (
+                  <div
+                    key={token.tokenAddress}
+                    className={cn(
+                      'rounded-2xl border bg-white/[0.03] transition-colors',
+                      isExpanded ? 'border-blue-500/50 bg-blue-500/[0.05]' : 'border-white/10'
+                    )}
+                  >
+                    <div className="flex flex-col gap-2 px-3.5 py-3">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                        <TokenBadge
+                          mint={token.tokenAddress}
+                          size="sm"
+                          variant="inline"
+                          metadata={{
+                            name: token.name ?? undefined,
+                            symbol: token.symbol ?? undefined,
+                            imageUrl: token.imageUrl ?? undefined,
+                            marketCapUsd: token.marketCapUsd ?? undefined,
+                            priceUsd: token.priceUsd ?? undefined,
+                          }}
+                          className="min-w-0 flex-1"
+                        />
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              setExpandedTokenAddress((prev) => prev === token.tokenAddress ? null : token.tokenAddress);
+                              setEditTagInput('');
+                            }}
+                            className="h-7 border-white/10 bg-transparent px-2.5 text-[11px] text-white/70 hover:bg-white/10"
+                          >
+                            <Tag className="mr-1.5 h-3.5 w-3.5" />
+                            Tags
+                          </Button>
+                          {canOpenWorkspace && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                router.push(`/tokens?view=token&addr=${encodeURIComponent(token.tokenAddress)}`, { scroll: false });
+                                onOpenChange(false);
+                              }}
+                              className="h-7 border-white/10 bg-transparent px-2.5 text-[11px] text-white/70 hover:bg-white/10"
+                            >
+                              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                              Open
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={isSaving}
+                            onClick={() => removeWatchedToken(token.tokenAddress)}
+                            className="h-7 border-white/10 bg-transparent px-2.5 text-[11px] text-white/70 hover:bg-white/10"
+                          >
+                            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-white/50">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Waves className="h-3.5 w-3.5" />
+                          Liquidity {formatCompactUsd(token.liquidityUsd)}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <BarChart3 className="h-3.5 w-3.5" />
+                          24h {formatCompactUsd(token.volume24h)}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          {formatRelativeTime(token.latestMessageAt)}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-amber-300/75">
+                          <Star className="h-3 w-3 fill-current" />
+                        </span>
+                      </div>
+
+                      {userTags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {userTags.slice(0, 3).map((tag) => (
+                            <span
+                              key={`${token.tokenAddress}-${tag}`}
+                              className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/50"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {userTags.length > 3 && (
+                            <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/40">
+                              +{userTags.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {isExpanded && expandedToken && (
+                      <div className="border-t border-white/10 bg-black/10 px-3.5 py-3">
+                        <div className="mb-2">
+                          <div className="text-sm font-medium text-white">Personal Tags</div>
+                          <div className="text-xs text-white/45">Used only for your own filtering and clustering.</div>
+                        </div>
+
+                        <div className="mb-2.5 flex flex-wrap gap-2">
+                          {expandedTags.length > 0 ? expandedTags.map((tag) => (
+                            <button
+                              key={`${expandedToken.tokenAddress}-${tag}-edit`}
+                              type="button"
+                              disabled={isSaving}
+                              onClick={() => updateExpandedTags(expandedTags.filter((item) => item !== tag))}
+                              className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/75 hover:bg-white/[0.08]"
+                            >
+                              {tag}
+                              <X className="h-3 w-3" />
+                            </button>
+                          )) : (
+                            <span className="text-sm text-white/45">No personal tags yet.</span>
+                          )}
+                        </div>
+
+                        <div className="mb-2.5 flex flex-wrap gap-2">
+                          {editPresetOptions.map((tag) => (
+                            <button
+                              key={`edit-preset-${expandedToken.tokenAddress}-${tag}`}
+                              type="button"
+                              disabled={isSaving}
+                              onClick={() => updateExpandedTags([...expandedTags, tag])}
+                              className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] uppercase tracking-wide text-white/60 transition-colors hover:bg-white/[0.06]"
+                            >
+                              + {tag}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex gap-2">
+                          <Input
+                            value={editTagInput}
+                            onChange={(event) => setEditTagInput(event.target.value)}
+                            placeholder="Add custom tag"
+                            className="h-8 border-white/10 bg-white/5 text-white placeholder:text-white/35"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={isSaving}
+                            onClick={() => {
+                              updateExpandedTags([...expandedTags, editTagInput]);
+                              setEditTagInput('');
+                            }}
+                            className="h-8 border-white/10 bg-transparent px-3 text-white hover:bg-white/10"
+                          >
+                            Add
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

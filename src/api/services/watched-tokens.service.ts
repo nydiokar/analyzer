@@ -13,6 +13,7 @@ export interface WatchedTokenRow {
   volume24h?: number | null;
   latestMessageAt?: string | null; // ISO
   tags: Array<{ name: string; type: string }>; // normalized lower-case names
+  userTags?: string[];
 }
 
 @Injectable()

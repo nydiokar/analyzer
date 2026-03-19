@@ -14,6 +14,7 @@ export interface WatchedTokenRow {
   volume24h?: number | null;
   latestMessageAt?: string | null;
   tags: Array<{ name: string; type: string }>;
+  userTags?: string[];
 }
 
 export const useWatchedTokens = (list: 'FAVORITES' | 'GRADUATION' | 'HOLDSTRONG' = 'FAVORITES') => {

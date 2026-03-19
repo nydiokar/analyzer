@@ -23,12 +23,26 @@ export class UserWatchedTokensController {
   async setWatch(
     @Param('tokenAddress') tokenAddress: string,
     @Body('on') on: boolean,
+    @Body('tags') tags: string[] | undefined,
     @Req() req: AuthenticatedRequest,
   ) {
     const userId = req.user?.id;
     if (!userId) {
       throw new ForbiddenException('User not authenticated');
     }
-    return this.userWatchedTokensService.setWatched(userId, tokenAddress, on === undefined ? true : !!on);
+    return this.userWatchedTokensService.setWatched(userId, tokenAddress, on === undefined ? true : !!on, tags);
+  }
+
+  @Post(':tokenAddress/tags')
+  async updateTags(
+    @Param('tokenAddress') tokenAddress: string,
+    @Body('tags') tags: string[] | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User not authenticated');
+    }
+    return this.userWatchedTokensService.updateTags(userId, tokenAddress, Array.isArray(tags) ? tags : []);
   }
 }
