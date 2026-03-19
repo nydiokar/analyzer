@@ -21,6 +21,8 @@ Maintained by the outreach-researcher agent. Updated by founder as DMs are sent 
 | @TinaSend | GitHub | Tina — AI agent token on Pump.fun (built on solana-agent-kit) | Shipped a real product using solana-agent-kit. Holder profile data improves token security and rug detection for future projects. | <1K followers | PENDING | GitHub: TinaSend/Tina. Early adopter profile. Practical use case for behavioral intel. |
 | @D3AD-E | GitHub | Solana sniper bot (0-slot, 5ms build/send) | High-frequency trading bot. Holder behavior data assesses sniper density before entry. Similarity endpoint detects cabal buys. | <1K followers | PENDING | GitHub: D3AD-E/Solana-sniper-bot. Low-latency specialist. Holder profiling improves sniping ROI. |
 
+https://github.com/Merit-Systems/x402scan <---- RElated to x402 part
+
 ---
 
 ## CT Rug Investigators (Week 4 — Similarity Endpoint Offer)
