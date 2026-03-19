@@ -33,11 +33,11 @@ type MessageMeta = {
 };
 
 function getAuthorKey(message: any): string | null {
-  return message?.authorId || message?.userId || message?.author?.id || null;
+  return message?.authorUserId || message?.authorId || message?.userId || message?.author?.id || null;
 }
 
 function getAuthorName(message: any): string | null {
-  return message?.author?.name || message?.authorName || null;
+  return message?.author?.displayName || message?.author?.email || message?.authorName || null;
 }
 
 const compactFormatter = new Intl.NumberFormat('en-US', {
@@ -330,6 +330,8 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
               ) : null}
               <MessageRow
                 message={meta.message}
+                authorLabel={meta.authorName}
+                groupPosition={meta.groupPosition}
                 byMint={byMint}
                 watchedByMint={watchedByMint}
                 threadAddress={tokenAddress}

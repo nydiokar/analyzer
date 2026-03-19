@@ -27,6 +27,18 @@ export class MessagesService {
 
   constructor(private readonly messageGateway: MessageGateway) {}
 
+  private readonly messageInclude = {
+    mentions: true,
+    reactions: true,
+    author: {
+      select: {
+        id: true,
+        displayName: true,
+        email: true,
+      },
+    },
+  } satisfies Prisma.MessageInclude;
+
   async createMessage(input: CreateMessageInput) {
     const mentions = parseMentions(input.body);
     // Resolve mentions (symbol -> address) at controller layer for now; keep service pure
@@ -40,6 +52,7 @@ export class MessagesService {
           authorUserId: input.authorUserId ?? null,
           parentId: input.parentId ?? null,
         },
+        include: this.messageInclude,
       });
 
       if (mentions.length > 0) {
@@ -88,11 +101,11 @@ export class MessagesService {
 
       // Publish events
       try {
-        await this.messageGateway.publishGlobal({ id: message.id, body: message.body, createdAt: message.createdAt });
+        await this.messageGateway.publishGlobal(message);
         // Emit per-token events for any token mentions with refId
         for (const m of mentions) {
           if (m.kind === 'token' && m.refId) {
-            await this.messageGateway.publishToken(m.refId, { id: message.id, body: message.body, createdAt: message.createdAt });
+            await this.messageGateway.publishToken(m.refId, message);
           }
         }
       } catch (e) {
@@ -116,7 +129,7 @@ export class MessagesService {
         where,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: limit,
-        include: { mentions: true, reactions: true },
+        include: this.messageInclude,
       });
       const nextCursor = items.length === limit ? items[items.length - 1].createdAt.toISOString() : null;
       return { items, nextCursor };
@@ -138,7 +151,7 @@ export class MessagesService {
         where,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: limit,
-        include: { mentions: true, reactions: true },
+        include: this.messageInclude,
       });
       const nextCursor = items.length === limit ? items[items.length - 1].createdAt.toISOString() : null;
       return { items, nextCursor };
@@ -151,7 +164,7 @@ export class MessagesService {
       const client = tx as any;
       const existing = await client.message.findUnique({
         where: { id: messageId },
-        include: { mentions: true },
+        include: this.messageInclude,
       });
       if (!existing) return null;
 
@@ -165,6 +178,7 @@ export class MessagesService {
       const updated = await client.message.update({
         where: { id: messageId },
         data: { body: newBody },
+        include: this.messageInclude,
       });
 
       await client.messageMention.deleteMany({ where: { messageId } });
@@ -180,7 +194,7 @@ export class MessagesService {
         });
       }
       try {
-        await this.messageGateway.publishEdited({ id: updated.id, body: updated.body, createdAt: updated.createdAt, updatedAt: updated.updatedAt });
+        await this.messageGateway.publishEdited(updated);
       } catch {}
       return updated;
     });
@@ -189,12 +203,16 @@ export class MessagesService {
   async deleteMessage(messageId: string) {
     return prisma.$transaction(async (tx) => {
       const client = tx as any;
-      const existing = await client.message.findUnique({ where: { id: messageId }, include: { mentions: true } });
+      const existing = await client.message.findUnique({ where: { id: messageId }, include: this.messageInclude });
       if (!existing) return null;
       if (existing.deletedAt) return existing;
-      const updated = await client.message.update({ where: { id: messageId }, data: { deletedAt: new Date() } });
+      const updated = await client.message.update({
+        where: { id: messageId },
+        data: { deletedAt: new Date() },
+        include: this.messageInclude,
+      });
       try {
-        await this.messageGateway.publishDeleted({ id: updated.id, deletedAt: updated.deletedAt });
+        await this.messageGateway.publishDeleted(updated);
       } catch {}
       return updated;
     });
@@ -203,7 +221,7 @@ export class MessagesService {
   async getById(messageId: string) {
     return prisma.$transaction(async (tx) => {
       const client = tx as any;
-      const row = await client.message.findUnique({ where: { id: messageId }, include: { mentions: true } });
+      const row = await client.message.findUnique({ where: { id: messageId }, include: this.messageInclude });
       return row;
     });
   }
@@ -211,12 +229,16 @@ export class MessagesService {
   async setPinned(messageId: string, isPinned: boolean) {
     return prisma.$transaction(async (tx) => {
       const client = tx as any;
-      const existing = await client.message.findUnique({ where: { id: messageId } });
+      const existing = await client.message.findUnique({ where: { id: messageId }, include: this.messageInclude });
       if (!existing) return null;
       if (existing.isPinned === isPinned) return existing;
-      const updated = await client.message.update({ where: { id: messageId }, data: { isPinned } });
+      const updated = await client.message.update({
+        where: { id: messageId },
+        data: { isPinned },
+        include: this.messageInclude,
+      });
       try {
-        await this.messageGateway.publishPinned({ id: updated.id, isPinned: updated.isPinned });
+        await this.messageGateway.publishPinned(updated);
       } catch {}
       return updated;
     });

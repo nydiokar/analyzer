@@ -8,11 +8,17 @@ export type MessageLite = {
   id: string;
   body: string;
   createdAt: string;
+  authorUserId?: string | null;
   editedAt?: string | null;
   parentId?: string | null;
   isPinned?: boolean;
   reactions?: ReactionLite[];
   mentions?: MentionLite[];
+  author?: {
+    id: string;
+    displayName?: string | null;
+    email?: string | null;
+  } | null;
 };
 
 export type PagedResult<T> = { items: T[]; nextCursor: string | null };

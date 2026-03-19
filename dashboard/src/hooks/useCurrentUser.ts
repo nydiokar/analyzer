@@ -6,6 +6,7 @@ import { fetcher } from '@/lib/fetcher';
 export interface CurrentUser {
   id: string;
   isDemo: boolean;
+  displayName?: string | null;
 }
 
 export const useCurrentUser = () => {

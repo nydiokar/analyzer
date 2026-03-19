@@ -37,6 +37,7 @@ export class UsersController {
     return {
       id: user.id,
       isDemo: user.isDemo,
+      displayName: user.displayName ?? null,
     };
   }
 

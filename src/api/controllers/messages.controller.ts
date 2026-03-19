@@ -27,7 +27,8 @@ export class MessagesController {
 
   @Post()
   @Throttle({ default: { limit: 30, ttl: 60000 } }) // 30 messages per minute (0.5/sec avg, allows bursts)
-  async postMessage(@Body(new ValidationPipe()) dto: PostMessageDto) {
+  async postMessage(@Req() req: Request & { user?: any }, @Body(new ValidationPipe()) dto: PostMessageDto) {
+    const authorUserId = req.user?.id;
     // Server-side enforcement per plan: reject unresolved @sym: with 409; rewrite to @ca: when unambiguous
     const mentions = parseMentions(dto.body ?? '');
     const symbolMentions = mentions.filter((m: any) => m.kind === 'token' && m.metaJson && (m.metaJson as any).symbol);
@@ -53,14 +54,24 @@ export class MessagesController {
       if (tokenMentions.length) {
         await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, 'system');
       }
-      const created = await this.messages.createMessage({ body: rewritten, source: dto.source, parentId: dto.parentId ?? null });
+      const created = await this.messages.createMessage({
+        body: rewritten,
+        source: dto.source,
+        authorUserId,
+        parentId: dto.parentId ?? null,
+      });
       return created;
     }
     const tokenMentions = parseMentions(dto.body).filter((m: any) => m.kind === 'token' && m.refId).map((m: any) => m.refId as string);
     if (tokenMentions.length) {
       await this.watchedTokens.ensureWatchedAndEnrich(tokenMentions, 'system');
     }
-    const created = await this.messages.createMessage({ body: dto.body, source: dto.source, parentId: dto.parentId ?? null });
+    const created = await this.messages.createMessage({
+      body: dto.body,
+      source: dto.source,
+      authorUserId,
+      parentId: dto.parentId ?? null,
+    });
     return created;
   }
 

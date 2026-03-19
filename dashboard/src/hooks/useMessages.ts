@@ -8,10 +8,16 @@ export interface MessageDto {
   id: string;
   body: string;
   createdAt: string;
+  authorUserId?: string | null;
   isPinned?: boolean;
   parentId?: string | null;
   reactions?: Array<{ messageId: string; type: string; count: number }>;
   mentions?: Array<{ kind: string; refId?: string | null; rawValue: string; metaJson?: unknown }>;
+  author?: {
+    id: string;
+    displayName?: string | null;
+    email?: string | null;
+  } | null;
 }
 
 export interface PagedResult<T> {
