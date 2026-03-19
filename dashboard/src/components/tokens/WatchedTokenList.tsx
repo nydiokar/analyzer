@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWatchedTokens, type WatchedTokenRow } from '@/hooks/useWatchedTokens';
 import { useMessagesSocket } from '@/hooks/useMessagesSocket';
 import { TokenBadge } from '@/components/shared/TokenBadge';
-import Sparkline from '@/components/shared/Sparkline';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Star, ArrowUpDown, Filter, TrendingUp, Droplet, BarChart3 } from 'lucide-react';
+ import { Search, Star, ArrowUpDown, Filter } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -32,8 +31,6 @@ interface WatchedTokenListProps {
   onSelect?: (tokenAddress: string) => void;
   selectedToken?: string;
 }
-
-type SparklineEntry = { series: number[]; trend: number; hourSpan?: number };
 
 function readPinnedFromStorage(): string[] {
   if (typeof window === 'undefined') return [];
@@ -124,17 +121,7 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
   const [sortBy, setSortBy] = useState<SortOption>('activity');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [pinnedAddresses, setPinnedAddresses] = useState<string[]>(() => readPinnedFromStorage());
-  const [, setSparklineVersion] = useState(0);
   const [lastSeenMap, setLastSeenMap] = useState<Record<string, number>>({});
-  const sparklineCacheRef = useRef<Record<string, SparklineEntry>>({});
-  const inflightRef = useRef<Set<string>>(new Set());
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
 
   useMessagesSocket({
     onMessageCreated: () => {
@@ -180,48 +167,6 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
       return { ...prev, [selectedToken]: now };
     });
   }, [selectedToken]);
-
-  const fetchSparkline = useCallback(async (addr: string) => {
-    if (!addr) return;
-    if (sparklineCacheRef.current[addr] || inflightRef.current.has(addr)) return;
-    inflightRef.current.add(addr);
-    try {
-      const res = await fetcher(`/token-info/${encodeURIComponent(addr)}/sparkline?points=24`);
-      const points = (res?.points as Array<[number, number]> | undefined) || [];
-      const series = points
-        .map(([, price]) => Number(price))
-        .filter((value) => Number.isFinite(value));
-      const trend = series.length >= 2 ? Math.sign(series[series.length - 1] - series[0]) : 0;
-
-      // Calculate actual hour span from data points (each point = 1 hour)
-      const hourSpan = points.length > 0 ? points.length : 24;
-
-      sparklineCacheRef.current[addr] = { series, trend, hourSpan };
-      if (mountedRef.current) {
-        setSparklineVersion((version) => version + 1);
-      }
-    } catch {
-      // allow retry later
-    } finally {
-      inflightRef.current.delete(addr);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (data.length === 0) return;
-    const timers: number[] = [];
-    const seeds = data.slice(0, Math.min(6, data.length));
-    seeds.forEach((token, index) => {
-      const timer = window.setTimeout(() => {
-        fetchSparkline(token.tokenAddress);
-      }, index * 120);
-      timers.push(timer);
-    });
-    return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
-  }, [data, fetchSparkline]);
 
   const handlePinToggle = useCallback((addr: string) => {
     setPinnedAddresses((prev) => {
@@ -293,7 +238,6 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
     return [...pinned, ...rest];
   }, [data, searchTerm, sortBy, showUnreadOnly, unreadMap, pinnedSet]);
 
-  const sparklineCache = sparklineCacheRef.current;
   const hasError = Boolean(error);
   const visibleCount = filteredTokens.length;
 
@@ -365,14 +309,6 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                 const liquidityLabel = formatCompactNumber(token.liquidityUsd);
                 const volumeLabel = formatCompactNumber(token.volume24h ?? null);
                 const unread = unreadMap[token.tokenAddress];
-                const sparkline = sparklineCache[token.tokenAddress];
-                const trendColor =
-                  sparkline && sparkline.trend !== 0
-                    ? sparkline.trend > 0
-                      ? 'text-emerald-400'
-                      : 'text-rose-400'
-                    : 'text-white/30';
-
                 return (
                   <div
                     key={token.tokenAddress}
@@ -391,8 +327,6 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                         onSelect?.(token.tokenAddress);
                       }
                     }}
-                    onMouseEnter={() => fetchSparkline(token.tokenAddress)}
-                    onFocusCapture={() => fetchSparkline(token.tokenAddress)}
                     aria-label={`Open thread for ${token.symbol || token.name || token.tokenAddress}`}
                   >
                     {/* Top Row: Badge + Activity + Pin */}
@@ -451,36 +385,6 @@ export default function WatchedTokenList({ onSelect, selectedToken }: WatchedTok
                         </TooltipProvider>
                       </div>
                     </div>
-
-
-                    {/* Sparkline with hour span label */}
-                    {sparkline && sparkline.series.length > 1 && (
-                      <div className="relative">
-                        <div className={cn('rounded-lg bg-gradient-to-br from-black/30 to-black/10 p-2.5 -mx-1', trendColor)}>
-                          <Sparkline values={sparkline.series} width={240} height={40} stroke="currentColor" />
-                        </div>
-                        <TooltipProvider delayDuration={100}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="absolute bottom-1 right-1 flex items-center gap-1.5 rounded-md bg-black/40 px-2 py-0.5 backdrop-blur-sm cursor-help">
-                                <span className="text-[9px] font-medium text-white/60">
-                                  {sparkline.hourSpan ? `${sparkline.hourSpan}h` : '24h'}
-                                </span>
-                                {changeLabel && (
-                                  <span className={cn('text-[10px] font-bold', changeColor)}>
-                                    {changeLabel}
-                                  </span>
-                                )}
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>24h price change (DexScreener)</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                    )}
-
                     {/* Tags */}
                     {token.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">

@@ -2,8 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TokenBadge } from '@/components/shared/TokenBadge';
-import Sparkline from '@/components/shared/Sparkline';
-import { useMiniPriceSeries } from '@/hooks/useMiniPriceSeries';
 import { useTokenInfoMany } from '@/hooks/useTokenInfoMany';
 import { useWatchedTokens } from '@/hooks/useWatchedTokens';
 import { useChat } from '@/hooks/useChat';
@@ -104,7 +102,6 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
   const { userId } = useCurrentUser();
   const { data: watched, mutate: mutateWatched } = useWatchedTokens('FAVORITES');
   const watchedMeta = useMemo(() => (watched || []).find((w) => w.tokenAddress === tokenAddress) || null, [watched, tokenAddress]);
-  const { series, trend } = useMiniPriceSeries(tokenAddress, 24);
   const didScrollRef = useRef(false);
   const { byMint } = useTokenInfoMany([]);
   const [tagValue, setTagValue] = useState('');
@@ -253,23 +250,8 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
                 priceUsd: watchedMeta?.priceUsd ?? undefined,
               }}
             />
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Trend {trend > 0 ? 'up' : trend < 0 ? 'down' : 'flat'}</span>
-            </div>
           </div>
           <div className="flex items-center gap-2">
-            <TooltipProvider delayDuration={100}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="hidden md:flex items-center gap-2">
-                    <Sparkline values={series} width={160} height={32} stroke={trend > 0 ? '#34d399' : trend < 0 ? '#f87171' : '#a1a1aa'} />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Price trend (24h)</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
             {userId && (
               <Popover>
                 <PopoverTrigger asChild>
