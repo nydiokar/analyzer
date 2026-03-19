@@ -61,8 +61,46 @@ function formatPrice(value?: string | number | null) {
   return `$${num.toFixed(6)}`;
 }
 
+const threadPalette = {
+  pinnedBand: 'border-b border-border bg-muted/30',
+  pinnedLabel: 'text-[11px] uppercase tracking-wide text-muted-foreground',
+  pinnedButton: 'text-xs px-2 py-1 rounded-full border bg-background text-muted-foreground hover:bg-muted',
+  dividerLine: 'bg-border',
+  dividerBadge: 'bg-muted',
+  dividerText: 'text-muted-foreground',
+  loadMore: 'text-muted-foreground hover:text-foreground',
+  loading: 'text-muted-foreground',
+  error: 'text-destructive',
+  jumpButton: 'rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground shadow-sm hover:bg-muted',
+} as const;
+
 export default function TokenThread({ tokenAddress, highlightId }: { tokenAddress: string; highlightId?: string }) {
   const chat = useChat({ kind: 'token', tokenAddress });
+  const {
+    messages,
+    isMessageOwn,
+    lastSeen,
+    scrollToMessage,
+    pinnedMessages,
+    onPinnedMessageClick,
+    containerProps,
+    scrollRef,
+    sentinelRef,
+    hasMore,
+    loadMore,
+    isLoading,
+    error,
+    isSelected,
+    pinMessage,
+    startReply,
+    reactToMessage,
+    showJumpToLatest,
+    jumpToLatest,
+    unreadCount,
+    replyTo,
+    cancelReply,
+    onMessageSent,
+  } = chat;
   const { userId } = useCurrentUser();
   const { data: watched, mutate: mutateWatched } = useWatchedTokens('FAVORITES');
   const watchedMeta = useMemo(() => (watched || []).find((w) => w.tokenAddress === tokenAddress) || null, [watched, tokenAddress]);
@@ -95,18 +133,18 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
   );
 
   const messageMeta = useMemo<MessageMeta[]>(() => {
-    return chat.messages.map((message, idx) => {
-      const isOwn = Boolean(chat.isMessageOwn(message));
+    return messages.map((message, idx) => {
+      const isOwn = Boolean(isMessageOwn(message));
       const authorKey = getAuthorKey(message);
       const authorName = getAuthorName(message);
 
-      const prev = idx > 0 ? chat.messages[idx - 1] : null;
-      const next = idx < chat.messages.length - 1 ? chat.messages[idx + 1] : null;
+      const prev = idx > 0 ? messages[idx - 1] : null;
+      const next = idx < messages.length - 1 ? messages[idx + 1] : null;
 
       const prevKey = prev ? getAuthorKey(prev) : null;
       const nextKey = next ? getAuthorKey(next) : null;
-      const prevOwn = prev ? Boolean(chat.isMessageOwn(prev)) : null;
-      const nextOwn = next ? Boolean(chat.isMessageOwn(next)) : null;
+      const prevOwn = prev ? Boolean(isMessageOwn(prev)) : null;
+      const nextOwn = next ? Boolean(isMessageOwn(next)) : null;
 
       const samePrev = prev ? (authorKey ? prevKey === authorKey : prevOwn === isOwn) : false;
       const sameNext = next ? (authorKey ? nextKey === authorKey : nextOwn === isOwn) : false;
@@ -122,23 +160,23 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
 
       return { message, isOwn, authorName, groupPosition };
     });
-  }, [chat.messages, chat.isMessageOwn]);
+  }, [messages, isMessageOwn]);
 
   const firstUnreadIndex = useMemo(() => {
     return messageMeta.findIndex((meta) => {
       const createdAt = new Date(meta.message.createdAt).getTime();
-      return Number.isFinite(createdAt) && createdAt > chat.lastSeen;
+      return Number.isFinite(createdAt) && createdAt > lastSeen;
     });
-  }, [messageMeta, chat.lastSeen]);
+  }, [messageMeta, lastSeen]);
 
   useEffect(() => {
     if (!highlightId || didScrollRef.current) return;
-    const target = chat.messages.find((x) => x.id === highlightId);
+    const target = messages.find((x) => x.id === highlightId);
     if (target) {
-      chat.scrollToMessage(highlightId);
+      scrollToMessage(highlightId);
       didScrollRef.current = true;
     }
-  }, [highlightId, chat.messages, chat.scrollToMessage]);
+  }, [highlightId, messages, scrollToMessage]);
 
   const priceLabel = formatPrice(watchedMeta?.priceUsd);
   const marketCapLabel = formatCompactNumber(watchedMeta?.marketCapUsd ?? null);
@@ -174,29 +212,16 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
     }
   };
 
-  const threadPalette = {
-    pinnedBand: 'border-b border-border bg-muted/30',
-    pinnedLabel: 'text-[11px] uppercase tracking-wide text-muted-foreground',
-    pinnedButton: 'text-xs px-2 py-1 rounded-full border bg-background text-muted-foreground hover:bg-muted',
-    dividerLine: 'bg-border',
-    dividerBadge: 'bg-muted',
-    dividerText: 'text-muted-foreground',
-    loadMore: 'text-muted-foreground hover:text-foreground',
-    loading: 'text-muted-foreground',
-    error: 'text-destructive',
-    jumpButton: 'rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground shadow-sm hover:bg-muted',
-  };
-
   const pinnedBand = useMemo(() => {
-    if (!chat.pinnedMessages.length) return null;
+    if (!pinnedMessages.length) return null;
     return (
       <div className={cn('flex flex-col gap-2 px-4 py-2', threadPalette.pinnedBand)}>
         <div className={threadPalette.pinnedLabel}>Pinned</div>
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {chat.pinnedMessages.map((m) => (
+          {pinnedMessages.map((m) => (
             <button
               key={`pin-${m.id}`}
-              onClick={() => chat.onPinnedMessageClick(m.id)}
+              onClick={() => onPinnedMessageClick(m.id)}
               className={threadPalette.pinnedButton}
               title={formatPinnedPreview(m) || m.body}
             >
@@ -210,10 +235,10 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
         </div>
       </div>
     );
-  }, [chat.pinnedMessages, chat.onPinnedMessageClick, threadPalette, formatPinnedPreview]);
+  }, [pinnedMessages, onPinnedMessageClick, formatPinnedPreview]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col" {...chat.containerProps} aria-label="Token thread keyboard area">
+    <div className="flex h-full min-h-0 flex-col" {...containerProps} aria-label="Token thread keyboard area">
       <header className="sticky top-0 z-20 border-b border-white/5 bg-[#181820] px-5 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -300,15 +325,15 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
       {pinnedBand}
 
       <div className="relative flex-1 min-h-0">
-        <div ref={chat.scrollRef} className="h-full overflow-auto px-5 py-4">
-          {chat.hasMore && <div ref={chat.sentinelRef} className="h-1" />}
-          {chat.hasMore && (
-            <button className={cn('w-full py-2 text-xs', threadPalette.loadMore)} onClick={chat.loadMore}>
+        <div ref={scrollRef} className="h-full overflow-auto px-5 py-4">
+          {hasMore && <div ref={sentinelRef} className="h-1" />}
+          {hasMore && (
+            <button className={cn('w-full py-2 text-xs', threadPalette.loadMore)} onClick={loadMore}>
               Load older...
             </button>
           )}
-          {chat.isLoading && <div className={cn('p-3 text-sm', threadPalette.loading)}>Loading...</div>}
-          {Boolean(chat.error) && <div className={cn('p-3 text-sm', threadPalette.error)}>Failed to load messages</div>}
+          {isLoading && <div className={cn('p-3 text-sm', threadPalette.loading)}>Loading...</div>}
+          {Boolean(error) && <div className={cn('p-3 text-sm', threadPalette.error)}>Failed to load messages</div>}
 
           {messageMeta.map((meta, idx) => (
             <React.Fragment key={meta.message.id}>
@@ -328,33 +353,33 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
                 threadAddress={tokenAddress}
                 showCopy
                 isPinned={Boolean(meta.message.isPinned)}
-                selected={chat.isSelected(idx)}
+                selected={isSelected(idx)}
                 isOwn={meta.isOwn}
                 canDelete={meta.isOwn}
                 highlighted={meta.message.id === highlightId}
-                onTogglePin={(id: string) => chat.pinMessage(id, !meta.message.isPinned)}
-                onReply={chat.startReply}
+                onTogglePin={(id: string) => pinMessage(id, !meta.message.isPinned)}
+                onReply={startReply}
                 onReact={(_, type: string) => {
                   const reactions = (meta.message.reactions || []) as Array<{ type: string; count: number }>;
                   const count = reactions.find((r) => r.type === type)?.count || 0;
                   const nextState = count === 0;
-                  chat.reactToMessage(meta.message.id, type, nextState);
+                  reactToMessage(meta.message.id, type, nextState);
                 }}
               />
             </React.Fragment>
           ))}
         </div>
 
-        {chat.showJumpToLatest && (
+        {showJumpToLatest && (
           <button
             className="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-background px-5 py-2 text-sm font-semibold shadow-lg hover:bg-background/95"
-            onClick={chat.jumpToLatest}
+            onClick={jumpToLatest}
             aria-label="Jump to latest messages"
           >
             <span>Jump to latest</span>
-            {chat.unreadCount > 0 ? (
+            {unreadCount > 0 ? (
               <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-primary px-2 text-xs font-semibold text-primary-foreground">
-                {chat.unreadCount}
+                {unreadCount}
               </span>
             ) : null}
           </button>
@@ -363,9 +388,9 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
 
       <MessageComposer
         tokenAddress={tokenAddress}
-        replyTo={chat.replyTo}
-        onCancelReply={chat.cancelReply}
-        onPosted={chat.onMessageSent}
+        replyTo={replyTo}
+        onCancelReply={cancelReply}
+        onPosted={onMessageSent}
       />
     </div>
   );

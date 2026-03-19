@@ -12,12 +12,13 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 type ReadStateResponse = { scope: string; lastReadAt: string | null };
 
 export function useChat(scope: Scope, pageSize: number = 50) {
-  // Data layer
-  const dataHook = scope.kind === 'global'
-    ? useGlobalMessages(pageSize)
-    : useTokenMessages(scope.tokenAddress, pageSize);
+  const isGlobalScope = scope.kind === 'global';
+  const tokenAddress = scope.kind === 'token' ? scope.tokenAddress : '';
+  const globalDataHook = useGlobalMessages(pageSize, isGlobalScope);
+  const tokenDataHook = useTokenMessages(tokenAddress, pageSize, !isGlobalScope);
+  const dataHook = isGlobalScope ? globalDataHook : tokenDataHook;
 
-  const scopeKey = scope.kind === 'global' ? 'global' : `token:${scope.tokenAddress}`;
+  const scopeKey = isGlobalScope ? 'global' : `token:${tokenAddress}`;
   const { userId } = useCurrentUser();
 
   const { data, isLoading, error, mutate, loadMore, hasMore, mutateMessage } = dataHook;
@@ -180,7 +181,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
 
   // Real-time updates
   useMessagesSocket({
-    tokenAddress: scope.kind === 'token' ? scope.tokenAddress : undefined,
+    tokenAddress: isGlobalScope ? undefined : tokenAddress,
     onMessageCreated: async () => {
       await mutate();
       if (isAtBottomRef.current) {
@@ -242,7 +243,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
       // Rollback on error
       mutate();
     }
-  }, [mutate, handleError]);
+  }, [mutate, mutateMessage, handleError]);
 
   // Keyboard navigation
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -361,7 +362,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
       // Rollback on error
       mutate();
     }
-  }, [mutate, handleError]);
+  }, [mutate, mutateMessage, handleError]);
 
   const watchToken = useCallback(async (tokenAddress: string, on: boolean) => {
     try {

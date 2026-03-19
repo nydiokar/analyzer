@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Plus, Star, Trash2, ExternalLink } from 'lucide-react';
+import { Search, Plus, Star, Trash2, ExternalLink, Waves, MessageSquare, BarChart3 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,6 +30,17 @@ interface TokenWatchlistModalProps {
   canOpenWorkspace: boolean;
 }
 
+type CandidateState =
+  | { kind: 'idle' }
+  | { kind: 'invalid'; message: string }
+  | {
+      kind: 'valid';
+      tokenAddress: string;
+      name?: string | null;
+      symbol?: string | null;
+      hasLiquidity: boolean;
+    };
+
 function looksLikeSolanaAddress(value: string) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value.trim());
 }
@@ -55,30 +66,50 @@ function formatRelativeTime(iso?: string | null) {
   return `${days}d ago`;
 }
 
+function candidateFromValidation(result: TokenValidationResult, fallbackAddress: string): CandidateState {
+  if (!result.valid || !result.token) {
+    return {
+      kind: 'invalid',
+      message: result.error || 'Token validation failed.',
+    };
+  }
+
+  return {
+    kind: 'valid',
+    tokenAddress: result.token.address || fallbackAddress,
+    name: result.token.name,
+    symbol: result.token.symbol,
+    hasLiquidity: result.token.hasLiquidity,
+  };
+}
+
 export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: TokenWatchlistModalProps) {
   const router = useRouter();
   const { data, isLoading, mutate } = useUserWatchedTokens(open);
-  const [query, setQuery] = useState('');
+  const [filterText, setFilterText] = useState('');
+  const [candidateInput, setCandidateInput] = useState('');
   const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
-  const [validation, setValidation] = useState<TokenValidationResult | null>(null);
-  const [isValidating, setIsValidating] = useState(false);
+  const [candidate, setCandidate] = useState<CandidateState>({ kind: 'idle' });
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmittingCandidate, setIsSubmittingCandidate] = useState(false);
 
   useEffect(() => {
     if (!open) {
-      setQuery('');
-      setValidation(null);
-      setIsValidating(false);
+      setFilterText('');
+      setCandidateInput('');
+      setCandidate({ kind: 'idle' });
       setIsSaving(false);
+      setIsSubmittingCandidate(false);
       return;
     }
+
     if (!selectedAddress && data.length > 0) {
       setSelectedAddress(data[0].tokenAddress);
     }
   }, [open, data, selectedAddress]);
 
   const filteredTokens = useMemo(() => {
-    const term = query.trim().toLowerCase();
+    const term = filterText.trim().toLowerCase();
     if (!term) return data;
     return data.filter((token) => {
       const fields = [
@@ -89,83 +120,92 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
       ];
       return fields.some((field) => field.includes(term));
     });
-  }, [data, query]);
+  }, [data, filterText]);
 
   const selectedToken = useMemo<WatchedTokenRow | null>(() => {
     if (!selectedAddress) return null;
     return data.find((token) => token.tokenAddress === selectedAddress) ?? null;
   }, [data, selectedAddress]);
 
-  const validateInput = async () => {
-    const trimmed = query.trim();
-    setSelectedAddress(null);
+  const inspectedAddress = candidate.kind === 'valid' ? candidate.tokenAddress : selectedToken?.tokenAddress ?? null;
+  const inspectedMetadata =
+    candidate.kind === 'valid'
+      ? {
+          name: candidate.name ?? undefined,
+          symbol: candidate.symbol ?? undefined,
+        }
+      : selectedToken
+        ? {
+            name: selectedToken.name ?? undefined,
+            symbol: selectedToken.symbol ?? undefined,
+            imageUrl: selectedToken.imageUrl ?? undefined,
+            marketCapUsd: selectedToken.marketCapUsd ?? undefined,
+            priceUsd: selectedToken.priceUsd ?? undefined,
+          }
+        : undefined;
+
+  const selectWatchedToken = (tokenAddress: string) => {
+    setSelectedAddress(tokenAddress);
+    setCandidate({ kind: 'idle' });
+    setCandidateInput('');
+  };
+
+  const addCandidateToWatchlist = async () => {
+    const trimmed = candidateInput.trim();
+    if (!trimmed) {
+      setCandidate({ kind: 'invalid', message: 'Paste a token address first.' });
+      return;
+    }
     if (!looksLikeSolanaAddress(trimmed)) {
-      setValidation({
-        valid: false,
-        error: 'Paste a valid Solana token address to add a token.',
-      });
+      setCandidate({ kind: 'invalid', message: 'Paste a valid Solana token address.' });
       return;
     }
 
-    setIsValidating(true);
-    setValidation(null);
+    setIsSubmittingCandidate(true);
+    setCandidate({ kind: 'idle' });
     try {
       const result = await fetcher(`/token-validation/${encodeURIComponent(trimmed)}`) as TokenValidationResult;
-      setValidation(result);
-      if (result.valid) {
-        setSelectedAddress(trimmed);
+      const nextCandidate = candidateFromValidation(result, trimmed);
+      setCandidate(nextCandidate);
+
+      if (nextCandidate.kind !== 'valid') {
+        return;
       }
-    } catch (error) {
-      setValidation({
-        valid: false,
-        error: 'Validation failed. Please try again.',
+
+      await fetcher(`/users/me/watched-tokens/${encodeURIComponent(nextCandidate.tokenAddress)}/watch`, {
+        method: 'POST',
+        body: JSON.stringify({ on: true }),
       });
+      await mutate();
+      setSelectedAddress(nextCandidate.tokenAddress);
+      setCandidateInput('');
+      setCandidate({ kind: 'idle' });
+      toast.success('Token added to your watchlist');
+    } catch (error) {
+      setCandidate({ kind: 'invalid', message: 'Failed to add token. Please try again.' });
+      toast.error('Failed to add token');
     } finally {
-      setIsValidating(false);
+      setIsSubmittingCandidate(false);
     }
   };
 
-  const setWatched = async (tokenAddress: string, on: boolean) => {
+  const removeWatchedToken = async (tokenAddress: string) => {
     setIsSaving(true);
     try {
       await fetcher(`/users/me/watched-tokens/${encodeURIComponent(tokenAddress)}/watch`, {
         method: 'POST',
-        body: JSON.stringify({ on }),
+        body: JSON.stringify({ on: false }),
       });
       await mutate();
-      if (on) {
-        toast.success('Token added to your watchlist');
-        setSelectedAddress(tokenAddress);
-        setValidation(null);
-      } else {
-        toast.success('Token removed from your watchlist');
-        if (selectedAddress === tokenAddress) {
-          const next = data.find((token) => token.tokenAddress !== tokenAddress);
-          setSelectedAddress(next?.tokenAddress ?? null);
-        }
-      }
+      const next = data.find((token) => token.tokenAddress !== tokenAddress);
+      setSelectedAddress(next?.tokenAddress ?? null);
+      toast.success('Token removed from your watchlist');
     } catch (error) {
-      toast.error(on ? 'Failed to watch token' : 'Failed to remove token');
+      toast.error('Failed to remove token');
     } finally {
       setIsSaving(false);
     }
   };
-
-  const previewAddress = validation ? (validation.token?.address ?? null) : (selectedToken?.tokenAddress ?? null);
-  const previewMetadata = validation?.token
-    ? {
-        name: validation.token.name ?? undefined,
-        symbol: validation.token.symbol ?? undefined,
-      }
-    : selectedToken
-      ? {
-          name: selectedToken.name ?? undefined,
-          symbol: selectedToken.symbol ?? undefined,
-          imageUrl: selectedToken.imageUrl ?? undefined,
-          marketCapUsd: selectedToken.marketCapUsd ?? undefined,
-          priceUsd: selectedToken.priceUsd ?? undefined,
-        }
-      : undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -173,25 +213,25 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
         <DialogHeader className="border-b border-white/10 px-6 py-5">
           <DialogTitle className="text-white">Favorite Tokens</DialogTitle>
           <DialogDescription className="text-white/60">
-            Your personal token shortlist. Analysts can jump from here into the shared `/tokens` workspace.
+            Left: your personal watchlist. Right: inspect the selected token or add a new one by contract address.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-h-[70vh] grid-cols-1 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
+        <div className="grid min-h-[70vh] grid-cols-1 lg:grid-cols-[minmax(360px,0.95fr)_minmax(0,1.05fr)]">
           <section className="border-b border-white/10 bg-[#14151d] lg:border-b-0 lg:border-r">
             <div className="space-y-3 border-b border-white/10 px-5 py-4">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
                 <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search watched tokens or paste CA"
+                  value={filterText}
+                  onChange={(event) => setFilterText(event.target.value)}
+                  placeholder="Search your watchlist"
                   className="h-10 border-white/10 bg-white/5 pl-9 text-white placeholder:text-white/35"
                 />
               </div>
               <div className="flex items-center justify-between text-xs text-white/55">
-                <span>{filteredTokens.length} watched</span>
-                <span>Paste CA to add new token</span>
+                <span>{data.length} watched</span>
+                <span>Filter only</span>
               </div>
             </div>
 
@@ -200,22 +240,28 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
                 <div className="px-3 py-10 text-sm text-white/55">Loading watchlist...</div>
               ) : filteredTokens.length === 0 ? (
                 <div className="px-3 py-10 text-sm text-white/55">
-                  {query.trim() ? 'No watched tokens match this search.' : 'No watched tokens yet.'}
+                  {data.length === 0
+                    ? 'No watched tokens yet. Add one on the right.'
+                    : 'No watched tokens match this filter.'}
                 </div>
               ) : (
                 <div className="space-y-2">
                   {filteredTokens.map((token) => {
-                    const isSelected = token.tokenAddress === selectedToken?.tokenAddress;
+                    const isSelected = token.tokenAddress === selectedToken?.tokenAddress && candidate.kind === 'idle';
                     return (
-                      <button
+                      <div
                         key={token.tokenAddress}
-                        type="button"
-                        onClick={() => {
-                          setSelectedAddress(token.tokenAddress);
-                          setValidation(null);
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => selectWatchedToken(token.tokenAddress)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            selectWatchedToken(token.tokenAddress);
+                          }
                         }}
                         className={cn(
-                          'w-full rounded-2xl border px-3 py-3 text-left transition-colors',
+                          'rounded-2xl border px-3 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/60',
                           isSelected
                             ? 'border-blue-500/60 bg-blue-500/10'
                             : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'
@@ -239,7 +285,7 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
                         </div>
                         <div className="mt-3 flex items-center justify-between text-xs text-white/55">
                           <span>{formatRelativeTime(token.latestMessageAt)}</span>
-                          <span>MCap {formatCompactUsd(token.marketCapUsd)}</span>
+                          <span>{formatCompactUsd(token.marketCapUsd)} mcap</span>
                         </div>
                         {token.tags.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -253,7 +299,7 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
                             ))}
                           </div>
                         )}
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -265,126 +311,130 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
             <div className="border-b border-white/10 px-6 py-4">
               <div className="flex items-center gap-3">
                 <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  value={candidateInput}
+                  onChange={(event) => setCandidateInput(event.target.value)}
                   placeholder="Paste token address to add"
                   className="h-10 border-white/10 bg-white/5 text-white placeholder:text-white/35"
                 />
                 <Button
                   type="button"
-                  onClick={validateInput}
-                  disabled={isValidating || isSaving}
+                  onClick={addCandidateToWatchlist}
+                  disabled={isSubmittingCandidate || isSaving}
                   className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
                 >
                   <Plus className="h-4 w-4" />
-                  {isValidating ? 'Checking...' : 'Add Token'}
+                  {isSubmittingCandidate ? 'Adding...' : 'Add To Watchlist'}
                 </Button>
               </div>
             </div>
 
             <div className="flex-1 overflow-auto px-6 py-6">
-              {previewAddress ? (
+              {candidate.kind === 'invalid' ? (
+                <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                  {candidate.message}
+                </div>
+              ) : inspectedAddress ? (
                 <div className="space-y-5">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="text-xs uppercase tracking-[0.2em] text-white/45">
+                        {candidate.kind === 'valid' ? 'New Token' : 'Watched Token'}
+                      </div>
+                      {candidate.kind === 'valid' && (
+                        <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-200">
+                          Validated and added
+                        </span>
+                      )}
+                    </div>
+
                     <TokenBadge
-                      mint={previewAddress}
+                      mint={inspectedAddress}
                       size="lg"
-                      metadata={previewMetadata}
+                      metadata={inspectedMetadata}
                     />
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+
+                    <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-white/45">Market Cap</div>
-                        <div className="mt-1 font-medium text-white">
-                          {selectedToken ? formatCompactUsd(selectedToken.marketCapUsd) : '—'}
+                        <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/45">
+                          <Waves className="h-3.5 w-3.5" />
+                          Liquidity
+                        </div>
+                        <div className="font-medium text-white">
+                          {selectedToken
+                            ? formatCompactUsd(selectedToken.liquidityUsd)
+                            : candidate.kind === 'valid'
+                              ? (candidate.hasLiquidity ? 'Available' : 'No liquidity detected')
+                              : '—'}
                         </div>
                       </div>
                       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-white/45">Liquidity</div>
-                        <div className="mt-1 font-medium text-white">
-                          {selectedToken ? formatCompactUsd(selectedToken.liquidityUsd) : validation?.token?.hasLiquidity ? 'Available' : 'Unknown'}
+                        <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/45">
+                          <BarChart3 className="h-3.5 w-3.5" />
+                          24h Volume
+                        </div>
+                        <div className="font-medium text-white">
+                          {selectedToken ? formatCompactUsd(selectedToken.volume24h) : '—'}
                         </div>
                       </div>
                       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-white/45">Thread Activity</div>
-                        <div className="mt-1 font-medium text-white">
+                        <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/45">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          Thread Activity
+                        </div>
+                        <div className="font-medium text-white">
                           {selectedToken ? formatRelativeTime(selectedToken.latestMessageAt) : 'No thread activity yet'}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {validation?.valid ? (
-                    <div className="space-y-4">
-                      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-                        Token validated via DexScreener. Add it to your personal watchlist.
+                  {selectedToken?.tags.length ? (
+                    <div>
+                      <div className="mb-2 text-xs uppercase tracking-wide text-white/45">Tags</div>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedToken.tags.map((tag) => (
+                          <span
+                            key={`${selectedToken.tokenAddress}-${tag.name}-detail`}
+                            className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-white/70"
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
                       </div>
+                    </div>
+                  ) : null}
+
+                  {candidate.kind === 'idle' && selectedToken ? (
+                    <div className="flex flex-wrap gap-3">
                       <Button
                         type="button"
-                        disabled={isSaving || !validation.token?.address}
-                        onClick={() => validation.token?.address && setWatched(validation.token.address, true)}
-                        className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+                        variant="outline"
+                        disabled={isSaving}
+                        onClick={() => removeWatchedToken(selectedToken.tokenAddress)}
+                        className="gap-2 border-white/15 bg-transparent text-white hover:bg-white/10"
                       >
-                        <Star className="h-4 w-4" />
-                        Watch Token
+                        <Trash2 className="h-4 w-4" />
+                        Remove From Watchlist
                       </Button>
-                    </div>
-                  ) : validation ? (
-                    <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                      {validation.error || 'Token validation failed.'}
-                    </div>
-                  ) : selectedToken ? (
-                    <div className="space-y-4">
-                      {selectedToken.tags.length > 0 && (
-                        <div>
-                          <div className="mb-2 text-xs uppercase tracking-wide text-white/45">Tags</div>
-                          <div className="flex flex-wrap gap-2">
-                            {selectedToken.tags.map((tag) => (
-                              <span
-                                key={`${selectedToken.tokenAddress}-${tag.name}-detail`}
-                                className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-white/70"
-                              >
-                                {tag.name}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap gap-3">
+                      {canOpenWorkspace && (
                         <Button
                           type="button"
-                          variant="outline"
-                          disabled={isSaving}
-                          onClick={() => setWatched(selectedToken.tokenAddress, false)}
-                          className="gap-2 border-white/15 bg-transparent text-white hover:bg-white/10"
+                          onClick={() => {
+                            router.push(`/tokens?view=token&addr=${encodeURIComponent(selectedToken.tokenAddress)}`, { scroll: false });
+                            onOpenChange(false);
+                          }}
+                          className="gap-2 bg-white text-black hover:bg-white/90"
                         >
-                          <Trash2 className="h-4 w-4" />
-                          Remove From Watchlist
+                          <ExternalLink className="h-4 w-4" />
+                          Open In Analyst Workspace
                         </Button>
-                        {canOpenWorkspace && (
-                          <Button
-                            type="button"
-                            onClick={() => {
-                              router.push(`/tokens?view=token&addr=${encodeURIComponent(selectedToken.tokenAddress)}`, { scroll: false });
-                              onOpenChange(false);
-                            }}
-                            className="gap-2 bg-white text-black hover:bg-white/90"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                            Open In Analyst Workspace
-                          </Button>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-10 text-sm text-white/55">
-                      Paste a token address to validate and add it, or select a watched token from the list.
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-10 text-sm text-white/55">
-                  Paste a token address to validate and add it, or select a watched token from the list.
+                  Select a watched token on the left, or paste a contract address above to add a new one directly to your watchlist.
                 </div>
               )}
             </div>

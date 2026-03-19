@@ -19,7 +19,7 @@ export interface PagedResult<T> {
   nextCursor: string | null;
 }
 
-export const useGlobalMessages = (limit: number = 50) => {
+export const useGlobalMessages = (limit: number = 50, enabled: boolean = true) => {
   const {
     data,
     error,
@@ -29,6 +29,7 @@ export const useGlobalMessages = (limit: number = 50) => {
     size,
   } = useSWRInfinite<PagedResult<MessageDto>>(
     (pageIndex, previousPageData) => {
+      if (!enabled) return null;
       if (previousPageData && !previousPageData.nextCursor) return null;
       if (pageIndex === 0) return `/messages?limit=${limit}`;
       const cursor = previousPageData?.nextCursor;
@@ -102,7 +103,7 @@ export const postMessage = async (body: string, parentId?: string) => {
   });
 };
 
-export const useTokenMessages = (tokenAddress: string, limit: number = 50) => {
+export const useTokenMessages = (tokenAddress: string, limit: number = 50, enabled: boolean = true) => {
   const {
     data,
     error,
@@ -112,6 +113,7 @@ export const useTokenMessages = (tokenAddress: string, limit: number = 50) => {
     size,
   } = useSWRInfinite<PagedResult<MessageDto>>(
     (pageIndex, previousPageData) => {
+      if (!enabled) return null;
       if (!tokenAddress) return null;
       if (previousPageData && !previousPageData.nextCursor) return null;
       if (pageIndex === 0) {

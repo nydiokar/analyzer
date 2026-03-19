@@ -10,6 +10,29 @@ import MessageComposer from './MessageComposer';
 
 export default function GlobalChat() {
   const chat = useChat({ kind: 'global' });
+  const {
+    messages,
+    pinnedMessages,
+    onPinnedMessageClick,
+    containerProps,
+    scrollRef,
+    sentinelRef,
+    hasMore,
+    loadMore,
+    isLoading,
+    error,
+    isSelected,
+    isMessageOwn,
+    pinMessage,
+    startReply,
+    reactToMessage,
+    showJumpToLatest,
+    jumpToLatest,
+    unreadCount,
+    replyTo,
+    cancelReply,
+    onMessageSent,
+  } = chat;
   const { data: watched } = useWatchedTokens('FAVORITES');
 
   const watchedByMint = useMemo(() => {
@@ -23,8 +46,8 @@ export default function GlobalChat() {
 
   // Update token mentions when messages change
   React.useEffect(() => {
-    setTokenMentions(extractTokenMentions(chat.messages));
-  }, [chat.messages.length, chat.messages]);
+    setTokenMentions(extractTokenMentions(messages));
+  }, [messages]);
 
   const formatPinnedPreview = useCallback(
     (message: { body?: string; mentions?: Array<{ kind: string; refId?: string | null }> }) => {
@@ -43,15 +66,15 @@ export default function GlobalChat() {
   );
 
   const PinnedBand = useMemo(() => {
-    if (!chat.pinnedMessages.length) return null;
+    if (!pinnedMessages.length) return null;
     return (
       <div className="p-2 border-b border-border bg-muted/40">
         <div className="text-[10px] text-muted-foreground mb-1">Pinned</div>
         <div className="flex gap-2 overflow-x-auto">
-          {chat.pinnedMessages.map((m) => (
+          {pinnedMessages.map((m) => (
             <button
               key={`pin-${m.id}`}
-              onClick={() => chat.onPinnedMessageClick(m.id)}
+              onClick={() => onPinnedMessageClick(m.id)}
               className="text-xs px-2 py-1 rounded border bg-background whitespace-nowrap hover:bg-muted cursor-pointer"
               title={formatPinnedPreview(m) || m.body}
             >
@@ -65,24 +88,24 @@ export default function GlobalChat() {
         </div>
       </div>
     );
-  }, [chat.pinnedMessages, chat.onPinnedMessageClick, formatPinnedPreview]);
+  }, [pinnedMessages, onPinnedMessageClick, formatPinnedPreview]);
 
   return (
-    <div className="flex flex-col h-full min-h-0" {...chat.containerProps} aria-label="Global chat keyboard area">
+    <div className="flex flex-col h-full min-h-0" {...containerProps} aria-label="Global chat keyboard area">
       {PinnedBand}
 
       <div className="relative flex-1 min-h-0">
-        <div ref={chat.scrollRef} className="h-full overflow-auto">
-          {chat.hasMore && <div ref={chat.sentinelRef} className="h-1" />}
-          {chat.hasMore && (
-            <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={chat.loadMore}>
+        <div ref={scrollRef} className="h-full overflow-auto">
+          {hasMore && <div ref={sentinelRef} className="h-1" />}
+          {hasMore && (
+            <button className="w-full py-2 text-xs text-muted-foreground hover:text-foreground" onClick={loadMore}>
               Load older…
             </button>
           )}
-          {chat.isLoading && <div className="p-3 text-sm">Loading…</div>}
-          {Boolean(chat.error) && <div className="p-3 text-sm text-red-500">Failed to load messages</div>}
+          {isLoading && <div className="p-3 text-sm">Loading…</div>}
+          {Boolean(error) && <div className="p-3 text-sm text-red-500">Failed to load messages</div>}
 
-          {chat.messages.map((message, idx) => (
+          {messages.map((message, idx) => (
             <MessageRow
               key={message.id}
               message={message}
@@ -90,30 +113,30 @@ export default function GlobalChat() {
               watchedByMint={watchedByMint}
               showCopy={true}
               isPinned={!!message.isPinned}
-              selected={chat.isSelected(idx)}
-              isOwn={Boolean(chat.isMessageOwn(message))}
-              canDelete={Boolean(chat.isMessageOwn(message))}
-              onTogglePin={(id: string) => chat.pinMessage(id, !message.isPinned)}
-              onReply={chat.startReply}
+              selected={isSelected(idx)}
+              isOwn={Boolean(isMessageOwn(message))}
+              canDelete={Boolean(isMessageOwn(message))}
+              onTogglePin={(id: string) => pinMessage(id, !message.isPinned)}
+              onReply={startReply}
               onReact={(_, type: string) => {
                 const count = (message.reactions || []).find(r => r.type === type)?.count || 0;
                 const on = count === 0;
-                chat.reactToMessage(message.id, type, on);
+                reactToMessage(message.id, type, on);
               }}
             />
           ))}
         </div>
 
-        {chat.showJumpToLatest && (
+        {showJumpToLatest && (
           <button
             className="absolute bottom-5 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-background px-5 py-2 text-sm font-semibold shadow-lg hover:bg-background/95"
-            onClick={chat.jumpToLatest}
+            onClick={jumpToLatest}
             aria-label="Jump to latest messages"
           >
             <span>Jump to latest</span>
-            {chat.unreadCount > 0 ? (
+            {unreadCount > 0 ? (
               <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-primary px-2 text-xs font-semibold text-primary-foreground">
-                {chat.unreadCount}
+                {unreadCount}
               </span>
             ) : null}
           </button>
@@ -121,9 +144,9 @@ export default function GlobalChat() {
       </div>
 
       <MessageComposer
-        replyTo={chat.replyTo}
-        onCancelReply={chat.cancelReply}
-        onPosted={chat.onMessageSent}
+        replyTo={replyTo}
+        onCancelReply={cancelReply}
+        onPosted={onMessageSent}
       />
     </div>
   );

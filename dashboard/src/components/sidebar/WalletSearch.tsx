@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
@@ -61,7 +61,7 @@ export function WalletSearch() {
     // mutate: mutateSearch
   } = useWalletSearch(query);
 
-  const debouncedSetQuery = useCallback(debounce((newQuery: string) => {
+  const debouncedSetQuery = useMemo(() => debounce((newQuery: string) => {
     setQuery(newQuery);
   }, DEBOUNCE_DELAY), []);
 
