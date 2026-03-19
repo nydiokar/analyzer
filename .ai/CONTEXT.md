@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-19  **Status:** Token Dashboard — transplant complete, bugs fixed, `/tokens` page fully functional
+**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-19  **Status:** Token Dashboard — transplant complete, `/tokens` nav wired for analysts, personal token watchlist modal split in progress
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -17,6 +17,7 @@
 - Two WS gateways on **Socket.IO namespaces** (not separate paths): `/jobs` (JobProgressGateway) and `/messages` (MessageGateway) — both on default `/socket.io/` path, one TCP connection per tab, multiplexed
 - `alerts.controller.ts` fixed: userId sourced from `req.user` (not body/query) — auth via global `APP_GUARD`
 - No existing main components modified — Sidebar.tsx (branch nav replacement) removed, TokenBadge/dialog reverted to main versions
+- Shared analyst token workspace remains on `watched-tokens`; personal navbar star modal uses separate per-user watchlist API/model (`users/me/watched-tokens`, `UserWatchedToken`) so `/tokens` can stay analyst-only without leaking a global list into user favorites
 
 | Status | Task | Area | Notes |
 |:------:|:-----|:----:|:------|
@@ -31,7 +32,9 @@
 | ✅ | Socket.IO namespaces — `/jobs` + `/messages` on shared `/socket.io/` path | Backend + Frontend | `job-progress.gateway.ts`, `message.gateway.ts`, `useJobProgress.ts`, `useMessagesSocket.ts` |
 | ✅ | `/tokens` page bugs fixed — `@ca:` space regex, sparkline endpoint, AppShell dark theme, page height, thread key remount, TokenBadge card variant with metadata | Frontend + Backend | `mention-parser.ts`, `token-info.controller.ts`, `tokens/page.tsx`, `WatchedTokenList.tsx`, `TokenThread.tsx` |
 | ✅ | Wire `/tokens` into analyst/admin nav — add entry point in existing AppShell for token dashboard access | Frontend | `dashboard/src/components/layout/AppShell.tsx` |
-| ⚪ | **[TOKEN-FAV-MODAL]** Wire navbar star button ("Favorite tokens — Coming Soon") to open a modal/sheet showing `WatchedTokenList`. Add "Watch" button to token pages/badges that calls `POST /watched-tokens/:addr/watch { on: true }` then mutates SWR key. Infrastructure fully ready: `useWatchedTokens()`, `WatchedTokensService`, `watchToken()` in `useChat.ts`. | Frontend | `AppShell.tsx` (star button), `WatchedTokenList.tsx` (reuse as modal content) |
+| ✅ | Split watched-token ownership — shared analyst workspace stays on `watched-tokens`; added per-user watchlist API/model for navbar modal | Backend | `prisma/schema.prisma`, `user-watched-tokens.controller.ts`, `user-watched-tokens.service.ts` |
+| ✅ | Analyst-gate `/tokens` page and shared watched-token API | Frontend + Backend | `dashboard/src/app/tokens/page.tsx`, `watched-tokens.controller.ts` |
+| 🚧 | **[TOKEN-FAV-MODAL]** Navbar star button now opens personal token watchlist modal backed by `users/me/watched-tokens`; next step is polishing/additional watch entry points on token pages/badges | Frontend | `AppShell.tsx`, `TokenWatchlistModal.tsx`, `useUserWatchedTokens.ts` |
 
 **Files added (backend):**
 - `src/api/controllers/messages.controller.ts`, `alerts.controller.ts`, `watched-tokens.controller.ts`, `token-validation.controller.ts`
@@ -342,7 +345,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-19  **Branch:** `feature/token-dash-v2`  **Transplant complete + bugs fixed. `/tokens` page functional. 1 primary task remains before merge.**
+**Last Updated:** 2026-03-19  **Branch:** `feature/token-dash-v2`  **Transplant complete. `/tokens` is analyst-only, and personal token watchlist modal foundation is in place.**
 
 
 

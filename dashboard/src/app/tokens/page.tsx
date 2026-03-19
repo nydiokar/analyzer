@@ -6,6 +6,7 @@ import GlobalChat from '@/components/chat/GlobalChat';
 import TokenThread from '@/components/chat/TokenThread';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useAuth } from '@/hooks/useAuth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 
@@ -24,6 +25,8 @@ function TokensPageInner() {
   const isXL = useMediaQuery('(min-width: 1280px)');
   const router = useRouter();
   const search = useSearchParams();
+  const { user, isAuthenticated, isInitialized } = useAuth();
+  const isAuthorized = isInitialized && isAuthenticated && (!!user?.isAnalyst || !!user?.isAdmin);
 
   // Reflect query params ?view=token&addr=...&mid=...
   const qpView = search.get('view');
@@ -31,6 +34,13 @@ function TokensPageInner() {
   const qpMid = search.get('mid');
 
   // Sync selected token with URL hash #thread=<addr> and query params
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!isAuthorized) {
+      router.replace('/');
+    }
+  }, [isAuthorized, isInitialized, router]);
+
   useEffect(() => {
     const readHash = () => {
       const h = (typeof window !== 'undefined' ? window.location.hash : '') || '';
@@ -57,6 +67,8 @@ function TokensPageInner() {
     }
     setSelectedToken(addr);
   }, [qpMid, router]);
+
+  if (!isAuthorized) return null;
 
   return (
     <div className="h-full overflow-hidden bg-background">

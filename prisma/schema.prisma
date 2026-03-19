@@ -296,6 +296,7 @@ model User {
   messages            Message[]
   passwordResetTokens PasswordResetToken[]
   favoriteWallets     UserFavoriteWallet[]
+  userWatchedTokens   UserWatchedToken[]
   walletHunts         WalletHunt[]
   walletNotes         WalletNote[]
   registrationCode    RegistrationCode?
@@ -492,6 +493,7 @@ model TokenInfo {
   metadataSource          String?
   TokenTag                TokenTag[]
   WatchedToken            WatchedToken[]
+  userWatchedTokens       UserWatchedToken[]
   tokenAlerts             TokenAlert[]
 
   @@index([name])
@@ -583,6 +585,18 @@ model WatchedToken {
   TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
 
   @@unique([tokenAddress, list])
+}
+
+model UserWatchedToken {
+  userId       String
+  tokenAddress String
+  createdAt    DateTime  @default(now())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress], onDelete: Cascade)
+
+  @@id([userId, tokenAddress])
+  @@index([tokenAddress])
+  @@index([createdAt])
 }
 
 model TokenAccountWatermark {
