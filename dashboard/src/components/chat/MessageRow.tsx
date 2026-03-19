@@ -7,7 +7,14 @@ import type { TokenInfoByMint } from '@/hooks/useTokenInfoMany';
 import useSWR from 'swr';
 
 export interface MessageRowProps {
-  message: { id?: string; body: string; createdAt: string; mentions?: Array<{ kind: string; refId?: string | null; rawValue: string }> };
+  message: {
+    id?: string;
+    body: string;
+    createdAt: string;
+    authorUserId?: string | null;
+    mentions?: Array<{ kind: string; refId?: string | null; rawValue: string }>;
+    author?: { id: string; displayName?: string | null; email?: string | null } | null;
+  };
   byMint: TokenInfoByMint;
   watchedByMint?: Record<string, { symbol?: string | null; name?: string | null }>;
   threadAddress?: string;
@@ -20,9 +27,10 @@ export interface MessageRowProps {
   selected?: boolean;
   onReply?: (m: { id?: string; body: string }) => void;
   onReact?: (m: { id?: string }, type: 'like'|'dislike'|'warn'|'test') => void;
+  authorLabel?: string | null;
 }
 
-export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false, isPinned = false, onTogglePin, highlighted = false, selected = false, onReply, onReact }: MessageRowProps) {
+export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false, isPinned = false, onTogglePin, highlighted = false, selected = false, onReply, onReact, authorLabel }: MessageRowProps) {
   const nodes = useMemo(() => {
     const body = message.body || '';
     const mentions = (message.mentions || []).filter((m) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId);
@@ -92,6 +100,11 @@ export default function MessageRow({ message, byMint, watchedByMint = {}, thread
       className="px-3 py-1.5"
       style={{ contentVisibility: 'auto' as any, containIntrinsicSize: '72px' as any }}
     >
+      {authorLabel ? (
+        <div className={`mb-1 px-1 text-[11px] text-muted-foreground ${isOwn ? 'text-right' : 'text-left'}`}>
+          {authorLabel}
+        </div>
+      ) : null}
       <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
         <div className={`group max-w-[80%] px-3 py-1.5 rounded-2xl ${highlighted || selected ? 'ring-2 ring-primary/60' : ''} focus-within:ring-2 focus-within:ring-primary outline-none ${isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`} tabIndex={0}>
           {(message as any).parentId && parent ? (

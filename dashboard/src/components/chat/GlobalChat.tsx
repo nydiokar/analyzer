@@ -65,6 +65,10 @@ export default function GlobalChat() {
     [byMint, watchedByMint]
   );
 
+  const getAuthorLabel = useCallback((message: any) => {
+    return message?.author?.displayName || message?.author?.email || null;
+  }, []);
+
   const PinnedBand = useMemo(() => {
     if (!pinnedMessages.length) return null;
     return (
@@ -109,6 +113,7 @@ export default function GlobalChat() {
             <MessageRow
               key={message.id}
               message={message}
+              authorLabel={getAuthorLabel(message)}
               byMint={byMint}
               watchedByMint={watchedByMint}
               showCopy={true}

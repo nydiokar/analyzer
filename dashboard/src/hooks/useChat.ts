@@ -32,7 +32,6 @@ export function useChat(scope: Scope, pageSize: number = 50) {
   // State
   const [replyTo, setReplyTo] = useState<{ id: string; body: string } | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const lastPostedAtRef = useRef<number>(0);
   const lastPersistedRef = useRef<number>(0);
 
   // Computed data
@@ -394,7 +393,6 @@ export function useChat(scope: Scope, pageSize: number = 50) {
 
   const onMessageSent = useCallback(() => {
     const now = Date.now();
-    lastPostedAtRef.current = now;
     const wasAtBottom = isAtBottomRef.current;
     if (wasAtBottom) {
       updateLastSeen(now, true);
@@ -450,11 +448,7 @@ export function useChat(scope: Scope, pageSize: number = 50) {
     // Utils
     isSelected,
     isMessageOwn: (message: MessageLite) => {
-      if (authoredByUser(message)) return true;
-      const createdAtMs = new Date(message.createdAt).getTime();
-      if (!Number.isFinite(createdAtMs)) return false;
-      const ref = lastPostedAtRef.current;
-      return Boolean(ref && createdAtMs >= ref - 2000);
+      return authoredByUser(message);
     },
 
     // Load more
