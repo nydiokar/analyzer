@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Plus, Star, Trash2, ExternalLink, MessageSquare, BarChart3, Waves, Tag, X } from 'lucide-react';
+import { Search, Plus, Clock3, Trash2, ExternalLink, MessageSquare, BarChart3, Waves, Tag, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,6 +59,23 @@ function formatRelativeTime(iso?: string | null) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function formatAgeFromUnix(timestampSeconds?: number | null) {
+  if (timestampSeconds == null || !Number.isFinite(timestampSeconds)) return 'Age unknown';
+  const timestampMs = timestampSeconds > 1_000_000_000_000 ? timestampSeconds : timestampSeconds * 1000;
+  const elapsedMs = Date.now() - timestampMs;
+  if (elapsedMs <= 0) return 'Just launched';
+  const minutes = Math.floor(elapsedMs / 60000);
+  if (minutes < 60) return `${minutes}m old`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h old`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d old`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo old`;
+  const years = Math.floor(months / 12);
+  return `${years}y old`;
 }
 
 function normalizeTags(tags: string[]) {
@@ -501,8 +518,9 @@ export function TokenWatchlistModal({ open, onOpenChange, canOpenWorkspace }: To
                           <MessageSquare className="h-3.5 w-3.5" />
                           {formatRelativeTime(token.latestMessageAt)}
                         </span>
-                        <span className="inline-flex items-center gap-1 text-amber-300/75">
-                          <Star className="h-3 w-3 fill-current" />
+                        <span className="inline-flex items-center gap-1.5">
+                          <Clock3 className="h-3 w-3" />
+                          {formatAgeFromUnix(token.pairCreatedAt)}
                         </span>
                       </div>
 

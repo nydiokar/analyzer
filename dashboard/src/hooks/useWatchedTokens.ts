@@ -10,6 +10,7 @@ export interface WatchedTokenRow {
   imageUrl?: string | null;
   marketCapUsd?: number | null;
   liquidityUsd?: number | null;
+  pairCreatedAt?: number | null;
   priceUsd?: string | null;
   volume24h?: number | null;
   latestMessageAt?: string | null;

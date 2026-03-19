@@ -9,6 +9,7 @@ export interface WatchedTokenRow {
   imageUrl?: string | null;
   marketCapUsd?: number | null;
   liquidityUsd?: number | null;
+  pairCreatedAt?: number | null;
   priceUsd?: string | null;
   volume24h?: number | null;
   latestMessageAt?: string | null; // ISO
@@ -92,6 +93,7 @@ export class WatchedTokensService {
           imageUrl: true,
           marketCapUsd: true,
           liquidityUsd: true,
+          pairCreatedAt: true,
           priceUsd: true,
           volume24h: true,
         },
@@ -135,6 +137,7 @@ export class WatchedTokensService {
           imageUrl: info?.imageUrl ?? null,
           marketCapUsd: info?.marketCapUsd ?? null,
           liquidityUsd: info?.liquidityUsd ?? null,
+          pairCreatedAt: info?.pairCreatedAt != null ? Number(info.pairCreatedAt) : null,
           priceUsd: info?.priceUsd ?? null,
           volume24h: info?.volume24h ?? null,
           latestMessageAt: latestByToken.get(tokenAddress) ?? null,
