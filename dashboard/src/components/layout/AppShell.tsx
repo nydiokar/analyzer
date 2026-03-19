@@ -75,6 +75,7 @@ export function AppShell({ children }: AppShellProps) {
       ? [
           { href: '/tools/sig-buyers', label: 'Sig Buyers' },
           { href: '/radar', label: 'Radar' },
+          { href: '/tokens', label: 'Tokens' },
         ]
       : []),
   ];
