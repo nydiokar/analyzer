@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-19  **Status:** Token Dashboard — transplant complete, `/tokens` nav wired for analysts, personal token watchlist modal split in progress
+**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-19  **Status:** Token Dashboard — transplant complete, personal token watchlist shipped, branch ready to merge
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,7 +8,7 @@
 
 ##  Active Work
 
-### feature/token-dash-v2 — 🚧 IN PROGRESS (Mar 18, 2026)
+### feature/token-dash-v2 — ✅ READY TO MERGE (Mar 19, 2026)
 
 **What this is:** Clean transplant of the token dashboard feature (originally `feature/token-dash`, Sep–Oct 2025) onto current main. New branch from main — no merge, surgical file-by-file port. Backend TS clean, frontend builds clean, migration applied.
 
@@ -22,7 +22,7 @@
 | Status | Task | Area | Notes |
 |:------:|:-----|:----:|:------|
 | ✅ | Chat system — GlobalChat, TokenThread, MessageComposer, MessageRow, SymbolResolverModal | Frontend | `dashboard/src/components/chat/` |
-| ✅ | WatchedTokens list — price metrics, tags, sparklines | Frontend | `dashboard/src/components/tokens/WatchedTokenList.tsx` |
+| ✅ | WatchedTokens list — price metrics and tags (sparklines removed from `/tokens` UI) | Frontend | `dashboard/src/components/tokens/WatchedTokenList.tsx` |
 | ✅ | Token Alerts — price/% alerts with BullMQ cron evaluator (30s) | Backend + Frontend | `alerts.service.ts`, `alert-evaluator.job.ts`, `AlertCreator.tsx`, `AlertsList.tsx` |
 | ✅ | Read state tracking — per-user/scope unread markers | Backend + Frontend | `MessageReadState` model, `useMessagesSocket.ts` |
 | ✅ | Mention parser — `@ca:`, `@sym:` namespaces with server re-validation | Backend | `mention-parser.ts` |
@@ -34,28 +34,7 @@
 | ✅ | Wire `/tokens` into analyst/admin nav — add entry point in existing AppShell for token dashboard access | Frontend | `dashboard/src/components/layout/AppShell.tsx` |
 | ✅ | Split watched-token ownership — shared analyst workspace stays on `watched-tokens`; added per-user watchlist API/model for navbar modal | Backend | `prisma/schema.prisma`, `user-watched-tokens.controller.ts`, `user-watched-tokens.service.ts` |
 | ✅ | Analyst-gate `/tokens` page and shared watched-token API | Frontend + Backend | `dashboard/src/app/tokens/page.tsx`, `watched-tokens.controller.ts` |
-| 🚧 | **[TOKEN-FAV-MODAL]** Navbar star button now opens personal token watchlist modal backed by `users/me/watched-tokens`; next step is polishing/additional watch entry points on token pages/badges | Frontend | `AppShell.tsx`, `TokenWatchlistModal.tsx`, `useUserWatchedTokens.ts` |
-
-**Files added (backend):**
-- `src/api/controllers/messages.controller.ts`, `alerts.controller.ts`, `watched-tokens.controller.ts`, `token-validation.controller.ts`
-- `src/api/services/messages.service.ts`, `alerts.service.ts`, `watched-tokens.service.ts`, `sparkline.service.ts`
-- `src/api/modules/messages.module.ts`
-- `src/api/shared/mention-parser.ts`, `message.gateway.ts`
-- `src/queues/jobs/alert-evaluator.job.ts`
-
-**Files added (frontend):**
-- `dashboard/src/app/chat/`, `app/tokens/`, `app/m/[id]/`
-- `dashboard/src/components/chat/`, `components/alerts/`, `components/sidebar/`, `components/tokens/`, `components/shared/Sparkline.tsx`
-- `dashboard/src/hooks/useChat.ts`, `useMessages.ts`, `useMessagesSocket.ts`, `useAlerts.ts`, `useWatchedTokens.ts`, `useTokenInfo.ts`, `useTokenInfoMany.ts`, `useMiniPriceSeries.ts`, `useInfiniteScroll.ts`, `useMediaQuery.ts`, `useCurrentUser.ts`
-- `dashboard/src/chat/types.ts`, `chat/utils.ts`, `lib/mention-grammar.ts`, `lib/tokenInfoAggregator.ts`
-
-**Modified (main files, additive only):**
-- `prisma/schema.prisma` — 3 new models + relations on User + TokenInfo
-- `src/api.module.ts` — MessagesModule + HttpModule + TokenValidationController added
-- `src/api/modules/websocket.module.ts` — MessageGateway added
-- `src/api/integrations/token-info.module.ts` — SparklineService added
-- `src/api/shared/job-progress.gateway.ts` — namespace `/jobs` (was path `/socket.io/`)
-- `dashboard/src/hooks/useJobProgress.ts` — connects to namespace `/jobs`
+| ✅ | **[TOKEN-FAV-MODAL]** Personal token watchlist modal shipped — navbar star uses `users/me/watched-tokens`, tags are editable, DexScreener `pairCreatedAt` is surfaced as token age in favorites, and `/tokens` thread/list sparkline UI was removed in favor of tags | Frontend + Backend | `AppShell.tsx`, `TokenWatchlistModal.tsx`, `useUserWatchedTokens.ts`, `watched-tokens.service.ts`, `WatchedTokenList.tsx`, `TokenThread.tsx` |
 
 ---
 
@@ -90,44 +69,8 @@
 
 ##  Current Focus & Priorities
 
-### P0: Telegram Bot Intel — 🚧 IN PROGRESS (Mar 9, 2026)
-
-New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot/spec.md`.
-
-**What this is:** Telegraf-based Telegram bot exposing `/hud`, `/profile`, and `/holders` commands — all wired to the Intel HTTP API via a single `system-telegram-bot` API key. First retail revenue surface for Sova Intel.
-
-**Key design decisions:**
-- Separate process (not NestJS module) — independent PM2 entry, no DI container needed
-- Single system API key for billing; per-user attribution via `TelegramBotLog` DB table
-- `ALLOWED_TELEGRAM_USER_IDS` env var allowlist — same pattern as legacy bot
-- No client-side polling: `/hud` and `/profile` use PAY-8 synchronous hold (API holds 30s, returns 200 + data). Bot sends ⏳ then edits the message — one message per command.
-- `/holders` is genuinely async (POST → 202 → job runs minutes) — bot polls `GET /jobs/:jobId` every 3s invisibly, edits the ⏳ message when done
-- File structure: `src/bot/intel/` — separate from legacy `src/core/bot/` (no reuse)
-
-### P1: Holdings Radar — ✅ COMPLETE (Mar 9, 2026)
-
-`feat/tracked-wallets-page` merged. Full spec in `.ai/context/holding_feed/spec.md`.
-
-**Key design decisions:**
-- `isAnalyst` on `User` — operational role separate from `isAdmin`
-- No FK to existing `Wallet` model — standalone `RadarWallet` / `RadarHolding` models
-- Route `/analyst/radar/...`; `GET /analyst/radar/feed` declared before `GET /analyst/radar/:address/holdings` to avoid NestJS param shadowing
-- `isAnalyst` propagated through all auth paths
 
 ### P1: Helius API Optimization — ✅ COMPLETE (Feb 16-17)
-
-**What was done:**
-- Slot watermarks migrated from Redis (30s TTL) → `TokenAccountWatermark` Prisma table (persistent, Feb 16 commit `3bb107f`)
-- Balance cache TTLs increased: default 5min→30min, medium 15min→2hr, whale 45min→4hr
-- Fixed broken cache-miss + watermark incremental path that caused similarity jobs to silently drop wallets (Feb 17)
-- Fixed hardcoded 30s TTL overwriting 30-min cached balances in `getBalances()` incremental write (Feb 17)
-- All 5 Redis write paths in `balance-cache.service.ts` now use adaptive `getTtlSeconds()`
-
-**How it works now:**
-1. First fetch → full Helius call → balance cached (30min-4hr) + slot watermark stored in DB
-2. Repeat fetch within TTL window → incremental `changedSinceSlot` → only changed tokens returned → merged with cached baseline → written back with full TTL
-3. Cache miss (TTL expired) → full fetch regardless of watermark (watermark alone can't reconstruct full balance)
-4. Holder profiles → similarity job chain: balances cached at 30min, similarity hits cache, zero extra RPC calls
 
 **Phase 2 (future):** Helius Webhooks / WebSocket subscriptions for active wallets
 
@@ -136,6 +79,17 @@ New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot
 ##  Recent Activity
 
 ### March 13, 2026 (Latest) — Sig Buyers UI (branch: feature/sig-buyers-ui)
+
+### March 19, 2026 (Latest) — Token Dashboard Merge Polish (branch: feature/token-dash-v2)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 19.1 | 🔧 FIX | Personal token watchlist modal finished — user watchlist API wired through navbar star, personal tags editable, DexScreener `pairCreatedAt` surfaced as token age in favorites | 🟢 S | `user-watched-tokens.service.ts`, `TokenWatchlistModal.tsx`, `useUserWatchedTokens.ts`, `watched-tokens.service.ts` |
+| 19.2 | 🔧 FIX | `/tokens` UI simplified for analysts — removed sparkline fetch/render from watched token list and token thread, showing tags instead of trend lines in the list | 🟢 S | `WatchedTokenList.tsx`, `TokenThread.tsx` |
+
+**Summary:** Token dashboard transplant is complete, personal token watchlist UX is shipped, and the branch is ready to merge into `main`.
+
+---
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
