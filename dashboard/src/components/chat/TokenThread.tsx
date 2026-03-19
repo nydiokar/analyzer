@@ -33,7 +33,7 @@ type MessageMeta = {
 };
 
 function getAuthorKey(message: any): string | null {
-  return message?.authorId || message?.userId || message?.author?.id || null;
+  return message?.authorUserId || message?.authorId || message?.userId || message?.author?.id || null;
 }
 
 function getAuthorName(message: any): string | null {
@@ -331,6 +331,7 @@ export default function TokenThread({ tokenAddress, highlightId }: { tokenAddres
               <MessageRow
                 message={meta.message}
                 authorLabel={meta.authorName}
+                groupPosition={meta.groupPosition}
                 byMint={byMint}
                 watchedByMint={watchedByMint}
                 threadAddress={tokenAddress}

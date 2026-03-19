@@ -8,6 +8,21 @@ import { extractTokenMentions } from '@/chat/utils';
 import MessageRow from './MessageRow';
 import MessageComposer from './MessageComposer';
 
+type MessageMeta = {
+  message: any;
+  isOwn: boolean;
+  authorLabel: string | null;
+  groupPosition: 'single' | 'start' | 'middle' | 'end';
+};
+
+function getAuthorKey(message: any): string | null {
+  return message?.authorUserId || message?.authorId || message?.userId || message?.author?.id || null;
+}
+
+function getAuthorLabel(message: any): string | null {
+  return message?.author?.displayName || message?.author?.email || null;
+}
+
 export default function GlobalChat() {
   const chat = useChat({ kind: 'global' });
   const {
@@ -65,9 +80,35 @@ export default function GlobalChat() {
     [byMint, watchedByMint]
   );
 
-  const getAuthorLabel = useCallback((message: any) => {
-    return message?.author?.displayName || message?.author?.email || null;
-  }, []);
+  const messageMeta = useMemo<MessageMeta[]>(() => {
+    return messages.map((message, idx) => {
+      const isOwn = Boolean(isMessageOwn(message));
+      const authorKey = getAuthorKey(message);
+      const authorLabel = getAuthorLabel(message);
+
+      const prev = idx > 0 ? messages[idx - 1] : null;
+      const next = idx < messages.length - 1 ? messages[idx + 1] : null;
+
+      const prevKey = prev ? getAuthorKey(prev) : null;
+      const nextKey = next ? getAuthorKey(next) : null;
+      const prevOwn = prev ? Boolean(isMessageOwn(prev)) : null;
+      const nextOwn = next ? Boolean(isMessageOwn(next)) : null;
+
+      const samePrev = prev ? (authorKey ? prevKey === authorKey : prevOwn === isOwn) : false;
+      const sameNext = next ? (authorKey ? nextKey === authorKey : nextOwn === isOwn) : false;
+
+      const groupPosition: MessageMeta['groupPosition'] =
+        samePrev && sameNext
+          ? 'middle'
+          : samePrev
+            ? 'end'
+            : sameNext
+              ? 'start'
+              : 'single';
+
+      return { message, isOwn, authorLabel, groupPosition };
+    });
+  }, [messages, isMessageOwn]);
 
   const PinnedBand = useMemo(() => {
     if (!pinnedMessages.length) return null;
@@ -109,24 +150,25 @@ export default function GlobalChat() {
           {isLoading && <div className="p-3 text-sm">Loading…</div>}
           {Boolean(error) && <div className="p-3 text-sm text-red-500">Failed to load messages</div>}
 
-          {messages.map((message, idx) => (
+          {messageMeta.map((meta, idx) => (
             <MessageRow
-              key={message.id}
-              message={message}
-              authorLabel={getAuthorLabel(message)}
+              key={meta.message.id}
+              message={meta.message}
+              authorLabel={meta.authorLabel}
+              groupPosition={meta.groupPosition}
               byMint={byMint}
               watchedByMint={watchedByMint}
               showCopy={true}
-              isPinned={!!message.isPinned}
+              isPinned={!!meta.message.isPinned}
               selected={isSelected(idx)}
-              isOwn={Boolean(isMessageOwn(message))}
-              canDelete={Boolean(isMessageOwn(message))}
-              onTogglePin={(id: string) => pinMessage(id, !message.isPinned)}
+              isOwn={meta.isOwn}
+              canDelete={meta.isOwn}
+              onTogglePin={(id: string) => pinMessage(id, !meta.message.isPinned)}
               onReply={startReply}
               onReact={(_, type: string) => {
-                const count = (message.reactions || []).find(r => r.type === type)?.count || 0;
+                const count = (meta.message.reactions || []).find((r: any) => r.type === type)?.count || 0;
                 const on = count === 0;
-                reactToMessage(message.id, type, on);
+                reactToMessage(meta.message.id, type, on);
               }}
             />
           ))}

@@ -28,9 +28,10 @@ export interface MessageRowProps {
   onReply?: (m: { id?: string; body: string }) => void;
   onReact?: (m: { id?: string }, type: 'like'|'dislike'|'warn'|'test') => void;
   authorLabel?: string | null;
+  groupPosition?: 'single' | 'start' | 'middle' | 'end';
 }
 
-export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false, isPinned = false, onTogglePin, highlighted = false, selected = false, onReply, onReact, authorLabel }: MessageRowProps) {
+export default function MessageRow({ message, byMint, watchedByMint = {}, threadAddress, showCopy = false, isOwn = false, canDelete = false, isPinned = false, onTogglePin, highlighted = false, selected = false, onReply, onReact, authorLabel, groupPosition = 'single' }: MessageRowProps) {
   const nodes = useMemo(() => {
     const body = message.body || '';
     const mentions = (message.mentions || []).filter((m) => (m.kind === 'TOKEN' || m.kind === 'token') && m.refId);
@@ -94,19 +95,35 @@ export default function MessageRow({ message, byMint, watchedByMint = {}, thread
   // Load parent preview if needed
   const { data: parent } = useSWR(message && (message as any).parentId ? `/messages/${encodeURIComponent((message as any).parentId)}` : null, (url) => fetcher(url));
 
+  const bubbleShape = useMemo(() => {
+    if (groupPosition === 'single') return 'rounded-2xl';
+    if (isOwn) {
+      if (groupPosition === 'start') return 'rounded-2xl rounded-br-md';
+      if (groupPosition === 'middle') return 'rounded-2xl rounded-tr-md rounded-br-md';
+      return 'rounded-2xl rounded-tr-md';
+    }
+    if (groupPosition === 'start') return 'rounded-2xl rounded-bl-md';
+    if (groupPosition === 'middle') return 'rounded-2xl rounded-tl-md rounded-bl-md';
+    return 'rounded-2xl rounded-tl-md';
+  }, [groupPosition, isOwn]);
+
+  const rowPaddingClass = groupPosition === 'start' || groupPosition === 'single' ? 'pt-3 pb-1.5' : 'pt-1 pb-1.5';
+  const showAuthor = Boolean(authorLabel) && (groupPosition === 'single' || groupPosition === 'start');
+  const displayAuthor = isOwn ? 'You' : authorLabel;
+
   return (
     <div
       id={message.id ? `msg-${message.id}` : undefined}
-      className="px-3 py-1.5"
+      className={`px-3 ${rowPaddingClass}`}
       style={{ contentVisibility: 'auto' as any, containIntrinsicSize: '72px' as any }}
     >
-      {authorLabel ? (
+      {showAuthor ? (
         <div className={`mb-1 px-1 text-[11px] text-muted-foreground ${isOwn ? 'text-right' : 'text-left'}`}>
-          {authorLabel}
+          {displayAuthor}
         </div>
       ) : null}
       <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-        <div className={`group max-w-[80%] px-3 py-1.5 rounded-2xl ${highlighted || selected ? 'ring-2 ring-primary/60' : ''} focus-within:ring-2 focus-within:ring-primary outline-none ${isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`} tabIndex={0}>
+        <div className={`group max-w-[80%] px-3 py-1.5 ${bubbleShape} ${highlighted || selected ? 'ring-2 ring-primary/60' : ''} focus-within:ring-2 focus-within:ring-primary outline-none ${isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`} tabIndex={0}>
           {(message as any).parentId && parent ? (
             <div className="mb-1 pl-2 border-l-2 border-border text-xs text-muted-foreground">
               {(parent.body || '').slice(0, 120)}{(parent.body || '').length > 120 ? '…' : ''}
