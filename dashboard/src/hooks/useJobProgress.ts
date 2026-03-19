@@ -207,8 +207,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const user = useAuthStore.getState().user;
     const userId = user?.id;
 
-    // Use the backend URL directly - no proxy needed
-    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'https://sova-intel.duckdns.org';
+    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || '';
     const forceNewSocket = (process.env.NEXT_PUBLIC_SOCKET_FORCE_NEW === 'true');
 
     const transportsEnv = (process.env.NEXT_PUBLIC_SOCKET_TRANSPORTS || 'polling,websocket') as string;
@@ -220,9 +219,8 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     const includeNonce = process.env.NEXT_PUBLIC_SOCKET_NONCE === 'true';
     const query = includeNonce ? { nonce: Date.now().toString(36) } : undefined;
 
-    const newSocket = io(`${baseUrl}`, {
+    const newSocket = io(`${baseUrl}/jobs`, {
       autoConnect: true,
-      path: "/socket.io/",
       transports,
       upgrade,
       reconnectionAttempts: Infinity, // Never give up reconnecting

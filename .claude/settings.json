@@ -3,6 +3,16 @@
     "frontend-design@claude-plugins-official": false
   },
   "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Write(.claude/**)",
+      "Edit(.claude/**)",
+      "Write(documentation/**)",
+      "Edit(documentation/**)",
+      "Bash(mkdir*)",
+      "Bash(ls*)",
+      "Bash(jq*)"
+    ],
     "deny": [
       "Read(**/.env)",
       "Read(**/.env.*)",

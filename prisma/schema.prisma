@@ -293,14 +293,18 @@ model User {
   activityLogs        ActivityLog[]
   apiKeys             ApiKey[]
   verificationTokens  EmailVerificationToken[]
-  Message             Message[]
+  messages            Message[]
   passwordResetTokens PasswordResetToken[]
   favoriteWallets     UserFavoriteWallet[]
+  userWatchedTokens   UserWatchedToken[]
   walletHunts         WalletHunt[]
   walletNotes         WalletNote[]
   registrationCode    RegistrationCode?
   creditBalance       CreditBalance?
   creditTransactions  CreditTransaction[]
+  messageReadStates   MessageReadState[]
+  tokenAlerts         TokenAlert[]
+  alertNotifications  AlertNotification[]
 
   @@index([lastBulkImportAt])
 }
@@ -489,6 +493,8 @@ model TokenInfo {
   metadataSource          String?
   TokenTag                TokenTag[]
   WatchedToken            WatchedToken[]
+  userWatchedTokens       UserWatchedToken[]
+  tokenAlerts             TokenAlert[]
 
   @@index([name])
   @@index([symbol])
@@ -498,27 +504,27 @@ model TokenInfo {
 }
 
 model Message {
-  id              String            @id
+  id              String            @id @default(cuid())
   body            String
   authorUserId    String?
   source          String
   createdAt       DateTime          @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime          @updatedAt
   deletedAt       DateTime?
   isPinned        Boolean           @default(false)
   parentId        String?
-  User            User?             @relation(fields: [authorUserId], references: [id])
-  Message         Message?          @relation("MessageToMessage", fields: [parentId], references: [id])
-  other_Message   Message[]         @relation("MessageToMessage")
-  MessageMention  MessageMention[]
-  MessageReaction MessageReaction[]
-  MessageRevision MessageRevision[]
+  author          User?             @relation(fields: [authorUserId], references: [id])
+  parent          Message?          @relation("MessageThread", fields: [parentId], references: [id])
+  replies         Message[]         @relation("MessageThread")
+  mentions        MessageMention[]
+  reactions       MessageReaction[]
+  revisions       MessageRevision[]
 
   @@index([createdAt, id])
 }
 
 model MessageMention {
-  id        String  @id
+  id        String  @id @default(cuid())
   messageId String
   kind      String
   refId     String?
@@ -535,7 +541,7 @@ model MessageReaction {
   type      String
   count     Int      @default(0)
   createdAt DateTime @default(now())
-  updatedAt DateTime
+  updatedAt DateTime @updatedAt
   Message   Message  @relation(fields: [messageId], references: [id])
 
   @@id([messageId, type])
@@ -543,7 +549,7 @@ model MessageReaction {
 }
 
 model MessageRevision {
-  id        String   @id
+  id        String   @id @default(cuid())
   messageId String
   body      String
   editedAt  DateTime @default(now())
@@ -551,7 +557,7 @@ model MessageRevision {
 }
 
 model Tag {
-  id       String     @id
+  id       String     @id @default(cuid())
   name     String     @unique
   type     String
   TokenTag TokenTag[]
@@ -571,7 +577,7 @@ model TokenTag {
 }
 
 model WatchedToken {
-  id           String    @id
+  id           String    @id @default(cuid())
   tokenAddress String
   list         String
   createdAt    DateTime  @default(now())
@@ -579,6 +585,19 @@ model WatchedToken {
   TokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress])
 
   @@unique([tokenAddress, list])
+}
+
+model UserWatchedToken {
+  userId       String
+  tokenAddress String
+  createdAt    DateTime  @default(now())
+  tags         String[]  @default([])
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenInfo    TokenInfo @relation(fields: [tokenAddress], references: [tokenAddress], onDelete: Cascade)
+
+  @@id([userId, tokenAddress])
+  @@index([tokenAddress])
+  @@index([createdAt])
 }
 
 model TokenAccountWatermark {
@@ -737,4 +756,58 @@ model TelegramBotLog {
   @@index([telegramUserId])
   @@index([command])
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Token Dashboard — read state, alerts, alert notifications
+// ---------------------------------------------------------------------------
+
+model MessageReadState {
+  id         Int      @id @default(autoincrement())
+  userId     String
+  scope      String
+  lastReadAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scope])
+  @@index([scope])
+}
+
+model TokenAlert {
+  id              String              @id @default(cuid())
+  userId          String
+  tokenAddress    String
+  label           String?
+  condition       Json
+  isActive        Boolean             @default(true)
+  channels        Json
+  lastTriggeredAt DateTime?
+  triggerCount    Int                 @default(0)
+  cooldownMinutes Int                 @default(60)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  baselinePrice   String?
+  notifications   AlertNotification[]
+  tokenInfo       TokenInfo           @relation(fields: [tokenAddress], references: [tokenAddress], onDelete: Cascade)
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([tokenAddress, isActive])
+}
+
+model AlertNotification {
+  id          String     @id @default(cuid())
+  alertId     String
+  userId      String
+  triggeredAt DateTime   @default(now())
+  snapshot    Json
+  delivered   Boolean    @default(false)
+  isRead      Boolean    @default(false)
+  readAt      DateTime?
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alert       TokenAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([triggeredAt])
 }

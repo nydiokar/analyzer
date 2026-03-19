@@ -22,8 +22,6 @@ migrate_rawdata_to_compressed.py
 run_vacuum.py
 *audit.json
 .claude/settings.local.json
-.claude/agents/
-.claude/skills/
 *.audit.json
 *audit.json
 *db.backup*

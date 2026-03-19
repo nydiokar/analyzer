@@ -1,0 +1,2 @@
+ALTER TABLE "UserWatchedToken"
+ADD COLUMN "tags" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

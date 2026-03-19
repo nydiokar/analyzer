@@ -6,6 +6,7 @@ import { EmailVerificationBanner } from "@/components/auth/EmailVerificationBann
 import { UserMenu } from "@/components/auth/UserMenu";
 import { WalletSearch } from "@/components/shared/WalletSearch";
 import { AuthModal } from "@/components/auth/AuthModal";
+import { TokenWatchlistModal } from "@/components/tokens/TokenWatchlistModal";
 import { Toaster } from 'sonner';
 import { SWRConfig, SWRConfiguration } from 'swr';
 import { defaultSWRConfig } from '@/lib/swr-config';
@@ -52,6 +53,7 @@ export function AppShell({ children }: AppShellProps) {
   const { isAuthenticated, user } = useAuth();
   const { balance } = useCredits();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [watchlistOpen, setWatchlistOpen] = useState(false);
 
   // Use global UI store for auth modal (can be triggered from anywhere)
   const { showAuthModal, authModalReason, setShowAuthModal } = useUIStore();
@@ -75,6 +77,7 @@ export function AppShell({ children }: AppShellProps) {
       ? [
           { href: '/tools/sig-buyers', label: 'Sig Buyers' },
           { href: '/radar', label: 'Radar' },
+          { href: '/tokens', label: 'Tokens' },
         ]
       : []),
   ];
@@ -178,7 +181,14 @@ export function AppShell({ children }: AppShellProps) {
                   variant="ghost"
                   size="icon"
                   className="h-9 w-9 hidden sm:flex"
-                  title="Favorite tokens (Coming Soon)"
+                  title={isAuthenticated ? "Favorite tokens" : "Sign in to use favorite tokens"}
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      setShowAuthModal(true, 'manual');
+                      return;
+                    }
+                    setWatchlistOpen(true);
+                  }}
                 >
                   <Star className="h-4 w-4" />
                 </Button>
@@ -241,6 +251,11 @@ export function AppShell({ children }: AppShellProps) {
               router.push('/discover');
             }
           }}
+        />
+        <TokenWatchlistModal
+          open={watchlistOpen}
+          onOpenChange={setWatchlistOpen}
+          canOpenWorkspace={Boolean(user?.isAnalyst || user?.isAdmin)}
         />
       </ThemeProvider>
     </SWRConfig>

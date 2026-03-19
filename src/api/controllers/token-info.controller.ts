@@ -4,6 +4,7 @@ import { GetTokenInfoRequestDto } from '../shared/dto/get-token-info.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { Request } from 'express';
 import { TokenHoldersService } from '../services/token-holders.service';
+import { SparklineService } from '../services/sparkline.service';
 import { isValidSolanaAddress, SolanaAddressPipe } from '../shared/solana-address.pipe';
 import { TopHoldersResponseDto } from '../shared/dto/top-holders.dto';
 
@@ -15,6 +16,7 @@ export class TokenInfoController {
   constructor(
     private readonly tokenInfoService: TokenInfoService,
     private readonly tokenHoldersService: TokenHoldersService,
+    private readonly sparklineService: SparklineService,
   ) {}
 
   @Post()
@@ -49,6 +51,16 @@ export class TokenInfoController {
       ...t,
       pairCreatedAt: t?.pairCreatedAt != null ? Number(t.pairCreatedAt) : null,
     }));
+  }
+
+  @Get(':mint/sparkline')
+  async getSparkline(
+    @Param('mint') mint: string,
+    @Query('points') points?: string,
+  ) {
+    const n = Math.min(Math.max(parseInt(points ?? '24', 10) || 24, 1), 96);
+    const data = await this.sparklineService.read(mint, n);
+    return { points: data };
   }
 
   // New endpoint for top holders (reads only)

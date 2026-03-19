@@ -73,6 +73,7 @@ export const createCacheKey = {
     return `/wallets/${walletAddress}/pnl-overview${searchParams ? '?' + searchParams : ''}`;
   },
   favorites: () => '/users/me/favorites',
+  userWatchedTokens: () => '/users/me/watched-tokens',
   search: (query: string) => `/wallets/search?query=${encodeURIComponent(query)}`,
   walletHud: (walletAddress: string) => `/wallets/${walletAddress}/hud`,
   walletHudBatch: (walletAddresses: string[]) => `/wallets/hud/batch:${walletAddresses.join(',')}`,

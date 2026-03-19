@@ -36,6 +36,9 @@ export class AppCacheProvider extends Map<CacheKey, unknown> {
     if (baseKey.startsWith('/users/me/favorites')) {
       return CACHE_DURATIONS.FAVORITES;
     }
+    if (baseKey.startsWith('/users/me/watched-tokens')) {
+      return CACHE_DURATIONS.FAVORITES;
+    }
     if (baseKey.startsWith('/wallets/search')) {
       return CACHE_DURATIONS.SEARCH;
     }

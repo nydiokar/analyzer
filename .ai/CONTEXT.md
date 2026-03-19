@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main` / `feature/sig-buyers-ui`  **Last Updated:** 2026-03-13  **Status:** Sig Buyers UI — backend + frontend scaffolded, needs async job wiring
+**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-19  **Status:** Token Dashboard — transplant complete, personal token watchlist shipped, branch ready to merge
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,72 +8,33 @@
 
 ##  Active Work
 
-### feature/sig-buyers-ui — 🚧 IN PROGRESS (Mar 13, 2026)
+### feature/token-dash-v2 — ✅ READY TO MERGE (Mar 19, 2026)
 
-**What this is:** Frontend UI + backend API for "Significant Buyers" — find all wallets that bought a token during a specific UTC time window, ranked by SOL spent. Replaces the manual script `.ai/context/sig_buyers/test-wallet-discovery.ts` (validated, working).
-
-**Validated logic (do not change):** Two-phase: (1) collect signatures via `getTransactionsForAddressSignatures` RPC with `blockTime` filters — only method that works for mint time-filtering. (2) enrich via `getTransactionsBySignatures` in batches of 100. Then group by wallet → `mapHeliusTransactionsToIntermediateRecords` → sum `associatedSolValue` where `direction === 'in'` = SOL spent.
+**What this is:** Clean transplant of the token dashboard feature (originally `feature/token-dash`, Sep–Oct 2025) onto current main. New branch from main — no merge, surgical file-by-file port. Backend TS clean, frontend builds clean, migration applied.
 
 **Key decisions made:**
-- All times UTC throughout (matches Solscan/explorers) — `T...Z` suffix in date parsing, `getUTC*()` methods, ISO slice for display
-- System wallet filtering uses `isKnownWallet()` (registry, O(1)) inline in grouping + `SystemWalletDetectionService.filterSystemWallets({ skipDynamic: true })` after grouping (memory/redis/DB cache only — no live RPC token-count during request)
-- Frontend renders max 200 rows, "Copy All" gives full list
-- **SB-7 done:** async BullMQ job + WebSocket working. **SB-8 pending:** gate to `isAnalyst` users only (AnalystGuard on controller + frontend access check).
+- All new services use `prisma` singleton (matches pattern of newer services: radar, wallet-hud, credits)
+- Two WS gateways on **Socket.IO namespaces** (not separate paths): `/jobs` (JobProgressGateway) and `/messages` (MessageGateway) — both on default `/socket.io/` path, one TCP connection per tab, multiplexed
+- `alerts.controller.ts` fixed: userId sourced from `req.user` (not body/query) — auth via global `APP_GUARD`
+- No existing main components modified — Sidebar.tsx (branch nav replacement) removed, TokenBadge/dialog reverted to main versions
+- Shared analyst token workspace remains on `watched-tokens`; personal navbar star modal uses separate per-user watchlist API/model (`users/me/watched-tokens`, `UserWatchedToken`) so `/tokens` can stay analyst-only without leaking a global list into user favorites
 
 | Status | Task | Area | Notes |
 |:------:|:-----|:----:|:------|
-| ✅ | **[SB-1]** DTO — `SigBuyersQueryDto` + `SigBuyersResponseDto` | Backend | `src/api/shared/dto/sig-buyers.dto.ts` |
-| ✅ | **[SB-2]** Service — `SigBuyersService` with 5-phase pipeline | Backend | `src/api/services/sig-buyers.service.ts` — uses `isKnownWallet` + `SystemWalletDetectionService` |
-| ✅ | **[SB-3]** Controller — `GET /sig-buyers` | Backend | `src/api/controllers/sig-buyers.controller.ts` — validation, 24h window cap |
-| ✅ | **[SB-4]** Module wired into `api.module.ts` | Backend | `src/api/modules/sig-buyers.module.ts` |
-| ✅ | **[SB-5]** Frontend page — form (mint, UTC date/time picker, duration presets, min SOL presets) + results table | Frontend | `dashboard/src/app/tools/sig-buyers/page.tsx` |
-| ✅ | **[SB-6]** Nav link added | Frontend | `AppShell.tsx` — "Sig Buyers" |
-| ✅ | **[SB-7]** Convert to async job — `SigBuyersJobData` type, queue method, processor case, `POST /sig-buyers` returns `{ jobId }`, frontend uses `useJobProgress` hook, shows live progress % + final result via WebSocket | Backend + Frontend | Pattern: exactly like holder-profiles page (`dashboard/src/app/tools/holder-profiles/page.tsx`) + `analysis-operations.queue.ts`. Job name: `sig-buyers-run`. Store result in Redis via pointer (same as holder-profiles). |
-| ✅ | **[SB-8]** Gate sig-buyers page + endpoint to `isAnalyst` users only — `@IsAnalyst()` on controller, `isAuthorized` gate + `router.replace('/')` in frontend, Sig Buyers nav link moved inside analyst-only condition | Backend + Frontend | `sig-buyers.controller.ts`, `tools/sig-buyers/page.tsx`, `AppShell.tsx` |
-| ✅ | **[SB-9]** "Run Flash Analysis" button in results header — queues flash analysis for all found wallets via `POST /analyses/wallets/dashboard-analysis` (scope=flash, queueWorkingAfter=false), batched 4 at a time with 1.1s gap to respect 5/min throttle | Frontend | `tools/sig-buyers/page.tsx` |
-| ✅ | **[SB-10]** Cancel button — appears while job in-flight, unsubscribes WS + resets UI immediately, fires `DELETE /jobs/:jobId` best-effort | Frontend | `tools/sig-buyers/page.tsx` |
-| ✅ | **[SB-11]** Processor logging — `processSigBuyers` logs START (mint + window + params) and DONE (txFetched + wallets + elapsed) at info level. Dispatch-level log kept at debug to avoid spam. | Backend | `analysis-operations.processor.ts` |
-
-**Files created/modified on branch `feature/sig-buyers-ui`:**
-- `src/api/shared/dto/sig-buyers.dto.ts` ← new
-- `src/api/services/sig-buyers.service.ts` ← new
-- `src/api/controllers/sig-buyers.controller.ts` ← new
-- `src/api/modules/sig-buyers.module.ts` ← new
-- `src/api.module.ts` ← added `SigBuyersModule` import
-- `dashboard/src/app/tools/sig-buyers/page.tsx` ← new
-- `dashboard/src/components/layout/AppShell.tsx` ← added nav entry
-
-**SB-8 + SB-9 done. Sig Buyers feature is complete.**
-
----
-
-### feat/telegram-bot-intel
-
-Full spec: `.ai/context/telegram-bot/spec.md`
-
-| Status | Task | Area | Notes |
-|:------:|:-----|:----:|:------|
-| ✅ | **[TG-1] Schema + migration** — `TelegramBotLog` model | Backend | Migration `20260309153328_add_telegram_bot_log` applied. |
-| ✅ | **[TG-2] API key seed script** — `prisma/seed-telegram-bot.ts` | Backend | Creates `system-telegram-bot` User + `ak_<hex>` ApiKey (bcrypt hash). Run once — prints raw key to stdout. |
-| ✅ | **[TG-3] Bot scaffold** — `src/bot/intel/` entry point + auth middleware | Bot | `index.ts`, `bot.ts`, `config.ts`. Telegraf setup, `ALLOWED_USER_IDS` allowlist, SIGINT/SIGTERM, `process.send('ready')`. |
-| ✅ | **[TG-4] Intel API client** — `intel-client.ts` | Bot | Typed axios wrapper: `getHud` / `getProfile` (35s timeout), `postHolders`, `pollJob` (5s). Header: `x-api-key`. Types copied from pft-bot_v2. |
-| ✅ | **[TG-5] /hud command + formatter** | Bot | `commands/hud.ts` + `formatters/hud.formatter.ts`. ⏳ → await API → edit msg with Telegram HTML. |
-| ✅ | **[TG-6] /profile command + formatter** | Bot | `commands/profile.ts` + `formatters/profile.formatter.ts`. Same ⏳ → edit pattern, 5cr. |
-| ✅ | **[TG-7] /holders command + formatter + async poll** | Bot | `commands/holders.ts` + `formatters/holders.formatter.ts`. POST → poll every 3s (up to 120s) → edit. Formatter adapted from pft-bot_v2. |
-| ✅ | **[TG-8] Attribution logging** — write `TelegramBotLog` rows | Bot | `attribution.ts` — fire-and-forget `logInvocation()` called in all three handlers. |
-| ✅ | **[TG-9] PM2 process config** — add `sova-tg-bot` entry to `ecosystem.config.js` | DevOps | ts-node interpreter, `wait_ready: true`, `exp_backoff_restart_delay: 100`, `max_memory_restart: 512M`. |
-| ✅ | **[TG-10] E2E test** — all three commands verified with real addresses in Telegram | Manual | All three commands working. Attribution rows confirmed in `TelegramBotLog`. Bot running from `dist/` via PM2. |
-
----
-
-### feat/self-serve-api-keys — ✅ COMPLETE (Mar 13, 2026)
-
-Full spec: `.ai/context/self-serve-api-keys/spec.md`
-
-| Status | Task | Area | Notes |
-|:------:|:-----|:----:|:------|
-| ✅ | **[SELF-1] Self-serve API key endpoints** — `POST/GET/DELETE /users/api-keys` | Backend | `users.controller.ts` + `users.module.ts`. Scope hardcoded to `['read']`. Throttle 5/hr on POST. Ownership enforced by `ApiKeyService.revokeApiKey`. |
-| ✅ | **[SELF-2] Developer settings page** — `dashboard/src/app/dashboard/developer/page.tsx` | Dashboard | Credit balance, key generator (raw key shown once with copy button), key list with revoke. Nav link added to `UserMenu` dropdown. Dashboard build clean. |
+| ✅ | Chat system — GlobalChat, TokenThread, MessageComposer, MessageRow, SymbolResolverModal | Frontend | `dashboard/src/components/chat/` |
+| ✅ | WatchedTokens list — price metrics and tags (sparklines removed from `/tokens` UI) | Frontend | `dashboard/src/components/tokens/WatchedTokenList.tsx` |
+| ✅ | Token Alerts — price/% alerts with BullMQ cron evaluator (30s) | Backend + Frontend | `alerts.service.ts`, `alert-evaluator.job.ts`, `AlertCreator.tsx`, `AlertsList.tsx` |
+| ✅ | Read state tracking — per-user/scope unread markers | Backend + Frontend | `MessageReadState` model, `useMessagesSocket.ts` |
+| ✅ | Mention parser — `@ca:`, `@sym:` namespaces with server re-validation | Backend | `mention-parser.ts` |
+| ✅ | SparklineService — Redis-backed mini price series | Backend | `sparkline.service.ts` |
+| ✅ | Token validation endpoint — DexScreener-backed address check | Backend | `token-validation.controller.ts` |
+| ✅ | Schema migration — `MessageReadState`, `TokenAlert`, `AlertNotification` | DB | Migration `20260318102646_add_token_dash_models` applied |
+| ✅ | Socket.IO namespaces — `/jobs` + `/messages` on shared `/socket.io/` path | Backend + Frontend | `job-progress.gateway.ts`, `message.gateway.ts`, `useJobProgress.ts`, `useMessagesSocket.ts` |
+| ✅ | `/tokens` page bugs fixed — `@ca:` space regex, sparkline endpoint, AppShell dark theme, page height, thread key remount, TokenBadge card variant with metadata | Frontend + Backend | `mention-parser.ts`, `token-info.controller.ts`, `tokens/page.tsx`, `WatchedTokenList.tsx`, `TokenThread.tsx` |
+| ✅ | Wire `/tokens` into analyst/admin nav — add entry point in existing AppShell for token dashboard access | Frontend | `dashboard/src/components/layout/AppShell.tsx` |
+| ✅ | Split watched-token ownership — shared analyst workspace stays on `watched-tokens`; added per-user watchlist API/model for navbar modal | Backend | `prisma/schema.prisma`, `user-watched-tokens.controller.ts`, `user-watched-tokens.service.ts` |
+| ✅ | Analyst-gate `/tokens` page and shared watched-token API | Frontend + Backend | `dashboard/src/app/tokens/page.tsx`, `watched-tokens.controller.ts` |
+| ✅ | **[TOKEN-FAV-MODAL]** Personal token watchlist modal shipped — navbar star uses `users/me/watched-tokens`, tags are editable, DexScreener `pairCreatedAt` is surfaced as token age in favorites, and `/tokens` thread/list sparkline UI was removed in favor of tags | Frontend + Backend | `AppShell.tsx`, `TokenWatchlistModal.tsx`, `useUserWatchedTokens.ts`, `watched-tokens.service.ts`, `WatchedTokenList.tsx`, `TokenThread.tsx` |
 
 ---
 
@@ -108,44 +69,8 @@ Full spec: `.ai/context/self-serve-api-keys/spec.md`
 
 ##  Current Focus & Priorities
 
-### P0: Telegram Bot Intel — 🚧 IN PROGRESS (Mar 9, 2026)
-
-New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot/spec.md`.
-
-**What this is:** Telegraf-based Telegram bot exposing `/hud`, `/profile`, and `/holders` commands — all wired to the Intel HTTP API via a single `system-telegram-bot` API key. First retail revenue surface for Sova Intel.
-
-**Key design decisions:**
-- Separate process (not NestJS module) — independent PM2 entry, no DI container needed
-- Single system API key for billing; per-user attribution via `TelegramBotLog` DB table
-- `ALLOWED_TELEGRAM_USER_IDS` env var allowlist — same pattern as legacy bot
-- No client-side polling: `/hud` and `/profile` use PAY-8 synchronous hold (API holds 30s, returns 200 + data). Bot sends ⏳ then edits the message — one message per command.
-- `/holders` is genuinely async (POST → 202 → job runs minutes) — bot polls `GET /jobs/:jobId` every 3s invisibly, edits the ⏳ message when done
-- File structure: `src/bot/intel/` — separate from legacy `src/core/bot/` (no reuse)
-
-### P1: Holdings Radar — ✅ COMPLETE (Mar 9, 2026)
-
-`feat/tracked-wallets-page` merged. Full spec in `.ai/context/holding_feed/spec.md`.
-
-**Key design decisions:**
-- `isAnalyst` on `User` — operational role separate from `isAdmin`
-- No FK to existing `Wallet` model — standalone `RadarWallet` / `RadarHolding` models
-- Route `/analyst/radar/...`; `GET /analyst/radar/feed` declared before `GET /analyst/radar/:address/holdings` to avoid NestJS param shadowing
-- `isAnalyst` propagated through all auth paths
 
 ### P1: Helius API Optimization — ✅ COMPLETE (Feb 16-17)
-
-**What was done:**
-- Slot watermarks migrated from Redis (30s TTL) → `TokenAccountWatermark` Prisma table (persistent, Feb 16 commit `3bb107f`)
-- Balance cache TTLs increased: default 5min→30min, medium 15min→2hr, whale 45min→4hr
-- Fixed broken cache-miss + watermark incremental path that caused similarity jobs to silently drop wallets (Feb 17)
-- Fixed hardcoded 30s TTL overwriting 30-min cached balances in `getBalances()` incremental write (Feb 17)
-- All 5 Redis write paths in `balance-cache.service.ts` now use adaptive `getTtlSeconds()`
-
-**How it works now:**
-1. First fetch → full Helius call → balance cached (30min-4hr) + slot watermark stored in DB
-2. Repeat fetch within TTL window → incremental `changedSinceSlot` → only changed tokens returned → merged with cached baseline → written back with full TTL
-3. Cache miss (TTL expired) → full fetch regardless of watermark (watermark alone can't reconstruct full balance)
-4. Holder profiles → similarity job chain: balances cached at 30min, similarity hits cache, zero extra RPC calls
 
 **Phase 2 (future):** Helius Webhooks / WebSocket subscriptions for active wallets
 
@@ -154,6 +79,17 @@ New feature on `feat/telegram-bot-intel`. Full spec in `.ai/context/telegram-bot
 ##  Recent Activity
 
 ### March 13, 2026 (Latest) — Sig Buyers UI (branch: feature/sig-buyers-ui)
+
+### March 19, 2026 (Latest) — Token Dashboard Merge Polish (branch: feature/token-dash-v2)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 19.1 | 🔧 FIX | Personal token watchlist modal finished — user watchlist API wired through navbar star, personal tags editable, DexScreener `pairCreatedAt` surfaced as token age in favorites | 🟢 S | `user-watched-tokens.service.ts`, `TokenWatchlistModal.tsx`, `useUserWatchedTokens.ts`, `watched-tokens.service.ts` |
+| 19.2 | 🔧 FIX | `/tokens` UI simplified for analysts — removed sparkline fetch/render from watched token list and token thread, showing tags instead of trend lines in the list | 🟢 S | `WatchedTokenList.tsx`, `TokenThread.tsx` |
+
+**Summary:** Token dashboard transplant is complete, personal token watchlist UX is shipped, and the branch is ready to merge into `main`.
+
+---
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
@@ -363,7 +299,7 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-13  **Branch:** `feature/sig-buyers-ui`  **SB-1–11 complete. Ready to merge.**
+**Last Updated:** 2026-03-19  **Branch:** `feature/token-dash-v2`  **Transplant complete. `/tokens` is analyst-only, and personal token watchlist modal foundation is in place.**
 
 
 

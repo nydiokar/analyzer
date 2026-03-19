@@ -1,0 +1,30 @@
+"use client";
+
+import useSWR from 'swr';
+import { fetcher } from '@/lib/fetcher';
+
+export interface WatchedTokenRow {
+  tokenAddress: string;
+  name?: string | null;
+  symbol?: string | null;
+  imageUrl?: string | null;
+  marketCapUsd?: number | null;
+  liquidityUsd?: number | null;
+  pairCreatedAt?: number | null;
+  priceUsd?: string | null;
+  volume24h?: number | null;
+  latestMessageAt?: string | null;
+  tags: Array<{ name: string; type: string }>;
+  userTags?: string[];
+}
+
+export const useWatchedTokens = (list: 'FAVORITES' | 'GRADUATION' | 'HOLDSTRONG' = 'FAVORITES') => {
+  const key = [`/watched-tokens?list=${list}`];
+  const { data, error, isLoading, mutate } = useSWR<WatchedTokenRow[]>(key, ([url]) => fetcher(url), {
+    revalidateOnFocus: false,
+    // No refreshInterval: watched tokens change infrequently, explicit mutate() on user actions
+  });
+  return { data: data ?? [], error, isLoading, mutate };
+};
+
+
