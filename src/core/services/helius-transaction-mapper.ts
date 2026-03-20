@@ -101,6 +101,7 @@ const TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD = 0.05; // 5% - Heuristic for mapper-
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL = 0.1; // Min SOL value for fee-payer heuristic
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC = 1.0; // Min USDC value for fee-payer heuristic
 const SOL_DUST_TRANSFER_THRESHOLD = TRANSACTION_MAPPING_CONFIG.SOL_DUST_TRANSFER_THRESHOLD;
+const ROUTED_WSOL_NET_SETTLEMENT_RATIO_THRESHOLD = 1.5;
 const LIQUIDITY_PROGRAM_IDS = new Set<string>([
   'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo', // Meteora DLMM
   '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // Raydium AMM v4
@@ -180,6 +181,20 @@ function hasTemporaryWsolLifecycle(
     return false;
   }
 
+  const instructionMentionsAccount = (account: string): boolean => {
+    for (const instruction of tx.instructions || []) {
+      if (instruction.accounts?.includes(account)) {
+        return true;
+      }
+      for (const innerInstruction of instruction.innerInstructions || []) {
+        if (innerInstruction.accounts?.includes(account)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   for (const tokenAccount of candidateAccounts) {
     const fundedByWallet = (tx.nativeTransfers || []).some(
       (transfer) =>
@@ -193,8 +208,9 @@ function hasTemporaryWsolLifecycle(
         transfer.toUserAccount?.toLowerCase() === walletAddressLower &&
         Number(transfer.amount) > 0,
     );
+    const touchedInInstructions = instructionMentionsAccount(tokenAccount);
 
-    if (fundedByWallet && closedBackToWallet) {
+    if (closedBackToWallet && (fundedByWallet || touchedInInstructions)) {
       return true;
     }
   }
@@ -250,6 +266,75 @@ function isConfirmedLiquidityStyleTransfer(
   const hasNonValueLeg = flowEntries.some(([mint]) => mint !== SOL_MINT && !isStableMint(mint));
 
   return hasValueLeg && hasNonValueLeg;
+}
+
+function shouldPreferNetSettlementForRoutedWsolSwap(
+  tx: HeliusTransaction,
+  walletAddressLower: string,
+  userAccounts: Set<string>,
+  finalNetUserSolChange: number,
+): boolean {
+  if ((tx.type?.toUpperCase() || 'UNKNOWN') !== 'SWAP') return false;
+  if (tx.events?.swap) return false;
+  if (!hasTemporaryWsolLifecycle(tx, walletAddressLower)) return false;
+  if (!hasLiquidityProgramInteraction(tx)) return false;
+
+  let userWsolIn = 0;
+  let userWsolOut = 0;
+  let nonValueInCount = 0;
+  let nonValueOutCount = 0;
+
+  for (const transfer of tx.tokenTransfers || []) {
+    const mint = transfer.mint;
+    if (!mint) continue;
+
+    const amount = Math.abs(safeParseAmount(transfer));
+    if (amount === 0) continue;
+
+    const fromUser =
+      transfer.fromUserAccount?.toLowerCase() === walletAddressLower ||
+      (transfer.fromTokenAccount && userAccounts.has(transfer.fromTokenAccount));
+    const toUser =
+      transfer.toUserAccount?.toLowerCase() === walletAddressLower ||
+      (transfer.toTokenAccount && userAccounts.has(transfer.toTokenAccount));
+
+    if ((!fromUser && !toUser) || (fromUser && toUser)) continue;
+
+    if (mint === SOL_MINT) {
+      if (toUser) userWsolIn += amount;
+      else userWsolOut += amount;
+      continue;
+    }
+
+    if (isStableMint(mint)) continue;
+
+    if (toUser) nonValueInCount += 1;
+    else nonValueOutCount += 1;
+  }
+
+  const hasOneDirectionNonValueFlow =
+    (nonValueInCount > 0 && nonValueOutCount === 0) ||
+    (nonValueOutCount > 0 && nonValueInCount === 0);
+  if (!hasOneDirectionNonValueFlow) return false;
+
+  if (userWsolIn < SOL_SIGNIFICANCE_THRESHOLD || userWsolOut < SOL_SIGNIFICANCE_THRESHOLD) {
+    const isSellSettlementPattern =
+      nonValueOutCount > 0 &&
+      nonValueInCount === 0 &&
+      userWsolIn >= SOL_SIGNIFICANCE_THRESHOLD;
+
+    return isSellSettlementPattern;
+  }
+
+  const absNetSolChange = Math.abs(finalNetUserSolChange);
+  if (absNetSolChange < SOL_SIGNIFICANCE_THRESHOLD) return false;
+
+  if (nonValueOutCount > 0 && nonValueInCount === 0) {
+    return true;
+  }
+
+  const grossUserWsolMovement = userWsolIn + userWsolOut;
+  return grossUserWsolMovement > absNetSolChange * ROUTED_WSOL_NET_SETTLEMENT_RATIO_THRESHOLD;
 }
 
 // --- Add MappingStats Interface ---
@@ -904,6 +989,13 @@ export function mapHeliusTransactionsToIntermediateRecords(
           // logger.debug(`Using largest WSOL transfer (${correctSolValueForSplToSpl.toFixed(9)}) as SOL value.`); // Removed debug
       }
 
+      const preferNetSettlementForRoutedWsolSwap = shouldPreferNetSettlementForRoutedWsolSwap(
+        tx,
+        lowerWalletAddress,
+        userAccounts,
+        finalNetUserSolChange,
+      );
+
       // Attempt to find intermediary value from swap events if not detected as SPL-to-SPL
       const interactionType = tx.type?.toUpperCase() || 'UNKNOWN';
       mappingStats.countByInteractionType[interactionType] = (mappingStats.countByInteractionType[interactionType] || 0) + 1;
@@ -929,7 +1021,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
            const amount = lamportsToSol(rawLamports);
            const direction = isToUser ? 'in' : 'out';
            const mint = SOL_MINT;
-           const associatedSolValue = isLiquidityStyleTransfer ? 0 : amount; // Native SOL's value is itself unless this is a confirmed LP-style receipt
+           const associatedSolValue = (isLiquidityStyleTransfer || preferNetSettlementForRoutedWsolSwap) ? 0 : amount; // Native SOL's value is itself unless this is a confirmed non-economic/routed-churn pattern
            const associatedUsdcValue = 0;
            const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromUserAccount ?? 'N/A'}:${transfer.toUserAccount ?? 'N/A'}:${amount.toFixed(9)}`;
 
@@ -1331,7 +1423,12 @@ export function mapHeliusTransactionsToIntermediateRecords(
                                 const netSolIsSignificant = absSolChange >= SOL_SIGNIFICANCE_THRESHOLD;
 
                                 // Priority 1: Actual WSOL movement (clear economic value from WSOL token transfers)
-                                if (wsolIsSignificant) {
+                                if (wsolIsSignificant && preferNetSettlementForRoutedWsolSwap && netSolIsSignificant) {
+                                    associatedSolValue = absSolChange;
+                                    associatedSolValueSource = 'net-change';
+                                    mappingStats.associatedValueFromNetChange++;
+                                }
+                                else if (wsolIsSignificant) {
                                     associatedSolValue = actualWsolMovement;
                                     associatedSolValueSource = 'total-movement';
                                     mappingStats.associatedValueFromTotalMovement++;
@@ -1618,6 +1715,17 @@ export function mapHeliusTransactionsToIntermediateRecords(
         logger.error(`Error during proportional value redistribution for tx ${tx.signature}`, { error: redistErr });
       }
       // --- End redistribution block ---
+
+      if (preferNetSettlementForRoutedWsolSwap) {
+        for (let idx = txStartIndex; idx < analysisInputs.length; idx += 1) {
+          const row = analysisInputs[idx];
+          if (!row || row.mint !== SOL_MINT) continue;
+          row.associatedSolValue = 0;
+          row.associatedUsdcValue = 0;
+          row.feeAmount = null;
+          row.feePercentage = null;
+        }
+      }
 
       // --- Drop intermediate tokens with zero net change within the same signature ---
       try {

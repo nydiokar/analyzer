@@ -736,6 +736,20 @@ describe('HeliusTransactionMapper - Liquidity-style transfer guard', () => {
     );
   });
 
+  it('keeps inventory but zeros economic value for DLMM receipt fixture with implicit WSOL ATA funding', () => {
+    const wallet = '2MhZ9uwE8entCKezwVkAZHQXBnfNktiWnM38RcGB5SF9';
+    const tx = readFixture('4e7eFjZUmbWmSxqgc453mxPVbHgKkcAP7tCj16gJnzHKnX89GUBqQ31Q2wBKX7CbX5s4ba5J3CJtuSzcwWaapW8M_raw.json');
+
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [tx]);
+
+    assert.ok(analysisInputs.some((row) => row.mint === TOKEN_MINT), 'Should keep the token receipt row for inventory');
+    assert.ok(analysisInputs.every((row) => row.mint !== SOL_MINT), 'Temporary SOL mechanics should be filtered out');
+    assert.ok(
+      analysisInputs.every((row) => row.associatedSolValue === 0 && row.associatedUsdcValue === 0),
+      'Liquidity-style receipt with implicit ATA funding should not carry economic value attribution',
+    );
+  });
+
   it('does not suppress a transfer-labeled AMM flow when token directions are opposite', () => {
     const wallet = 'TestWallet5555555555555555555555555555555555';
     const tempWsolAta = 'TempWsolAta5555555555555555555555555555555';
@@ -792,6 +806,57 @@ describe('HeliusTransactionMapper - Liquidity-style transfer guard', () => {
 
     assert.ok(tokenRow, 'Should keep the token row');
     assert.ok(tokenRow.associatedSolValue > 0, 'Opposite-direction flow should still retain SOL attribution');
+  });
+
+  it('prefers net settlement over gross WSOL churn for routed swap fixture', () => {
+    const wallet = 'DicCKYqkhbfJYYMaEH82H5kpJ7nUu7vp4VLefZnTRfsU';
+    const tx = readFixture('yMQhe6XuPbRQD7YizzN5w8k2zrjjo41M42vsV9onnP4NqP4n5o2PgWyvp7TGL7e3utdEu6rDgrMfiaR1T8REQe2_raw.json');
+
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [tx]);
+    const tokenRows = analysisInputs.filter((row) => row.mint === TOKEN_MINT);
+    const solRows = analysisInputs.filter((row) => row.mint === SOL_MINT);
+    const totalTokenSolValue = tokenRows.reduce((sum, row) => sum + row.associatedSolValue, 0);
+
+    assert.strictEqual(tokenRows.length, 2, 'Should keep the two token outflow rows');
+    assert.strictEqual(solRows.length, 0, 'Intermediary WSOL churn rows should be filtered out');
+    assert.ok(
+      Math.abs(totalTokenSolValue - 2.193526036) < 0.000001,
+      `Token rows should use net settled SOL (~2.193526036), got ${totalTokenSolValue}`,
+    );
+  });
+
+  it('prefers net settlement for first multi-source routed sell fixture', () => {
+    const wallet = 'DicCKYqkhbfJYYMaEH82H5kpJ7nUu7vp4VLefZnTRfsU';
+    const tx = readFixture('3jbeZCwDbsct8ZTmEcGPWNRCu5KiPM3E5pGNxgyNL1mDmhyQ8QhoKpABMiEJvyEH9BMKYGRCo55cH111iLcYRWmd_raw.json');
+
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [tx]);
+    const tokenRows = analysisInputs.filter((row) => row.mint === TOKEN_MINT);
+    const solRows = analysisInputs.filter((row) => row.mint === SOL_MINT);
+    const totalTokenSolValue = tokenRows.reduce((sum, row) => sum + row.associatedSolValue, 0);
+
+    assert.strictEqual(tokenRows.length, 2, 'Should keep the two token outflow rows');
+    assert.strictEqual(solRows.length, 0, 'Intermediary WSOL churn rows should be filtered out');
+    assert.ok(
+      Math.abs(totalTokenSolValue - 11.617171613) < 0.000001,
+      `Token rows should use net settled SOL (~11.617171613), got ${totalTokenSolValue}`,
+    );
+  });
+
+  it('prefers net settlement for second multi-source routed sell fixture', () => {
+    const wallet = 'DicCKYqkhbfJYYMaEH82H5kpJ7nUu7vp4VLefZnTRfsU';
+    const tx = readFixture('2b7Wq4EL8STcNR8v5Gf8CmyTCdDqok4qFAUE9osWTog454Qgv8tVCSpZQDYfAiwzBo6WtUHDLZnToqK3ZENdPZsb_raw.json');
+
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [tx]);
+    const tokenRows = analysisInputs.filter((row) => row.mint === TOKEN_MINT);
+    const solRows = analysisInputs.filter((row) => row.mint === SOL_MINT);
+    const totalTokenSolValue = tokenRows.reduce((sum, row) => sum + row.associatedSolValue, 0);
+
+    assert.strictEqual(tokenRows.length, 2, 'Should keep the two token outflow rows');
+    assert.strictEqual(solRows.length, 0, 'Intermediary WSOL churn rows should be filtered out');
+    assert.ok(
+      Math.abs(totalTokenSolValue - 45.509729447) < 0.000001,
+      `Token rows should use net settled SOL (~45.509729447), got ${totalTokenSolValue}`,
+    );
   });
 });
 
