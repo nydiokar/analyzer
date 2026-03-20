@@ -696,6 +696,105 @@ describe('HeliusTransactionMapper – Jito MEV Heuristic for UNKNOWN transaction
     });
 });
 
+describe('HeliusTransactionMapper - Liquidity-style transfer guard', () => {
+  const OUTPUT_DIR = pathMod.join(process.cwd(), 'debug_output');
+  const TOKEN_MINT = 'EiqNgtwFzHqTEa3UV57s2x4svjJF59URgBqnG3sCpump';
+  const SOL_MINT = 'So11111111111111111111111111111111111111112';
+  const METEORA_DLMM_PROGRAM_ID = 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo';
+
+  function readFixture(filename: string): HeliusTransaction {
+    const filePath = pathMod.join(OUTPUT_DIR, filename);
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw) as HeliusTransaction;
+  }
+
+  it('keeps inventory but zeros economic value for the first DLMM receipt fixture', () => {
+    const wallet = '9UhK6E1txXVQayGr7CqYhxAR2zc8NmCwWLdRZhtizu4b';
+    const tx = readFixture('zmJh5PL7yCA8PkPeLUr6dsD7AD1VG8BRKGnd4kLDVUh4ckqo6FM3N9ThwPbysiGAa9HuxnYHX3eDnsjuSPconBB_raw.json');
+
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [tx]);
+
+    assert.ok(analysisInputs.some((row) => row.mint === TOKEN_MINT), 'Should keep the token receipt rows for inventory');
+    assert.ok(analysisInputs.every((row) => row.mint !== SOL_MINT), 'Temporary SOL mechanics should be filtered out');
+    assert.ok(
+      analysisInputs.every((row) => row.associatedSolValue === 0 && row.associatedUsdcValue === 0),
+      'Liquidity-style receipt should not carry economic value attribution',
+    );
+  });
+
+  it('keeps inventory but zeros economic value for the second DLMM receipt fixture', () => {
+    const wallet = '2MhZ9uwE8entCKezwVkAZHQXBnfNktiWnM38RcGB5SF9';
+    const tx = readFixture('5fnpFpd7XHKskgYGrkmcsp5d6ckcNmfhU8MF4xvov2a1VVDrVqf6bsd7Ph7ZMh14mEwS9CpEPBENFb3aGjug4Uyh_raw.json');
+
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [tx]);
+
+    assert.ok(analysisInputs.some((row) => row.mint === TOKEN_MINT), 'Should keep the token receipt rows for inventory');
+    assert.ok(analysisInputs.every((row) => row.mint !== SOL_MINT), 'Temporary SOL mechanics should be filtered out');
+    assert.ok(
+      analysisInputs.every((row) => row.associatedSolValue === 0 && row.associatedUsdcValue === 0),
+      'Liquidity-style receipt should not carry economic value attribution',
+    );
+  });
+
+  it('does not suppress a transfer-labeled AMM flow when token directions are opposite', () => {
+    const wallet = 'TestWallet5555555555555555555555555555555555';
+    const tempWsolAta = 'TempWsolAta5555555555555555555555555555555';
+    const tokenMint = 'TokenCMint111111111111111111111111111111111';
+
+    const tx = {
+      description: 'Transfer-labeled AMM swap-like flow',
+      type: 'TRANSFER',
+      source: 'SYSTEM_PROGRAM',
+      fee: 5000,
+      feePayer: wallet,
+      signature: 'TestSignatureLiquidityGuardCounterexample',
+      slot: 11,
+      timestamp: 11,
+      tokenTransfers: [
+        {
+          fromTokenAccount: `${wallet}TokenAta`,
+          toTokenAccount: 'PoolTokenAta',
+          fromUserAccount: wallet,
+          toUserAccount: 'PoolAuthority',
+          tokenAmount: 100,
+          mint: tokenMint,
+          tokenStandard: 'Fungible',
+        },
+        {
+          fromTokenAccount: 'PoolWsolAta',
+          toTokenAccount: tempWsolAta,
+          fromUserAccount: 'PoolAuthority',
+          toUserAccount: wallet,
+          tokenAmount: 2,
+          mint: SOL_MINT,
+          tokenStandard: 'Fungible',
+        },
+      ],
+      nativeTransfers: [
+        { fromUserAccount: wallet, toUserAccount: tempWsolAta, amount: 2039280 },
+        { fromUserAccount: tempWsolAta, toUserAccount: wallet, amount: 2000000000 },
+      ],
+      accountData: [],
+      events: {},
+      instructions: [
+        {
+          accounts: [],
+          data: 'amm',
+          programId: METEORA_DLMM_PROGRAM_ID,
+          innerInstructions: [],
+        },
+      ],
+      transactionError: undefined,
+    } as unknown as HeliusTransaction;
+
+    const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(wallet, [tx]);
+    const tokenRow = analysisInputs.find((row) => row.mint === tokenMint);
+
+    assert.ok(tokenRow, 'Should keep the token row');
+    assert.ok(tokenRow.associatedSolValue > 0, 'Opposite-direction flow should still retain SOL attribution');
+  });
+});
+
 describe('HeliusTransactionMapper - Fixture regression', () => {
   const OUTPUT_DIR = pathMod.join(process.cwd(), 'debug_output');
   const FLOAT_TOLERANCE = 1e-6;

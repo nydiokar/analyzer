@@ -101,6 +101,14 @@ const TOKEN_FEE_HEURISTIC_MAPPER_THRESHOLD = 0.05; // 5% - Heuristic for mapper-
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_SOL = 0.1; // Min SOL value for fee-payer heuristic
 const FEE_PAYER_SWAP_SIGNIFICANCE_THRESHOLD_USDC = 1.0; // Min USDC value for fee-payer heuristic
 const SOL_DUST_TRANSFER_THRESHOLD = TRANSACTION_MAPPING_CONFIG.SOL_DUST_TRANSFER_THRESHOLD;
+const LIQUIDITY_PROGRAM_IDS = new Set<string>([
+  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo', // Meteora DLMM
+  '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // Raydium AMM v4
+  'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C', // Raydium CPMM
+  'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', // Raydium CLMM
+  'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc', // Orca Whirlpool
+  'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA', // PumpSwap AMM
+]);
 
 function isStableMint(mint?: string | null): boolean {
   return !!mint && STABLE_MINTS.has(mint);
@@ -135,6 +143,113 @@ function pickStableValueByPreference(
   }
 
   return { mint: effectiveEntries[0][0], value: effectiveEntries[0][1] };
+}
+
+function hasLiquidityProgramInteraction(tx: HeliusTransaction): boolean {
+  for (const instruction of tx.instructions || []) {
+    if (LIQUIDITY_PROGRAM_IDS.has(instruction.programId)) {
+      return true;
+    }
+    for (const innerInstruction of instruction.innerInstructions || []) {
+      if (LIQUIDITY_PROGRAM_IDS.has(innerInstruction.programId)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function hasTemporaryWsolLifecycle(
+  tx: HeliusTransaction,
+  walletAddressLower: string,
+): boolean {
+  const candidateAccounts = new Set<string>();
+
+  for (const transfer of tx.tokenTransfers || []) {
+    if (transfer.mint !== SOL_MINT) continue;
+
+    if (transfer.toUserAccount?.toLowerCase() === walletAddressLower && transfer.toTokenAccount) {
+      candidateAccounts.add(transfer.toTokenAccount);
+    }
+    if (transfer.fromUserAccount?.toLowerCase() === walletAddressLower && transfer.fromTokenAccount) {
+      candidateAccounts.add(transfer.fromTokenAccount);
+    }
+  }
+
+  if (candidateAccounts.size === 0) {
+    return false;
+  }
+
+  for (const tokenAccount of candidateAccounts) {
+    const fundedByWallet = (tx.nativeTransfers || []).some(
+      (transfer) =>
+        transfer.fromUserAccount?.toLowerCase() === walletAddressLower &&
+        transfer.toUserAccount === tokenAccount &&
+        Number(transfer.amount) > 0,
+    );
+    const closedBackToWallet = (tx.nativeTransfers || []).some(
+      (transfer) =>
+        transfer.fromUserAccount === tokenAccount &&
+        transfer.toUserAccount?.toLowerCase() === walletAddressLower &&
+        Number(transfer.amount) > 0,
+    );
+
+    if (fundedByWallet && closedBackToWallet) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isConfirmedLiquidityStyleTransfer(
+  tx: HeliusTransaction,
+  walletAddressLower: string,
+): boolean {
+  if (tx.events?.swap) return false;
+  if (!hasLiquidityProgramInteraction(tx)) return false;
+  if (!hasTemporaryWsolLifecycle(tx, walletAddressLower)) return false;
+
+  const meaningfulTokenFlows = new Map<string, number>();
+
+  for (const transfer of tx.tokenTransfers || []) {
+    const mint = transfer.mint;
+    if (!mint) continue;
+
+    const amount = Math.abs(safeParseAmount(transfer));
+    if (amount === 0) continue;
+
+    const threshold =
+      mint === SOL_MINT ? SOL_SIGNIFICANCE_THRESHOLD :
+      isStableMint(mint) ? STABLE_SIGNIFICANCE_THRESHOLD :
+      INTERMEDIATE_NET_EPSILON;
+
+    if (amount < threshold) continue;
+
+    const isFromUser = transfer.fromUserAccount?.toLowerCase() === walletAddressLower;
+    const isToUser = transfer.toUserAccount?.toLowerCase() === walletAddressLower;
+
+    if (isFromUser && !isToUser) {
+      meaningfulTokenFlows.set(mint, (meaningfulTokenFlows.get(mint) || 0) - amount);
+    } else if (isToUser && !isFromUser) {
+      meaningfulTokenFlows.set(mint, (meaningfulTokenFlows.get(mint) || 0) + amount);
+    }
+  }
+
+  const flowEntries = Array.from(meaningfulTokenFlows.entries()).filter(
+    ([, flow]) => Math.abs(flow) > INTERMEDIATE_NET_EPSILON,
+  );
+
+  if (flowEntries.length < 2) return false;
+
+  const allIncoming = flowEntries.every(([, flow]) => flow > 0);
+  const allOutgoing = flowEntries.every(([, flow]) => flow < 0);
+  if (!allIncoming && !allOutgoing) return false;
+
+  const hasValueLeg = flowEntries.some(([mint]) => mint === SOL_MINT || isStableMint(mint));
+  const hasNonValueLeg = flowEntries.some(([mint]) => mint !== SOL_MINT && !isStableMint(mint));
+
+  return hasValueLeg && hasNonValueLeg;
 }
 
 // --- Add MappingStats Interface ---
@@ -792,6 +907,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
       // Attempt to find intermediary value from swap events if not detected as SPL-to-SPL
       const interactionType = tx.type?.toUpperCase() || 'UNKNOWN';
       mappingStats.countByInteractionType[interactionType] = (mappingStats.countByInteractionType[interactionType] || 0) + 1;
+      const isLiquidityStyleTransfer = isConfirmedLiquidityStyleTransfer(tx, lowerWalletAddress);
 
       let eventResult: { solValue: number; usdcValue: number; primaryOutMint: string | null; primaryInMint: string | null } = { solValue: 0, usdcValue: 0, primaryOutMint: null, primaryInMint: null };
       if (!isSplToSplSwap && tx.events?.swap) {
@@ -813,7 +929,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
            const amount = lamportsToSol(rawLamports);
            const direction = isToUser ? 'in' : 'out';
            const mint = SOL_MINT;
-           const associatedSolValue = amount; // Native SOL's value is itself
+           const associatedSolValue = isLiquidityStyleTransfer ? 0 : amount; // Native SOL's value is itself unless this is a confirmed LP-style receipt
            const associatedUsdcValue = 0;
            const recordKey = `${tx.signature}:${mint}:${direction}:${transfer.fromUserAccount ?? 'N/A'}:${transfer.toUserAccount ?? 'N/A'}:${amount.toFixed(9)}`;
 
@@ -1017,7 +1133,7 @@ export function mapHeliusTransactionsToIntermediateRecords(
              // --- Burn Detection: Skip Value Attribution ---
              // Burns (transfers to empty address) have no economic value
              // Any SOL movement is rent reclaim, not asset value
-             if (isBurn) {
+             if (isBurn || isLiquidityStyleTransfer) {
                 associatedSolValue = 0;
                 associatedUsdcValue = 0;
              }

@@ -200,17 +200,7 @@ async function fetchDbSignals(wallets: string[]): Promise<{
   return { tokenTrades, advanced };
 }
 
-// ─── Phase 5: Cluster ─────────────────────────────────────────────────────────
-
-type Cluster =
-  | 'BOT'
-  | 'SMART_MONEY'          // Verified edge: GOLD/SILVER tier + efficient + consistent + token profitable
-  | 'INSIDER_SUSPECT'      // New wallet (<14d) or sparse history + early entry + high token ROI
-  | 'PROFESSIONAL_SNIPER'  // Sniper speed + early entry + token profitable, regardless of overall tier
-  | 'MOMENTUM_RIDER'       // Late entry but still profitable on token, mixed overall history
-  | 'ONE_HIT_WONDER'       // High token win + low consistency + weak efficiency overall
-  | 'LUCKY_DEGEN'          // Profitable on token but no structural edge signals
-  | 'INSUFFICIENT';        // No token trade data or completely empty profile
+// ─── Phase 5: Build compact signal cards (no classification — let the analyst decide) ───
 
 function holdStyle(hud: HudData): string {
   const h = hud.medianHoldTimeHours;
@@ -225,97 +215,13 @@ function holdStyle(hud: HudData): string {
   return map[hud.behaviorCode] ?? 'unknown';
 }
 
-function cluster(
-  hud:       HudData,
-  token:     TokenTrade | undefined,
-  adv:       AdvancedSignals | undefined,
-  entryRank: number, // 0 = first buyer, 1 = last buyer (normalized 0-1 across all wallets)
-): Cluster {
-  if (hud.isBot) return 'BOT';
-
-  const hasTokenTrade = !!token && token.totalSolSpent > 0;
-  if (!hasTokenTrade && hud.dataQualityTier === 'INSUFFICIENT') return 'INSUFFICIENT';
-
-  const tokenPnl      = token?.realizedPnlSol ?? null;
-  const tokenROI      = (token && token.totalSolSpent > 0 && tokenPnl != null)
-                          ? tokenPnl / token.totalSolSpent
-                          : null;
-  const tokenProfitable = tokenPnl != null && tokenPnl > 0;
-
-  // Wallet age in days from first seen (advancedStats) or HUD provenance
-  const firstSeenTs   = adv?.walletFirstSeenTimestamp ?? hud.provenance?.dataRange?.from
-                          ? Math.floor(new Date(hud.provenance.dataRange.from).getTime() / 1000)
-                          : null;
-  const walletAgeDays = firstSeenTs
-    ? (Date.now() / 1000 - firstSeenTs) / 86400
-    : null;
-  const isNewWallet   = walletAgeDays != null && walletAgeDays < 14;
-
-  const efficiency    = adv?.weightedEfficiencyScore ?? null;
-  const consistency   = adv?.profitConsistencyIndex  ?? null;
-  const pnlPerDay     = adv?.averagePnlPerDayActive  ?? null;
-  const hs            = holdStyle(hud);
-  const tier          = hud.dataQualityTier as string;
-  const isEarlyEntry  = entryRank < 0.33;
-
-  // BOT already handled above
-
-  // INSIDER_SUSPECT: new/sparse wallet that got in early and won big on this token
-  if (
-    isNewWallet && isEarlyEntry && tokenProfitable &&
-    tokenROI != null && tokenROI > 1.5 // >150% ROI on token
-  ) return 'INSIDER_SUSPECT';
-
-  // Also insider suspect: very few tokens traded overall + early + profitable
-  if (
-    isEarlyEntry && tokenProfitable && tokenROI != null && tokenROI > 2.0 &&
-    hud.uniqueTokensPerDay != null && hud.uniqueTokensPerDay < 1 &&
-    (tier === 'BRONZE' || tier === 'INSUFFICIENT' || isNewWallet)
-  ) return 'INSIDER_SUSPECT';
-
-  // PROFESSIONAL_SNIPER: sniper/scalper speed + early entry + token profitable
-  if (
-    (hs === 'sniper' || hs === 'scalper') &&
-    isEarlyEntry && tokenProfitable
-  ) return 'PROFESSIONAL_SNIPER';
-
-  // SMART_MONEY: verified multi-token edge + efficient + consistent + token profitable
-  if (
-    (tier === 'GOLD' || tier === 'SILVER') &&
-    hud.winRate >= 0.5 &&
-    tokenProfitable &&
-    (efficiency == null || efficiency > 0.4) &&
-    (consistency == null || consistency > 0.4)
-  ) return 'SMART_MONEY';
-
-  // ONE_HIT_WONDER: high token ROI but low consistency / weak tier
-  if (
-    tokenROI != null && tokenROI > 2.0 &&
-    (
-      (consistency != null && consistency < 0.3) ||
-      (tier === 'BRONZE' || tier === 'INSUFFICIENT') ||
-      (hud.winRate < 0.35)
-    )
-  ) return 'ONE_HIT_WONDER';
-
-  // MOMENTUM_RIDER: late entry but profitable, mixed history
-  if (!isEarlyEntry && tokenProfitable) return 'MOMENTUM_RIDER';
-
-  // LUCKY_DEGEN: profitable on token but no structural signals
-  if (tokenProfitable) return 'LUCKY_DEGEN';
-
-  return 'INSUFFICIENT';
-}
-
-// ─── Phase 6: Build compact signal cards ──────────────────────────────────────
-
 function buildOutput(
   wallets:     string[],
   huds:        Record<string, HudData | null>,
   tokenTrades: Record<string, TokenTrade>,
   advanced:    Record<string, AdvancedSignals>,
 ) {
-  // Compute entry timing rank: sort by firstTransferTimestamp ascending
+  // Compute entry timing rank across wallets that have token data: 0=first buyer, 1=last buyer
   const withTokenEntry = wallets
     .filter(a => tokenTrades[a]?.firstTransferTimestamp != null)
     .sort((a, b) => tokenTrades[a].firstTransferTimestamp! - tokenTrades[b].firstTransferTimestamp!);
@@ -325,129 +231,114 @@ function buildOutput(
     entryRankMap[addr] = withTokenEntry.length > 1 ? idx / (withTokenEntry.length - 1) : 0;
   });
 
-  const enriched = wallets
+  const cards = wallets
     .filter(a => huds[a])
     .map(a => {
       const hud   = huds[a]!;
       const token = tokenTrades[a];
       const adv   = advanced[a];
-      const rank  = entryRankMap[a] ?? 0.5; // unknown = mid
+      const rank  = entryRankMap[a] ?? null;
 
       const tokenPnl = token?.realizedPnlSol ?? null;
       const tokenROI = (token && token.totalSolSpent > 0 && tokenPnl != null)
         ? parseFloat((tokenPnl / token.totalSolSpent).toFixed(3))
         : null;
 
-      const firstSeenTs = adv?.walletFirstSeenTimestamp ?? null;
+      const firstSeenTs   = adv?.walletFirstSeenTimestamp ?? null;
       const walletAgeDays = firstSeenTs
         ? parseFloat(((Date.now() / 1000 - firstSeenTs) / 86400).toFixed(1))
         : null;
 
       return {
-        address:  a,
-        cluster:  cluster(hud, token, adv, rank),
-        holdStyle: holdStyle(hud),
+        address: a,
 
-        // ── HUD signals (overall trading history) ─────────────────────────
-        tier:             hud.dataQualityTier,
-        winRate:          hud.winRate != null ? parseFloat(hud.winRate.toFixed(3)) : null,
-        trimmedMeanPnl:   hud.trimmedMeanPnl != null ? parseFloat(hud.trimmedMeanPnl.toFixed(3)) : null,
-        avgTradesPerDay:  hud.avgTradesPerDay != null ? parseFloat(hud.avgTradesPerDay.toFixed(1)) : null,
-        behaviorCategory: hud.behaviorCategory ?? hud.behaviorCode ?? null,
+        // ── Structural profile (overall history) ──────────────────────────
+        tier:             hud.dataQualityTier,           // data confidence: GOLD/SILVER/BRONZE/INSUFFICIENT
         isBot:            hud.isBot ?? false,
+        behaviorCategory: hud.behaviorCategory ?? hud.behaviorCode ?? null,
+        holdStyle:        holdStyle(hud),
+        winRate:          hud.winRate        != null ? parseFloat(hud.winRate.toFixed(3))        : null, // overall token win rate
+        trimmedMeanPnl:   hud.trimmedMeanPnl != null ? parseFloat(hud.trimmedMeanPnl.toFixed(3)) : null, // avg PnL per token, outliers trimmed
+        avgTradesPerDay:  hud.avgTradesPerDay != null ? parseFloat(hud.avgTradesPerDay.toFixed(1)) : null,
+        walletAgeDays,                                   // null if unknown
 
-        // ── DB advanced signals (structural edge quality) ──────────────────
-        // weightedEfficiencyScore: how well capital was deployed across all trades (higher = precise)
-        efficiency:      adv?.weightedEfficiencyScore != null ? parseFloat(adv.weightedEfficiencyScore.toFixed(3)) : null,
-        // profitConsistencyIndex: variance in PnL across tokens (higher = repeatable, lower = lucky)
-        consistency:     adv?.profitConsistencyIndex != null ? parseFloat(adv.profitConsistencyIndex.toFixed(3)) : null,
-        // averagePnlPerDayActive: normalized productivity (profit/active day)
-        pnlPerDay:       adv?.averagePnlPerDayActive != null ? parseFloat(adv.averagePnlPerDayActive.toFixed(3)) : null,
-        walletAgeDays,
+        // ── Edge quality (how structural the edge is across all trades) ────
+        // efficiency: capital deployment precision (high = intentional sizing, low = random/reckless)
+        efficiency:  adv?.weightedEfficiencyScore != null ? parseFloat(adv.weightedEfficiencyScore.toFixed(3)) : null,
+        // consistency: PnL repeatability across tokens (high = systematic, low = lucky/variance)
+        consistency: adv?.profitConsistencyIndex  != null ? parseFloat(adv.profitConsistencyIndex.toFixed(3))  : null,
+        // pnlPerDay: average profit per active trading day
+        pnlPerDay:   adv?.averagePnlPerDayActive  != null ? parseFloat(adv.averagePnlPerDayActive.toFixed(3))  : null,
 
-        // ── Token-specific signals (what they did on Downald) ──────────────
+        // ── Token-specific: what this wallet did on Downald ────────────────
         token: token ? {
-          realizedPnlSol:  tokenPnl != null ? parseFloat(tokenPnl.toFixed(3)) : null,
-          totalSolSpent:   parseFloat(token.totalSolSpent.toFixed(3)),
+          realizedPnlSol:   tokenPnl != null ? parseFloat(tokenPnl.toFixed(3)) : null,
+          totalSolSpent:    parseFloat(token.totalSolSpent.toFixed(3)),
           totalSolReceived: parseFloat(token.totalSolReceived.toFixed(3)),
-          tokenROI,        // realizedPnl / totalSolSpent — raw multiplier
-          entryRank:       parseFloat(rank.toFixed(3)), // 0=first, 1=last
-          firstEntryTs:    token.firstTransferTimestamp,
+          tokenROI,          // realizedPnl / totalSolSpent (null if no spend)
+          entryRank:         rank != null ? parseFloat(rank.toFixed(3)) : null, // 0=earliest, 1=latest among this group
+          firstEntryTs:      token.firstTransferTimestamp,
+          lastExitTs:        token.lastTransferTimestamp,
         } : null,
       };
     });
 
   const withoutData = wallets.filter(a => !huds[a]);
 
-  // Cluster breakdown
-  const byCluster = (c: string) => enriched.filter(w => w.cluster === c);
-  const clusterNames = ['BOT','SMART_MONEY','INSIDER_SUSPECT','PROFESSIONAL_SNIPER','MOMENTUM_RIDER','ONE_HIT_WONDER','LUCKY_DEGEN','INSUFFICIENT'] as const;
-
-  const clusters: Record<string, { count: number; wallets: typeof enriched }> = {};
-  for (const c of clusterNames) {
-    clusters[c] = { count: byCluster(c).length, wallets: byCluster(c) };
-  }
-
-  // Aggregates
-  const n   = enriched.length || 1;
-  const avg = (fn: (w: typeof enriched[0]) => number | null) => {
-    const vals = enriched.map(fn).filter((v): v is number => v != null);
+  // Aggregates — for the analyst to understand the group
+  const n   = cards.length || 1;
+  const avg = (fn: (w: typeof cards[0]) => number | null) => {
+    const vals = cards.map(fn).filter((v): v is number => v != null);
     return vals.length ? parseFloat((vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(3)) : null;
   };
-  const pct = (fn: (w: typeof enriched[0]) => boolean) =>
-    Math.round((enriched.filter(fn).length / n) * 100);
-  const breakdown = (fn: (w: typeof enriched[0]) => string | null) =>
-    enriched.reduce((acc, w) => { const k = fn(w) ?? '?'; acc[k] = (acc[k] ?? 0) + 1; return acc; }, {} as Record<string, number>);
+  const pct = (fn: (w: typeof cards[0]) => boolean) =>
+    Math.round((cards.filter(fn).length / n) * 100);
+  const breakdown = (fn: (w: typeof cards[0]) => string | null) =>
+    cards.reduce((acc, w) => { const k = fn(w) ?? '?'; acc[k] = (acc[k] ?? 0) + 1; return acc; }, {} as Record<string, number>);
 
-  // Highlights sorted by token PnL
-  const sortedByTokenPnl = [...enriched]
-    .filter(w => w.token?.realizedPnlSol != null)
-    .sort((a, b) => b.token!.realizedPnlSol! - a.token!.realizedPnlSol!);
+  // Sorted views for quick analyst reference
+  const sortedByTokenPnl  = [...cards].filter(w => w.token?.realizedPnlSol != null).sort((a, b) => b.token!.realizedPnlSol! - a.token!.realizedPnlSol!);
+  const sortedByEntryTime = [...cards].filter(w => w.token?.firstEntryTs != null).sort((a, b) => a.token!.firstEntryTs! - b.token!.firstEntryTs!);
+  const sortedByTokenROI  = [...cards].filter(w => w.token?.tokenROI != null).sort((a, b) => b.token!.tokenROI! - a.token!.tokenROI!);
 
   return {
     token: 'Downald Twump',
     tokenMint: TOKEN_MINT,
     generatedAt: new Date().toISOString(),
     totalWallets: wallets.length,
-    withData: enriched.length,
+    withData: cards.length,
     withoutData: withoutData.length,
 
-    clusters,
+    // All wallet signal cards — no cluster assigned, analyst reads the signals
+    wallets: cards,
 
-    highlights: {
-      topTokenPnl: sortedByTokenPnl.slice(0, 5).map(w => ({
-        address:       w.address,
-        cluster:       w.cluster,
-        tokenPnlSol:   w.token?.realizedPnlSol,
-        tokenROI:      w.token?.tokenROI,
-        entryRank:     w.token?.entryRank,
-        efficiency:    w.efficiency,
-        consistency:   w.consistency,
-        walletAgeDays: w.walletAgeDays,
+    // Sorted reference views
+    views: {
+      // Who made the most on this token
+      topTokenPnl: sortedByTokenPnl.slice(0, 10).map(w => ({
+        address: w.address, tier: w.tier, isBot: w.isBot,
+        tokenPnlSol: w.token!.realizedPnlSol, tokenROI: w.token!.tokenROI,
+        entryRank: w.token!.entryRank, walletAgeDays: w.walletAgeDays,
+        winRate: w.winRate, efficiency: w.efficiency, consistency: w.consistency,
       })),
-      smartMoney: byCluster('SMART_MONEY').sort((a, b) => (b.winRate ?? 0) - (a.winRate ?? 0)).slice(0, 5).map(w => ({
-        address:    w.address,
-        winRate:    w.winRate,
-        efficiency: w.efficiency,
-        consistency: w.consistency,
-        pnlPerDay:  w.pnlPerDay,
-        tokenPnl:   w.token?.realizedPnlSol,
+      // Who got in earliest
+      earliestEntries: sortedByEntryTime.slice(0, 10).map(w => ({
+        address: w.address, tier: w.tier,
+        entryRank: w.token!.entryRank, firstEntryTs: w.token!.firstEntryTs,
+        tokenPnlSol: w.token!.realizedPnlSol, tokenROI: w.token!.tokenROI,
+        walletAgeDays: w.walletAgeDays, behaviorCategory: w.behaviorCategory,
       })),
-      insiderSuspects: byCluster('INSIDER_SUSPECT').map(w => ({
-        address:       w.address,
-        walletAgeDays: w.walletAgeDays,
-        entryRank:     w.token?.entryRank,
-        tokenROI:      w.token?.tokenROI,
-        tokenPnlSol:   w.token?.realizedPnlSol,
-        solSpent:      w.token?.totalSolSpent,
+      // Best ROI (capital efficiency on this token)
+      topTokenROI: sortedByTokenROI.slice(0, 10).map(w => ({
+        address: w.address, tier: w.tier,
+        tokenROI: w.token!.tokenROI, tokenPnlSol: w.token!.realizedPnlSol,
+        totalSolSpent: w.token!.totalSolSpent, entryRank: w.token!.entryRank,
+        walletAgeDays: w.walletAgeDays, consistency: w.consistency,
       })),
-      professionalSnipers: byCluster('PROFESSIONAL_SNIPER').map(w => ({
-        address:    w.address,
-        holdStyle:  w.holdStyle,
-        entryRank:  w.token?.entryRank,
-        tokenPnl:   w.token?.realizedPnlSol,
-        tokenROI:   w.token?.tokenROI,
-        efficiency: w.efficiency,
+      // Bots
+      bots: cards.filter(w => w.isBot).map(w => ({
+        address: w.address, avgTradesPerDay: w.avgTradesPerDay,
+        tokenPnl: w.token?.realizedPnlSol,
       })),
     },
 
@@ -457,15 +348,15 @@ function buildOutput(
       avgConsistency:     avg(w => w.consistency),
       avgPnlPerDay:       avg(w => w.pnlPerDay),
       avgTokenPnlSol:     avg(w => w.token?.realizedPnlSol ?? null),
-      pctBots:            pct(w => w.cluster === 'BOT'),
-      pctSmartMoney:      pct(w => w.cluster === 'SMART_MONEY'),
-      pctInsiderSuspect:  pct(w => w.cluster === 'INSIDER_SUSPECT'),
-      pctProfSniper:      pct(w => w.cluster === 'PROFESSIONAL_SNIPER'),
-      pctHighWinRate:     pct(w => (w.winRate ?? 0) >= 0.6),
+      avgTokenROI:        avg(w => w.token?.tokenROI ?? null),
+      pctBots:            pct(w => w.isBot),
       pctTokenProfitable: pct(w => (w.token?.realizedPnlSol ?? 0) > 0),
-      clusterBreakdown:   breakdown(w => w.cluster),
+      pctHighWinRate:     pct(w => (w.winRate ?? 0) >= 0.5),
+      pctEarlyEntry:      pct(w => (w.token?.entryRank ?? 1) < 0.33),
+      pctNewWallet:       pct(w => w.walletAgeDays != null && w.walletAgeDays < 14),
       holdStyleBreakdown: breakdown(w => w.holdStyle),
       tierBreakdown:      breakdown(w => w.tier ?? null),
+      behaviorBreakdown:  breakdown(w => w.behaviorCategory),
     },
   };
 }
@@ -511,22 +402,16 @@ async function main() {
     const a = analysis.aggregates;
     console.log('\n' + '='.repeat(60));
     console.log(`Wallets with data: ${analysis.withData}/${analysis.totalWallets}`);
-    console.log(`Clusters: ${Object.entries(analysis.aggregates.clusterBreakdown).map(([k,v]) => `${k}=${v}`).join(' ')}`);
+    console.log(`Tiers: ${Object.entries(a.tierBreakdown).map(([k,v]) => `${k}=${v}`).join(' ')}`);
+    console.log(`Behaviors: ${Object.entries(a.behaviorBreakdown).map(([k,v]) => `${k}=${v}`).join(' ')}`);
     console.log(`Avg win rate: ${((a.avgWinRate ?? 0) * 100).toFixed(1)}% | Efficiency: ${a.avgEfficiency ?? 'N/A'} | Consistency: ${a.avgConsistency ?? 'N/A'}`);
-    console.log(`Token profitable: ${a.pctTokenProfitable}% | Avg token PnL: ${a.avgTokenPnlSol ?? 'N/A'} SOL`);
+    console.log(`Token profitable: ${a.pctTokenProfitable}% | Avg token PnL: ${a.avgTokenPnlSol ?? 'N/A'} SOL | Avg ROI: ${a.avgTokenROI ?? 'N/A'}`);
+    console.log(`Early entries (<33%): ${a.pctEarlyEntry}% | New wallets (<14d): ${a.pctNewWallet}% | Bots: ${a.pctBots}%`);
 
-    if (analysis.highlights.insiderSuspects.length) {
-      console.log('\nInsider suspects:');
-      analysis.highlights.insiderSuspects.forEach((w, i) =>
-        console.log(`  ${i + 1}. ${w.address.slice(0,8)}...${w.address.slice(-4)} | Age: ${w.walletAgeDays ?? '?'}d | Entry: ${((w.entryRank ?? 0) * 100).toFixed(0)}% | ROI: ${w.tokenROI != null ? (w.tokenROI * 100).toFixed(0) + '%' : 'N/A'} | PnL: ${w.tokenPnlSol ?? 'N/A'} SOL`)
-      );
-    }
-    if (analysis.highlights.smartMoney.length) {
-      console.log('\nSmart money:');
-      analysis.highlights.smartMoney.forEach((w, i) =>
-        console.log(`  ${i + 1}. ${w.address.slice(0,8)}...${w.address.slice(-4)} | WR: ${((w.winRate ?? 0) * 100).toFixed(0)}% | Eff: ${w.efficiency ?? 'N/A'} | Cons: ${w.consistency ?? 'N/A'} | PnL/d: ${w.pnlPerDay ?? 'N/A'}`)
-      );
-    }
+    console.log('\nTop token PnL:');
+    analysis.views.topTokenPnl.slice(0, 5).forEach((w, i) =>
+      console.log(`  ${i + 1}. ${w.address.slice(0,8)}...${w.address.slice(-4)} | PnL: ${w.tokenPnlSol} SOL | ROI: ${w.tokenROI} | Entry: ${w.entryRank != null ? (w.entryRank * 100).toFixed(0) + '%' : '?'} | Age: ${w.walletAgeDays ?? '?'}d | WR: ${w.winRate != null ? (w.winRate * 100).toFixed(0) + '%' : '?'}`)
+    );
     console.log('='.repeat(60));
 
   } finally {
