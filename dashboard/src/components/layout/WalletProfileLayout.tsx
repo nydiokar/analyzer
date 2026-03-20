@@ -204,6 +204,8 @@ export default function WalletProfileLayout({
   });
 
   const [enrichmentJobId, setEnrichmentJobId] = useState<string | null>(null);
+  const scopeStatesRef = useRef(scopeStates);
+  const enrichmentJobIdRef = useRef<string | null>(null);
 
   const [hasInitialTokenSnapshot, setHasInitialTokenSnapshot] = useState(false);
   const isAutoTriggeringRef = useRef(false);
@@ -215,6 +217,14 @@ export default function WalletProfileLayout({
     () => Object.values(scopeStates).some((state) => state.status === 'queued' || state.status === 'running'),
     [scopeStates],
   );
+
+  useEffect(() => {
+    scopeStatesRef.current = scopeStates;
+  }, [scopeStates]);
+
+  useEffect(() => {
+    enrichmentJobIdRef.current = enrichmentJobId;
+  }, [enrichmentJobId]);
 
   useEffect(() => {
     setHasInitialTokenSnapshot(false);
@@ -677,11 +687,13 @@ export default function WalletProfileLayout({
   }, [walletSummary]);
 
 
-  // Cleanup job subscription when component unmounts or job completes
+  // Cleanup tracked jobs only when the page truly unmounts.
+  // Using scopeStates/enrichmentJobId as effect deps caused React to unsubscribe
+  // active jobs during normal staged scope transitions (flash -> working -> deep).
   useEffect(() => {
     return () => {
       // Cleanup active scope jobs
-      Object.entries(scopeStates).forEach(([_, state]) => {
+      Object.entries(scopeStatesRef.current).forEach(([_, state]) => {
         if (state.jobId) {
           const unsubscribeFn = unsubscribeFromJobRef.current;
           if (unsubscribeFn) {
@@ -690,15 +702,16 @@ export default function WalletProfileLayout({
         }
       });
 
-      if (enrichmentJobId) {
+      const currentEnrichmentJobId = enrichmentJobIdRef.current;
+      if (currentEnrichmentJobId) {
         const unsubscribeFn = unsubscribeFromJobRef.current;
         if (unsubscribeFn) {
-          try { unsubscribeFn(enrichmentJobId); } catch { /* ignore unsubscribe failures */ }
+          try { unsubscribeFn(currentEnrichmentJobId); } catch { /* ignore unsubscribe failures */ }
         }
       }
       setSubscribedEnrichmentJobId(null);
     };
-  }, [enrichmentJobId, scopeStates]);
+  }, []);
 
   // Subscribe to enrichment job when it's set (with duplicate prevention)
   const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);

@@ -446,7 +446,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   const pnlOverviewApiUrlBase = walletAddress ? `/wallets/${walletAddress}/pnl-overview` : null;
   let swrKeyPnl: (string | null)[] | null = null;
 
-  if (pnlOverviewApiUrlBase && !isAnalyzingGlobal) {
+  if (pnlOverviewApiUrlBase) {
     const queryParams = new URLSearchParams();
     if (startDate) queryParams.append('startDate', startDate.toISOString());
     if (endDate) queryParams.append('endDate', endDate.toISOString());
