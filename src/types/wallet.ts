@@ -33,6 +33,7 @@ export interface TokenBalanceDetails {
   name?: string;
   symbol?: string;
   imageUrl?: string;
+  marketCapUsd?: number | null;
   priceUsd?: number;
   valueUsd?: number;
 }

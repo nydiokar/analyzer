@@ -3119,6 +3119,7 @@ export class DatabaseService {
                 name: true,
                 symbol: true,
                 imageUrl: true,
+                marketCapUsd: true,
                 priceUsd: true,
             },
         });

@@ -59,6 +59,7 @@ export class SimilarityApiService {
                             tokenBalance.name = info.name;
                             tokenBalance.symbol = info.symbol;
                             tokenBalance.imageUrl = info.imageUrl;
+                            tokenBalance.marketCapUsd = info.marketCapUsd ?? null;
 
                             if (info.priceUsd) {
                                 const price = parseFloat(info.priceUsd);
