@@ -1,0 +1,1125 @@
+{
+  "token": "Downald Twump",
+  "tokenMint": "EiqNgtwFzHqTEa3UV57s2x4svjJF59URgBqnG3sCpump",
+  "sourceFile": "C:\\Users\\Cicada38\\Projects\\analyzer\\analyses\\downald-analysis.json",
+  "generatedAt": "2026-03-20T19:35:20.911Z",
+  "totalWallets": 48,
+  "breakdown": {
+    "EARLY_CONVICTION": 7,
+    "SMART_MONEY": 1,
+    "HIGH_VOLUME": 11,
+    "MOMENTUM_TRADER": 16,
+    "LP_HARVESTER": 10,
+    "BOT": 1,
+    "UNPROFITABLE": 1,
+    "NO_DATA": 1
+  },
+  "clusterSummaries": {
+    "EARLY_CONVICTION": {
+      "count": 7,
+      "avgTokenPnlSol": 42.073,
+      "avgTokenROI": 20.829,
+      "avgWinRate": 0.226,
+      "avgEfficiency": 1.427,
+      "avgConsistency": -0.077,
+      "avgEntryRank": 0.112
+    },
+    "SMART_MONEY": {
+      "count": 1,
+      "avgTokenPnlSol": 31.664,
+      "avgTokenROI": 2.666,
+      "avgWinRate": 0.625,
+      "avgEfficiency": 78.642,
+      "avgConsistency": 0.004,
+      "avgEntryRank": 0.109
+    },
+    "HIGH_VOLUME": {
+      "count": 11,
+      "avgTokenPnlSol": 35.92,
+      "avgTokenROI": 0.333,
+      "avgWinRate": 0.283,
+      "avgEfficiency": -19.745,
+      "avgConsistency": -0.065,
+      "avgEntryRank": 0.581
+    },
+    "MOMENTUM_TRADER": {
+      "count": 16,
+      "avgTokenPnlSol": 38.225,
+      "avgTokenROI": 5.071,
+      "avgWinRate": 0.292,
+      "avgEfficiency": -5.708,
+      "avgConsistency": -0.076,
+      "avgEntryRank": 0.447
+    }
+  },
+  "clusters": {
+    "EARLY_CONVICTION": [
+      {
+        "address": "7TXmjGGUCHEEWVe2L87xJdqmGEWW5gZfuNh5qHks96ti",
+        "cluster": "EARLY_CONVICTION",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.264,
+          "avgTradesPerDay": 22.9,
+          "trimmedMeanPnl": -0.216,
+          "efficiency": 3.887,
+          "consistency": -0.018,
+          "pnlPerDay": 0.807,
+          "walletAgeDays": 16,
+          "token.realizedPnlSol": 46.936,
+          "token.totalSolSpent": 1.52,
+          "token.tokenROI": 30.884,
+          "token.entryRank": 0.196
+        },
+        "justification": "Got in early with a small position and captured massive ROI. Low overall winRate is expected — these wallets spray early into many tokens. The combination of early entry + high multiple is the signal. entry rank 20% (top 20% earliest buyers), 1.52 SOL spent, 30.9x ROI, 46.9 SOL profit."
+      },
+      {
+        "address": "5HhZmDEtbq3W4zs6XbK5kUPnRChR7eVezGZyp8tpXiDM",
+        "cluster": "EARLY_CONVICTION",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.252,
+          "avgTradesPerDay": 2.9,
+          "trimmedMeanPnl": -0.149,
+          "efficiency": 3.168,
+          "consistency": -0.023,
+          "pnlPerDay": 1.184,
+          "walletAgeDays": 97.9,
+          "token.realizedPnlSol": 23.24,
+          "token.totalSolSpent": 0.841,
+          "token.tokenROI": 27.65,
+          "token.entryRank": 0.043
+        },
+        "justification": "Got in early with a small position and captured massive ROI. Low overall winRate is expected — these wallets spray early into many tokens. The combination of early entry + high multiple is the signal. entry rank 4% (top 20% earliest buyers), 0.84 SOL spent, 27.6x ROI, 23.2 SOL profit."
+      },
+      {
+        "address": "H8qcJvzSzhYG7f24buMYMhhR6cY9kCy19CK8sAgntDfm",
+        "cluster": "EARLY_CONVICTION",
+        "signals": {
+          "tier": "SILVER",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.121,
+          "avgTradesPerDay": 135.5,
+          "trimmedMeanPnl": -1.196,
+          "efficiency": -4.374,
+          "consistency": -0.128,
+          "pnlPerDay": -2.271,
+          "walletAgeDays": 3.2,
+          "token.realizedPnlSol": 72.709,
+          "token.totalSolSpent": 3.06,
+          "token.tokenROI": 23.76,
+          "token.entryRank": 0.022
+        },
+        "justification": "Got in early with a small position and captured massive ROI. Low overall winRate is expected — these wallets spray early into many tokens. The combination of early entry + high multiple is the signal. entry rank 2% (top 20% earliest buyers), 3.06 SOL spent, 23.8x ROI, 72.7 SOL profit, wallet only 3.2d old."
+      },
+      {
+        "address": "9yn4dgb65KpyBJQ9bktwKZaVaakJxmpiC7m2JzyKjPhf",
+        "cluster": "EARLY_CONVICTION",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.156,
+          "avgTradesPerDay": 17.9,
+          "trimmedMeanPnl": -0.342,
+          "efficiency": -0.897,
+          "consistency": -0.068,
+          "pnlPerDay": -0.447,
+          "walletAgeDays": 31.7,
+          "token.realizedPnlSol": 43.075,
+          "token.totalSolSpent": 2.024,
+          "token.tokenROI": 21.281,
+          "token.entryRank": 0.174
+        },
+        "justification": "Got in early with a small position and captured massive ROI. Low overall winRate is expected — these wallets spray early into many tokens. The combination of early entry + high multiple is the signal. entry rank 17% (top 20% earliest buyers), 2.02 SOL spent, 21.3x ROI, 43.1 SOL profit."
+      },
+      {
+        "address": "41uh7g1DxYaYXdtjBiYCHcgBniV9Wx57b7HU7RXmx1Gg",
+        "cluster": "EARLY_CONVICTION",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.18,
+          "avgTradesPerDay": 151.1,
+          "trimmedMeanPnl": -0.445,
+          "efficiency": 5.838,
+          "consistency": -0.053,
+          "pnlPerDay": 3.798,
+          "walletAgeDays": 6.8,
+          "token.realizedPnlSol": 65.281,
+          "token.totalSolSpent": 3.31,
+          "token.tokenROI": 19.722,
+          "token.entryRank": 0.152
+        },
+        "justification": "Got in early with a small position and captured massive ROI. Low overall winRate is expected — these wallets spray early into many tokens. The combination of early entry + high multiple is the signal. entry rank 15% (top 20% earliest buyers), 3.31 SOL spent, 19.7x ROI, 65.3 SOL profit, wallet only 6.8d old."
+      },
+      {
+        "address": "FSYcQWgdSU9ryJFSnjpZRVeJ2B75hGHxAcGQ9585Hfd3",
+        "cluster": "EARLY_CONVICTION",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SCALPER",
+          "holdStyle": "sniper",
+          "winRate": 0.301,
+          "avgTradesPerDay": 36.3,
+          "trimmedMeanPnl": -0.325,
+          "efficiency": 0.11,
+          "consistency": -0.112,
+          "pnlPerDay": 0.055,
+          "walletAgeDays": 16.2,
+          "token.realizedPnlSol": 24.707,
+          "token.totalSolSpent": 1.512,
+          "token.tokenROI": 16.338,
+          "token.entryRank": 0.065
+        },
+        "justification": "Got in early with a small position and captured massive ROI. Low overall winRate is expected — these wallets spray early into many tokens. The combination of early entry + high multiple is the signal. entry rank 7% (top 20% earliest buyers), 1.51 SOL spent, 16.3x ROI, 24.7 SOL profit."
+      },
+      {
+        "address": "6Yb3VETYHqMAgURrHibTDC3W1zrKXRkucD5394KoeNJs",
+        "cluster": "EARLY_CONVICTION",
+        "signals": {
+          "tier": "SILVER",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.308,
+          "avgTradesPerDay": 344.8,
+          "trimmedMeanPnl": -0.353,
+          "efficiency": 2.254,
+          "consistency": -0.136,
+          "pnlPerDay": 1.51,
+          "walletAgeDays": 3.9,
+          "token.realizedPnlSol": 18.562,
+          "token.totalSolSpent": 3.008,
+          "token.tokenROI": 6.171,
+          "token.entryRank": 0.13
+        },
+        "justification": "Got in early with a small position and captured massive ROI. Low overall winRate is expected — these wallets spray early into many tokens. The combination of early entry + high multiple is the signal. entry rank 13% (top 20% earliest buyers), 3.01 SOL spent, 6.2x ROI, 18.6 SOL profit, wallet only 3.9d old."
+      }
+    ],
+    "SMART_MONEY": [
+      {
+        "address": "ASrqFLWn9EHuzW2ofmigzjt3bTkfM1APd8fGiVKi8U14",
+        "cluster": "SMART_MONEY",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.625,
+          "avgTradesPerDay": 1.3,
+          "trimmedMeanPnl": 4.84,
+          "efficiency": 78.642,
+          "consistency": 0.004,
+          "pnlPerDay": 11.255,
+          "walletAgeDays": 87.3,
+          "token.realizedPnlSol": 31.664,
+          "token.totalSolSpent": 11.875,
+          "token.tokenROI": 2.666,
+          "token.entryRank": 0.109
+        },
+        "justification": "Low-frequency, high-quality trader with a verified edge across many tokens — not just this one. Positive trimmedMeanPnl means the average win is real after removing outliers. GOLD tier, winRate 63%, 1.3 trades/day (selective), trimmedMeanPnl 4.84 SOL/token, efficiency 78.642, consistency 0.004."
+      }
+    ],
+    "HIGH_VOLUME": [
+      {
+        "address": "5ruPgyUP4Y7WbTBMeF1RMDcfrpY26DegMWVTbiFzobAP",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.229,
+          "avgTradesPerDay": 52.7,
+          "trimmedMeanPnl": -0.594,
+          "efficiency": -3.246,
+          "consistency": -0.022,
+          "pnlPerDay": -0.767,
+          "walletAgeDays": 8.7,
+          "token.realizedPnlSol": 76.249,
+          "token.totalSolSpent": 271.032,
+          "token.tokenROI": 0.281,
+          "token.entryRank": 0.304
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 271 SOL deployed, 76.2 SOL profit, entry rank 30%, GOLD tier."
+      },
+      {
+        "address": "93cDUw2LgUvEJh2h7TaMDNcPRz9DqBZf5ykwknYiNo9V",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "DAY_TRADER",
+          "holdStyle": "swing",
+          "winRate": 0.541,
+          "avgTradesPerDay": 17.8,
+          "trimmedMeanPnl": 0.3,
+          "efficiency": 129.645,
+          "consistency": 0.007,
+          "pnlPerDay": 2.801,
+          "walletAgeDays": 24.7,
+          "token.realizedPnlSol": 49.632,
+          "token.totalSolSpent": 122.958,
+          "token.tokenROI": 0.404,
+          "token.entryRank": 0.87
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 123 SOL deployed, 49.6 SOL profit, entry rank 87%, GOLD tier."
+      },
+      {
+        "address": "GtzrdYHhtVu8kSgXczLgTHxwduz1sPs51RF2tCESLS1M",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.183,
+          "avgTradesPerDay": 54.6,
+          "trimmedMeanPnl": -0.559,
+          "efficiency": -3.768,
+          "consistency": -0.067,
+          "pnlPerDay": -1.745,
+          "walletAgeDays": 16.7,
+          "token.realizedPnlSol": 44.833,
+          "token.totalSolSpent": 71.28,
+          "token.tokenROI": 0.629,
+          "token.entryRank": 0.348
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 71 SOL deployed, 44.8 SOL profit, entry rank 35%, GOLD tier."
+      },
+      {
+        "address": "5zwptK7eGz6kS21uMh33HTgop6jWFjCPrC1vqsFcT2FN",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "SILVER",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.255,
+          "avgTradesPerDay": 312,
+          "trimmedMeanPnl": -0.901,
+          "efficiency": 11.255,
+          "consistency": -0.075,
+          "pnlPerDay": 5.301,
+          "walletAgeDays": 3.6,
+          "token.realizedPnlSol": 44.313,
+          "token.totalSolSpent": 93.753,
+          "token.tokenROI": 0.473,
+          "token.entryRank": 0.457
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 94 SOL deployed, 44.3 SOL profit, entry rank 46%, SILVER tier."
+      },
+      {
+        "address": "GQZWK83ey816P4M8A3srPfwRjxmTUvU3Udzj1mJHh6Dp",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "DAY_TRADER",
+          "holdStyle": "swing",
+          "winRate": 0.226,
+          "avgTradesPerDay": 14,
+          "trimmedMeanPnl": -4.614,
+          "efficiency": -22.113,
+          "consistency": -0.112,
+          "pnlPerDay": -0.732,
+          "walletAgeDays": 62.7,
+          "token.realizedPnlSol": 42.997,
+          "token.totalSolSpent": 66.233,
+          "token.tokenROI": 0.649,
+          "token.entryRank": 0.609
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 66 SOL deployed, 43.0 SOL profit, entry rank 61%, GOLD tier."
+      },
+      {
+        "address": "8MwSej5H9NmgESmqNSYTwhizJpPRze3kXjDsJxWswbJN",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.375,
+          "avgTradesPerDay": 81,
+          "trimmedMeanPnl": 0.037,
+          "efficiency": -20.595,
+          "consistency": -0.007,
+          "pnlPerDay": -1.552,
+          "walletAgeDays": 10.1,
+          "token.realizedPnlSol": 39.501,
+          "token.totalSolSpent": 194.466,
+          "token.tokenROI": 0.203,
+          "token.entryRank": 0.935
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 194 SOL deployed, 39.5 SOL profit, entry rank 94%, GOLD tier."
+      },
+      {
+        "address": "8Fe2gPxFziRrL8iA81fEMDr8dt4aKKzR4EQvcD7jw5iA",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.348,
+          "avgTradesPerDay": 37.2,
+          "trimmedMeanPnl": -13.498,
+          "efficiency": -260.127,
+          "consistency": -0.055,
+          "pnlPerDay": -20.501,
+          "walletAgeDays": 14.1,
+          "token.realizedPnlSol": 34.473,
+          "token.totalSolSpent": 118.947,
+          "token.tokenROI": 0.29,
+          "token.entryRank": 0.761
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 119 SOL deployed, 34.5 SOL profit, entry rank 76%, GOLD tier."
+      },
+      {
+        "address": "9FLX2NURF2Hqqe6cEtxL12bWRFUQ9GDQTQ8geeX1Xnma",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SCALPER",
+          "holdStyle": "sniper",
+          "winRate": 0.314,
+          "avgTradesPerDay": 10.9,
+          "trimmedMeanPnl": -0.381,
+          "efficiency": -0.579,
+          "consistency": -0.009,
+          "pnlPerDay": -0.076,
+          "walletAgeDays": 48.3,
+          "token.realizedPnlSol": 32.901,
+          "token.totalSolSpent": 80.044,
+          "token.tokenROI": 0.411,
+          "token.entryRank": 0.261
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 80 SOL deployed, 32.9 SOL profit, entry rank 26%, GOLD tier."
+      },
+      {
+        "address": "Ejiny8R8PhGMbebwEZFm9d8CpyEpV8fZq23nzzRTuNZ9",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.218,
+          "avgTradesPerDay": 118.9,
+          "trimmedMeanPnl": -0.18,
+          "efficiency": -0.869,
+          "consistency": -0.023,
+          "pnlPerDay": -0.338,
+          "walletAgeDays": 7.9,
+          "token.realizedPnlSol": 26.248,
+          "token.totalSolSpent": 88.701,
+          "token.tokenROI": 0.296,
+          "token.entryRank": 0
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 89 SOL deployed, 26.2 SOL profit, entry rank 0%, GOLD tier."
+      },
+      {
+        "address": "912PrV9gXLHa7wNXGHdgnPQFiahySrtQwSVhfyfdkQpD",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.275,
+          "avgTradesPerDay": 113.1,
+          "trimmedMeanPnl": -1.999,
+          "efficiency": -27.698,
+          "consistency": -0.24,
+          "pnlPerDay": -6.533,
+          "walletAgeDays": 8.6,
+          "token.realizedPnlSol": 3.126,
+          "token.totalSolSpent": 125.365,
+          "token.tokenROI": 0.025,
+          "token.entryRank": 0.891
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 125 SOL deployed, 3.1 SOL profit, entry rank 89%, GOLD tier."
+      },
+      {
+        "address": "6nuGXSf5gJGG2M6kT4UwkHBvBzV5Rzqpb7vTA9gGTVpu",
+        "cluster": "HIGH_VOLUME",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "DAY_TRADER",
+          "holdStyle": "swing",
+          "winRate": 0.154,
+          "avgTradesPerDay": 8.8,
+          "trimmedMeanPnl": -1.397,
+          "efficiency": -19.105,
+          "consistency": -0.112,
+          "pnlPerDay": -0.651,
+          "walletAgeDays": 28.9,
+          "token.realizedPnlSol": 0.845,
+          "token.totalSolSpent": 151.554,
+          "token.tokenROI": 0.006,
+          "token.entryRank": 0.957
+        },
+        "justification": "Deployed significant capital and extracted profit. At this position size, access to information or coordination is more likely than pure skill. 152 SOL deployed, 0.8 SOL profit, entry rank 96%, GOLD tier."
+      }
+    ],
+    "MOMENTUM_TRADER": [
+      {
+        "address": "9LNQCimpbsnv7X2z5F7Z6y7svUvTuQRk5NQrnQM2eTn3",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.264,
+          "avgTradesPerDay": 33.2,
+          "trimmedMeanPnl": -2.682,
+          "efficiency": -51.762,
+          "consistency": -0.029,
+          "pnlPerDay": -3.897,
+          "walletAgeDays": 24.7,
+          "token.realizedPnlSol": 171.639,
+          "token.totalSolSpent": 7.282,
+          "token.tokenROI": 23.569,
+          "token.entryRank": 0.565
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 171.6 SOL profit, 23.57x ROI, entry rank 56%, GOLD tier, INTRADAY."
+      },
+      {
+        "address": "7DbyKHo4dfGwpbf9TmKDfxPFzSfLFdigzjpSyvfJgSpp",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.22,
+          "avgTradesPerDay": 10.8,
+          "trimmedMeanPnl": -4.972,
+          "efficiency": -17.534,
+          "consistency": -0.161,
+          "pnlPerDay": -1.079,
+          "walletAgeDays": 55.2,
+          "token.realizedPnlSol": 109.81,
+          "token.totalSolSpent": 14.85,
+          "token.tokenROI": 7.395,
+          "token.entryRank": 0.587
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 109.8 SOL profit, 7.39x ROI, entry rank 59%, GOLD tier, INTRADAY."
+      },
+      {
+        "address": "2ZZKTzyvxQ1y6J1iGPBMUjzSkTCDnBhMFXhG9u4kDk1a",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.353,
+          "avgTradesPerDay": 31.2,
+          "trimmedMeanPnl": -2.048,
+          "efficiency": 8.758,
+          "consistency": -0.025,
+          "pnlPerDay": 0.593,
+          "walletAgeDays": 25.6,
+          "token.realizedPnlSol": 55.361,
+          "token.totalSolSpent": 6.832,
+          "token.tokenROI": 8.104,
+          "token.entryRank": 0.5
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 55.4 SOL profit, 8.10x ROI, entry rank 50%, GOLD tier, INTRADAY."
+      },
+      {
+        "address": "9mxsFRbhnRccz4yyUhvTY21n3tKNhnM7YWk1c1wswYvG",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.242,
+          "avgTradesPerDay": 28.3,
+          "trimmedMeanPnl": -0.451,
+          "efficiency": -3.673,
+          "consistency": -0.074,
+          "pnlPerDay": -2.093,
+          "walletAgeDays": 27.6,
+          "token.realizedPnlSol": 37.659,
+          "token.totalSolSpent": 3.938,
+          "token.tokenROI": 9.564,
+          "token.entryRank": 0.283
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 37.7 SOL profit, 9.56x ROI, entry rank 28%, GOLD tier, MOMENTUM."
+      },
+      {
+        "address": "EM6QkX6z1J9efAfMeiknEcKJJXfG3j8RcKLK3n3TBYpL",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.214,
+          "avgTradesPerDay": 65.4,
+          "trimmedMeanPnl": -0.246,
+          "efficiency": 0.875,
+          "consistency": -0.055,
+          "pnlPerDay": 0.097,
+          "walletAgeDays": 9.1,
+          "token.realizedPnlSol": 29.623,
+          "token.totalSolSpent": 15.592,
+          "token.tokenROI": 1.9,
+          "token.entryRank": 0.478
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 29.6 SOL profit, 1.90x ROI, entry rank 48%, GOLD tier, INTRADAY."
+      },
+      {
+        "address": "Fq7jozd5scjoqNx844eRnRqiAfW5fQaRZVPSFFwVwzto",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "SILVER",
+          "isBot": false,
+          "behaviorCategory": "SCALPER",
+          "holdStyle": "sniper",
+          "winRate": 0.282,
+          "avgTradesPerDay": 102.6,
+          "trimmedMeanPnl": -0.381,
+          "efficiency": -3.082,
+          "consistency": -0.092,
+          "pnlPerDay": -1.443,
+          "walletAgeDays": 4.7,
+          "token.realizedPnlSol": 29.387,
+          "token.totalSolSpent": 7.033,
+          "token.tokenROI": 4.179,
+          "token.entryRank": 0.37
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 29.4 SOL profit, 4.18x ROI, entry rank 37%, SILVER tier, SCALPER."
+      },
+      {
+        "address": "D3gbHEU2ZDNtmuSFELfnKWpYgGneCZEC4QrCKFsxtWsU",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.267,
+          "avgTradesPerDay": 11.2,
+          "trimmedMeanPnl": -1.284,
+          "efficiency": -17,
+          "consistency": -0.136,
+          "pnlPerDay": -2.736,
+          "walletAgeDays": 42.9,
+          "token.realizedPnlSol": 27.556,
+          "token.totalSolSpent": 13.048,
+          "token.tokenROI": 2.112,
+          "token.entryRank": 0.239
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 27.6 SOL profit, 2.11x ROI, entry rank 24%, GOLD tier, MOMENTUM."
+      },
+      {
+        "address": "9AsZMoYMwGHyX9xXEKGQMduHPPjuJ5z9toX3nke2bgZw",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SCALPER",
+          "holdStyle": "sniper",
+          "winRate": 0.207,
+          "avgTradesPerDay": 34.3,
+          "trimmedMeanPnl": -0.31,
+          "efficiency": 11.352,
+          "consistency": -0.028,
+          "pnlPerDay": 8.255,
+          "walletAgeDays": 13.8,
+          "token.realizedPnlSol": 25.171,
+          "token.totalSolSpent": 15.711,
+          "token.tokenROI": 1.602,
+          "token.entryRank": 0.326
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 25.2 SOL profit, 1.60x ROI, entry rank 33%, GOLD tier, SCALPER."
+      },
+      {
+        "address": "93XyirV3yEMBwhXEJut2w98BtyX3WnpHpqyqo5JSzA2n",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.303,
+          "avgTradesPerDay": 21.1,
+          "trimmedMeanPnl": -0.113,
+          "efficiency": -0.76,
+          "consistency": -0.027,
+          "pnlPerDay": -0.125,
+          "walletAgeDays": 51.8,
+          "token.realizedPnlSol": 22.384,
+          "token.totalSolSpent": 7.281,
+          "token.tokenROI": 3.074,
+          "token.entryRank": 0.435
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 22.4 SOL profit, 3.07x ROI, entry rank 44%, GOLD tier, MOMENTUM."
+      },
+      {
+        "address": "4JDFkybq1s7L2ogu7heTPDhRJxmXGu4yKQgpGBNbGcJ5",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.445,
+          "avgTradesPerDay": 8.4,
+          "trimmedMeanPnl": -0.105,
+          "efficiency": 7.766,
+          "consistency": -0.037,
+          "pnlPerDay": 0.764,
+          "walletAgeDays": 53.7,
+          "token.realizedPnlSol": 19.306,
+          "token.totalSolSpent": 9.9,
+          "token.tokenROI": 1.95,
+          "token.entryRank": 0.652
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 19.3 SOL profit, 1.95x ROI, entry rank 65%, GOLD tier, MOMENTUM."
+      },
+      {
+        "address": "DCwFPkDf6VorxNE1cxR38Fxc18mFq7uPweU735FwyzAj",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.406,
+          "avgTradesPerDay": 19.1,
+          "trimmedMeanPnl": -0.091,
+          "efficiency": 7.072,
+          "consistency": -0.02,
+          "pnlPerDay": 2.62,
+          "walletAgeDays": 21.8,
+          "token.realizedPnlSol": 17.081,
+          "token.totalSolSpent": 4.95,
+          "token.tokenROI": 3.451,
+          "token.entryRank": 0.413
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 17.1 SOL profit, 3.45x ROI, entry rank 41%, GOLD tier, MOMENTUM."
+      },
+      {
+        "address": "CiUw5DDNtaCCvMReCpg7eDF13yWafKqGdQRyju5FUibu",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "SILVER",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.166,
+          "avgTradesPerDay": 169.5,
+          "trimmedMeanPnl": -0.605,
+          "efficiency": -2.336,
+          "consistency": -0.131,
+          "pnlPerDay": -0.51,
+          "walletAgeDays": 5.9,
+          "token.realizedPnlSol": 16.848,
+          "token.totalSolSpent": 7.993,
+          "token.tokenROI": 2.108,
+          "token.entryRank": 0.522
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 16.8 SOL profit, 2.11x ROI, entry rank 52%, SILVER tier, MOMENTUM."
+      },
+      {
+        "address": "5qFZWbSLRUTshZv1o8WPEyBeiCmTfYFUzYmaAweSNdjd",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "SILVER",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.261,
+          "avgTradesPerDay": 26.8,
+          "trimmedMeanPnl": -1.47,
+          "efficiency": -17.278,
+          "consistency": -0.267,
+          "pnlPerDay": -2.177,
+          "walletAgeDays": 5.9,
+          "token.realizedPnlSol": 14.733,
+          "token.totalSolSpent": 20,
+          "token.tokenROI": 0.737,
+          "token.entryRank": 0.63
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 14.7 SOL profit, 0.74x ROI, entry rank 63%, SILVER tier, INTRADAY."
+      },
+      {
+        "address": "5ghUXGD9VHqtHR1HCUNDdqxGnVGs7DWkX8Zz9X11G36N",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SCALPER",
+          "holdStyle": "sniper",
+          "winRate": 0.486,
+          "avgTradesPerDay": 26.2,
+          "trimmedMeanPnl": 0.206,
+          "efficiency": 3.931,
+          "consistency": -0.005,
+          "pnlPerDay": 1.741,
+          "walletAgeDays": 17.5,
+          "token.realizedPnlSol": 13.833,
+          "token.totalSolSpent": 4.005,
+          "token.tokenROI": 3.454,
+          "token.entryRank": 0.543
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 13.8 SOL profit, 3.45x ROI, entry rank 54%, GOLD tier, SCALPER."
+      },
+      {
+        "address": "3W6MAqCb697mRBceVMuWVhySHWrHRektBP2ZNS7ZJ6xT",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "INTRADAY",
+          "holdStyle": "momentum",
+          "winRate": 0.25,
+          "avgTradesPerDay": 38.3,
+          "trimmedMeanPnl": -1.009,
+          "efficiency": -16.176,
+          "consistency": -0.066,
+          "pnlPerDay": -3.527,
+          "walletAgeDays": 6.1,
+          "token.realizedPnlSol": 13.653,
+          "token.totalSolSpent": 3.034,
+          "token.tokenROI": 4.5,
+          "token.entryRank": 0.217
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 13.7 SOL profit, 4.50x ROI, entry rank 22%, GOLD tier, INTRADAY."
+      },
+      {
+        "address": "5ZuV8eqkvzYFVEKbLvGBdexL2tFv7E5BCd2HZpjqbdg",
+        "cluster": "MOMENTUM_TRADER",
+        "signals": {
+          "tier": "SILVER",
+          "isBot": false,
+          "behaviorCategory": "SCALPER",
+          "holdStyle": "sniper",
+          "winRate": 0.306,
+          "avgTradesPerDay": 103.8,
+          "trimmedMeanPnl": -0.368,
+          "efficiency": -1.485,
+          "consistency": -0.056,
+          "pnlPerDay": -0.828,
+          "walletAgeDays": 3.1,
+          "token.realizedPnlSol": 7.558,
+          "token.totalSolSpent": 2.196,
+          "token.tokenROI": 3.442,
+          "token.entryRank": 0.391
+        },
+        "justification": "Profitable on this token but no dominant structural signal (not early enough, not selective enough, not high-volume enough). Rode the move well. 7.6 SOL profit, 3.44x ROI, entry rank 39%, SILVER tier, SCALPER."
+      }
+    ],
+    "LP_HARVESTER": [
+      {
+        "address": "uEHssPufbNsPXbdz1DfFeCMVAXH5hi5PMci1DwCw8HH",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "BRONZE",
+          "isBot": false,
+          "behaviorCategory": "SCALPER",
+          "holdStyle": "sniper",
+          "winRate": 0.182,
+          "avgTradesPerDay": 20.5,
+          "trimmedMeanPnl": -0.271,
+          "efficiency": 98.426,
+          "consistency": -0.015,
+          "pnlPerDay": 79.028,
+          "walletAgeDays": 2,
+          "token.realizedPnlSol": 96.088,
+          "token.totalSolSpent": 2.026,
+          "token.tokenROI": 47.425,
+          "token.entryRank": 0.087
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 18%, sniper hold style, 20.5 trades/day, efficiency 98.426."
+      },
+      {
+        "address": "CPurdkCWoZ2BTAn3uDR88WW41wEn1YMsEYJSWSCXfGeY",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "SILVER",
+          "isBot": false,
+          "behaviorCategory": "MOMENTUM",
+          "holdStyle": "scalper",
+          "winRate": 0.455,
+          "avgTradesPerDay": 89.8,
+          "trimmedMeanPnl": 2.243,
+          "efficiency": 179.407,
+          "consistency": -0.002,
+          "pnlPerDay": 34.048,
+          "walletAgeDays": 3.8,
+          "token.realizedPnlSol": 187.152,
+          "token.totalSolSpent": 360,
+          "token.tokenROI": 0.52,
+          "token.entryRank": 0.674
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 46%, scalper hold style, 89.8 trades/day, efficiency 179.407."
+      },
+      {
+        "address": "AwJU7DSPTREnhU4sY4piw11JYCDkaa1LNsKo3EXFqmvB",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "BRONZE",
+          "isBot": false,
+          "behaviorCategory": "SNIPER",
+          "holdStyle": "sniper",
+          "winRate": 1,
+          "avgTradesPerDay": 313,
+          "trimmedMeanPnl": 4.139,
+          "efficiency": 149.818,
+          "consistency": 0.087,
+          "pnlPerDay": 11.317,
+          "walletAgeDays": 1.7,
+          "token.realizedPnlSol": 72.022,
+          "token.totalSolSpent": 0.061,
+          "token.tokenROI": 1190.067,
+          "token.entryRank": 0.848
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 100%, sniper hold style, 313 trades/day, efficiency 149.818."
+      },
+      {
+        "address": "GeLxFbHDYTp82E2BAVu8zWoYsV3zXUYWurjyxvApjJzq",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SCALPER",
+          "holdStyle": "sniper",
+          "winRate": 0.92,
+          "avgTradesPerDay": 54.1,
+          "trimmedMeanPnl": 2.34,
+          "efficiency": 66.489,
+          "consistency": 0.203,
+          "pnlPerDay": 6.857,
+          "walletAgeDays": 10,
+          "token.realizedPnlSol": 44.538,
+          "token.totalSolSpent": 13.076,
+          "token.tokenROI": 3.406,
+          "token.entryRank": 0.717
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 92%, sniper hold style, 54.1 trades/day, efficiency 66.489."
+      },
+      {
+        "address": "7q4VBmi56ws3LHNHstESrHHCK8CD3jfA2JVBhe29yvUM",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SNIPER",
+          "holdStyle": "sniper",
+          "winRate": 0.944,
+          "avgTradesPerDay": 58.1,
+          "trimmedMeanPnl": 7.326,
+          "efficiency": 176.455,
+          "consistency": 0.167,
+          "pnlPerDay": 3.694,
+          "walletAgeDays": 6.2,
+          "token.realizedPnlSol": 46.219,
+          "token.totalSolSpent": 0,
+          "token.tokenROI": null,
+          "token.entryRank": 0.826
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 94%, sniper hold style, 58.1 trades/day, efficiency 176.455."
+      },
+      {
+        "address": "FGRepmF9zztMEcpq3TTSaoAVnGAYw2ThBgF9AjjmQnPy",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SNIPER",
+          "holdStyle": "sniper",
+          "winRate": 0.946,
+          "avgTradesPerDay": 24.8,
+          "trimmedMeanPnl": 7.03,
+          "efficiency": 187.941,
+          "consistency": 0.275,
+          "pnlPerDay": 17.251,
+          "walletAgeDays": 15.2,
+          "token.realizedPnlSol": 38.64,
+          "token.totalSolSpent": 0,
+          "token.tokenROI": null,
+          "token.entryRank": 0.804
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 95%, sniper hold style, 24.8 trades/day, efficiency 187.941."
+      },
+      {
+        "address": "2MhZ9uwE8entCKezwVkAZHQXBnfNktiWnM38RcGB5SF9",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SNIPER",
+          "holdStyle": "sniper",
+          "winRate": 0.918,
+          "avgTradesPerDay": 305.1,
+          "trimmedMeanPnl": 2.331,
+          "efficiency": 58.266,
+          "consistency": 0.163,
+          "pnlPerDay": 4.29,
+          "walletAgeDays": 8.2,
+          "token.realizedPnlSol": 31.709,
+          "token.totalSolSpent": 9.015,
+          "token.tokenROI": 3.517,
+          "token.entryRank": 0.696
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 92%, sniper hold style, 305.1 trades/day, efficiency 58.266."
+      },
+      {
+        "address": "DicCKYqkhbfJYYMaEH82H5kpJ7nUu7vp4VLefZnTRfsU",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SNIPER",
+          "holdStyle": "sniper",
+          "winRate": 1,
+          "avgTradesPerDay": 69.6,
+          "trimmedMeanPnl": 31.059,
+          "efficiency": 759.805,
+          "consistency": 0.282,
+          "pnlPerDay": 56.432,
+          "walletAgeDays": 7,
+          "token.realizedPnlSol": 165.79,
+          "token.totalSolSpent": 8,
+          "token.tokenROI": 20.724,
+          "token.entryRank": 0.783
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 100%, sniper hold style, 69.6 trades/day, efficiency 759.805."
+      },
+      {
+        "address": "9UhK6E1txXVQayGr7CqYhxAR2zc8NmCwWLdRZhtizu4b",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SNIPER",
+          "holdStyle": "sniper",
+          "winRate": 0.778,
+          "avgTradesPerDay": 0.1,
+          "trimmedMeanPnl": 5.926,
+          "efficiency": 105.348,
+          "consistency": 0.138,
+          "pnlPerDay": 0.168,
+          "walletAgeDays": 823,
+          "token.realizedPnlSol": 18.246,
+          "token.totalSolSpent": 0,
+          "token.tokenROI": null,
+          "token.entryRank": 0.739
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 78%, sniper hold style, 0.1 trades/day, efficiency 105.348."
+      },
+      {
+        "address": "jkqYA4Htd9QPrk5HSYm8shfuJcD4xJ4xzpsNPCFHjs8",
+        "cluster": "LP_HARVESTER",
+        "signals": {
+          "tier": "GOLD",
+          "isBot": false,
+          "behaviorCategory": "SNIPER",
+          "holdStyle": "sniper",
+          "winRate": 0.714,
+          "avgTradesPerDay": 31.3,
+          "trimmedMeanPnl": 2.959,
+          "efficiency": 66.067,
+          "consistency": 0.24,
+          "pnlPerDay": 18.691,
+          "walletAgeDays": 9,
+          "token.realizedPnlSol": 27.523,
+          "token.totalSolSpent": 0,
+          "token.tokenROI": null,
+          "token.entryRank": 1
+        },
+        "justification": "Sniper/scalper with near-perfect win rate or very high efficiency — consistent with LP fee harvesting or sandwich/market-making. Not directional conviction on this token. winRate 71%, sniper hold style, 31.3 trades/day, efficiency 66.067."
+      }
+    ],
+    "BOT": [
+      {
+        "address": "JApBGtbBtsNosE1Z5CiyUkTMhAxATqH1NAuJJenHUceR",
+        "cluster": "BOT",
+        "signals": {
+          "tier": "BRONZE",
+          "isBot": true,
+          "behaviorCategory": "SNIPER",
+          "holdStyle": "sniper",
+          "winRate": 0.018,
+          "avgTradesPerDay": 216,
+          "trimmedMeanPnl": -0.002,
+          "efficiency": -0.056,
+          "consistency": -0.051,
+          "pnlPerDay": -0.043,
+          "walletAgeDays": 1.7,
+          "token.realizedPnlSol": 0,
+          "token.totalSolSpent": 11.687,
+          "token.tokenROI": 0,
+          "token.entryRank": 0.913
+        },
+        "justification": "System-flagged bot. 216 trades/day, sniper speed."
+      }
+    ],
+    "UNPROFITABLE": [
+      {
+        "address": "HRghR342kt8bbpeYqrff16dAnMFLRKdLpwExfPrcKqnT",
+        "cluster": "UNPROFITABLE",
+        "signals": {
+          "tier": "INSUFFICIENT",
+          "isBot": false,
+          "behaviorCategory": "LOW_ACTIVITY",
+          "holdStyle": "sniper",
+          "winRate": 0,
+          "avgTradesPerDay": 4,
+          "trimmedMeanPnl": -0.014,
+          "efficiency": -0.139,
+          "consistency": 0,
+          "pnlPerDay": -0.139,
+          "walletAgeDays": 1.3,
+          "token.realizedPnlSol": 0,
+          "token.totalSolSpent": 0,
+          "token.tokenROI": null,
+          "token.entryRank": 0.978
+        },
+        "justification": "Lost money on this token. Included for completeness — useful for understanding who was on the wrong side. realized PnL 0.00 SOL, 0.00 SOL spent, entry rank 98%, INSUFFICIENT tier."
+      }
+    ],
+    "NO_DATA": [
+      {
+        "address": "gasAx5Y917MYdmdnwiomwYDhmDKNGDJnN1MmEbxVdVw",
+        "cluster": "NO_DATA",
+        "signals": {
+          "tier": "INSUFFICIENT",
+          "isBot": false,
+          "behaviorCategory": "UNKNOWN",
+          "holdStyle": "sniper",
+          "winRate": 0,
+          "avgTradesPerDay": 0,
+          "trimmedMeanPnl": 0,
+          "efficiency": null,
+          "consistency": null,
+          "pnlPerDay": null,
+          "walletAgeDays": null
+        },
+        "justification": "No trade record found for this token in the database. Wallet tier: INSUFFICIENT."
+      }
+    ]
+  }
+}
