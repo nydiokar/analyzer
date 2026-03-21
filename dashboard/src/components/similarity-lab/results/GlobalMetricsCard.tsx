@@ -72,7 +72,14 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
   const getWalletLabel = useCallback((address: string) => walletLabels?.[address], [walletLabels]);
   const topPairs = useMemo(() => (
     [...pairwiseSimilarities]
-      .sort((a, b) => calculateOverallScore(b.binaryScore, b.capitalScore) - calculateOverallScore(a.binaryScore, a.capitalScore))
+      .sort((a, b) => {
+        const sharedCountDiff = (b.binarySharedTokenCount || b.sharedTokens.length) - (a.binarySharedTokenCount || a.sharedTokens.length);
+        if (sharedCountDiff !== 0) {
+          return sharedCountDiff;
+        }
+
+        return calculateOverallScore(b.binaryScore, b.capitalScore) - calculateOverallScore(a.binaryScore, a.capitalScore);
+      })
       .slice(0, 5)
   ), [pairwiseSimilarities]);
   const topPairAddresses = useMemo(() => {
@@ -332,11 +339,12 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
           <div className="grid grid-cols-1 lg:grid-cols-[0.6fr_1.4fr] gap-4">
               {/* Top 5 Pairs */}
               <div className="border border-border rounded-lg p-4">
-                  <h3 className="font-semibold mb-3 text-sm">Top 5 Most Similar Pairs</h3>
+                  <h3 className="font-semibold mb-3 text-sm">Top 5 Most Shared-Token Pairs</h3>
                   <div className="space-y-2">
                       {topPairs.map((pair, index) => {
                           const avgScore = calculateOverallScore(pair.binaryScore, pair.capitalScore);
                           const status = getSimilarityStatus(avgScore);
+                          const sharedTokenCount = pair.binarySharedTokenCount || pair.sharedTokens.length;
                           const labelA = getWalletLabel(pair.walletA);
                           const labelB = getWalletLabel(pair.walletB);
 
@@ -368,6 +376,18 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                                       />
                                   </div>
                                   <div className="flex items-center gap-1 shrink-0">
+                                      <TooltipProvider>
+                                          <Tooltip delayDuration={200}>
+                                              <TooltipTrigger asChild>
+                                                  <Badge variant="secondary" className="font-semibold text-[10px] cursor-help px-1.5 py-0">
+                                                      {sharedTokenCount} shared
+                                                  </Badge>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                  <p>Ranked by shared token count in descending order</p>
+                                              </TooltipContent>
+                                          </Tooltip>
+                                      </TooltipProvider>
                                       <TooltipProvider>
                                           <Tooltip delayDuration={200}>
                                               <TooltipTrigger asChild>
