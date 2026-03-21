@@ -24,7 +24,16 @@ const buildTokenMetadataMap = (
   enrichedBalances: Record<string, any> | null,
   targetMints: Set<string>
 ) => {
-  const map = new Map<string, { name?: string; symbol?: string; imageUrl?: string; websiteUrl?: string; twitterUrl?: string; telegramUrl?: string; }>();
+  const map = new Map<string, {
+    name?: string;
+    symbol?: string;
+    imageUrl?: string;
+    websiteUrl?: string;
+    twitterUrl?: string;
+    telegramUrl?: string;
+    marketCapUsd?: number | null;
+    priceUsd?: string | number | null;
+  }>();
   if (!enrichedBalances || targetMints.size === 0) return map;
 
   for (const wallet of Object.values(enrichedBalances)) {
@@ -43,6 +52,8 @@ const buildTokenMetadataMap = (
         websiteUrl: token.websiteUrl,
         twitterUrl: token.twitterUrl,
         telegramUrl: token.telegramUrl,
+        marketCapUsd: token.marketCapUsd ?? null,
+        priceUsd: token.priceUsd ?? null,
       });
     }
   }

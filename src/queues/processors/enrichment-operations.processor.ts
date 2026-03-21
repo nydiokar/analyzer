@@ -461,6 +461,7 @@ export class EnrichmentOperationsProcessor {
             websiteUrl: metadata?.websiteUrl,
             twitterUrl: metadata?.twitterUrl,
             telegramUrl: metadata?.telegramUrl,
+            marketCapUsd: metadata?.marketCapUsd ?? null,
             priceUsd,
             valueUsd,
           };

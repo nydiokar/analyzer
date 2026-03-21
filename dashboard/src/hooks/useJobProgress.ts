@@ -472,7 +472,23 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     // The room-based system is simpler and prevents race conditions where jobs complete
     // before the frontend can register individual subscriptions.
     activeJobIdsRef.current.add(normalizedJobId);
-    incrementDebugCounter(normalizedJobId, 'subscribe', { socketConnected: !!socket?.connected });
+    const socketConnected = !!socket?.connected;
+    incrementDebugCounter(normalizedJobId, 'subscribe', { socketConnected });
+    incrementDebugCounter(normalizedJobId, 'httpFallbacks', { socketConnected });
+
+    try {
+      const trackedJob: JobStatusResponseDto = await fetcher(`/jobs/${normalizedJobId}`);
+      if (trackedJob?.status === 'completed') {
+        await handleJobCompletedFromHttp(trackedJob);
+      } else if (trackedJob?.status === 'failed') {
+        handleJobFailedFromHttp(trackedJob);
+      }
+    } catch (error: unknown) {
+      const apiError = error as ApiError;
+      if (apiError.status !== 404) {
+        console.error(`Error checking immediate job status for ${normalizedJobId}:`, error);
+      }
+    }
 
     console.log(`📋 Tracking job: ${normalizedJobId} (auto-broadcast via user room)`);
     debugLog('job-track', { jobId: normalizedJobId, roomBased: true });
