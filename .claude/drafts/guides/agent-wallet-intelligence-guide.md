@@ -2,6 +2,7 @@
 title: "Add Wallet Behavioral Intelligence to Your Solana AI Agent in 10 Minutes"
 review_status: DRAFT — awaiting founder review
 date: 2026-03-19
+updated: 2026-03-21
 author: technical-content-writer
 campaign: W1D1 — GTM integration guide series
 ---
@@ -20,27 +21,9 @@ Sova Intel gives your agent the ability to answer that question. This guide show
 
 Sova Intel is a behavioral intelligence API for Solana wallets. It classifies wallets into one of eight trader types based on completed exit cycles — not heuristics, not labels, but calculated from actual hold time patterns across a wallet's trading history.
 
-The eight types:
+The eight types, by median hold time: `SNIPER` (< 1 min), `SCALPER` (1–5 min), `MOMENTUM` (5–30 min), `INTRADAY` (30 min–4 hr), `DAY_TRADER` (4–24 hr), `SWING` (1–7 days), `POSITION` (7–30 days), `HODLER` (30+ days).
 
-| Type | Median Hold Time |
-|------|-----------------|
-| `SNIPER` | < 1 minute |
-| `SCALPER` | 1–5 minutes |
-| `MOMENTUM` | 5–30 minutes |
-| `INTRADAY` | 30 minutes – 4 hours |
-| `DAY_TRADER` | 4–24 hours |
-| `SWING` | 1–7 days |
-| `POSITION` | 7–30 days |
-| `HODLER` | 30+ days |
-
-Every result also carries a `dataQualityTier` — a confidence assessment based on how many completed exit cycles the API found for that wallet:
-
-- `GOLD` — 10+ cycles. High confidence.
-- `SILVER` — 5–9 cycles. Reasonable.
-- `BRONZE` — 3–4 cycles. Use with caution.
-- `INSUFFICIENT` — fewer than 3 cycles. Not enough data to classify.
-
-That confidence tier is important. Your agent needs to know when to trust a signal and when to discount it. No other wallet intelligence API returns this.
+Every result also carries a `dataQualityTier` — a confidence assessment based on completed exit cycles found for that wallet: `GOLD` (10+), `SILVER` (5–9), `BRONZE` (3–4, use with caution), `INSUFFICIENT` (fewer than 3, not classifiable). Your agent needs to know when to trust a signal and when to discount it.
 
 ---
 
@@ -67,17 +50,21 @@ Get your key at [sova-intel.com](https://sova-intel.com) — free credits on sig
 The HUD endpoint is designed for high-frequency use cases. One call, one credit, instant behavioral read on any wallet.
 
 ```typescript
-import { SovaIntel } from '@sova-intel/sdk';
+import { SovaIntelClient } from '@sova-intel/sdk';
 
-const sova = new SovaIntel({ apiKey: process.env.SOVA_API_KEY });
+const sova = new SovaIntelClient({
+  baseUrl: 'https://api.sova-intel.com',
+  auth: { kind: 'apikey', apiKey: process.env.SOVA_API_KEY! },
+});
 
-const hud = await sova.wallet.hud('WALLET_ADDRESS_HERE');
+const hud = await sova.getWalletHud('WALLET_ADDRESS_HERE');
 
-console.log(hud.behaviorCode);     // "SNIPER"
-console.log(hud.speedCategory);    // "very_fast"
-console.log(hud.dataQualityTier);  // "GOLD"
-console.log(hud.winRate);          // 0.72
-console.log(hud.totalPnlUsd);      // 45230.50
+console.log(hud.behaviorCode);         // "SNIPER"
+console.log(hud.dataQualityTier);      // "GOLD"
+console.log(hud.medianHoldTimeHours);  // 0.009
+console.log(hud.trimmedMeanPnl);       // 4.21
+console.log(hud.isBot);               // false
+console.log(hud.isWhale);             // true
 ```
 
 Expected response shape:
@@ -85,18 +72,15 @@ Expected response shape:
 ```json
 {
   "behaviorCode": "SNIPER",
-  "speedCategory": "very_fast",
   "dataQualityTier": "GOLD",
-  "winRate": 0.72,
-  "totalPnlUsd": 45230.50,
-  "medianHoldTimeSeconds": 34,
-  "exitPattern": "all_at_once",
+  "medianHoldTimeHours": 0.009,
+  "trimmedMeanPnl": 4.21,
   "isBot": false,
   "isWhale": true
 }
 ```
 
-Your agent now knows: high-confidence sniper, 72% win rate, dumps all at once. If this wallet just bought a token you're looking at, that context changes your read on it.
+Your agent now knows: high-confidence sniper, real PnL signal, not a bot. If this wallet just bought a token you're looking at, that context changes your read on it.
 
 **curl fallback:**
 
@@ -114,31 +98,27 @@ Before your agent takes a position, it can profile the top holders of the token 
 This endpoint is async — it returns a `jobId` immediately and processes in the background. Poll until complete.
 
 ```typescript
-import { SovaIntel } from '@sova-intel/sdk';
+import { SovaIntelClient } from '@sova-intel/sdk';
 
-const sova = new SovaIntel({ apiKey: process.env.SOVA_API_KEY });
+const sova = new SovaIntelClient({
+  baseUrl: 'https://api.sova-intel.com',
+  auth: { kind: 'apikey', apiKey: process.env.SOVA_API_KEY! },
+});
 
 async function profileTokenHolders(mintAddress: string) {
-  // Submit the job
-  const job = await sova.token.holders(mintAddress, { limit: 20 });
-
-  // Poll until complete
-  let result = await sova.jobs.get(job.jobId);
-  while (result.status !== 'completed') {
-    await new Promise(r => setTimeout(r, 2000));
-    result = await sova.jobs.get(job.jobId);
-  }
+  // Submit the job and poll until complete
+  const result = await sova.pollHolderProfiles(mintAddress, 20);
 
   // Analyze the behavioral distribution
-  const holders = result.data.holders;
-  const sniperCount = holders.filter(h => h.behaviorCode === 'SNIPER').length;
-  const sniperPct = (sniperCount / holders.length) * 100;
+  const profiles = result.profiles;
+  const sniperCount = profiles.filter(h => h.behaviorType === 'SNIPER').length;
+  const sniperPct = (sniperCount / profiles.length) * 100;
 
   if (sniperPct > 60) {
     console.log(`WARNING: ${sniperPct.toFixed(0)}% of top holders are snipers. High dump risk.`);
   }
 
-  return result.data;
+  return result;
 }
 ```
 
@@ -148,26 +128,16 @@ Expected completed response shape:
 
 ```json
 {
-  "status": "completed",
-  "data": {
-    "mint": "TOKEN_MINT_ADDRESS",
-    "holders": [
-      {
-        "address": "WALLET_ADDRESS",
-        "behaviorCode": "SNIPER",
-        "dataQualityTier": "GOLD",
-        "winRate": 0.81,
-        "totalPnlUsd": 12400.00,
-        "holdingValueUsd": 8200.00
-      }
-    ],
-    "distribution": {
-      "SNIPER": 14,
-      "SCALPER": 3,
-      "MOMENTUM": 2,
-      "INTRADAY": 1
+  "status": "complete",
+  "profiles": [
+    {
+      "address": "WALLET_ADDRESS",
+      "behaviorType": "SNIPER",
+      "confidence": "GOLD",
+      "completedCycleCount": 14,
+      "walletPnlSol": 38.4
     }
-  }
+  ]
 }
 ```
 
@@ -180,20 +150,17 @@ If your agent is evaluating a token and wants to check whether the top wallets a
 Same async pattern as holders — submit, poll, read results.
 
 ```typescript
-import { SovaIntel } from '@sova-intel/sdk';
+import { SovaIntelClient } from '@sova-intel/sdk';
 
-const sova = new SovaIntel({ apiKey: process.env.SOVA_API_KEY });
+const sova = new SovaIntelClient({
+  baseUrl: 'https://api.sova-intel.com',
+  auth: { kind: 'apikey', apiKey: process.env.SOVA_API_KEY! },
+});
 
 async function detectCoordination(walletAddresses: string[]) {
-  const simJob = await sova.wallets.similarity({ addresses: walletAddresses });
+  const simResult = await sova.pollSimilarity(walletAddresses);
 
-  let simResult = await sova.jobs.get(simJob.jobId);
-  while (simResult.status !== 'completed') {
-    await new Promise(r => setTimeout(r, 2000));
-    simResult = await sova.jobs.get(simJob.jobId);
-  }
-
-  const pairs = simResult.data.pairs;
+  const pairs = simResult.pairwiseSimilarities;
   const highSimilarity = pairs.filter(p => p.binaryScore > 0.8);
 
   if (highSimilarity.length > 0) {
@@ -203,12 +170,12 @@ async function detectCoordination(walletAddresses: string[]) {
     highSimilarity.forEach(pair => {
       console.log(
         `  ${pair.walletA.slice(0, 8)}... <-> ${pair.walletB.slice(0, 8)}...` +
-        ` — binaryScore: ${pair.binaryScore}, sharedTokens: ${pair.sharedTokenCount}`
+        ` — binaryScore: ${pair.binaryScore}, sharedTokens: ${pair.binarySharedTokenCount}`
       );
     });
   }
 
-  return simResult.data;
+  return simResult;
 }
 ```
 
@@ -216,22 +183,19 @@ Expected completed response shape:
 
 ```json
 {
-  "status": "completed",
-  "data": {
-    "pairs": [
-      {
-        "walletA": "ADDRESS_1",
-        "walletB": "ADDRESS_2",
-        "binaryScore": 0.91,
-        "capitalScore": 0.87,
-        "sharedTokenCount": 18
-      }
-    ],
-    "globalMetrics": {
-      "averageSimilarity": 0.64,
-      "maxSimilarity": 0.91,
-      "clusterCount": 2
+  "status": "complete",
+  "pairwiseSimilarities": [
+    {
+      "walletA": "ADDRESS_1",
+      "walletB": "ADDRESS_2",
+      "binaryScore": 0.91,
+      "capitalScore": 0.87,
+      "binarySharedTokenCount": 18
     }
+  ],
+  "globalMetrics": {
+    "averageSimilarity": 0.64,
+    "mostSimilarPairs": ["ADDRESS_1", "ADDRESS_2"]
   }
 }
 ```
@@ -255,14 +219,18 @@ This is the pattern for agents that need to operate without human credential man
 Here is a complete `shouldBuyToken()` function you can adapt for your agent:
 
 ```typescript
-import { SovaIntel } from '@sova-intel/sdk';
+import { SovaIntelClient } from '@sova-intel/sdk';
 
-const sova = new SovaIntel({ apiKey: process.env.SOVA_API_KEY });
+const sova = new SovaIntelClient({
+  baseUrl: 'https://api.sova-intel.com',
+  auth: { kind: 'apikey', apiKey: process.env.SOVA_API_KEY! },
+});
 
 type HolderProfile = {
-  behaviorCode: string;
-  dataQualityTier: string;
-  winRate: number;
+  behaviorType: string;
+  confidence: string;
+  completedCycleCount: number;
+  walletPnlSol: number;
 };
 
 type BuyDecision = {
@@ -273,23 +241,18 @@ type BuyDecision = {
 };
 
 async function getHolderProfiles(mintAddress: string): Promise<HolderProfile[]> {
-  const job = await sova.token.holders(mintAddress, { limit: 20 });
-  let result = await sova.jobs.get(job.jobId);
-  while (result.status !== 'completed') {
-    await new Promise(r => setTimeout(r, 2000));
-    result = await sova.jobs.get(job.jobId);
-  }
-  return result.data.holders;
+  const result = await sova.pollHolderProfiles(mintAddress, 20);
+  return result.profiles;
 }
 
 async function shouldBuyToken(mintAddress: string): Promise<BuyDecision> {
-  const holders = await getHolderProfiles(mintAddress);
+  const profiles = await getHolderProfiles(mintAddress);
 
-  const sniperCount = holders.filter(h => h.behaviorCode === 'SNIPER').length;
-  const insufficientCount = holders.filter(h => h.dataQualityTier === 'INSUFFICIENT').length;
+  const sniperCount = profiles.filter(h => h.behaviorType === 'SNIPER').length;
+  const insufficientCount = profiles.filter(h => h.confidence === 'INSUFFICIENT').length;
 
-  const sniperPct = (sniperCount / holders.length) * 100;
-  const insufficientDataPct = (insufficientCount / holders.length) * 100;
+  const sniperPct = (sniperCount / profiles.length) * 100;
+  const insufficientDataPct = (insufficientCount / profiles.length) * 100;
 
   if (sniperPct > 60) {
     return {

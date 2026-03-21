@@ -2,7 +2,7 @@
 
 ## Playbook State
 - **Start date:** 2026-03-19
-- **Current day:** Day 1 (W1D1) -- assessment complete, awaiting founder API calls
+- **Current day:** Day 3 (W1D3) -- first post published, behind on post volume
 - **Branch:** feature/token-dash-v2
 
 ## Key Decisions
@@ -21,9 +21,9 @@
 - Full reference: .claude/agent-progress/honest-state-assessment.md Appendix
 
 ## Critical Founder Blockers
-- No real API responses captured yet. Blocks guide fix and data-driven social content.
-- Wallet profile card format not designed.
-- skill.md vs SDK inconsistency: skill.md says `isBotFlagged`/`isWhaleFlagged` and "high"/"medium"/"low" tiers. SDK says `isBot`/`isWhale` and "GOLD"/"SILVER"/"BRONZE"/"INSUFFICIENT". Must test real API. - SDK IS CORRECT!
+- ~~No real API responses needed~~ — live docs + SDK types.d.ts are sufficient. technical-content-writer can fix guide response examples using verified SDK ground truth from this file. NOT a founder task.
+- Wallet profile card format not designed. Still outstanding Day 1 task.
+- SDK field name ground truth is confirmed (see VERIFIED SDK GROUND TRUTH below). skill.md was wrong; SDK is correct.
 
 ## File Locations
 - Master playbook: documentation/sova-intel-playbook-complete.md
