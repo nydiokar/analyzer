@@ -1,0 +1,6 @@
+[submodule "submodules/sova-intel"]
+	path = submodules/sova-intel
+	url = https://github.com/nydiokar/sova-intel.git
+[submodule "submodules/sova-x"]
+	path = submodules/sova-x
+	url = https://github.com/nydiokar/sova-x.git
