@@ -36,12 +36,13 @@ Full profile — summary, behavior, PnL, HUD. Response:
     "currentSolBalance": 4.21
   },
   "hud": {
-    "pnlSignal": "positive",
     "behaviorCode": "SWING_TRADER",
     "winRate": 0.67,
-    "dataQualityTier": "high",
-    "isBotFlagged": false,
-    "isWhaleFlagged": false
+    "trimmedMeanPnl": 12.4,
+    "dataQualityTier": "GOLD",
+    "isBot": false,
+    "isWhale": false,
+    "medianHoldTimeHours": 12.1
   },
   "behavior": {
     "tradingStyle": "swing",
@@ -69,16 +70,36 @@ curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/hud \
   -H "X-Api-Key: ak_your_key"
 ```
 
-Returns: `{ pnlSignal, behaviorCode, winRate, isBotFlagged, isWhaleFlagged, medianPnlPerToken }`
+Returns: `{ behaviorCode, winRate, trimmedMeanPnl, medianHoldTimeHours, avgTxValueSol, avgTradesPerDay, uniqueTokensPerDay, currentHoldingsSol, dataQualityTier, isBot, isWhale, calculatedAt }`
 
 **Per-token PnL table** (3cr — paginated, sortable):
 
 ```bash
-curl "https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/tokens?pageSize=50&sortBy=netSolProfitLoss&sortOrder=DESC" \
+curl "https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/tokens?pageSize=50&sortBy=realizedPnlSol&sortOrder=DESC" \
   -H "X-Api-Key: ak_your_key"
 ```
 
-Returns: `{ data: [{ tokenAddress, realizedPnlSol, unrealizedPnlSol, roi, totalSolSpent, winRate }], total, page, pageSize }`
+Query params: `page` (default 1), `pageSize` (default 20, max 100), `sortBy` (`netSolProfitLoss` | `realizedPnlSol` | `roi` | `totalSolSpent`), `sortOrder` (`ASC` | `DESC`)
+
+Returns:
+
+```json
+{
+  "data": [
+    {
+      "tokenAddress": "EPjFWdd5...",
+      "realizedPnlSol": 28.4,
+      "unrealizedPnlSol": 2.1,
+      "roi": 1.85,
+      "totalSolSpent": 40.2,
+      "winRate": 0.72
+    }
+  ],
+  "total": 84,
+  "page": 1,
+  "pageSize": 20
+}
+```
 
 ---
 
@@ -93,7 +114,7 @@ curl -X POST https://api.sova-intel.com/api/v1/intel/wallets/batch-hud \
   -d '{"wallets": ["ADDR_1", "ADDR_2", "ADDR_3"]}'
 ```
 
-Returns: `{ huds: { "ADDR_1": { pnlSignal, behaviorCode, winRate, isBotFlagged, ... } }, queued: [{ walletAddress, jobId, monitoringUrl }], skipped: [...], calculatedAt }`
+Returns: `{ huds: { "ADDR_1": { behaviorCode, winRate, trimmedMeanPnl, dataQualityTier, isBot, isWhale, calculatedAt } }, queued: [{ walletAddress, jobId, monitoringUrl }], skipped: [...] }`
 Wallets without fresh data appear in `queued` as objects with `walletAddress`, `jobId`, and `monitoringUrl` — poll those jobs then call again.
 
 **Top N holders of a token** (20cr — async):
@@ -131,6 +152,7 @@ This endpoint returns `501`. Use the two-step alternative:
 
 | Endpoint                               | Credits |    USD |
 | :------------------------------------- | ------: | -----: |
+| `GET /intel/pricing`                   |       0 |  free  |
 | `GET /intel/wallet/:addr`              |       5 | $0.075 |
 | `GET /intel/wallet/:addr/hud`          |       1 | $0.015 |
 | `GET /intel/wallet/:addr/tokens`       |       3 | $0.045 |
@@ -179,8 +201,6 @@ Decoded `PAYMENT-REQUIRED` JSON example:
 
 ```json
 {
-  "error": "insufficient_credits",
-  "required": 5,
   "x402Version": 2,
   "accepts": [{
     "scheme": "exact",
@@ -331,6 +351,7 @@ curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=similarity:result
 | Code | Meaning | Action |
 |:----:|:--------|:-------|
 | 400 | Invalid address or bad body | Fix input |
+| 401 | Unauthorized | API key missing or malformed |
 | 402 | Payment required | See "How to pay" above |
 | 403 | Wallet/key blocked | Contact operator |
 | 404 | Route or result key not found | Verify base URL/route/key |

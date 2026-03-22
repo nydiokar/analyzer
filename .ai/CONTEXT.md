@@ -8,33 +8,13 @@
 
 ##  Active Work
 
-### feature/token-dash-v2 — ✅ READY TO MERGE (Mar 19, 2026)
 
-**What this is:** Clean transplant of the token dashboard feature (originally `feature/token-dash`, Sep–Oct 2025) onto current main. New branch from main — no merge, surgical file-by-file port. Backend TS clean, frontend builds clean, migration applied.
+### March 22, 2026 — GTM Playbook + sova-x Wallet Profile Card 
 
-**Key decisions made:**
-- All new services use `prisma` singleton (matches pattern of newer services: radar, wallet-hud, credits)
-- Two WS gateways on **Socket.IO namespaces** (not separate paths): `/jobs` (JobProgressGateway) and `/messages` (MessageGateway) — both on default `/socket.io/` path, one TCP connection per tab, multiplexed
-- `alerts.controller.ts` fixed: userId sourced from `req.user` (not body/query) — auth via global `APP_GUARD`
-- No existing main components modified — Sidebar.tsx (branch nav replacement) removed, TokenBadge/dialog reverted to main versions
-- Shared analyst token workspace remains on `watched-tokens`; personal navbar star modal uses separate per-user watchlist API/model (`users/me/watched-tokens`, `UserWatchedToken`) so `/tokens` can stay analyst-only without leaking a global list into user favorites
-
-| Status | Task | Area | Notes |
-|:------:|:-----|:----:|:------|
-| ✅ | Chat system — GlobalChat, TokenThread, MessageComposer, MessageRow, SymbolResolverModal | Frontend | `dashboard/src/components/chat/` |
-| ✅ | WatchedTokens list — price metrics and tags (sparklines removed from `/tokens` UI) | Frontend | `dashboard/src/components/tokens/WatchedTokenList.tsx` |
-| ✅ | Token Alerts — price/% alerts with BullMQ cron evaluator (30s) | Backend + Frontend | `alerts.service.ts`, `alert-evaluator.job.ts`, `AlertCreator.tsx`, `AlertsList.tsx` |
-| ✅ | Read state tracking — per-user/scope unread markers | Backend + Frontend | `MessageReadState` model, `useMessagesSocket.ts` |
-| ✅ | Mention parser — `@ca:`, `@sym:` namespaces with server re-validation | Backend | `mention-parser.ts` |
-| ✅ | SparklineService — Redis-backed mini price series | Backend | `sparkline.service.ts` |
-| ✅ | Token validation endpoint — DexScreener-backed address check | Backend | `token-validation.controller.ts` |
-| ✅ | Schema migration — `MessageReadState`, `TokenAlert`, `AlertNotification` | DB | Migration `20260318102646_add_token_dash_models` applied |
-| ✅ | Socket.IO namespaces — `/jobs` + `/messages` on shared `/socket.io/` path | Backend + Frontend | `job-progress.gateway.ts`, `message.gateway.ts`, `useJobProgress.ts`, `useMessagesSocket.ts` |
-| ✅ | `/tokens` page bugs fixed — `@ca:` space regex, sparkline endpoint, AppShell dark theme, page height, thread key remount, TokenBadge card variant with metadata | Frontend + Backend | `mention-parser.ts`, `token-info.controller.ts`, `tokens/page.tsx`, `WatchedTokenList.tsx`, `TokenThread.tsx` |
-| ✅ | Wire `/tokens` into analyst/admin nav — add entry point in existing AppShell for token dashboard access | Frontend | `dashboard/src/components/layout/AppShell.tsx` |
-| ✅ | Split watched-token ownership — shared analyst workspace stays on `watched-tokens`; added per-user watchlist API/model for navbar modal | Backend | `prisma/schema.prisma`, `user-watched-tokens.controller.ts`, `user-watched-tokens.service.ts` |
-| ✅ | Analyst-gate `/tokens` page and shared watched-token API | Frontend + Backend | `dashboard/src/app/tokens/page.tsx`, `watched-tokens.controller.ts` |
-| ✅ | **[TOKEN-FAV-MODAL]** Personal token watchlist modal shipped — navbar star uses `users/me/watched-tokens`, tags are editable, DexScreener `pairCreatedAt` is surfaced as token age in favorites, and `/tokens` thread/list sparkline UI was removed in favor of tags | Frontend + Backend | `AppShell.tsx`, `TokenWatchlistModal.tsx`, `useUserWatchedTokens.ts`, `watched-tokens.service.ts`, `WatchedTokenList.tsx`, `TokenThread.tsx` |
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 22.1 | 🎯 FEAT | GTM W1: published runner analysis + $DOWNALDTWUMP thread (2/7 posts). Integration guide draft fixed (SDK field names). x402 Hook + Colosseum drafts ready to post. | 🟢 S | `.claude/drafts/`, `.claude/agent-progress/PROGRESS.md` |
+| 22.2 | 🎯 FEAT | sova-x: on-demand wallet profile card — SVG renderer + CLI script. `pnpm test:wallet-card <ADDR>` → PNG in `out/`. Uses public `GET /intel/wallet/:addr`. Design in progress. | 🟡 M | `sova-x/src/render/wallet-profile-card.ts`, `sova-x/src/scripts/test-wallet-card.ts` |
 
 ---
 
@@ -42,12 +22,11 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| ✅ | **[SDK-PUBLISH]** Published `@sova-intel/sdk@0.1.0` to npm. Dual CJS+ESM build, production README, Docusaurus docs at `https://nydiokar.github.io/sova-intel/`. Repo: `nydiokar/sova-intel`. | 🟢 S | `packages/sdk/`, `C:\Users\solastic\prj\sova-intel-docs\` |
-| ✅ | **[SDK-POLISH-AUDIT]** Docs audit completed — see precise change plan below. Smoke test (#5) confirmed done. | 🟢 S | — |
-| ✅ | **[SDK-POLISH]** Four targeted docs changes (see audit notes): (1) Fix `batch-token.md` H1 title from `"Batch & Token"` → `"Holder Profiles & Similarity"` to match sidebar label. (2) Add `GET /intel/pricing` free endpoint to `pricing.md` — exists in SKILL.md but missing from docs. (3) Add SKILL.md/llms.txt callout in `introduction.md` — one sentence pointing to the served URL (`/skill.md`) for LLM agents/AI integrations; do NOT add file to npm package (wrong venue). (4) Fix `sdk.md` similarity example (lines ~119–123) — currently just `console.log(result)` with no field access; expand to show 2–3 result fields or remove and link to batch-token page. **What was audited and decided NOT to change:** async-jobs vs batch-token structure is already correct (inline notes are appropriate, full polling loop lives only in async-jobs — no harmful duplication); authentication.md is dense but all needed; consolidation would reduce self-containedness without benefit. | 🟢 S | `nydiokar/sova-intel` docs repo: `docs/endpoints/batch-token.md`, `docs/pricing.md`, `docs/introduction.md`, `docs/sdk.md` |
 | ⚪ | **[PAY-X402-RECEIPT]** Fix `X-Payment-Response` receipt header — split `confirmAndRecord` into broadcast (fast, in guard) + confirm (slow, fire-and-forget), set header synchronously in interceptor with known sig | 🟢 S | `x402-verification.service.ts`, `credit.guard.ts`, `credit.interceptor.ts` |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[INTEL-DEEP-BUG]** Fix `/intel/token/:mint/holders/deep` similarity chaining — add `chainSimilarity: true` flag to job, processor auto-queues similarity after holder-profiles completes | 🟡 M | `src/queues/jobs/types/index.ts`, `intel.controller.ts`, `analysis-operations.processor.ts` |
+| ⚪ | **[HUD-TOKENS-DAY]** Fix wallet HUD `tokens/day` metric — `uniqueTokensPerDay` is currently derived from wall-clock span (`firstTransactionTimestamp` → `lastTransactionTimestamp`) instead of true active trading days, which understates wallets with gaps between sessions. Correct fix: compute and persist `activeTradingDays` in behavior analysis from distinct trading dates, then have HUD/profile views use that field with a legacy fallback for old rows. | 🟡 M | `src/core/analysis/behavior/analyzer.ts`, `src/core/analysis/behavior/behavior-service.ts`, `src/api/services/wallet-hud.service.ts`, `prisma/schema.prisma` |
+| ⚪ | **[SUBMODULES-BOTS-INTEL-DOCS]** Extract the Twitter bot implementation, Telegram bot implementation, and external `/intel` API documentation into separate git submodules so they can be versioned and maintained independently from the main analyzer repo. Scope includes deciding boundaries, moving the code/docs cleanly, and updating local references/build workflows so the main repo still integrates with those modules without duplicating sources. | 🔴 L | `src/bot/`, `pft-bot_v2/`, `packages/sdk/`, `documentation/`, `src/api/controllers/intel.controller.ts` |
 | ⚪ | **[PAY-X402-RECEIPT] Fix `X-Payment-Response` receipt header on fresh x402 calls** | 🟢 S | Current flow: guard does `validateOnly` (local only, fast), sets `x402PendingTxBytes` on request, handler runs, interceptor `tap` calls `confirmAndRecord` async (fire-and-forget). Problem: `tap` doesn't await async callbacks — response flushes before `confirmAndRecord` resolves, so `response.setHeader('X-Payment-Response', txSig)` throws "Cannot set headers after they are sent to the client". **The errors are harmless** (payment IS confirmed, call succeeded) but the agent never receives the receipt header. **Fix:** split `confirmAndRecord` into two steps: (1) `broadcastAndGetSig(txBytes)` → calls `sendRawTransaction`, returns `txSig` fast (~100-200ms); (2) `confirmAndRecord(txSig, ...)` → waits for finality + Redis SET NX + ledger record (slow, ~5s). Move step 1 to the guard (store `txSig` on request alongside `x402PendingTxBytes`), then in the interceptor `tap` set the header synchronously with the known sig, and fire-and-forget step 2. No latency added to the response. **Files:** `src/api/services/x402-verification.service.ts` (split method), `src/api/shared/guards/credit.guard.ts` (broadcast in guard), `src/api/shared/interceptors/credit.interceptor.ts` (sync setHeader + async confirm). |
 | ⚪ | **[INTEL-DEEP-BUG] Fix `POST /intel/token/:mint/holders/deep` similarity chaining** | 🟡 M | Endpoint currently requires caller to pass `wallets[]` upfront, but callers can't know the holders before the job runs — circular dependency. Fix: add `chainSimilarity: true` flag to `AnalyzeHolderProfilesJobData`, processor auto-queues similarity job using discovered holder addresses after completion. Controller removes `wallets[]` from request body, returns `chainedSimilarityRequestId` upfront so agent can poll result key directly. No round-trip needed. **Full spec + proposed implementation:** `.ai/context/monetization/INTEL-DEEP-CHAIN-BUG.md`. Files: `src/queues/jobs/types/index.ts`, `src/api/controllers/intel.controller.ts`, `src/queues/processors/analysis-operations.processor.ts`, `documentation/skill/SKILL.md`. |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
@@ -259,6 +238,8 @@ Holder Profiles: NO LOCK (relies on service idempotency)
 | **Telegram bot entry** | `src/bot/intel/index.ts` | Standalone process — runs from `dist/bot/intel/index.js` via PM2 (`sova-tg-bot`) |
 | **Telegram bot spec** | `.ai/context/telegram-bot/spec.md` | Architecture decisions, file structure, API contract |
 | **Bot API key script** | `scripts/manage-api-keys.ts` | `create <userId> -d "..." -s "full"` to generate key |
+| **X (Twitter) bot** | `submodules/sova-x/` | full implementation — see repo for src, commands, formatters |
+| **Public API docs** | `submodules/sova-intel/` | Docusaurus site — endpoints, SDK, pricing, SKILL.md |
 | **Intel SDK** | `packages/sdk/src/` | `SovaIntelClient` — canonical types + HTTP client. `pnpm test` for unit, `pnpm test:contract` for live API validation |
 | **Bot env vars** | `.env` | `INTEL_BOT_TOKEN`, `INTEL_API_KEY`, `INTEL_BOT_ALLOWED_USER_IDS`, `INTEL_BASE_URL` (optional, defaults to localhost:3001) |
 
@@ -299,12 +280,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-19  **Branch:** `feature/token-dash-v2`  **Transplant complete. `/tokens` is analyst-only, and personal token watchlist modal foundation is in place.**
+**Last Updated:** 2026-03-22  **Branch:** `main`
 
-
-
-
-
-
-
-
+---
