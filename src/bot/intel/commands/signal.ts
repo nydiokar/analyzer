@@ -2,6 +2,8 @@ import { Context } from 'telegraf';
 import { PrismaClient } from '@prisma/client';
 import { SovaIntelClient, SovaHttpError, HolderProfilesResult } from '@sova-intel/sdk';
 import { formatSignalCard } from '../formatters/signal.formatter';
+import { buildSignalCardSummary, renderSignalCardSvg, fetchTokenMetadata, fetchImageAsDataUri } from '../render/social-card';
+import { renderSvgToPngBuffer } from '../render/png';
 import { logInvocation } from '../attribution';
 
 const SOLANA_MINT_RE = /(?<![/\w])([1-9A-HJ-NP-Za-km-z]{32,44})(?![/\w])/g;
@@ -9,6 +11,19 @@ const SOLANA_MINT_RE = /(?<![/\w])([1-9A-HJ-NP-Za-km-z]{32,44})(?![/\w])/g;
 function isSignalChat(ctx: Context): boolean {
   const type = ctx.chat?.type;
   return type === 'group' || type === 'supergroup' || type === 'channel';
+}
+
+function isBotMentioned(ctx: Context): boolean {
+  const msg = ctx.msg as { text?: string; entities?: { type: string; offset: number; length: number }[] } | undefined;
+  const entities = msg?.entities ?? [];
+  const text = msg?.text ?? '';
+  const botUsername = ctx.botInfo?.username?.toLowerCase();
+  if (!botUsername) return false;
+  return entities.some((e) => {
+    if (e.type !== 'mention') return false;
+    const mention = text.slice(e.offset + 1, e.offset + e.length); // strip leading '@'
+    return mention.toLowerCase() === botUsername;
+  });
 }
 
 type TelegramTextMsg = {
@@ -29,6 +44,7 @@ export async function signalHandler(
   prisma: PrismaClient,
 ): Promise<void> {
   if (!isSignalChat(ctx)) return;
+  if (!isBotMentioned(ctx)) return;
 
   const msg = getTextMessage(ctx);
   const text = msg?.text ?? '';
@@ -53,15 +69,29 @@ export async function signalHandler(
   let errorCode: string | undefined;
 
   try {
-    const result = await client.pollHolderProfiles<HolderProfilesResult>(mint);
-    const formatted = formatSignalCard(result);
-    await ctx.telegram.editMessageText(
+    const [result, metadata] = await Promise.all([
+      client.pollHolderProfiles<HolderProfilesResult>(mint),
+      fetchTokenMetadata(mint),
+    ]);
+
+    // Render image
+    const tokenImageDataUri = metadata.imageUrl ? await fetchImageAsDataUri(metadata.imageUrl) : null;
+    const summary = buildSignalCardSummary(result, metadata, tokenImageDataUri);
+    const svg = renderSignalCardSvg(summary);
+    const png = await renderSvgToPngBuffer(svg);
+
+    await ctx.telegram.deleteMessage(chatId, pending.message_id).catch(() => {});
+    await ctx.telegram.sendPhoto(
       chatId,
-      pending.message_id,
-      undefined,
-      formatted,
-      { parse_mode: 'HTML' },
+      { source: png },
+      {
+        caption: formatSignalCard(result),
+        parse_mode: 'HTML',
+        ...(msg?.message_id ? { reply_parameters: { message_id: msg.message_id } } : {}),
+        ...(msg?.message_thread_id ? { message_thread_id: msg.message_thread_id } : {}),
+      },
     );
+
     success = true;
   } catch (err: unknown) {
     errorCode = apiErrorCode(err);

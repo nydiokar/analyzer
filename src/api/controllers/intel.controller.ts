@@ -251,7 +251,7 @@ export class IntelController {
     }
 
     try {
-      const scope = 'flash' as const;
+      const scope = 'deep' as const;
       const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[scope];
       const requestId = `intel-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -368,7 +368,7 @@ export class IntelController {
         targetSignatureCount: scopeDefaults.targetSignatureCount ?? undefined,
         forceRefresh: false,
         enrichMetadata: false,
-        queueWorkingAfter: true,  // Same default as dashboard auto-trigger
+        queueWorkingAfter: false,
         queueDeepAfter: false,
         failureThreshold: 0.8,
         timeoutMinutes: scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES,
@@ -378,7 +378,7 @@ export class IntelController {
         priority: JobPriority.CRITICAL,
       });
 
-      this.logger.log(`Intel wallet ${addr}: queued flash analysis job ${job.id} — awaiting completion`);
+      this.logger.log(`Intel wallet ${addr}: queued deep analysis job ${job.id} — awaiting completion`);
 
       const outcome = await this.awaitJob(job);
       if (outcome === 'completed') {
@@ -497,7 +497,7 @@ export class IntelController {
       const existingJobs = await queue.getJobs(['active', 'waiting', 'delayed']);
       const matchingHudJob = existingJobs.find((job) => {
         const jobData = job?.data as DashboardWalletAnalysisJobData | undefined;
-        return jobData?.walletAddress === addr && (jobData?.analysisScope ?? 'deep') === 'flash';
+        return jobData?.walletAddress === addr && (jobData?.analysisScope ?? 'deep') === 'deep';
       });
 
       if (matchingHudJob) {
@@ -542,7 +542,7 @@ export class IntelController {
         );
       }
 
-      const scope = 'flash' as const;
+      const scope = 'deep' as const;
       const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[scope];
       const requestId = `intel-hud-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const jobData: DashboardWalletAnalysisJobData = {
@@ -555,7 +555,7 @@ export class IntelController {
         targetSignatureCount: scopeDefaults.targetSignatureCount ?? undefined,
         forceRefresh: false,
         enrichMetadata: false,
-        queueWorkingAfter: false, // HUD call — no need to chain working analysis
+        queueWorkingAfter: false,
         queueDeepAfter: false,
         failureThreshold: 0.8,
         timeoutMinutes: scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES,
@@ -887,7 +887,7 @@ Use the two-step alternative instead:
         const existingJobs = await queue.getJobs(['active', 'waiting', 'delayed']);
         const matchingJob = existingJobs.find((job) => {
           const d = job?.data as DashboardWalletAnalysisJobData | undefined;
-          return d?.walletAddress === addr && (d?.analysisScope ?? 'deep') === 'flash';
+          return d?.walletAddress === addr && (d?.analysisScope ?? 'deep') === 'deep';
         });
         if (matchingJob) {
           return { addr, type: 'queued' as const, jobId: matchingJob.id ?? '' };
@@ -899,20 +899,20 @@ Use the two-step alternative instead:
           return { addr, type: 'queued' as const, jobId: existingLockJobId };
         }
 
-        // Queue flash analysis
+        // Queue deep analysis
         const requestId = `intel-batch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS.flash;
+        const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS.deep;
         const jobData: DashboardWalletAnalysisJobData = {
           walletAddress: addr,
           userId: req.user?.id,
           requestId,
-          analysisScope: 'flash',
+          analysisScope: 'deep',
           triggerSource: 'auto',
           historyWindowDays: scopeDefaults.historyWindowDays ?? undefined,
           targetSignatureCount: scopeDefaults.targetSignatureCount ?? undefined,
           forceRefresh: false,
           enrichMetadata: false,
-          queueWorkingAfter: true,
+          queueWorkingAfter: false,
           queueDeepAfter: false,
           failureThreshold: 0.8,
           timeoutMinutes: scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES,
