@@ -13,6 +13,7 @@ import {
   KNOWN_WALLETS,
   getKnownWallet,
   isKnownWallet,
+  isAnalysisBlockingType,
   type KnownWalletType,
 } from '../../config/known-wallets';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
@@ -24,9 +25,15 @@ export interface SystemWalletDetectionResult {
   reason: string;               // Human-readable reason
   method: string;               // Detection method
   confidence: number;           // 0.0-1.0 confidence
-  knownType?: KnownWalletType;  // Registry type OR dynamic detection (70k+ tokens) → skip analysis
+  knownType?: KnownWalletType;  // Registry type OR dynamic detection (70k+ tokens)
   knownLabel?: string;          // Display label for UI
   isLarge?: boolean;            // 15k-70k tokens → monitor but still analyze
+  /**
+   * When true, this wallet should be excluded from analysis queues.
+   * KOL wallets have knownType='KOL' but shouldSkipAnalysis=false —
+   * they are named/labelled but analyzed fully like any other trader.
+   */
+  shouldSkipAnalysis?: boolean;
 }
 
 export interface FilterResult {
@@ -101,6 +108,7 @@ export class SystemWalletDetectionService {
         confidence: 1.0,
         knownType: knownEntry.type,
         knownLabel: knownEntry.label,
+        shouldSkipAnalysis: isAnalysisBlockingType(knownEntry.type),
       };
 
       // Auto-tag registry wallets in database (same as RPC-detected wallets)
@@ -132,14 +140,16 @@ export class SystemWalletDetectionService {
 
       // Check if wallet has knownType from registry
       if (wallet?.knownType) {
+        const walletKnownType = wallet.knownType as KnownWalletType;
         const result: SystemWalletDetectionResult = {
           address,
           shouldLog: false, // Already tagged, don't spam logs
           reason: `Database knownType: ${wallet.knownType}`,
           method: wallet.classificationMethod || 'database',
           confidence: wallet.classificationConfidence || 0.9,
-          knownType: wallet.knownType as KnownWalletType,
+          knownType: walletKnownType,
           knownLabel: wallet.knownLabel || undefined,
+          shouldSkipAnalysis: isAnalysisBlockingType(walletKnownType),
         };
         this.cacheResult(result);
         return result;
@@ -241,8 +251,8 @@ export class SystemWalletDetectionService {
         // ✅ ALWAYS store detection results (for passing to child jobs to avoid re-detection)
         filteredDetails.set(result.address, result);
 
-        if (result.knownType) {
-          // Wallet has knownType → skip based on service exclusion sets
+        if (result.shouldSkipAnalysis) {
+          // Wallet has a blocking knownType (BURN, LP, PROTOCOL, EXCHANGE, SYSTEM) → skip
           filtered.set(result.address, result.reason);
         } else if (result.isLarge) {
           // Large wallet (15k-70k tokens) → monitor but analyze
@@ -280,6 +290,7 @@ export class SystemWalletDetectionService {
         confidence: 1.0,
         knownType: knownEntry.type,
         knownLabel: knownEntry.label,
+        shouldSkipAnalysis: isAnalysisBlockingType(knownEntry.type),
       };
     }
 
@@ -299,14 +310,16 @@ export class SystemWalletDetectionService {
 
       // Check knownType from database
       if (wallet?.knownType) {
+        const walletKnownType = wallet.knownType as KnownWalletType;
         return {
           address,
           shouldLog: false,
           reason: `Database knownType: ${wallet.knownType}`,
           method: 'database',
           confidence: 0.9,
-          knownType: wallet.knownType as KnownWalletType,
+          knownType: walletKnownType,
           knownLabel: wallet.knownLabel || undefined,
+          shouldSkipAnalysis: isAnalysisBlockingType(walletKnownType),
         };
       }
 
@@ -387,6 +400,7 @@ export class SystemWalletDetectionService {
       confidence: 0.9,
       knownType,
       knownLabel,
+      shouldSkipAnalysis: isAnalysisBlockingType(knownType),
     };
 
     if (SYSTEM_WALLET_DETECTION_CONFIG.AUTO_TAG_DATABASE) {
@@ -444,9 +458,14 @@ export class SystemWalletDetectionService {
    */
   private async tagWallet(result: SystemWalletDetectionResult): Promise<void> {
     try {
-      const classification = result.knownType
+      // KOL wallets: tag with knownType/knownLabel for display, but keep classification
+      // as 'unknown' so the analysis pipeline treats them as normal traders.
+      // All other knownType wallets (BURN, LP, PROTOCOL, etc.) → SYSTEM classification.
+      const classification = result.shouldSkipAnalysis
         ? WALLET_CLASSIFICATIONS.SYSTEM
-        : WALLET_CLASSIFICATIONS.LARGE;
+        : result.isLarge
+          ? WALLET_CLASSIFICATIONS.LARGE
+          : undefined; // KOL — don't overwrite existing classification
 
       await this.databaseService.updateWalletClassification(result.address, {
         classification,
@@ -457,8 +476,9 @@ export class SystemWalletDetectionService {
         knownLabel: result.knownLabel,
       });
 
-      const emoji = result.knownType ? '🚫' : '⚠️';
-      this.logger.log(`${emoji} Auto-tagged ${result.address} as ${classification} (${result.reason})`);
+      const emoji = result.knownType === 'KOL' ? '👤' : result.knownType ? '🚫' : '⚠️';
+      const classLabel = classification ?? result.knownType ?? 'passthrough';
+      this.logger.log(`${emoji} Auto-tagged ${result.address} as ${classLabel} (${result.reason})`);
     } catch (error) {
       this.logger.warn(`Failed to auto-tag ${result.address}:`, getErrorMessage(error));
     }

@@ -474,7 +474,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       this.logger.debug(`Checking if ${walletAddress} is a system wallet...`);
       const detection = await this.systemWalletDetection.detectSystemWallet(walletAddress);
 
-      if (detection.knownType) {
+      if (detection.shouldSkipAnalysis) {
         this.logger.log(
           `⏭️ Skipping dashboard analysis for known wallet ${walletAddress} ` +
           `(${detection.knownType}: ${detection.knownLabel || 'N/A'})`
@@ -1438,7 +1438,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             rank: metadata?.rank ?? childJobIds.length + 1,
             supplyPercent: metadata?.supplyPercent ?? 0,
             systemWalletDetection: detection ? {
-              isSystemWallet: !!detection.knownType,
+              isSystemWallet: !!detection.shouldSkipAnalysis,
               knownType: detection.knownType,
               knownLabel: detection.knownLabel,
               reason: detection.reason,

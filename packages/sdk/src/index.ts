@@ -16,6 +16,7 @@ export type {
   WalletSummary,
   WalletHud,
   WalletBehavior,
+  KolIdentity,
   PnlAllTime,
   DataQualityTier,
   // Token PnL

@@ -103,10 +103,18 @@ export interface PnlAllTime {
   winRate: number;
 }
 
+export interface KolIdentity {
+  name: string;
+  twitter: string | null;
+  telegram: string | null;
+}
+
 export interface WalletProfileResponse {
   status: "ok";
   walletAddress: string;
   summary: WalletSummary;
+  /** Present when this wallet belongs to a known KOL. null for regular wallets. */
+  kol: KolIdentity | null;
   hud: WalletHud | null;
   behavior: WalletBehavior | null;
   pnl: { allTime: PnlAllTime | null; period: unknown | null } | null;

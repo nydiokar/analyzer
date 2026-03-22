@@ -16,7 +16,7 @@ import { EnrichmentStrategyService } from '../services/enrichment-strategy.servi
 import { JobPayloadCacheService } from '../services/job-payload-cache.service';
 import { JobPriority } from '../../queues/config/queue.config';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
-import { getKnownWallet } from '../../config/known-wallets';
+import { getKnownWallet, isAnalysisBlockingType } from '../../config/known-wallets';
 import { Request } from 'express';
 import { User, Wallet } from '@prisma/client';
 import { getErrorMessage } from 'core/utils/error-utils';
@@ -223,8 +223,8 @@ export class AnalysesController {
         const registryEntry = getKnownWallet(address);
         const walletRecord = walletMap.get(address);
         const isKnownOrSystem =
-          !!registryEntry ||
-          !!walletRecord?.knownType ||
+          (!!registryEntry && isAnalysisBlockingType(registryEntry.type)) ||
+          (!!walletRecord?.knownType && isAnalysisBlockingType(walletRecord.knownType as any)) ||
           walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
           walletRecord?.classification === 'INVALID';
         return !isKnownOrSystem;
@@ -398,8 +398,8 @@ export class AnalysesController {
       const registryEntry = getKnownWallet(dto.walletAddress);
       const walletRecord = await this.databaseService.getWallet(dto.walletAddress);
       const isKnownWallet =
-        !!registryEntry ||
-        !!walletRecord?.knownType ||
+        (!!registryEntry && isAnalysisBlockingType(registryEntry.type)) ||
+        (!!walletRecord?.knownType && isAnalysisBlockingType(walletRecord.knownType as any)) ||
         walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
         walletRecord?.classification === 'INVALID';
 

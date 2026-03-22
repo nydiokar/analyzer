@@ -13,7 +13,8 @@ export type KnownWalletType =
   | 'LP'
   | 'PROTOCOL'
   | 'EXCHANGE'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'KOL'; // Key Opinion Leader — named wallet, analyzed normally (NOT skipped)
 
 export interface KnownWalletEntry {
   type: KnownWalletType;
@@ -225,6 +226,23 @@ export function getAddressesByType(type: KnownWalletType): string[] {
   return Object.entries(KNOWN_WALLETS)
     .filter(([, entry]) => entry.type === type)
     .map(([address]) => address);
+}
+
+/**
+ * Wallet types that are purely informational — they appear in the registry for
+ * labelling purposes but MUST still be analyzed normally.
+ * KOL wallets are real traders; we want their full PnL / behavior data.
+ */
+export const ANALYSIS_PASSTHROUGH_TYPES: ReadonlySet<KnownWalletType> = new Set([
+  'KOL',
+]);
+
+/**
+ * Returns true when a known type should block analysis (system wallets).
+ * Returns false for KOL and any future passthrough types.
+ */
+export function isAnalysisBlockingType(type: KnownWalletType): boolean {
+  return !ANALYSIS_PASSTHROUGH_TYPES.has(type);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

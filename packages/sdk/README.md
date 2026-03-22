@@ -186,6 +186,7 @@ All request and response shapes are exported:
 import type {
   WalletHud,
   WalletProfileResponse,
+  KolIdentity,
   HolderProfile,
   HolderProfilesResult,
   SimilarityResult,

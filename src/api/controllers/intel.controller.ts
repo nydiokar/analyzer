@@ -43,7 +43,7 @@ import {
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIFICATIONS } from '../../config/constants';
 import { JobPriority, QueueNames } from '../../queues/config/queue.config';
 import { JobEventsBridgeService } from '../../queues/services/job-events-bridge.service';
-import { getKnownWallet } from '../../config/known-wallets';
+import { getKnownWallet, isAnalysisBlockingType } from '../../config/known-wallets';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 
 class BatchHudRequestDto {
@@ -141,6 +141,7 @@ export class IntelController {
     pnlOverview: any,
     behavior: any,
   ) {
+    const kol = summary.wallet?.kolProfile ?? null;
     return {
       status: 'ok' as const,
       walletAddress: addr,
@@ -153,6 +154,14 @@ export class IntelController {
         knownType: summary.wallet?.knownType ?? null,
         knownLabel: summary.wallet?.knownLabel ?? null,
       },
+      // Present when this wallet belongs to a known KOL
+      kol: kol
+        ? {
+            name: kol.name,
+            twitter: kol.twitter ?? null,
+            telegram: kol.telegram ?? null,
+          }
+        : null,
       hud: hud ?? null,
       behavior: behavior
         ? {
@@ -255,12 +264,13 @@ export class IntelController {
       const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[scope];
       const requestId = `intel-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      // Known-wallet check — identical to AnalysesController (all four conditions)
+      // Known-wallet check — KOL wallets (knownType='KOL') are NOT skipped; they are
+      // named traders and should be analyzed normally. Only blocking types are skipped.
       const registryEntry = getKnownWallet(addr);
       const walletRecord = await this.databaseService.getWallet(addr);
       const isKnownWallet =
-        !!registryEntry ||
-        !!walletRecord?.knownType ||
+        (!!registryEntry && isAnalysisBlockingType(registryEntry.type)) ||
+        (!!walletRecord?.knownType && isAnalysisBlockingType(walletRecord.knownType as any)) ||
         walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
         walletRecord?.classification === 'INVALID';
 
@@ -480,8 +490,8 @@ export class IntelController {
       const registryEntry = getKnownWallet(addr);
       const walletRecord = await this.databaseService.getWallet(addr);
       const isKnownWallet =
-        !!registryEntry ||
-        !!walletRecord?.knownType ||
+        (!!registryEntry && isAnalysisBlockingType(registryEntry.type)) ||
+        (!!walletRecord?.knownType && isAnalysisBlockingType(walletRecord.knownType as any)) ||
         walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
         walletRecord?.classification === 'INVALID';
 
@@ -857,12 +867,12 @@ Use the two-step alternative instead:
     // Process each wallet in parallel — same logic as GET /intel/wallet/:addr per wallet
     const results = await Promise.all(wallets.map(async (addr) => {
       try {
-        // Known-wallet check first — identical 4-condition check
+        // Known-wallet check first — KOL type is NOT blocking (analyzed normally)
         const registryEntry = getKnownWallet(addr);
         const walletRecord = await this.databaseService.getWallet(addr);
         const isKnownWallet =
-          !!registryEntry ||
-          !!walletRecord?.knownType ||
+          (!!registryEntry && isAnalysisBlockingType(registryEntry.type)) ||
+          (!!walletRecord?.knownType && isAnalysisBlockingType(walletRecord.knownType as any)) ||
           walletRecord?.classification === WALLET_CLASSIFICATIONS.SYSTEM ||
           walletRecord?.classification === 'INVALID';
 

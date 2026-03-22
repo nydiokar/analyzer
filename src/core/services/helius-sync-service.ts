@@ -10,6 +10,7 @@ import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma, Wallet } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
 import { HELIUS_CONFIG } from '../../config/constants';
+import { isAnalysisBlockingType, type KnownWalletType } from '../../config/known-wallets';
 import { SmartFetchService } from './smart-fetch-service';
 
 const logger = createLogger('HeliusSyncService');
@@ -89,10 +90,11 @@ export class HeliusSyncService {
         const mappingStatsAccumulator = new Map<string, Record<string, number>>();
         const walletTransactionCounters = new Map<string, number>();
 
-        // Early check: Skip wallets with knownType (system wallets) to avoid wasting resources
+        // Early check: Skip system wallets to avoid wasting resources.
+        // KOL wallets (knownType='KOL') are real traders and must sync normally.
         try {
             const existingWallet = await this.databaseService.getWallet(walletAddress);
-            if (existingWallet?.knownType) {
+            if (existingWallet?.knownType && isAnalysisBlockingType(existingWallet.knownType as KnownWalletType)) {
                 logger.debug(`[Sync] Skipping sync for ${walletAddress} - has knownType=${existingWallet.knownType}`);
                 return;
             }

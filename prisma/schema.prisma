@@ -32,11 +32,29 @@ model Wallet {
   behaviorProfile              WalletBehaviorProfile?
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
+  kolProfile                   KolProfile?
 
   @@index([classification])
   @@index([classificationConfidence])
   @@index([isVerifiedBot])
   @@index([knownType])
+}
+
+// ---------------------------------------------------------------------------
+// KOL Registry — Key Opinion Leaders with public social identity
+// Linked 1:1 to Wallet. Wallets with knownType='KOL' are analyzed normally
+// (not skipped), but their identity is surfaced in API responses.
+// ---------------------------------------------------------------------------
+model KolProfile {
+  walletAddress String   @id
+  name          String
+  twitter       String?
+  telegram      String?
+  importedAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  wallet        Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@index([name])
 }
 
 model HeliusTransactionCache {

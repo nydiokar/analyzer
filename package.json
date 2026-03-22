@@ -40,6 +40,7 @@
     "reset-system": "npm run emergency-stop && pm2 start ecosystem.backend.config.js",
     "reset": "npm run build && pm2 restart all",
     "top-holders": "ts-node -r tsconfig-paths/register src/scripts/topTokenHolders.ts",
+    "kol:import": "npx ts-node -r tsconfig-paths/register src/scripts/import-kols.ts",
     "db:size": "npx ts-node -r tsconfig-paths/register scripts/scaling/check-db-size.ts",
     "db:perf-report": "npx ts-node -r tsconfig-paths/register scripts/scaling/db-performance-report.ts",
     "db:prune-so111": "npx ts-node -r tsconfig-paths/register scripts/maintenance/prune-redundant-so111.ts",

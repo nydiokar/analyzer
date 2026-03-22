@@ -4,6 +4,7 @@ import { prisma } from '../../core/services/database-service';
 import { TokenHoldersService } from '../services/token-holders.service';
 import { UserFavoritesService } from '../services/user-favorites.service';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
+import { isAnalysisBlockingType, type KnownWalletType } from '../../config/known-wallets';
 import type { CandidateDto, HuntListItemDto, HuntDetailDto, AddSnapshotResponseDto } from '../shared/dto/wallet-hunt.dto';
 
 const MAX_HUNTS_PER_USER = 5;
@@ -220,7 +221,7 @@ export class WalletHuntService {
       case 'TOP_HOLDERS': {
         const result = await this.tokenHoldersService.getTopHolders(tokenMint);
         return result.holders
-          .filter(h => !h.knownType && h.ownerAccount)
+          .filter(h => h.ownerAccount && (!h.knownType || !isAnalysisBlockingType(h.knownType as KnownWalletType)))
           .map(h => h.ownerAccount!);
       }
       default:

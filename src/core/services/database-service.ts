@@ -288,14 +288,14 @@ export class DatabaseService {
      */
     async getWalletPnlSummaryWithRelations(
         walletAddress: string
-    ): Promise<(Prisma.WalletPnlSummaryGetPayload<{ include: { advancedStats: true, wallet: true } }>) | null> {
+    ): Promise<(Prisma.WalletPnlSummaryGetPayload<{ include: { advancedStats: true, wallet: { include: { kolProfile: true } } } }>) | null> {
         try {
             // Use findFirst instead of findUnique for better performance with includes
             return await this.prismaClient.walletPnlSummary.findFirst({
                 where: { walletAddress },
-                include: { 
-                    advancedStats: true, 
-                    wallet: true 
+                include: {
+                    advancedStats: true,
+                    wallet: { include: { kolProfile: true } },
                 },
                 // Add orderBy to ensure consistent results
                 orderBy: { updatedAt: 'desc' }
@@ -366,7 +366,7 @@ export class DatabaseService {
     async updateWalletClassification(
         walletAddress: string,
         classificationData: {
-            classification: string;
+            classification?: string; // Optional: omit to preserve existing classification (e.g., KOL wallets)
             classificationConfidence?: number;
             classificationMethod?: string;
             classificationUpdatedAt?: Date;
@@ -377,10 +377,13 @@ export class DatabaseService {
             knownLabel?: string;
         }
     ): Promise<Wallet> {
-        const updateData: any = {
-            classification: classificationData.classification,
-            classificationUpdatedAt: classificationData.classificationUpdatedAt || new Date(),
-        };
+        const updateData: any = {};
+
+        if (classificationData.classification !== undefined) {
+            updateData.classification = classificationData.classification;
+        }
+
+        updateData.classificationUpdatedAt = classificationData.classificationUpdatedAt || new Date();
 
         if (classificationData.classificationConfidence !== undefined) {
             updateData.classificationConfidence = classificationData.classificationConfidence;
