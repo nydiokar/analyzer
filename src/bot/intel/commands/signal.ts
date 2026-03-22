@@ -68,11 +68,14 @@ export async function signalHandler(
   let success = false;
   let errorCode: string | undefined;
 
+  let result: HolderProfilesResult | undefined;
+
   try {
-    const [result, metadata] = await Promise.all([
+    const [holderResult, metadata] = await Promise.all([
       client.pollHolderProfiles<HolderProfilesResult>(mint),
       fetchTokenMetadata(mint),
     ]);
+    result = holderResult;
 
     // Render image
     const tokenImageDataUri = metadata.imageUrl ? await fetchImageAsDataUri(metadata.imageUrl) : null;
@@ -94,10 +97,21 @@ export async function signalHandler(
 
     success = true;
   } catch (err: unknown) {
+    console.error('[signal] Error:', err);
     errorCode = apiErrorCode(err);
-    const msgText = apiErrorMessage(err);
-    if (msgText) {
-      await ctx.telegram.editMessageText(chatId, pending.message_id, undefined, msgText);
+    const apiMsg = apiErrorMessage(err);
+    if (apiMsg) {
+      // API-level error — show it
+      await ctx.telegram.editMessageText(chatId, pending.message_id, undefined, apiMsg).catch(() => {});
+    } else if (result) {
+      // API succeeded but render/send failed — fall back to text card
+      await ctx.telegram.editMessageText(
+        chatId,
+        pending.message_id,
+        undefined,
+        formatSignalCard(result),
+        { parse_mode: 'HTML' },
+      ).catch(() => {});
     } else {
       await ctx.telegram.deleteMessage(chatId, pending.message_id).catch(() => {});
     }
