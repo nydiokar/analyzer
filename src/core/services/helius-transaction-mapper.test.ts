@@ -559,7 +559,7 @@ describe('HeliusTransactionMapper – Final Filtering Logic', () => {
         nativeTransfers: [], accountData: [], events: {}, instructions: [], transactionError: undefined,
     });
 
-    it('keeps SOL rows with significant associated value in DeFi transactions (2026-01-26 fix)', () => {
+    it('pushes significant SOL value onto the asset row instead of persisting a SOL row in DeFi transactions', () => {
         const txn = {
             ...mockTxHeader('DeFiTx', 'SWAP'),
             tokenTransfers: [
@@ -569,14 +569,12 @@ describe('HeliusTransactionMapper – Final Filtering Logic', () => {
         } as unknown as HeliusTransaction;
 
         const { analysisInputs } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
-        // After Jan 26 fix: We now KEEP SOL/USDC transfers with significant associated value
-        // This is correct - the 1 SOL has value and should be tracked
-        assert.strictEqual(analysisInputs.length, 2, 'Should contain both TOKEN_A and SOL records');
+        assert.strictEqual(analysisInputs.length, 1, 'Should keep only the asset record');
         const tokenARow = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
         const solRow = analysisInputs.find(r => r.mint === SOL_MINT);
         assert.ok(tokenARow, 'Should have TOKEN_A record');
-        assert.ok(solRow, 'Should have SOL record with significant value');
-        assert.ok(solRow.associatedSolValue >= 0.0001, 'SOL row should have significant associated value');
+        assert.ok(tokenARow.associatedSolValue >= 0.0001, 'Asset row should retain the significant SOL attribution');
+        assert.strictEqual(solRow, undefined, 'Should not persist the SOL row');
     });
 
     it('keeps significant standalone SOL transfers', () => {
@@ -652,13 +650,13 @@ describe('HeliusTransactionMapper – Jito MEV Heuristic for UNKNOWN transaction
 
         const { analysisInputs, stats } = mapHeliusTransactionsToIntermediateRecords(WALLET, [txn]);
 
-        // After Jan 26 fix: SOL rows with significant value are now kept
-        assert.strictEqual(analysisInputs.length, 2, 'Should process the transaction and generate two input records (TOKEN_A + SOL)');
+        assert.strictEqual(analysisInputs.length, 1, 'Should process the transaction and keep only the asset record');
         assert.strictEqual(stats.unknownTxSkippedNoJito, 0, 'Should not skip any transaction');
         const tokenARow = analysisInputs.find(r => r.mint === TOKEN_A_MINT);
         const solRow = analysisInputs.find(r => r.mint === SOL_MINT);
         assert.ok(tokenARow, 'Should have TOKEN_A record');
-        assert.ok(solRow, 'Should have SOL record');
+        assert.ok(tokenARow.associatedSolValue >= 0.0001, 'Asset row should retain SOL attribution');
+        assert.strictEqual(solRow, undefined, 'Should not persist the SOL row');
     });
 
     it('skips an UNKNOWN transaction that lacks a Jito MEV interaction', () => {

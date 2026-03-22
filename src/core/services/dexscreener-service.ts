@@ -55,10 +55,16 @@ interface DexScreenerPair {
 }
 
 export class DexscreenerService {
+    private static requestGate: Promise<void> = Promise.resolve();
+    private static nextRequestAtMs = 0;
+    private static cooldownUntilMs = 0;
+
     private readonly baseUrl = 'https://api.dexscreener.com/latest';
     private httpService: HttpService;
     private solPriceCache: { price: number; timestamp: number } | null = null;
     private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+    private readonly GLOBAL_MIN_REQUEST_INTERVAL_MS = 750;
+    private readonly RATE_LIMIT_COOLDOWN_MS = 60_000;
 
     constructor(
         private readonly databaseService: DatabaseService,
@@ -408,6 +414,57 @@ export class DexscreenerService {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    private isRateLimitError(error: unknown): boolean {
+        if (typeof error !== 'object' || error === null) {
+            return false;
+        }
+
+        const err = error as { response?: { status?: number } };
+        return err.response?.status === 429;
+    }
+
+    private getCooldownRemainingMs(): number {
+        return Math.max(0, DexscreenerService.cooldownUntilMs - Date.now());
+    }
+
+    private markRateLimitCooldown(description: string): number {
+        const cooldownUntilMs = Date.now() + this.RATE_LIMIT_COOLDOWN_MS;
+        DexscreenerService.cooldownUntilMs = Math.max(DexscreenerService.cooldownUntilMs, cooldownUntilMs);
+
+        const remainingSeconds = Math.ceil(this.getCooldownRemainingMs() / 1000);
+        logger.warn(`DexScreener 429 for ${description}; enabling ${remainingSeconds}s cooldown for all outbound DexScreener requests`);
+
+        return this.getCooldownRemainingMs();
+    }
+
+    private async waitForRequestSlot(description: string): Promise<void> {
+        let releaseGate: (() => void) | null = null;
+        const previousGate = DexscreenerService.requestGate;
+        DexscreenerService.requestGate = new Promise<void>((resolve) => {
+            releaseGate = resolve;
+        });
+
+        await previousGate;
+
+        try {
+            const cooldownRemainingMs = this.getCooldownRemainingMs();
+            if (cooldownRemainingMs > 0) {
+                throw new Error(
+                    `DexScreener cooldown active for ${Math.ceil(cooldownRemainingMs / 1000)}s after HTTP 429 while fetching ${description}`
+                );
+            }
+
+            const waitMs = Math.max(0, DexscreenerService.nextRequestAtMs - Date.now());
+            if (waitMs > 0) {
+                await this.sleep(waitMs);
+            }
+
+            DexscreenerService.nextRequestAtMs = Date.now() + this.GLOBAL_MIN_REQUEST_INTERVAL_MS;
+        } finally {
+            releaseGate?.();
+        }
+    }
+
     /**
      * Pre-filter tokens to avoid wasted API calls on tokens unlikely to be in DexScreener
      * This can reduce API calls by 60-80% for wallets with many scam/new tokens
@@ -452,9 +509,18 @@ export class DexscreenerService {
 
         for (let attempt = 1; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
             try {
+                await this.waitForRequestSlot(description);
                 return await operation();
             } catch (error) {
                 lastError = error;
+
+                if (this.isRateLimitError(error)) {
+                    const cooldownRemainingMs = this.markRateLimitCooldown(description);
+                    logger.warn(
+                        `Skipping retries for ${description}; DexScreener returned HTTP 429 and cooldown is active for ${Math.ceil(cooldownRemainingMs / 1000)}s`
+                    );
+                    throw error;
+                }
 
                 if (attempt === RETRY_CONFIG.maxRetries) {
                     const errorMsg = getErrorMessage(error);

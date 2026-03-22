@@ -9,6 +9,7 @@ import {
   BEHAVIOR_CODES,
   BatchWalletHudResponseDto,
 } from '../shared/dto/wallet-hud.dto';
+import { getErrorMessage } from '../../core/utils/error-utils';
 
 /**
  * Service for generating Wallet HUD (Heads-Up Display) metrics.
@@ -146,10 +147,7 @@ export class WalletHudService {
 
       return hud;
     } catch (error) {
-      this.logger.error(
-        `Error fetching HUD for wallet ${walletAddress}:`,
-        error,
-      );
+      this.logger.error(`Error fetching HUD for wallet ${walletAddress}: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -164,10 +162,7 @@ export class WalletHudService {
       await this.redis.del(cacheKey);
       this.logger.debug(`Invalidated HUD cache for ${walletAddress}`);
     } catch (error) {
-      this.logger.warn(
-        `Failed to invalidate HUD cache for ${walletAddress}:`,
-        error,
-      );
+      this.logger.warn(`Failed to invalidate HUD cache for ${walletAddress}: ${getErrorMessage(error)}`);
     }
   }
 
@@ -288,10 +283,7 @@ export class WalletHudService {
             notFound.push(address);
           }
         } catch (error) {
-          this.logger.warn(
-            `Failed to calculate HUD for wallet ${address}:`,
-            error,
-          );
+          this.logger.warn(`Failed to calculate HUD for wallet ${address}: ${getErrorMessage(error)}`);
           notFound.push(address);
         }
       }
@@ -302,7 +294,7 @@ export class WalletHudService {
         calculatedAt,
       };
     } catch (error) {
-      this.logger.error('Error in batch HUD fetch:', error);
+      this.logger.error(`Error in batch HUD fetch: ${getErrorMessage(error)}`);
       throw error;
     }
   }

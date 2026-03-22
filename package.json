@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "engines": {
@@ -42,6 +42,7 @@
     "top-holders": "ts-node -r tsconfig-paths/register src/scripts/topTokenHolders.ts",
     "db:size": "npx ts-node -r tsconfig-paths/register scripts/scaling/check-db-size.ts",
     "db:perf-report": "npx ts-node -r tsconfig-paths/register scripts/scaling/db-performance-report.ts",
+    "db:prune-so111": "npx ts-node -r tsconfig-paths/register scripts/maintenance/prune-redundant-so111.ts",
     "lint": "eslint .",
     "lint:dashboard": "npm run lint --prefix dashboard",
     "extract-logs": "ts-node -r tsconfig-paths/register scripts/extract-log-statements.ts",

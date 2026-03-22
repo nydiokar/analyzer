@@ -1822,7 +1822,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
 
   // Then, filter the results based on the definitive rule.
   const filteredAnalysisInputs = analysisInputs.filter(input => {
-    const isValueToken = input.mint === SOL_MINT || isStableMint(input.mint);
+    const isSolMint = input.mint === SOL_MINT;
+    const isValueToken = isSolMint || isStableMint(input.mint);
 
     // If it's a value token (SOL/stable), apply filtering rules.
     if (isValueToken) {
@@ -1833,7 +1834,13 @@ export function mapHeliusTransactionsToIntermediateRecords(
         return false;
       }
 
-      // CRITICAL FIX: If this SOL/USDC transfer has significant associated value assigned to it,
+      // When a signature already contains a non-value asset, the SOL leg is only carrying
+      // price context for that asset and does not need its own persisted row.
+      if (isSolMint && signaturesWithSplMovement.has(input.signature)) {
+        return false;
+      }
+
+      // CRITICAL FIX: If this stable transfer has significant associated value assigned to it,
       // NEVER filter it out. This represents the cost basis for routed swaps (e.g., USDC -> WSOL -> Token).
       const hasSignificantAssociatedValue =
         (input.associatedSolValue && Math.abs(input.associatedSolValue) >= SOL_SIGNIFICANCE_THRESHOLD) ||
