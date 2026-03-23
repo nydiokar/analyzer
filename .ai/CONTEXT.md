@@ -9,6 +9,18 @@
 ##  Active Work
 
 
+### March 23, 2026 — GTM Week 1 Remaining Tasks (Day 5 of 7)
+
+**Posts: 4/7. 2 days left (Mar 24-25). Need 3 more posts.**
+
+| # | Task | Priority | Notes |
+|:--:|:-----|:--------:|:------|
+| GTM-1 | **Fix + post Colosseum draft** | 🔴 NOW | Replace fabricated "454 agents" number with a real stat. Draft is in `.claude/drafts/`. One edit, one publish → 5/7 posts. |
+| GTM-2 | **Post token holder breakdown** | 🔴 NOW | Pick a trending token, run `POST /intel/token/:mint/holders`, post the distribution. All 4 posts so far are wallet-focused — need token content. 20 min. |
+| GTM-3 | **Open Twitter bot for public use** | 🔴 NOW | Rate-limit it and open. This is the Week 1 organic flywheel — every public lookup is a shareable card impression. Announce on @Sova_intel. |
+
+---
+
 ### March 22, 2026 — GTM Playbook + sova-x Wallet Profile Card 
 
 | ID | T | Title | Scope | Components |

@@ -2,7 +2,7 @@
 
 ## Playbook State
 - **Start date:** 2026-03-19
-- **Current day:** Day 3 (W1D3) -- first post published, behind on post volume
+- **Current day:** Day 5 (W1D5) -- 4 posts published (of 7 target), Gap Statement + x402 Hook marked published Mar 23
 - **Branch:** feature/token-dash-v2
 
 ## Key Decisions
@@ -22,7 +22,7 @@
 
 ## Critical Founder Blockers
 - ~~No real API responses needed~~ — live docs + SDK types.d.ts are sufficient. technical-content-writer can fix guide response examples using verified SDK ground truth from this file. NOT a founder task.
-- Wallet profile card format not designed. Still outstanding Day 1 task.
+- Wallet profile card format DONE (marked Mar 23).
 - SDK field name ground truth is confirmed (see VERIFIED SDK GROUND TRUTH below). skill.md was wrong; SDK is correct.
 
 ## File Locations
@@ -37,5 +37,5 @@
 - ALWAYS provide SDK types.d.ts content when dispatching technical-content-writer or integration-engineer.
 - Campaign doc Section 3 contains fabricated SDK patterns -- never use as code reference.
 - Agent word/char counts are approximate -- verify independently.
-- Social Drafts 1+2 verified postable. Draft 3 needs "454 agents" replaced.
+- Social Drafts 1+2 PUBLISHED (Mar 23). Draft 3 needs "454 agents" replaced before posting.
 - 5 of 10 outreach targets solid (sendaifun, elizaos, thearyanag, scriptscrypt, michaelessiet); 5 weak.
