@@ -26,6 +26,7 @@ interface AuthenticatedRequest extends Request {
   creditCost?: number;
   x402Paid?: boolean;
   x402PendingTxBytes?: Buffer;
+  x402PendingTxSig?: string; // Broadcast signature, set by guard so interceptor can set header sync
 }
 
 /**
@@ -116,10 +117,14 @@ export class CreditGuard implements CanActivate {
         paymentHeader,
         requiredCredits,
       );
+      // Phase 1: broadcast immediately so we have the sig before the handler runs.
+      // Phase 2 (confirm + record) fires async in the interceptor after the handler returns.
+      const txSig = await this.x402VerificationService.broadcastAndGetSig(txBytes);
       request.x402PendingTxBytes = txBytes;
+      request.x402PendingTxSig = txSig;
       request.creditCost = requiredCredits;
-      // Do NOT set x402Paid — interceptor confirms on-chain and sets X-Payment-Response
-      this.logger.log(`x402 payment validated locally: user=${user.id} credits=${requiredCredits}`);
+      // Do NOT set x402Paid — interceptor sets X-Payment-Response header then confirms async
+      this.logger.log(`x402 payment broadcast: user=${user.id} credits=${requiredCredits} sig=${txSig}`);
       return true;
     }
 

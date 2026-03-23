@@ -16,6 +16,7 @@ interface AuthenticatedRequest extends Request {
   creditCost?: number; // Set by CreditGuard
   x402Paid?: boolean; // Set by CreditGuard when prepaid re-call (marker was 'x402')
   x402PendingTxBytes?: Buffer; // Set by CreditGuard for fresh x402 calls awaiting confirm
+  x402PendingTxSig?: string; // Broadcast signature set by guard — set header sync, then confirm async
 }
 
 /**
@@ -47,32 +48,28 @@ export class CreditInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    // Fresh x402 call — confirm on-chain and record after handler succeeds
-    const pendingTxBytes = request.x402PendingTxBytes;
-    if (pendingTxBytes) {
+    // Fresh x402 call — sig was broadcast in the guard; set header synchronously, then
+    // fire confirm+record async (response is already flushed by the time tap runs).
+    const pendingTxSig = request.x402PendingTxSig;
+    if (pendingTxSig) {
+      const response = context.switchToHttp()
+        .getResponse<{ setHeader: (k: string, v: string) => void }>();
+      // Set the header NOW — before next.handle() so it is included in the response.
+      response.setHeader('X-Payment-Response', pendingTxSig);
       return next.handle().pipe(
         tap({
-          next: async () => {
-            try {
-              const response = context.switchToHttp()
-                .getResponse<{ setHeader: (k: string, v: string) => void }>();
-              const txSig = await this.x402VerificationService.confirmAndRecord(
-                pendingTxBytes,
-                creditCost,
-                user.id,
-                (request as any).url,
-              );
-              response.setHeader('X-Payment-Response', txSig);
-              this.logger.log(
-                `x402 confirmed post-handler: user=${user.id} credits=${creditCost} sig=${txSig}`,
-              );
-            } catch (err) {
-              // Rare: RPC failure after 200 already returned.
-              // Cannot reverse response. Log for manual reconciliation.
-              this.logger.error(
-                `x402 confirm failed post-handler: user=${user.id} err=${(err as Error).message}`,
-              );
-            }
+          next: () => {
+            // Fire-and-forget: confirm on-chain + replay-protect + record ledger
+            this.x402VerificationService
+              .confirmAndRecord(pendingTxSig, creditCost, user.id, (request as any).url)
+              .catch((err) => {
+                this.logger.error(
+                  `x402 confirm failed post-handler: user=${user.id} sig=${pendingTxSig} err=${(err as Error).message}`,
+                );
+              });
+            this.logger.log(
+              `x402 payment response set: user=${user.id} credits=${creditCost} sig=${pendingTxSig}`,
+            );
           },
         }),
       );

@@ -184,30 +184,84 @@ export class X402VerificationService {
   }
 
   /**
-   * Broadcasts, confirms, and records an already-validated x402 payment:
+   * Step 1 of two-phase x402 confirmation: broadcasts the transaction and returns
+   * the signature immediately (~100-200ms). Does NOT wait for on-chain confirmation.
    *
-   * 3. Submits + confirms on-chain
-   * 4. Atomically claims tx signature in Redis (replay protection)
-   * 5. Records the payment in the credit ledger
+   * Call this in the guard so the signature is available to set the response header
+   * synchronously before the handler runs.
    *
-   * Throws HTTP 402 on RPC failure or replay attempt.
-   * Returns the confirmed on-chain transaction signature (base58).
+   * Throws HTTP 402 on RPC submission failure.
    */
-  async confirmAndRecord(txBytes: Buffer, creditCost: number, userId: string, requestUrl: string): Promise<string> {
-    // --- 3. Submit + confirm on-chain ---
-    let txSig: string;
+  async broadcastAndGetSig(txBytes: Buffer): Promise<string> {
     try {
-      txSig = await this.connection.sendRawTransaction(txBytes, {
+      const txSig = await this.connection.sendRawTransaction(txBytes, {
         skipPreflight: false,
         preflightCommitment: 'confirmed',
       });
+      return txSig;
+    } catch (e) {
+      throw new HttpException(
+        `x402: transaction broadcast failed — ${(e as Error).message}`,
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+  }
 
+  /**
+   * Step 2 of two-phase x402 confirmation: waits for on-chain confirmation, claims
+   * the signature in Redis (replay protection), and records in the credit ledger.
+   *
+   * Fire-and-forget from the interceptor — response is already sent by this point.
+   * Failures are logged but not thrown (cannot reverse the response).
+   */
+  async confirmAndRecord(txSig: string, creditCost: number, userId: string, requestUrl: string): Promise<void> {
+    // --- Confirm on-chain ---
+    try {
       const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
       await this.connection.confirmTransaction(
         { signature: txSig, ...latestBlockhash },
         'confirmed',
       );
+      this.logger.log(`x402: tx confirmed — sig=${txSig} credits=${creditCost} url=${requestUrl}`);
+    } catch (e) {
+      this.logger.error(`x402: tx confirmation failed — sig=${txSig} err=${(e as Error).message}`);
+      // Non-fatal from the response perspective — already broadcast, log for reconciliation.
+      return;
+    }
 
+    // --- Atomic replay protection: SET NX (only one winner per sig) ---
+    const redisKey = `x402:tx:${txSig}`;
+    const claimed = await this.redis
+      .set(redisKey, userId, 'EX', TX_DEDUP_TTL_SECONDS, 'NX')
+      .catch(() => null);
+
+    if (claimed === null) {
+      this.logger.warn(`x402: duplicate confirmation attempt for sig=${txSig} (already claimed)`);
+      return;
+    }
+
+    // --- Record in credit ledger (balance unchanged — agent paid on-chain) ---
+    await this.creditsService.recordX402Payment(userId, creditCost, txSig).catch((err) => {
+      this.logger.warn(`x402: ledger record failed for tx=${txSig}: ${(err as Error).message}`);
+    });
+  }
+
+  /**
+   * Broadcasts, confirms, and records an already-validated x402 payment in one call.
+   * Convenience wrapper used by the legacy verify() path.
+   *
+   * Throws HTTP 402 on RPC failure or replay attempt.
+   * Returns the confirmed on-chain transaction signature (base58).
+   */
+  async broadcastConfirmAndRecord(txBytes: Buffer, creditCost: number, userId: string, requestUrl: string): Promise<string> {
+    const txSig = await this.broadcastAndGetSig(txBytes);
+
+    try {
+      const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+      await this.connection.confirmTransaction(
+        { signature: txSig, ...latestBlockhash },
+        'confirmed',
+      );
       this.logger.log(`x402: tx confirmed — sig=${txSig} credits=${creditCost} url=${requestUrl}`);
     } catch (e) {
       throw new HttpException(
@@ -216,7 +270,6 @@ export class X402VerificationService {
       );
     }
 
-    // --- 4. Atomic replay protection: SET NX (only one winner per sig) ---
     const redisKey = `x402:tx:${txSig}`;
     const claimed = await this.redis
       .set(redisKey, userId, 'EX', TX_DEDUP_TTL_SECONDS, 'NX')
@@ -226,7 +279,6 @@ export class X402VerificationService {
       throw new HttpException('x402: transaction already used (replay attack)', HttpStatus.PAYMENT_REQUIRED);
     }
 
-    // --- 5. Record in credit ledger (balance unchanged — agent paid on-chain) ---
     await this.creditsService.recordX402Payment(userId, creditCost, txSig).catch((err) => {
       this.logger.warn(`x402: ledger record failed for tx=${txSig}: ${(err as Error).message}`);
     });
@@ -248,7 +300,7 @@ export class X402VerificationService {
    */
   async verify(xPaymentHeader: string, creditCost: number, userId: string, requestUrl: string): Promise<string> {
     const { txBytes } = await this.validateOnly(xPaymentHeader, creditCost);
-    return this.confirmAndRecord(txBytes, creditCost, userId, requestUrl);
+    return this.broadcastConfirmAndRecord(txBytes, creditCost, userId, requestUrl);
   }
 
   // ---------------------------------------------------------------------------
