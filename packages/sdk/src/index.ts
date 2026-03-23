@@ -43,3 +43,4 @@ export type {
   X402Accept,
   X402ErrorBody,
 } from "./types.js";
+export const broken: number = 'not a number';

@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main` / `feature/token-dash-v2`  **Last Updated:** 2026-03-19  **Status:** Token Dashboard — transplant complete, personal token watchlist shipped, branch ready to merge
+**Branch:** `main`  **Last Updated:** 2026-03-23  **Status:** 3 carry-over bugs fixed and committed; migration pending for HUD-TOKENS-DAY
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -30,17 +30,12 @@
 
 ---
 
-### Pending carry-over (not this branch)
+### Pending carry-over
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| ⚪ | **[PAY-X402-RECEIPT]** Fix `X-Payment-Response` receipt header — split `confirmAndRecord` into broadcast (fast, in guard) + confirm (slow, fire-and-forget), set header synchronously in interceptor with known sig | 🟢 S | `x402-verification.service.ts`, `credit.guard.ts`, `credit.interceptor.ts` |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
-| ⚪ | **[INTEL-DEEP-BUG]** Fix `/intel/token/:mint/holders/deep` similarity chaining — add `chainSimilarity: true` flag to job, processor auto-queues similarity after holder-profiles completes | 🟡 M | `src/queues/jobs/types/index.ts`, `intel.controller.ts`, `analysis-operations.processor.ts` |
-| ⚪ | **[HUD-TOKENS-DAY]** Fix wallet HUD `tokens/day` metric — `uniqueTokensPerDay` is currently derived from wall-clock span (`firstTransactionTimestamp` → `lastTransactionTimestamp`) instead of true active trading days, which understates wallets with gaps between sessions. Correct fix: compute and persist `activeTradingDays` in behavior analysis from distinct trading dates, then have HUD/profile views use that field with a legacy fallback for old rows. | 🟡 M | `src/core/analysis/behavior/analyzer.ts`, `src/core/analysis/behavior/behavior-service.ts`, `src/api/services/wallet-hud.service.ts`, `prisma/schema.prisma` |
-| ⚪ | **[SUBMODULES-BOTS-INTEL-DOCS]** Extract the Twitter bot implementation, Telegram bot implementation, and external `/intel` API documentation into separate git submodules so they can be versioned and maintained independently from the main analyzer repo. Scope includes deciding boundaries, moving the code/docs cleanly, and updating local references/build workflows so the main repo still integrates with those modules without duplicating sources. | 🔴 L | `src/bot/`, `pft-bot_v2/`, `packages/sdk/`, `documentation/`, `src/api/controllers/intel.controller.ts` |
-| ⚪ | **[PAY-X402-RECEIPT] Fix `X-Payment-Response` receipt header on fresh x402 calls** | 🟢 S | Current flow: guard does `validateOnly` (local only, fast), sets `x402PendingTxBytes` on request, handler runs, interceptor `tap` calls `confirmAndRecord` async (fire-and-forget). Problem: `tap` doesn't await async callbacks — response flushes before `confirmAndRecord` resolves, so `response.setHeader('X-Payment-Response', txSig)` throws "Cannot set headers after they are sent to the client". **The errors are harmless** (payment IS confirmed, call succeeded) but the agent never receives the receipt header. **Fix:** split `confirmAndRecord` into two steps: (1) `broadcastAndGetSig(txBytes)` → calls `sendRawTransaction`, returns `txSig` fast (~100-200ms); (2) `confirmAndRecord(txSig, ...)` → waits for finality + Redis SET NX + ledger record (slow, ~5s). Move step 1 to the guard (store `txSig` on request alongside `x402PendingTxBytes`), then in the interceptor `tap` set the header synchronously with the known sig, and fire-and-forget step 2. No latency added to the response. **Files:** `src/api/services/x402-verification.service.ts` (split method), `src/api/shared/guards/credit.guard.ts` (broadcast in guard), `src/api/shared/interceptors/credit.interceptor.ts` (sync setHeader + async confirm). |
-| ⚪ | **[INTEL-DEEP-BUG] Fix `POST /intel/token/:mint/holders/deep` similarity chaining** | 🟡 M | Endpoint currently requires caller to pass `wallets[]` upfront, but callers can't know the holders before the job runs — circular dependency. Fix: add `chainSimilarity: true` flag to `AnalyzeHolderProfilesJobData`, processor auto-queues similarity job using discovered holder addresses after completion. Controller removes `wallets[]` from request body, returns `chainedSimilarityRequestId` upfront so agent can poll result key directly. No round-trip needed. **Full spec + proposed implementation:** `.ai/context/monetization/INTEL-DEEP-CHAIN-BUG.md`. Files: `src/queues/jobs/types/index.ts`, `src/api/controllers/intel.controller.ts`, `src/queues/processors/analysis-operations.processor.ts`, `documentation/skill/SKILL.md`. |
+| ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 
@@ -69,9 +64,20 @@
 
 ##  Recent Activity
 
-### March 13, 2026 (Latest) — Sig Buyers UI (branch: feature/sig-buyers-ui)
+### March 23, 2026 — Carry-over bug fixes + SDK update + pre-commit hook
 
-### March 19, 2026 (Latest) — Token Dashboard Merge Polish (branch: feature/token-dash-v2)
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 23.1 | 🐛 FIX | **[PAY-X402-RECEIPT]** `X-Payment-Response` header now set synchronously — tx broadcast in guard (`broadcastAndGetSig`), sig stored on request, header set in interceptor before `next.handle()`, confirm+record fires async fire-and-forget | 🟢 S | `x402-verification.service.ts`, `credit.guard.ts`, `credit.interceptor.ts` |
+| 23.2 | 🐛 FIX | **[INTEL-DEEP-BUG]** `POST /intel/token/:mint/holders/deep` re-enabled — removed circular `wallets[]` requirement, added `chainSimilarity` flag to job data, processor auto-queues similarity after holder-profiles completes using discovered addresses. SDK updated: `queueDeepAnalysis` drops `wallets[]`, `pollDeepAnalysis` polls sequentially, new `pollResultKey` helper, `DeepPartialResponse` removed | 🟡 M | `jobs/types/index.ts`, `intel.controller.ts`, `analysis-operations.processor.ts`, `packages/sdk/src/` (4 files) |
+| 23.3 | 🐛 FIX | **[HUD-TOKENS-DAY]** `activeTradingDays` (distinct UTC calendar dates with trades) computed in analyzer, persisted in `WalletBehaviorProfile`, used as denominator for `uniqueTokensPerDay` + `avgTradesPerDay` in HUD with legacy wall-clock fallback. **Migration required:** `npx prisma migrate dev --name add-active-trading-days` | 🟡 M | `schema.prisma`, `types/behavior.ts`, `behavior/analyzer.ts`, `behavior-service.ts`, `behavior.service.ts`, `wallet-hud.service.ts` |
+| 23.4 | 🔧 INFRA | Pre-commit hook updated — DB backup block removed (SQLite/irrelevant). New: staging `intel.controller.ts` / DTOs / job types without SDK changes triggers a hard warning with `--no-verify` escape hatch. Staging SDK files runs `tsc --noEmit` and blocks on errors | 🟢 S | `.git/hooks/pre-commit` |
+
+---
+
+### March 13, 2026 — Sig Buyers UI (branch: feature/sig-buyers-ui)
+
+### March 19, 2026 — Token Dashboard Merge Polish (branch: feature/token-dash-v2)
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
@@ -295,6 +301,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-22  **Branch:** `main`
+**Last Updated:** 2026-03-23  **Branch:** `main`
 
 ---
