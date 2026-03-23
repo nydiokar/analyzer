@@ -749,7 +749,7 @@ Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the
       topN,
       requestId: holderProfilesRequestId,
       chainSimilarity: true,
-      chainSimilarityRequestId,
+      chainSimilarityRequestId: chainedSimilarityRequestId,
     };
 
     let holderProfilesJob: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
