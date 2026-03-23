@@ -175,23 +175,20 @@ export interface WalletGetQueuedResponse {
   message: string;
 }
 
-/** POST /intel/token/:mint/holders/deep — two jobs returned (202) */
+/** POST /intel/token/:mint/holders/deep — 202, two job descriptors returned */
 export interface DeepJobAcceptedResponse {
   status: "queued";
-  holderProfiles: JobRef;
-  similarity: JobRef;
-}
-
-/**
- * POST /intel/token/:mint/holders/deep partial failure (206).
- * holderProfiles job was queued but similarity failed. 0cr charged.
- */
-export interface DeepPartialResponse {
-  status: "partial";
   tokenMint: string;
   topN: number;
   holderProfiles: JobRef;
-  similarity: null;
+  /** similarity.jobId is null — the processor queues it after holder-profiles completes */
+  similarity: {
+    jobId: null;
+    requestId: string;
+    /** Poll this key via GET /jobs/result/by-key?key=... once holderProfiles job completes */
+    resultKey: string;
+    message: string;
+  };
   message: string;
 }
 

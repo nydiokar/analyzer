@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { HttpClient } from "./http.js";
-import { pollAndFetch } from "./poller.js";
+import { pollAndFetch, pollResultKey } from "./poller.js";
 import type {
   SovaIntelClientConfig,
   WalletProfileResponse,
@@ -14,7 +14,6 @@ import type {
   BatchHudResponse,
   JobAcceptedResponse,
   DeepJobAcceptedResponse,
-  DeepPartialResponse,
 } from "./types.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -163,65 +162,58 @@ export class SovaIntelClient {
   }
 
   // -------------------------------------------------------------------------
-  // POST /intel/token/:mint/holders/deep — 35cr (async, two jobs)
-  // TEMPORARILY UNAVAILABLE: endpoint returns 501 until chain-job fix lands.
-  // Use queueHolderProfiles() + pollHolderProfiles() then queueSimilarity() instead.
+  // POST /intel/token/:mint/holders/deep — 35cr (async, chained)
+  // Queues holder-profiles; processor auto-chains similarity after completion.
   // -------------------------------------------------------------------------
 
   /**
-   * @deprecated Endpoint temporarily returns 501. Use the two-step alternative:
-   * 1. `queueHolderProfiles` / `pollHolderProfiles` to get holder addresses
-   * 2. `queueSimilarity` with those addresses
+   * Queue a bundled holder-profiles + similarity analysis (35cr).
+   * The server discovers holder addresses itself — no `wallets[]` needed.
+   *
+   * Returns immediately with both job descriptors. `similarity.jobId` is null
+   * because the similarity job is queued by the processor after holder-profiles
+   * completes. Use `pollDeepAnalysis` for a fully blocking variant.
    */
   async queueDeepAnalysis(
     tokenMint: string,
-    wallets: string[],
     topN = 20,
-  ): Promise<DeepJobAcceptedResponse | DeepPartialResponse> {
-    return this.http.request<DeepJobAcceptedResponse | DeepPartialResponse>({
+  ): Promise<DeepJobAcceptedResponse> {
+    return this.http.request<DeepJobAcceptedResponse>({
       method: "POST",
       path: `/intel/token/${tokenMint}/holders/deep`,
-      body: { topN, wallets },
+      body: { topN },
     });
   }
 
   /**
-   * Convenience: queue deep analysis and poll both jobs in parallel.
-   * Returns { holderProfiles, similarity } — each is the raw result object.
+   * Convenience: queue deep analysis and poll both results sequentially.
+   * Waits for holder-profiles to complete, then polls the similarity result key
+   * (which the processor populates automatically after holder-profiles finishes).
    *
-   * @deprecated Endpoint temporarily returns 501. Use the two-step alternative:
-   * 1. `queueHolderProfiles` / `pollHolderProfiles` to get holder addresses
-   * 2. `queueSimilarity` with those addresses
+   * Returns `{ holderProfiles, similarity }` — each is the raw result object.
    */
   async pollDeepAnalysis<TH = unknown, TS = unknown>(
     tokenMint: string,
-    wallets: string[],
     topN = 20,
   ): Promise<{ holderProfiles: TH; similarity: TS }> {
-    const raw = await this.queueDeepAnalysis(tokenMint, wallets, topN);
-    if (raw.status === "partial") {
-      throw new Error(
-        `Deep analysis partial failure: similarity job failed to queue. ` +
-        `holderProfiles jobId=${raw.holderProfiles.jobId}. 0cr charged. ` +
-        `Retry or call POST /intel/wallets/similarity separately.`
-      );
-    }
-    const jobs = raw as import("./types.js").DeepJobAcceptedResponse;
-    const [holderProfiles, similarity] = await Promise.all([
-      pollAndFetch<TH>(
-        this.http,
-        jobs.holderProfiles.jobId,
-        // Processor stores at holder-profiles:result:{jobId} (not requestId)
-        `holder-profiles:result:${jobs.holderProfiles.jobId}`,
-        { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
-      ),
-      pollAndFetch<TS>(
-        this.http,
-        jobs.similarity.jobId,
-        `similarity:result:${jobs.similarity.requestId}`,
-        { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
-      ),
-    ]);
+    const jobs = await this.queueDeepAnalysis(tokenMint, topN);
+
+    // Step 1: wait for holder-profiles and fetch its result
+    const holderProfiles = await pollAndFetch<TH>(
+      this.http,
+      jobs.holderProfiles.jobId,
+      `holder-profiles:result:${jobs.holderProfiles.jobId}`,
+      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
+    );
+
+    // Step 2: poll the similarity result key — processor queues it automatically
+    // after holder-profiles completes, so we start polling immediately after step 1.
+    const similarity = await pollResultKey<TS>(
+      this.http,
+      jobs.similarity.resultKey,
+      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
+    );
+
     return { holderProfiles, similarity };
   }
 

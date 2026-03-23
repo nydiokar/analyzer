@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 export { SovaIntelClient } from "./client.js";
-export { pollAndFetch, JobPollerError } from "./poller.js";
+export { pollAndFetch, pollResultKey, JobPollerError } from "./poller.js";
 export { SovaHttpError, X402PaymentError } from "./http.js";
 export type {
   // Config
@@ -39,7 +39,6 @@ export type {
   JobAcceptedResponse,
   WalletGetQueuedResponse,
   DeepJobAcceptedResponse,
-  DeepPartialResponse,
   // X402
   X402Accept,
   X402ErrorBody,

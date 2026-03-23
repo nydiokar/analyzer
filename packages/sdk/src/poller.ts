@@ -53,6 +53,39 @@ export async function pollAndFetch<T>(
   );
 }
 
+/**
+ * Polls GET /jobs/result/by-key?key=<resultKey> directly until it returns 200.
+ * Used for chained jobs where no jobId is known upfront (e.g. similarity chained
+ * from holder-profiles in POST /intel/token/:mint/holders/deep).
+ */
+export async function pollResultKey<T>(
+  http: HttpClient,
+  resultKey: string,
+  options: { intervalMs: number; maxAttempts: number },
+): Promise<T> {
+  const { intervalMs, maxAttempts } = options;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await http.request<T>({
+        path: `/jobs/result/by-key`,
+        query: { key: resultKey },
+      });
+    } catch (err) {
+      // 404 = not ready yet; anything else re-throws
+      if (err instanceof SovaHttpError && err.status === 404) {
+        await sleep(intervalMs);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw new Error(
+    `Result key "${resultKey}" did not appear within ${maxAttempts} poll attempts`,
+  );
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

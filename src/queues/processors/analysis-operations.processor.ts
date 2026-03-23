@@ -28,6 +28,7 @@ import { runMintParticipantsFlow } from '../../core/flows/mint-participants';
 import { SigBuyersService } from '../../api/services/sig-buyers.service';
 import { TelegramAlertsService } from '../../api/services/telegram-alerts.service';
 import { AnalysisOperationsQueue } from '../queues/analysis-operations.queue';
+import { SimilarityOperationsQueue } from '../queues/similarity-operations.queue';
 import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../shared/dashboard-analysis.types';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
@@ -48,6 +49,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly databaseService: DatabaseService,
     private readonly heliusSyncService: HeliusSyncService,
     private readonly analysisQueueService: AnalysisOperationsQueue,
+    private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly heliusApiClient: HeliusApiClient,
     private readonly tokenInfoService: TokenInfoService,
@@ -936,6 +938,40 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       try {
         await this.redisClient.set(resultKey, JSON.stringify(result), 'EX', this.holderProfilesResultTtlSeconds);
         this.logger.debug(`Stored holder-profiles result for job ${job.id} with TTL ${this.holderProfilesResultTtlSeconds}s`);
+
+        // Chain similarity job if requested (INTEL-DEEP-BUG fix)
+        if (job.data.chainSimilarity && job.data.chainSimilarityRequestId && result.mode === 'token' && result.success) {
+          const walletAddresses = (result.profiles ?? [])
+            .map((p: any) => p.walletAddress as string | undefined)
+            .filter((addr): addr is string => !!addr && addr.length > 30);
+
+          if (walletAddresses.length >= 2) {
+            try {
+              await this.similarityOperationsQueue.addSimilarityAnalysisFlow(
+                {
+                  walletAddresses,
+                  userId: job.data.userId,
+                  requestId: job.data.chainSimilarityRequestId,
+                  walletsNeedingSync: [],
+                  enrichMetadata: false,
+                  includeBalances: false,
+                  includeVectors: false,
+                  failureThreshold: 0.8,
+                  timeoutMinutes: 15,
+                  similarityConfig: { vectorType: 'capital' },
+                },
+                { priority: JobPriority.NORMAL, delay: 0 },
+              );
+              this.logger.log(`Chained similarity job queued for holder-profiles job ${job.id} (${walletAddresses.length} wallets, requestId=${job.data.chainSimilarityRequestId})`);
+            } catch (chainError) {
+              // Non-fatal — holder-profiles result is already stored; agent can fall back to POST /intel/wallets/similarity
+              this.logger.error(`Failed to chain similarity job after holder-profiles ${job.id}: ${getErrorMessage(chainError)}`);
+            }
+          } else {
+            this.logger.warn(`chainSimilarity requested for job ${job.id} but only ${walletAddresses.length} valid wallets found — skipping`);
+          }
+        }
+
         return {
           success: result.success,
           data: { resultKey },

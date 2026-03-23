@@ -51,6 +51,8 @@ export interface AnalyzeHolderProfilesJobData {
   walletAddress?: string;     // Specific wallet to analyze when wallet mode
   requestId: string;
   debugFailAfterProfiles?: number; // Dev-only: force failure after streaming N profiles
+  chainSimilarity?: boolean;          // If true, processor auto-queues similarity after holder-profiles completes
+  chainSimilarityRequestId?: string;  // Caller-provided requestId for the chained similarity job
   _holderContext?: {
     rank: number;
     supplyPercent: number;

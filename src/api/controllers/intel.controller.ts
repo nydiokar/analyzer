@@ -71,11 +71,7 @@ class IntelWalletSimilarityRequestDto {
 }
 
 class IntelTokenHoldersDeepRequestDto extends IntelTokenHoldersRequestDto {
-  @IsArray()
-  @ArrayMinSize(2)
-  @ArrayMaxSize(30)
-  @IsString({ each: true })
-  wallets: string[];
+  // wallets[] removed — server discovers holders from Helius during holder-profiles job
 }
 
 /**
@@ -715,104 +711,77 @@ export class IntelController {
   }
 
   @Post('token/:mint/holders/deep')
-  @HttpCode(501)
+  @RequireCredits(35)
+  @HttpCode(202)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
-    summary: '[Coming soon] Bundled holder-profiles + similarity analysis (35cr)',
-    description: `Not yet available. This endpoint is planned but temporarily disabled pending an architectural fix (the holder-profiles job must complete before wallet addresses are known for the similarity job — the circular dependency makes upfront queuing impossible without a chained-job mechanism).
+    summary: 'Bundled holder-profiles + similarity analysis (35cr)',
+    description: `Queues a holder-profiles job for the token mint. Once holder-profiles completes, the processor automatically chains a similarity job using the discovered holder addresses — no round-trip needed.
 
-Use the two-step alternative instead:
-1. POST /intel/token/:mint/holders → get holder wallet addresses from job result
-2. POST /intel/wallets/similarity → run similarity on those addresses`,
+Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the holder-profiles job first, then poll \`similarity.resultKey\` until the similarity result appears.
+
+35cr per call (vs 40cr for the manual two-step flow).`,
   })
   @ApiParam({ name: 'mint', description: 'Solana token mint address' })
-  @ApiResponse({ status: 501, description: 'Not implemented — use /holders then /similarity separately' })
+  @ApiResponse({ status: 202, description: 'Holder-profiles + chained similarity queued — poll both result keys' })
+  @ApiResponse({ status: 400, description: 'Invalid mint address or topN out of range' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   async queueTokenHoldersDeep(
-    @Param('mint') _mint: string,
-    @Req() _req: Request & { user?: User },
-    @Body() _body: IntelTokenHoldersDeepRequestDto,
+    @Param('mint') mint: string,
+    @Req() req: Request & { user?: User },
+    @Body() body: IntelTokenHoldersDeepRequestDto,
   ) {
-    // INTEL-DEEP-BUG: temporarily disabled — circular dependency between holder-profiles
-    // and similarity jobs (wallets[] must be known before similarity can be queued, but
-    // holder-profiles hasn't run yet). Fix: chainSimilarity flag on AnalyzeHolderProfilesJobData
-    // so the processor auto-queues similarity after discovering holder addresses.
-    // Full spec: .ai/context/monetization/INTEL-DEEP-CHAIN-BUG.md
-    //
-    // Original implementation preserved below for when the chain-job fix lands:
-    //
-    // if (!isValidSolanaAddress(mint)) {
-    //   throw new BadRequestException(`Invalid token mint address: ${mint}`);
-    // }
-    // const topN = body.topN ?? 20;
-    // if (topN < 1 || topN > 50) {
-    //   throw new BadRequestException('topN must be between 1 and 50');
-    // }
-    // const invalidWallets = body.wallets.filter((wallet) => !isValidSolanaAddress(wallet));
-    // if (invalidWallets.length > 0) {
-    //   throw new BadRequestException(
-    //     `Invalid Solana address(es) provided: ${invalidWallets.slice(0, 5).join(', ')}${invalidWallets.length > 5 ? ` ... (+${invalidWallets.length - 5} more)` : ''}`,
-    //   );
-    // }
-    // const holderProfilesRequestId = `intel-holders-deep-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    // const holderProfilesJobData: AnalyzeHolderProfilesJobData = {
-    //   mode: 'token',
-    //   userId: req.user?.id,
-    //   tokenMint: mint,
-    //   topN,
-    //   requestId: holderProfilesRequestId,
-    // };
-    // let holderProfilesJob: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
-    // try {
-    //   holderProfilesJob = await this.analysisOperationsQueue.addHolderProfilesJob(holderProfilesJobData, {
-    //     priority: JobPriority.HIGH,
-    //     delay: 0,
-    //   });
-    // } catch (queueError) {
-    //   this.logger.error(`Intel deep holder-profiles: failed to queue job for ${mint}: ${queueError}`);
-    //   throw new InternalServerErrorException('Failed to queue holder-profiles job');
-    // }
-    // let similarity: { requestId: string; jobId: string };
-    // try {
-    //   similarity = await this.queueSimilarityJob(req, body.wallets, 'intel-holders-deep');
-    // } catch (similarityError) {
-    //   this.logger.error(
-    //     `Intel deep: similarity queue failed after holder-profiles job ${holderProfilesJob.id} was accepted: ${similarityError}`,
-    //   );
-    //   throw new HttpException(
-    //     {
-    //       status: 'partial' as const,
-    //       tokenMint: mint,
-    //       topN,
-    //       holderProfiles: { jobId: holderProfilesJob.id, requestId: holderProfilesRequestId, monitoringUrl: `/api/v1/jobs/${holderProfilesJob.id}` },
-    //       similarity: null,
-    //       message: 'Holder-profiles job was queued successfully but the similarity job could not be accepted. No credits were charged.',
-    //     },
-    //     HttpStatus.PARTIAL_CONTENT,
-    //   );
-    // }
-    // return {
-    //   status: 'queued' as const,
-    //   tokenMint: mint,
-    //   topN,
-    //   walletsCount: body.wallets.length,
-    //   holderProfiles: { jobId: holderProfilesJob.id, requestId: holderProfilesRequestId, monitoringUrl: `/api/v1/jobs/${holderProfilesJob.id}` },
-    //   similarity: { jobId: similarity.jobId, requestId: similarity.requestId, monitoringUrl: `/api/v1/jobs/${similarity.jobId}` },
-    //   message: 'Bundled holder-profiles and similarity analyses queued. Poll both monitoring URLs for completion.',
-    // };
+    if (!isValidSolanaAddress(mint)) {
+      throw new BadRequestException(`Invalid token mint address: ${mint}`);
+    }
+    const topN = body.topN ?? 20;
+    if (topN < 1 || topN > 50) {
+      throw new BadRequestException('topN must be between 1 and 50');
+    }
 
-    throw new HttpException(
-      {
-        error: 'not_implemented',
-        message:
-          'POST /intel/token/:mint/holders/deep is temporarily unavailable. ' +
-          'Use the two-step alternative: (1) POST /intel/token/:mint/holders to get holder addresses, ' +
-          'then (2) POST /intel/wallets/similarity with those addresses.',
-        alternatives: [
-          'POST /intel/token/:mint/holders',
-          'POST /intel/wallets/similarity',
-        ],
+    const holderProfilesRequestId = `intel-holders-deep-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const chainedSimilarityRequestId = `intel-holders-deep-sim-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const holderProfilesJobData: AnalyzeHolderProfilesJobData = {
+      mode: 'token',
+      userId: req.user?.id,
+      tokenMint: mint,
+      topN,
+      requestId: holderProfilesRequestId,
+      chainSimilarity: true,
+      chainSimilarityRequestId,
+    };
+
+    let holderProfilesJob: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
+    try {
+      holderProfilesJob = await this.analysisOperationsQueue.addHolderProfilesJob(holderProfilesJobData, {
+        priority: JobPriority.HIGH,
+        delay: 0,
+      });
+    } catch (queueError) {
+      this.logger.error(`Intel deep: failed to queue holder-profiles job for ${mint}: ${queueError}`);
+      throw new InternalServerErrorException('Failed to queue holder-profiles job');
+    }
+
+    this.logger.log(`Intel deep: queued job ${holderProfilesJob.id} for mint=${mint} topN=${topN} chainedSim=${chainedSimilarityRequestId}`);
+
+    return {
+      status: 'queued' as const,
+      tokenMint: mint,
+      topN,
+      holderProfiles: {
+        jobId: holderProfilesJob.id,
+        requestId: holderProfilesRequestId,
+        monitoringUrl: `/api/v1/jobs/${holderProfilesJob.id}`,
       },
-      HttpStatus.NOT_IMPLEMENTED,
-    );
+      similarity: {
+        jobId: null,
+        requestId: chainedSimilarityRequestId,
+        resultKey: `similarity:result:${chainedSimilarityRequestId}`,
+        message: 'Similarity job will be queued automatically after holder-profiles completes. Poll resultKey for result.',
+      },
+      message: 'Bundled holder-profiles + similarity queued. Poll holderProfiles.monitoringUrl until completed, then poll similarity.resultKey.',
+    };
   }
 
   /**

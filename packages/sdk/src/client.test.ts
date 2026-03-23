@@ -447,21 +447,24 @@ describe("pollSimilarity", () => {
 });
 
 // ---------------------------------------------------------------------------
-// pollDeepAnalysis — both result keys, and 206 partial failure
-// SKIPPED: endpoint temporarily returns 501 (chain-job fix pending)
+// pollDeepAnalysis — sequential: holder-profiles first, then poll similarity resultKey
 // ---------------------------------------------------------------------------
 
-describe.skip("pollDeepAnalysis", () => {
+describe("pollDeepAnalysis", () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it("polls both jobs in parallel, uses jobId for holders and requestId for similarity", async () => {
+  it("polls holder-profiles job then polls similarity resultKey directly", async () => {
     const deepAccepted = {
       status: "queued",
       tokenMint: MINT,
       topN: 20,
-      walletsCount: 2,
       holderProfiles: { jobId: "hp-job-1", requestId: "hp-req-1", monitoringUrl: "/api/v1/jobs/hp-job-1" },
-      similarity: { jobId: "sim-job-1", requestId: "sim-req-1", monitoringUrl: "/api/v1/jobs/sim-job-1" },
+      similarity: {
+        jobId: null,
+        requestId: "sim-req-1",
+        resultKey: "similarity:result:sim-req-1",
+        message: "Similarity will be chained automatically.",
+      },
       message: "Bundled jobs queued.",
     };
 
@@ -482,40 +485,21 @@ describe.skip("pollDeepAnalysis", () => {
         expect(init?.method).toBe("POST");
         const body = JSON.parse(init?.body as string);
         expect(body.topN).toBe(20);
-        expect(body.wallets).toEqual(["addr1", "addr2"]);
+        expect(body.wallets).toBeUndefined();
         return jsonResponse(deepAccepted, 202);
       }
       if (url.includes("/jobs/hp-job-1")) return jsonResponse({ status: "completed" });
-      if (url.includes("/jobs/sim-job-1")) return jsonResponse({ status: "completed" });
 
       return jsonResponse({ error: "unexpected" }, 500);
     });
 
     const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
-    const result = await client.pollDeepAnalysis<typeof holdersResult, typeof simResult>(MINT, ["addr1", "addr2"], 20);
+    const result = await client.pollDeepAnalysis<typeof holdersResult, typeof simResult>(MINT, 20);
 
     expect(resultKeysUsed).toContain("holder-profiles:result:hp-job-1");
     expect(resultKeysUsed).toContain("similarity:result:sim-req-1");
     expect(result.holderProfiles.profiles[0].wallet).toBe("addr1");
     expect(result.similarity.score).toBe(0.85);
-  });
-
-  it("throws descriptive error on 206 partial failure", async () => {
-    const partial206 = {
-      status: "partial",
-      tokenMint: MINT,
-      topN: 20,
-      holderProfiles: { jobId: "hp-job-2", requestId: "hp-req-2", monitoringUrl: "/api/v1/jobs/hp-job-2" },
-      similarity: null,
-      message: "Similarity failed to queue.",
-    };
-
-    const fetchMock = vi.fn(async (): Promise<Response> => jsonResponse(partial206, 206));
-    const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
-
-    await expect(
-      client.pollDeepAnalysis(MINT, ["addr1", "addr2"])
-    ).rejects.toThrow("Deep analysis partial failure");
   });
 });
 
