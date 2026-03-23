@@ -8,7 +8,7 @@ import {
 } from '../shared/dto/discover-wallet.dto';
 
 type DiscoverWalletPayload = Prisma.WalletGetPayload<{
-  include: { pnlSummary: { include: { advancedStats: true } }; behaviorProfile: true };
+  include: { pnlSummary: { include: { advancedStats: true } }; behaviorProfile: true; kolProfile: true };
 }>;
 
 @Injectable()
@@ -22,11 +22,13 @@ export class DiscoverService {
 
   async getDiscoverWallets(query: DiscoverWalletsQueryDto): Promise<DiscoverWalletsResponseDto> {
     const sort = query.sort || 'interesting';
+    const scope = query.scope || 'all';
     const timeframe = query.timeframe || 'all';
     const page = query.page ?? 1;
     const normalizedPage = page < 1 ? 1 : page;
     const pageSize = this.normalizePageSize(query.pageSize);
     const skip = (normalizedPage - 1) * pageSize;
+    const search = query.search?.trim();
     const minTradeCount = query.minTradeCount;
     const minFreshnessHours = query.minFreshnessHours;
     const minUniqueTokens = query.minUniqueTokens;
@@ -41,121 +43,53 @@ export class DiscoverService {
       ? new Date(Date.now() - minFreshnessHours * 60 * 60 * 1000)
       : undefined;
 
-    const where: Prisma.WalletWhereInput = {
-      pnlSummary: { isNot: null },
-    };
-
-    const andFilters: Prisma.WalletWhereInput[] = [];
-
-    // Require behaviorProfile for sorts that depend on behavior metrics
-    const behaviorSorts = ['most_active', 'longest_holders', 'interesting'];
-    if (behaviorSorts.includes(sort)) {
-      andFilters.push({ behaviorProfile: { isNot: null } });
-
-      // No additional null checks needed - fields are non-nullable when behaviorProfile exists
-      // The schema guarantees these fields have values (medianHoldTime, totalTradeCount, flipperScore are all non-nullable)
-    }
-
-    if (typeof minTradeCount === 'number' && minTradeCount > 0) {
-      where.behaviorProfile = { is: { totalTradeCount: { gte: minTradeCount } } };
-    }
-
-    if (typeof minUniqueTokens === 'number' && minUniqueTokens > 0) {
-      where.behaviorProfile = {
-        is: {
-          ...(where.behaviorProfile?.is || {}),
-          uniqueTokensTraded: { gte: minUniqueTokens },
-        },
-      };
-    }
-
-    if (style) {
-      const normalizedStyle = style.toUpperCase();
-
-      // Flow-dominant filters: Filter by flowPattern instead of strategyType
-      // This shows ALL wallets with that flow, regardless of speed
-      if (['BALANCED_TRADER', 'ACCUMULATOR', 'DISTRIBUTOR'].includes(normalizedStyle)) {
-        const flowPatternMap: Record<string, string> = {
-          'BALANCED_TRADER': 'BALANCED',
-          'ACCUMULATOR': 'ACCUMULATOR',
-          'DISTRIBUTOR': 'DISTRIBUTOR',
-        };
-        where.behaviorProfile = {
-          is: {
-            ...(where.behaviorProfile?.is || {}),
-            flowPattern: { equals: flowPatternMap[normalizedStyle] },
-          },
-        };
-      } else {
-        // Speed-dominant filters: Use strategyType as before
-        where.behaviorProfile = {
-          is: {
-            ...(where.behaviorProfile?.is || {}),
-            strategyType: { equals: normalizedStyle },
-          },
-        };
-      }
-    }
-
-    // NEW: Direct speed category filter (overrides style if both provided)
-    if (speedCategory) {
-      const normalizedSpeed = speedCategory.toUpperCase();
-      where.behaviorProfile = {
-        is: {
-          ...(where.behaviorProfile?.is || {}),
-          speedCategory: { equals: normalizedSpeed },
-        },
-      };
-    }
-
-    // NEW: Direct flow pattern filter (overrides style if both provided)
-    if (flowPattern) {
-      const normalizedFlow = flowPattern.toUpperCase();
-      where.behaviorProfile = {
-        is: {
-          ...(where.behaviorProfile?.is || {}),
-          flowPattern: { equals: normalizedFlow },
-        },
-      };
-    }
-
-    if (holdBias) {
-      const holdConditions = this.buildHoldBiasCondition(holdBias);
-      if (holdConditions) {
-        where.behaviorProfile = {
-          is: {
-            ...(where.behaviorProfile?.is || {}),
-            // Use medianCompletedHoldTimeHours if available, otherwise fall back to deprecated medianHoldTime
-            medianCompletedHoldTimeHours: holdConditions,
-          },
-        };
-      }
-    }
-
-    if (typeof minVelocity === 'number' || typeof maxVelocity === 'number') {
-      const velocityFilter: Prisma.IntNullableFilter = {};
-      if (typeof minVelocity === 'number') velocityFilter.gte = minVelocity;
-      if (typeof maxVelocity === 'number') velocityFilter.lte = maxVelocity;
-      where.behaviorProfile = {
-        is: {
-          ...(where.behaviorProfile?.is || {}),
-          velocityScore: velocityFilter,
-        },
-      };
-    }
-
-    if (updatedSince) {
-      andFilters.push({
-        OR: [
-          { pnlSummary: { is: { updatedAt: { gte: updatedSince } } } },
-          { behaviorProfile: { is: { updatedAt: { gte: updatedSince } } } },
-        ],
+    if (scope === 'kols') {
+      const where = this.buildDiscoverWhere({
+        baseWhere: this.buildKolWhere(search),
+        sort,
+        minTradeCount,
+        minUniqueTokens,
+        style,
+        speedCategory,
+        flowPattern,
+        holdBias,
+        minVelocity,
+        maxVelocity,
+        updatedSince,
+        requireBehaviorForSort: false,
       });
+      const orderBy = this.buildKolOrder(sort);
+      const { total, wallets } = await this.databaseService.getDiscoverWallets({
+        where,
+        orderBy,
+        skip,
+        take: pageSize,
+      });
+
+      return {
+        items: wallets.map(wallet => this.mapWallet(wallet)),
+        page: normalizedPage,
+        pageSize,
+        sort,
+        timeframe,
+        total,
+      };
     }
 
-    if (andFilters.length) {
-      where.AND = andFilters;
-    }
+    const where = this.buildDiscoverWhere({
+      baseWhere: { pnlSummary: { isNot: null } },
+      sort,
+      minTradeCount,
+      minUniqueTokens,
+      style,
+      speedCategory,
+      flowPattern,
+      holdBias,
+      minVelocity,
+      maxVelocity,
+      updatedSince,
+      requireBehaviorForSort: true,
+    });
 
     const orderBy = this.buildOrder(sort);
 
@@ -187,10 +121,11 @@ export class DiscoverService {
     flowDistribution: { pattern: string; count: number; totalPnl: number; percentage: number }[];
     total: number;
   }> {
-    // Build the same where clause as getDiscoverWallets, but we need ALL results (no pagination)
+    const scope = query.scope || 'all';
     const minTradeCount = query.minTradeCount;
     const minUniqueTokens = query.minUniqueTokens;
     const minFreshnessHours = query.minFreshnessHours;
+    const style = query.style;
     const speedCategory = query.speedCategory;
     const flowPattern = query.flowPattern;
     const holdBias = query.holdBias;
@@ -199,80 +134,28 @@ export class DiscoverService {
     const updatedSince = minFreshnessHours
       ? new Date(Date.now() - minFreshnessHours * 60 * 60 * 1000)
       : undefined;
+    const where = this.buildDiscoverWhere({
+      baseWhere: scope === 'kols'
+        ? this.buildKolWhere(query.search?.trim())
+        : { pnlSummary: { isNot: null } },
+      sort: query.sort || 'interesting',
+      minTradeCount,
+      minUniqueTokens,
+      style,
+      speedCategory,
+      flowPattern,
+      holdBias,
+      minVelocity,
+      maxVelocity,
+      updatedSince,
+      requireBehaviorForSort: false,
+    });
 
-    const where: Prisma.WalletWhereInput = {
-      pnlSummary: { isNot: null },
-      behaviorProfile: { isNot: null },
+    where.behaviorProfile = {
+      is: {
+        ...(where.behaviorProfile?.is || {}),
+      },
     };
-    const andFilters: Prisma.WalletWhereInput[] = [];
-
-    if (typeof minTradeCount === 'number' && minTradeCount > 0) {
-      where.behaviorProfile = { is: { totalTradeCount: { gte: minTradeCount } } };
-    }
-
-    if (typeof minUniqueTokens === 'number' && minUniqueTokens > 0) {
-      where.behaviorProfile = {
-        is: {
-          ...(where.behaviorProfile?.is || {}),
-          uniqueTokensTraded: { gte: minUniqueTokens },
-        },
-      };
-    }
-
-    if (speedCategory) {
-      where.behaviorProfile = {
-        is: {
-          ...(where.behaviorProfile?.is || {}),
-          speedCategory: { equals: speedCategory.toUpperCase() },
-        },
-      };
-    }
-
-    if (flowPattern) {
-      where.behaviorProfile = {
-        is: {
-          ...(where.behaviorProfile?.is || {}),
-          flowPattern: { equals: flowPattern.toUpperCase() },
-        },
-      };
-    }
-
-    if (holdBias) {
-      const holdConditions = this.buildHoldBiasCondition(holdBias);
-      if (holdConditions) {
-        where.behaviorProfile = {
-          is: {
-            ...(where.behaviorProfile?.is || {}),
-            medianCompletedHoldTimeHours: holdConditions,
-          },
-        };
-      }
-    }
-
-    if (typeof minVelocity === 'number' || typeof maxVelocity === 'number') {
-      const velocityFilter: Prisma.IntNullableFilter = {};
-      if (typeof minVelocity === 'number') velocityFilter.gte = minVelocity;
-      if (typeof maxVelocity === 'number') velocityFilter.lte = maxVelocity;
-      where.behaviorProfile = {
-        is: {
-          ...(where.behaviorProfile?.is || {}),
-          velocityScore: velocityFilter,
-        },
-      };
-    }
-
-    if (updatedSince) {
-      andFilters.push({
-        OR: [
-          { pnlSummary: { is: { updatedAt: { gte: updatedSince } } } },
-          { behaviorProfile: { is: { updatedAt: { gte: updatedSince } } } },
-        ],
-      });
-    }
-
-    if (andFilters.length) {
-      where.AND = andFilters;
-    }
 
     // Fetch speedCategory, flowPattern, and PnL fields (efficient)
     const wallets = await this.databaseService.getDiscoverAggregationData({ where });
@@ -371,10 +254,177 @@ export class DiscoverService {
     }
   }
 
+  private buildKolWhere(search?: string): Prisma.WalletWhereInput {
+    const where: Prisma.WalletWhereInput = {
+      knownType: 'KOL',
+    };
+
+    if (!search) {
+      return where;
+    }
+
+    where.AND = [
+      {
+        OR: [
+          { address: { contains: search, mode: 'insensitive' } },
+          { knownLabel: { contains: search, mode: 'insensitive' } },
+          { kolProfile: { is: { name: { contains: search, mode: 'insensitive' } } } },
+          { kolProfile: { is: { twitter: { contains: search, mode: 'insensitive' } } } },
+          { kolProfile: { is: { telegram: { contains: search, mode: 'insensitive' } } } },
+        ],
+      },
+    ];
+
+    return where;
+  }
+
+  private buildDiscoverWhere(params: {
+    baseWhere: Prisma.WalletWhereInput;
+    sort: string;
+    minTradeCount?: number;
+    minUniqueTokens?: number;
+    style?: string;
+    speedCategory?: string;
+    flowPattern?: string;
+    holdBias?: string;
+    minVelocity?: number;
+    maxVelocity?: number;
+    updatedSince?: Date;
+    requireBehaviorForSort: boolean;
+  }): Prisma.WalletWhereInput {
+    const where: Prisma.WalletWhereInput = { ...params.baseWhere };
+    const existingAnd = where.AND
+      ? Array.isArray(where.AND)
+        ? where.AND
+        : [where.AND]
+      : [];
+    const andFilters: Prisma.WalletWhereInput[] = [...existingAnd];
+
+    const behaviorSorts = ['most_active', 'longest_holders', 'interesting'];
+    if (params.requireBehaviorForSort && behaviorSorts.includes(params.sort)) {
+      andFilters.push({ behaviorProfile: { isNot: null } });
+    }
+
+    if (typeof params.minTradeCount === 'number' && params.minTradeCount > 0) {
+      where.behaviorProfile = { is: { totalTradeCount: { gte: params.minTradeCount } } };
+    }
+
+    if (typeof params.minUniqueTokens === 'number' && params.minUniqueTokens > 0) {
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          uniqueTokensTraded: { gte: params.minUniqueTokens },
+        },
+      };
+    }
+
+    if (params.style) {
+      const normalizedStyle = params.style.toUpperCase();
+      if (['BALANCED_TRADER', 'ACCUMULATOR', 'DISTRIBUTOR'].includes(normalizedStyle)) {
+        const flowPatternMap: Record<string, string> = {
+          'BALANCED_TRADER': 'BALANCED',
+          'ACCUMULATOR': 'ACCUMULATOR',
+          'DISTRIBUTOR': 'DISTRIBUTOR',
+        };
+        where.behaviorProfile = {
+          is: {
+            ...(where.behaviorProfile?.is || {}),
+            flowPattern: { equals: flowPatternMap[normalizedStyle] },
+          },
+        };
+      } else {
+        where.behaviorProfile = {
+          is: {
+            ...(where.behaviorProfile?.is || {}),
+            strategyType: { equals: normalizedStyle },
+          },
+        };
+      }
+    }
+
+    if (params.speedCategory) {
+      const normalizedSpeed = params.speedCategory.toUpperCase();
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          speedCategory: { equals: normalizedSpeed },
+        },
+      };
+    }
+
+    if (params.flowPattern) {
+      const normalizedFlow = params.flowPattern.toUpperCase();
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          flowPattern: { equals: normalizedFlow },
+        },
+      };
+    }
+
+    if (params.holdBias) {
+      const holdConditions = this.buildHoldBiasCondition(params.holdBias);
+      if (holdConditions) {
+        where.behaviorProfile = {
+          is: {
+            ...(where.behaviorProfile?.is || {}),
+            medianCompletedHoldTimeHours: holdConditions,
+          },
+        };
+      }
+    }
+
+    if (typeof params.minVelocity === 'number' || typeof params.maxVelocity === 'number') {
+      const velocityFilter: Prisma.IntNullableFilter = {};
+      if (typeof params.minVelocity === 'number') velocityFilter.gte = params.minVelocity;
+      if (typeof params.maxVelocity === 'number') velocityFilter.lte = params.maxVelocity;
+      where.behaviorProfile = {
+        is: {
+          ...(where.behaviorProfile?.is || {}),
+          velocityScore: velocityFilter,
+        },
+      };
+    }
+
+    if (params.updatedSince) {
+      andFilters.push({
+        OR: [
+          { pnlSummary: { is: { updatedAt: { gte: params.updatedSince } } } },
+          { behaviorProfile: { is: { updatedAt: { gte: params.updatedSince } } } },
+        ],
+      });
+    }
+
+    if (andFilters.length) {
+      where.AND = andFilters;
+    }
+
+    return where;
+  }
+
+  private buildKolOrder(sort: string): Prisma.WalletOrderByWithRelationInput[] {
+    const tieBreaker: Prisma.WalletOrderByWithRelationInput = { address: 'asc' };
+
+    if (sort === 'recently_updated') {
+      return [
+        { kolProfile: { updatedAt: 'desc' } },
+        { knownLabel: 'asc' },
+        tieBreaker,
+      ];
+    }
+
+    return [
+      { knownLabel: { sort: 'asc', nulls: 'last' } },
+      { kolProfile: { updatedAt: 'desc' } },
+      tieBreaker,
+    ];
+  }
+
   private mapWallet(wallet: DiscoverWalletPayload): DiscoverWalletDto {
     const pnl = wallet.pnlSummary;
     const advanced = wallet.pnlSummary?.advancedStats;
     const behavior = wallet.behaviorProfile;
+    const kol = wallet.kolProfile;
 
     const lastActiveTimestamp =
       behavior?.lastTransactionTimestamp ?? pnl?.overallLastTimestamp ?? null;
@@ -387,6 +437,8 @@ export class DiscoverService {
       : null;
 
     const reason = this.deriveReason({
+      knownType: wallet.knownType ?? null,
+      kolName: kol?.name ?? wallet.knownLabel ?? null,
       realizedPnl: pnl?.realizedPnl ?? null,
       unrealizedPnl: pnl?.unrealizedPnl ?? null,
       winRate: advanced?.tokenWinRatePercent ?? null,
@@ -445,6 +497,8 @@ export class DiscoverService {
   }
 
   private deriveReason(params: {
+    knownType: string | null;
+    kolName: string | null;
     realizedPnl: number | null;
     unrealizedPnl: number | null;
     winRate: number | null;
@@ -462,6 +516,8 @@ export class DiscoverService {
     tradingStyle: string | null; // Deprecated, keep for backward compat
   }): { text: string; code: string } {
     const {
+      knownType,
+      kolName,
       realizedPnl,
       unrealizedPnl,
       winRate,
@@ -478,6 +534,13 @@ export class DiscoverService {
       tradingStyle, // Deprecated
     } = params;
     const now = Date.now();
+
+    if (knownType === 'KOL') {
+      return {
+        code: 'KOL',
+        text: kolName ? `KOL registry · ${kolName}` : 'KOL registry entry',
+      };
+    }
 
     // Holder-specific tags (high priority)
     const buys = totalBuys ?? 0;

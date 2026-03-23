@@ -7,7 +7,8 @@ export type KnownWalletType =
   | 'LP'
   | 'PROTOCOL'
   | 'EXCHANGE'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'KOL';
 
 // Minimal AdvancedStatsResult structure for the card
 export interface AdvancedStatsResult {

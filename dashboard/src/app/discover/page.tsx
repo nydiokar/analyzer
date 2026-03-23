@@ -142,6 +142,8 @@ const writeCache = (key: string, data: DiscoverWalletsResponse) => {
 export default function DiscoverPage() {
   const [wallets, setWallets] = useState<DiscoverWallet[]>([]);
   const [sort, setSort] = useState<string>('interesting');
+  const [kolsOnly, setKolsOnly] = useState(false);
+  const [kolSearch, setKolSearch] = useState('');
   const [minTradeCount, setMinTradeCount] = useState<number | ''>('');
   const [minUniqueTokens, setMinUniqueTokens] = useState<number | ''>('');
   const [speedCategory, setSpeedCategory] = useState<string>('any');
@@ -174,8 +176,8 @@ export default function DiscoverPage() {
 
   const cacheKey = useMemo(
     () =>
-      `discover:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${active48H ? '48h' : 'all'}:${PAGE_SIZE}`,
-    [sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias, active48H],
+      `discover:${kolsOnly ? 'kols' : 'all'}:${kolSearch || 'any'}:${sort}:${page}:${minTradeCount || 'any'}:${speedCategory !== 'any' ? speedCategory : 'any'}:${flowPattern !== 'any' ? flowPattern : 'any'}:${minUniqueTokens || 'any'}:${holdBias !== 'any' ? holdBias : 'any'}:${active48H ? '48h' : 'all'}:${PAGE_SIZE}`,
+    [kolsOnly, kolSearch, sort, page, minTradeCount, speedCategory, flowPattern, minUniqueTokens, holdBias, active48H],
   );
 
   const pageCount = useMemo(
@@ -194,6 +196,9 @@ export default function DiscoverPage() {
         pageSize: String(PAGE_SIZE),
       });
 
+      if (kolsOnly) params.set('scope', 'kols');
+      if (kolsOnly && kolSearch.trim()) params.set('search', kolSearch.trim());
+
       if (minTradeCount !== '' && minTradeCount > 0) params.set('minTradeCount', String(minTradeCount));
       if (minUniqueTokens !== '' && minUniqueTokens > 0) params.set('minUniqueTokens', String(minUniqueTokens));
       if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
@@ -211,7 +216,7 @@ export default function DiscoverPage() {
       setLoading(false);
       setIsUpdating(false);
     }
-  }, [active48H, cacheKey, holdBias, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern]);
+  }, [active48H, cacheKey, holdBias, kolSearch, kolsOnly, minTradeCount, minUniqueTokens, page, sort, speedCategory, flowPattern]);
 
   useEffect(() => {
     const cached = readCache(cacheKey);
@@ -240,6 +245,8 @@ export default function DiscoverPage() {
 
   const resetFilters = () => {
     setSort('interesting');
+    setKolsOnly(false);
+    setKolSearch('');
     setSpeedCategory('any');
     setFlowPattern('any');
     setHoldBias('any');
@@ -289,6 +296,8 @@ export default function DiscoverPage() {
         timeframe: 'all',
       });
 
+      if (kolsOnly) params.set('scope', 'kols');
+      if (kolsOnly && kolSearch.trim()) params.set('search', kolSearch.trim());
       if (minTradeCount !== '' && minTradeCount > 0) params.set('minTradeCount', String(minTradeCount));
       if (minUniqueTokens !== '' && minUniqueTokens > 0) params.set('minUniqueTokens', String(minUniqueTokens));
       if (speedCategory && speedCategory !== 'any') params.set('speedCategory', speedCategory);
@@ -304,7 +313,7 @@ export default function DiscoverPage() {
       console.error('Failed to fetch aggregation stats:', err);
       // Non-critical, just log it
     }
-  }, [active48H, minTradeCount, minUniqueTokens, speedCategory, flowPattern, holdBias, sort]);
+  }, [active48H, holdBias, kolSearch, kolsOnly, minTradeCount, minUniqueTokens, sort, speedCategory, flowPattern]);
 
   useEffect(() => {
     fetchAggregation();
@@ -439,7 +448,6 @@ export default function DiscoverPage() {
 
         {/* Filter row */}
         <div className="flex items-center gap-2">
-          {/* Active (48H) Badge - First for prominence */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -461,6 +469,34 @@ export default function DiscoverPage() {
               <TooltipContent>
                 <p className="text-xs">
                   {active48H ? "Showing wallets active in last 48 hours" : "Click to filter wallets active in last 48 hours"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant={kolsOnly ? "default" : "outline"}
+                  className={cn(
+                    "cursor-pointer h-7 px-2.5 text-xs font-medium transition-all",
+                    kolsOnly && "bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/50 hover:bg-sky-500/25",
+                    !kolsOnly && "hover:bg-accent"
+                  )}
+                  onClick={() => {
+                    setKolsOnly(!kolsOnly);
+                    setKolSearch('');
+                    setPage(1);
+                    setActivePreset(null);
+                  }}
+                >
+                  KOLs
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">
+                  {kolsOnly ? "Showing only KOL registry wallets" : "Click to filter the table to KOL registry wallets"}
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -504,7 +540,6 @@ export default function DiscoverPage() {
             </Select>
           </div>
 
-          {/* Hold filter */}
           <div className="flex items-center gap-2 text-sm">
             <TooltipProvider>
               <Tooltip>
@@ -530,7 +565,6 @@ export default function DiscoverPage() {
             </Select>
           </div>
 
-          {/* Min trades input */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -553,7 +587,6 @@ export default function DiscoverPage() {
             </Tooltip>
           </TooltipProvider>
 
-          {/* Min tokens input */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -575,6 +608,28 @@ export default function DiscoverPage() {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+
+          {kolsOnly && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Input
+                    type="text"
+                    placeholder="Search KOL name or address"
+                    className="w-[190px] h-7 text-xs"
+                    value={kolSearch}
+                    onChange={(e) => {
+                      setKolSearch(e.target.value);
+                      setPage(1);
+                    }}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Matches KOL name, handle, label, or wallet address</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
 
           {/* Reset + Refresh buttons */}
           <TooltipProvider>
@@ -603,24 +658,23 @@ export default function DiscoverPage() {
             </Tooltip>
           </TooltipProvider>
 
-          {/* Divider */}
-          <div className="h-6 w-px bg-border mx-1" />
-
-          {/* Time Period Filter - After divider */}
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/30">
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
-              1d
-            </Button>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
-              7d
-            </Button>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
-              30d
-            </Button>
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
-              All
-            </Button>
-          </div>
+          <>
+            <div className="h-6 w-px bg-border mx-1" />
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/30">
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+                1d
+              </Button>
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+                7d
+              </Button>
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+                30d
+              </Button>
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled>
+                All
+              </Button>
+            </div>
+          </>
         </div>
 
         <div className="flex gap-4">

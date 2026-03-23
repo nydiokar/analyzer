@@ -1,8 +1,25 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class DiscoverWalletsQueryDto {
+  @ApiProperty({
+    required: false,
+    enum: ['all', 'kols'],
+    description: 'Dataset scope. Defaults to all wallets; use kols for KOL registry entries only.',
+  })
+  @IsOptional()
+  @IsIn(['all', 'kols'])
+  scope?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Optional search string. In KOL mode this matches KOL name, handle, label, or wallet address.',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
   @ApiProperty({
     required: false,
     enum: ['interesting', 'most_active', 'best_pnl', 'longest_holders', 'recently_updated'],

@@ -2975,7 +2975,7 @@ export class DatabaseService {
         take: number;
     }): Promise<{
         total: number;
-        wallets: Array<Prisma.WalletGetPayload<{ include: { pnlSummary: { include: { advancedStats: true } }, behaviorProfile: true } }>>;
+        wallets: Array<Prisma.WalletGetPayload<{ include: { pnlSummary: { include: { advancedStats: true } }, behaviorProfile: true, kolProfile: true } }>>;
     }> {
         return this.executeWithRetry('getDiscoverWallets', async () => {
             const [total, wallets] = await this.prismaClient.$transaction([
@@ -2985,6 +2985,7 @@ export class DatabaseService {
                     include: {
                         pnlSummary: { include: { advancedStats: true } },
                         behaviorProfile: true,
+                        kolProfile: true,
                     },
                     orderBy: params.orderBy,
                     skip: params.skip,
