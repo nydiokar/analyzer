@@ -234,6 +234,7 @@ model WalletBehaviorProfile {
   averageSessionDurationMinutes      Float
   firstTransactionTimestamp          Int?
   lastTransactionTimestamp           Int?
+  activeTradingDays                  Int?
   updatedAt                          DateTime @updatedAt
   holdTimeTokenMap                   Json?
   enrichedHoldTimeDistribution       Json?

@@ -162,7 +162,15 @@ export class BehaviorAnalyzer {
     // Add timestamps to the final metrics object
     metrics.firstTransactionTimestamp = firstTransactionTimestamp;
     metrics.lastTransactionTimestamp = lastTransactionTimestamp;
-    
+
+    // Compute active trading days: count distinct UTC calendar dates that had at least one trade
+    const tradingDaySet = new Set<string>();
+    for (const record of swapRecords) {
+      const dateStr = new Date(record.timestamp * 1000).toISOString().slice(0, 10); // "YYYY-MM-DD"
+      tradingDaySet.add(dateStr);
+    }
+    metrics.activeTradingDays = tradingDaySet.size;
+
     this.logger.debug('Completed behavior analysis orchestration.');
     return metrics;
   }

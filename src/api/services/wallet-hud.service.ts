@@ -321,11 +321,14 @@ export class WalletHudService {
       ? advancedStats.tokenWinRatePercent / 100 // Convert percentage to decimal
       : 0;
 
-    // Calculate days active
-    const daysActive = this.calculateDaysActive(
-      behaviorProfile?.firstTransactionTimestamp,
-      behaviorProfile?.lastTransactionTimestamp,
-    );
+    // Calculate days active — prefer activeTradingDays (distinct trading dates) over wall-clock span.
+    // Wall-clock span overstates activity for wallets with long gaps between sessions.
+    const daysActive =
+      (behaviorProfile as any)?.activeTradingDays ??
+      this.calculateDaysActive(
+        behaviorProfile?.firstTransactionTimestamp,
+        behaviorProfile?.lastTransactionTimestamp,
+      );
 
     // Calculate derived metrics
     const totalTrades = behaviorProfile?.totalTradeCount ?? 0;

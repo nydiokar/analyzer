@@ -171,6 +171,7 @@ export class BehaviorService {
       averageSessionDurationMinutes: profile.averageSessionDurationMinutes,
       firstTransactionTimestamp: profile.firstTransactionTimestamp,
       lastTransactionTimestamp: profile.lastTransactionTimestamp,
+      activeTradingDays: profile.activeTradingDays ?? undefined,
       historicalPattern, // Reconstructed from cached pieces
     };
   }

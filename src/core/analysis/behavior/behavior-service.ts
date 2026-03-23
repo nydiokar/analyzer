@@ -110,6 +110,7 @@ export class BehaviorService {
           averageSessionDurationMinutes,
           firstTransactionTimestamp,
           lastTransactionTimestamp,
+          activeTradingDays,
           historicalPattern, // Need exitPattern from this
         } = metrics;
 
@@ -170,6 +171,7 @@ export class BehaviorService {
             averageSessionDurationMinutes: sanitizeNumber(averageSessionDurationMinutes),
             firstTransactionTimestamp,
             lastTransactionTimestamp,
+            activeTradingDays: activeTradingDays ?? null,
           };
 
           // Use the new DatabaseService method

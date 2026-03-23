@@ -241,6 +241,7 @@ export interface BehavioralMetrics {
   averageSessionDurationMinutes: number;
   firstTransactionTimestamp?: number;
   lastTransactionTimestamp?: number;
+  activeTradingDays?: number; // Count of distinct calendar days (UTC) with at least one trade
 
   // New: Historical pattern (optional, non-breaking addition)
   historicalPattern?: WalletHistoricalPattern;
