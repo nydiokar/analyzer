@@ -200,6 +200,9 @@ Interpretation rule used in this session:
 - If dead tuples are low on biggest tables, growth is ingest-driven, not vacuum lag.
 - If one index is multi-GB and tied to high-ingest table, index strategy is a primary pressure point.
 
+DB ops runbook:
+- Use [.ai/context/db_op/ONLINE_DB_CLEANUP_RUNBOOK_2026-03-05.md](/home/luna/analyzer/.ai/context/db_op/ONLINE_DB_CLEANUP_RUNBOOK_2026-03-05.md) for prune/repack maintenance, protected-wallet prune commands, and verified `pg_repack` workflow/results.
+
 ### Lock Scope Independence
 *Decided: 2026-01-13*
 
