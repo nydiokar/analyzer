@@ -34,6 +34,8 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
+| ⚪ | **[SHARE-1]** Shareable holder profiles — Prisma model + public GET endpoint + Next.js `/share/hp/[shareId]` server component (SSR, no auth) | 🟡 M | See [SHAREABLE_ANALYSIS_PLAN.md](.ai/context/SHAREABLE_ANALYSIS_PLAN.md) |
+| ⚪ | **[SHARE-2]** OG image generation — `app/api/og/hp/[shareId]/route.ts` using `next/og` ImageResponse + Share button UI in holder profiles results | 🟡 M | Depends on SHARE-1. Design spec in same plan doc. |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
@@ -269,6 +271,7 @@ Holder Profiles: NO LOCK (relies on service idempotency)
 | File | Purpose |
 |:-----|:--------|
 | `CONTEXT.md` | Timeline, active tasks, decisions (this file) |
+| `.ai/context/SHAREABLE_ANALYSIS_PLAN.md` | OG images + SSR share page architecture — full spec for public shareable analysis links |
 | `GUIDE.md` | Implementation roadmap, build instructions |
 | `RULES.md` | AI agent execution contract |
 | `HANDOFF.md` | Session start/end protocol |
