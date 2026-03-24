@@ -1637,6 +1637,37 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       };
 
       await this.holderProfilesCacheService.cacheTokenResult(tokenMint, topN, result);
+
+      // Persist per-profile snapshots for history (only on genuine re-analyses, not cache-only runs).
+      // Known-wallet stubs (burn, LP, Raydium, etc.) have no Wallet DB record so are excluded from
+      // individual rows (FK constraint). Instead, we store them in the metadata of the rank-1 row
+      // so the snapshot endpoint can reconstruct the full profile list including known wallets.
+      if (!tokenCacheOnly) {
+        const jobIdStr = job.id?.toString() ?? null;
+        const profilesToSnapshot = hydratedFinalProfiles.filter((p) => !p.analysisSkipped);
+        const knownWalletStubs = hydratedFinalProfiles.filter((p) => p.analysisSkipped);
+        await Promise.allSettled(
+          profilesToSnapshot.map((profile, idx) =>
+            this.holderProfilesCacheService.saveSnapshot({
+              walletAddress: profile.walletAddress,
+              tokenMint,
+              analysisMode: 'token',
+              holderRank: profile.rank,
+              supplyPercent: profile.supplyPercent,
+              topN,
+              jobId: jobIdStr,
+              requestId: job.data.requestId,
+              profile,
+              // Attach known-wallet stubs to the first real profile's metadata so the snapshot
+              // endpoint can merge them back without a separate storage row.
+              metadata: idx === 0 && knownWalletStubs.length > 0
+                ? { mode: 'token', topN, knownWalletStubs }
+                : { mode: 'token', topN },
+            })
+          )
+        );
+      }
+
       await job.updateProgress(100);
 
       // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event

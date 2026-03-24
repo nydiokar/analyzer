@@ -27,6 +27,8 @@ import {
 } from '@/components/holder-profiles/v2/WalletClassifier';
 import { AppShell } from '@/components/layout/AppShell';
 import { useAuthStore } from '@/store/auth-store';
+import { useHolderProfileHistory } from '@/hooks/useHolderProfileHistory';
+import { SnapshotHistoryModal } from '@/components/holder-profiles/SnapshotHistoryModal';
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 type AnalysisMode = 'token' | 'wallet';
@@ -566,6 +568,13 @@ function HolderProfilesContent() {
       }
     : null;
 
+  const { runs: historyRuns } = useHolderProfileHistory({
+    tokenMint: analysisMode === 'token' ? tokenMint : null,
+    topN,
+    // Fetch after completion OR after a failure where we still have a prior result to show
+    enabled: analysisMode === 'token' && (tokenStatus === 'completed' || (tokenStatus === 'failed' && !!displayedTokenResult)),
+  });
+
   const retrySimilarity = useCallback(() => {
     if (tokenStatus === 'running') {
       toast.error('Wait for holder profiles to finish before retrying similarity');
@@ -669,14 +678,21 @@ function HolderProfilesContent() {
         </Card>
 
         {analysisMode === 'token' && displayedTokenResult && (
-          <TokenPulse
-            result={displayedTokenResult}
-            similarityResult={similarityResult}
-            similarityStatus={similarityStatus}
-            isFinalAnalysis={similarityStatus !== 'idle'}
-            notice={tokenNotice}
-            onRetrySimilarity={retrySimilarity}
-          />
+          <div className="space-y-2">
+            {historyRuns.length > 0 && (
+              <div className="max-w-6xl mx-auto flex justify-end">
+                <SnapshotHistoryModal runs={historyRuns} tokenMint={tokenMint} />
+              </div>
+            )}
+            <TokenPulse
+              result={displayedTokenResult}
+              similarityResult={similarityResult}
+              similarityStatus={similarityStatus}
+              isFinalAnalysis={similarityStatus !== 'idle'}
+              notice={tokenNotice}
+              onRetrySimilarity={retrySimilarity}
+            />
+          </div>
         )}
 
         {analysisMode === 'token' && tokenStatus === 'failed' && !displayedTokenResult && (

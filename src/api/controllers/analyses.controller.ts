@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, HttpException, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Query, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, HttpException, Req, ForbiddenException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -812,6 +812,120 @@ export class AnalysesController {
         throw error;
       }
       throw new InternalServerErrorException('Failed to queue wallet holder profile job');
+    }
+  }
+
+  @Get('/holder-profiles/history')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'List past holder profile snapshot runs for a token',
+    description: 'Returns a list of distinct analysis runs for the given token, newest first. Each entry can be loaded as a historical snapshot.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of past runs',
+    schema: {
+      type: 'object',
+      properties: {
+        runs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              jobId: { type: 'string' },
+              runAt: { type: 'string', format: 'date-time' },
+              profileCount: { type: 'number' },
+              topN: { type: 'number', nullable: true },
+            },
+          },
+        },
+      },
+    },
+  })
+  async getHolderProfileHistory(
+    @Query('tokenMint') tokenMint: string,
+    @Query('topN') topNRaw?: string,
+    @Query('limit') limitRaw?: string,
+  ): Promise<{ runs: Array<{ jobId: string; runAt: Date; profileCount: number; topN: number | null }> }> {
+    if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
+      throw new BadRequestException(`Invalid token mint address: ${tokenMint}`);
+    }
+    const topN = topNRaw != null ? Number(topNRaw) : undefined;
+    const limit = limitRaw != null ? Math.min(Math.max(1, Number(limitRaw)), 20) : 10;
+    try {
+      const runs = await this.databaseService.getHolderProfileRunsForToken(
+        tokenMint,
+        topN != null && Number.isFinite(topN) ? topN : undefined,
+        limit,
+      );
+      return { runs };
+    } catch (error) {
+      this.logger.error(`Failed to fetch holder profile history for ${tokenMint}: ${getErrorMessage(error)}`);
+      throw new InternalServerErrorException('Failed to fetch holder profile history');
+    }
+  }
+
+  @Get('/holder-profiles/snapshot')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Load a specific historical holder profile snapshot',
+    description: 'Returns the full HolderProfilesResult reconstructed from a past snapshot run, identified by tokenMint + jobId.',
+  })
+  @ApiResponse({ status: 200, description: 'Historical snapshot result' })
+  @ApiResponse({ status: 400, description: 'Missing or invalid parameters' })
+  async getHolderProfileSnapshot(
+    @Query('tokenMint') tokenMint: string,
+    @Query('jobId') jobId: string,
+  ): Promise<{
+    mode: 'token';
+    tokenMint: string;
+    profiles: any[];
+    metadata: {
+      totalHoldersRequested: number;
+      totalHoldersAnalyzed: number;
+      totalProcessingTimeMs: number;
+      avgProcessingTimePerWalletMs: number;
+      snapshotJobId: string;
+      snapshotRunAt: string | null;
+    };
+  }> {
+    if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
+      throw new BadRequestException(`Invalid token mint address: ${tokenMint}`);
+    }
+    if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
+      throw new BadRequestException('jobId is required');
+    }
+    try {
+      const snapshots = await this.databaseService.getHolderProfileSnapshotsByJobId(tokenMint, jobId.trim());
+      if (snapshots.length === 0) {
+        throw new BadRequestException(`No snapshot found for tokenMint=${tokenMint} jobId=${jobId}`);
+      }
+      // Extract known-wallet stubs stored in the first row's metadata (set at save time)
+      const firstMeta = snapshots[0]?.metadata as Record<string, any> | null;
+      const knownWalletStubs: any[] = Array.isArray(firstMeta?.knownWalletStubs) ? firstMeta.knownWalletStubs : [];
+      const analyzedProfiles = snapshots.map((s) => s.profile);
+      // Merge analyzed + known-wallet stubs, then sort by rank to restore original order
+      const allProfiles = [...analyzedProfiles, ...knownWalletStubs].sort(
+        (a: any, b: any) => (a.rank ?? 0) - (b.rank ?? 0),
+      );
+      const runAt = snapshots[0]?.computedAt?.toISOString() ?? null;
+      return {
+        mode: 'token',
+        tokenMint,
+        profiles: allProfiles,
+        metadata: {
+          totalHoldersRequested: allProfiles.length,
+          totalHoldersAnalyzed: analyzedProfiles.length,
+          totalProcessingTimeMs: 0,
+          avgProcessingTimePerWalletMs: 0,
+          snapshotJobId: jobId,
+          snapshotRunAt: runAt,
+        },
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`Failed to fetch holder profile snapshot ${jobId}: ${getErrorMessage(error)}`);
+      throw new InternalServerErrorException('Failed to fetch holder profile snapshot');
     }
   }
 }
