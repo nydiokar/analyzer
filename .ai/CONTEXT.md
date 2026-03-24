@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-03-23  **Status:** 3 carry-over bugs fixed and committed; migration pending for HUD-TOKENS-DAY
+**Branch:** `main`  **Last Updated:** 2026-03-24  **Status:** SHARE feature fully built, zero TS errors, migration applied — NOT YET COMMITTED
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,6 +8,28 @@
 
 ##  Active Work
 
+### March 24, 2026 — Shareable Holder Profiles ✅ BUILT, NOT COMMITTED
+
+**All code written, both TS compilations clean, Prisma migration applied. Needs commit + smoke test.**
+
+| File | What |
+|:-----|:-----|
+| `prisma/schema.prisma` | `HolderProfileShare` model added; `User.holderProfileShares` relation |
+| `prisma/migrations/20260324115336_add_holder_profile_share/` | Migration applied to DB ✅ |
+| `src/api/services/holder-profile-share.service.ts` | Reads Redis cache, strips large fields, persists snapshot, increments viewCount fire-and-forget |
+| `src/api/controllers/share.controller.ts` | `POST /api/v1/share/hp` (auth) + `GET /api/v1/share/hp/:id` (`@Public()`) |
+| `src/api/modules/share.module.ts` | ShareModule wired into ApiModule |
+| `src/api.module.ts` | ShareModule imported |
+| `dashboard/src/middleware.ts` | `/share` added to publicRoutes |
+| `dashboard/src/app/share/hp/[shareId]/page.tsx` | SSR server component, generateMetadata with full OG/Twitter tags, read-only table |
+| `dashboard/src/app/api/og/hp/[shareId]/route.tsx` | Edge runtime, 1200×630 ImageResponse, behavior pills + bar + stats |
+| `dashboard/src/app/tools/holder-profiles/page.tsx` | Share button (idle→loading→copied, clipboard + sonner toast) |
+
+**Known issue to watch:** Share button calls `POST /share/hp` which reads Redis. Redis TTL for holder-profiles results is 15 min. If user waits >15 min after analysis then clicks Share, they get a 404 "run analysis first". This is by design (share a live result) — the toast will show the backend error message clearly.
+
+**NOT done yet:** commit. Run `git add` on the 10 changed/new files and commit.
+
+---
 
 ### March 23, 2026 — GTM Week 1 Remaining Tasks (Day 5 of 7)
 
@@ -34,8 +56,8 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| ⚪ | **[SHARE-1]** Shareable holder profiles — Prisma model + public GET endpoint + Next.js `/share/hp/[shareId]` server component (SSR, no auth) | 🟡 M | See [SHAREABLE_ANALYSIS_PLAN.md](.ai/context/SHAREABLE_ANALYSIS_PLAN.md) |
-| ⚪ | **[SHARE-2]** OG image generation — `app/api/og/hp/[shareId]/route.ts` using `next/og` ImageResponse + Share button UI in holder profiles results | 🟡 M | Depends on SHARE-1. Design spec in same plan doc. |
+| ✅ | **[SHARE-1]** Shareable holder profiles — Prisma model + public GET endpoint + Next.js `/share/hp/[shareId]` server component (SSR, no auth) | 🟡 M | DONE. Not yet committed. |
+| ✅ | **[SHARE-2]** OG image generation — `app/api/og/hp/[shareId]/route.tsx` using `next/og` ImageResponse + Share button UI in holder profiles results | 🟡 M | DONE. Not yet committed. |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
@@ -65,6 +87,14 @@
 ---
 
 ##  Recent Activity
+
+### March 24, 2026 — Shareable Holder Profiles
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 24.1 | 🎯 FEAT | **[SHARE-1+2]** Shareable holder profiles — `HolderProfileShare` Prisma model + migration, `POST /share/hp` + `GET /share/hp/:id` NestJS endpoints, `/share/hp/[shareId]` SSR page with `generateMetadata` OG tags, `/api/og/hp/[shareId]` edge ImageResponse (1200×630), Share button in holder profiles UI (clipboard + toast). Zero TS errors both backend and frontend. **Not yet committed.** | 🟡 M | `prisma/schema.prisma`, `src/api/services/holder-profile-share.service.ts`, `src/api/controllers/share.controller.ts`, `src/api/modules/share.module.ts`, `dashboard/src/app/share/hp/[shareId]/page.tsx`, `dashboard/src/app/api/og/hp/[shareId]/route.tsx`, `dashboard/src/app/tools/holder-profiles/page.tsx`, `dashboard/src/middleware.ts` |
+
+---
 
 ### March 23, 2026 — Carry-over bug fixes + SDK update + pre-commit hook
 
