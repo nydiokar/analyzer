@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-03-24  **Status:** SHARE feature fully built, zero TS errors, migration applied — NOT YET COMMITTED
+**Branch:** `feature/holder-profile-sharing`  **Last Updated:** 2026-03-24  **Status:** SHARE feature committed + code-reviewed + fixed on feature branch
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,26 +8,25 @@
 
 ##  Active Work
 
-### March 24, 2026 — Shareable Holder Profiles ✅ BUILT, NOT COMMITTED
+### March 24, 2026 — Shareable Holder Profiles ✅ COMMITTED + CODE REVIEWED
 
-**All code written, both TS compilations clean, Prisma migration applied. Needs commit + smoke test.**
+**Feature branch:** `feature/holder-profile-sharing` (2 commits: initial build + code review fixes)
 
 | File | What |
 |:-----|:-----|
 | `prisma/schema.prisma` | `HolderProfileShare` model added; `User.holderProfileShares` relation |
 | `prisma/migrations/20260324115336_add_holder_profile_share/` | Migration applied to DB ✅ |
-| `src/api/services/holder-profile-share.service.ts` | Reads Redis cache, strips large fields, persists snapshot, increments viewCount fire-and-forget |
-| `src/api/controllers/share.controller.ts` | `POST /api/v1/share/hp` (auth) + `GET /api/v1/share/hp/:id` (`@Public()`) |
-| `src/api/modules/share.module.ts` | ShareModule wired into ApiModule |
+| `src/api/services/holder-profile-share.service.ts` | Uses `HolderProfilesCacheService` (not raw Redis), proper Prisma cast, `getShareRaw()` for no-count reads |
+| `src/api/controllers/share.controller.ts` | `POST /share/hp` (auth) + `GET /share/hp/:id` + `GET /share/hp/:id/raw` (no view count) |
+| `src/api/controllers/dto/create-holder-profile-share.dto.ts` | DTO extracted to its own file |
+| `src/api/modules/share.module.ts` | Imports `HolderProfilesCacheModule` (not raw RedisModule) |
 | `src/api.module.ts` | ShareModule imported |
 | `dashboard/src/middleware.ts` | `/share` added to publicRoutes |
-| `dashboard/src/app/share/hp/[shareId]/page.tsx` | SSR server component, generateMetadata with full OG/Twitter tags, read-only table |
-| `dashboard/src/app/api/og/hp/[shareId]/route.tsx` | Edge runtime, 1200×630 ImageResponse, behavior pills + bar + stats |
+| `dashboard/src/app/share/hp/[shareId]/page.tsx` | SSR server component; metadata uses `/raw` (no view count), page uses view-counting endpoint |
+| `dashboard/src/app/api/og/hp/[shareId]/route.tsx` | Edge OG image; calls `/raw` to avoid inflating view count on crawler hits |
 | `dashboard/src/app/tools/holder-profiles/page.tsx` | Share button (idle→loading→copied, clipboard + sonner toast) |
 
-**Known issue to watch:** Share button calls `POST /share/hp` which reads Redis. Redis TTL for holder-profiles results is 15 min. If user waits >15 min after analysis then clicks Share, they get a 404 "run analysis first". This is by design (share a live result) — the toast will show the backend error message clearly.
-
-**NOT done yet:** commit. Run `git add` on the 10 changed/new files and commit.
+**Key fix:** OG image + `generateMetadata` both called the view-counting endpoint — every social crawler preview was inflating analytics. Fixed with dedicated `/raw` endpoint.
 
 ---
 
@@ -56,8 +55,7 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| ✅ | **[SHARE-1]** Shareable holder profiles — Prisma model + public GET endpoint + Next.js `/share/hp/[shareId]` server component (SSR, no auth) | 🟡 M | DONE. Not yet committed. |
-| ✅ | **[SHARE-2]** OG image generation — `app/api/og/hp/[shareId]/route.tsx` using `next/og` ImageResponse + Share button UI in holder profiles results | 🟡 M | DONE. Not yet committed. |
+| ✅ | **[SHARE-1+2]** Shareable holder profiles — fully built, code-reviewed, committed on `feature/holder-profile-sharing`. Ready for smoke test + merge. | 🟡 M | DONE. |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
