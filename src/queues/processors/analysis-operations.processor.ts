@@ -1272,7 +1272,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         }
 
         for (const [address, detection] of filteredDetails) {
-          if (!detection.knownType || !holderMetadataByWallet.has(address)) {
+          if (!detection.knownType || !detection.shouldSkipAnalysis || !holderMetadataByWallet.has(address)) {
             continue;
           }
           const metadata = holderMetadataByWallet.get(address);

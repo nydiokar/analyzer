@@ -129,7 +129,7 @@ async function main() {
 
   // Inputs
   const mint         = await prompt('\nToken mint for holders endpoints (Enter to skip A & C): ');
-  const walletsInput = await prompt('Wallet addresses (comma-separated, min 2 for similarity): ');
+  const walletsInput = await prompt('Wallet addresses (comma-separated, min 2 for TEST B similarity — not needed for /deep): ');
   const wallets      = walletsInput.split(',').map(w => w.trim()).filter(Boolean);
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -193,40 +193,74 @@ async function main() {
 
   // ═══════════════════════════════════════════════════════════════════════════
   // TEST C — POST /intel/token/:mint/holders/deep  (35cr)
+  // No wallets[] needed — processor auto-discovers holders and chains similarity.
+  // Flow: POST → 202 → poll holderProfiles.jobId → poll similarity.resultKey
   // ═══════════════════════════════════════════════════════════════════════════
   section(`TEST C — POST /intel/token/:mint/holders/deep  (35cr)`);
 
   if (!mint) {
     console.log('  ⊘  Skipped — no mint provided');
-  } else if (wallets.length < 2) {
-    console.log('  ⊘  Skipped — need at least 2 wallet addresses');
   } else {
-    console.log(`  mint: ${mint}  topN: 5  wallets: ${wallets.join(', ')}\n`);
-    const rC = await req('POST', `/intel/token/${mint}/holders/deep`, token, { topN: 5, wallets });
+    console.log(`  mint: ${mint}  topN: 5\n`);
+    const rC = await req('POST', `/intel/token/${mint}/holders/deep`, token, { topN: 5 });
     show(rC.status, rC.data);
 
     if (rC.status === 202) {
-      const holderJobId   = rC.data?.holderProfiles?.jobId;
-      const similarityJobId = rC.data?.similarity?.jobId;
+      const holderJobId  = rC.data?.holderProfiles?.jobId;
+      const resultKey    = rC.data?.similarity?.resultKey;  // e.g. "similarity:result:intel-holders-deep-sim-..."
 
       if (holderJobId) {
         console.log('\n  → Polling holder-profiles job...');
-        await pollUntilDone(holderJobId, token);
+        const hpOutcome = await pollUntilDone(holderJobId, token);
+        if (hpOutcome === 'completed') {
+          console.log('  → Fetching holder-profiles result...');
+          const holdersResult = await req('GET', `/jobs/${holderJobId}/result`, token);
+          const profiles: any[] = holdersResult.data?.result?.profiles ?? holdersResult.data?.profiles ?? [];
+          console.log(`  ✅ HTTP ${holdersResult.status}  —  ${profiles.length} profile(s)`);
+          for (const p of profiles.slice(0, 5)) {
+            console.log(`    #${p.rank ?? '?'}  ${p.walletAddress?.slice(0, 12)}...  ${String(p.supplyPercent?.toFixed(2) ?? '?').padStart(6)}%  ${p.behaviorType ?? 'n/a'}  pnl=${p.walletPnlSol ?? 'n/a'}  tier=${p.dataQualityTier ?? 'n/a'}`);
+          }
+        }
       }
-      if (similarityJobId) {
-        console.log('\n  → Polling similarity job...');
-        await pollUntilDone(similarityJobId, token);
-      }
-      if (holderJobId && similarityJobId) {
-        console.log('\n  → Both jobs complete. Fetching results...');
-        const [holdersResult, similarityResult] = await Promise.all([
-          req('GET', `/jobs/${holderJobId}/result`, token),
-          req('GET', `/jobs/${similarityJobId}/result`, token),
-        ]);
-        console.log('\n  Holder-profiles result:');
-        show(holdersResult.status, holdersResult.data);
-        console.log('\n  Similarity result:');
-        show(similarityResult.status, similarityResult.data);
+
+      if (resultKey) {
+        console.log(`\n  → Polling similarity result key: ${resultKey}`);
+        // Similarity job is chained — poll by result key until it appears (max 5 min)
+        const deadline = Date.now() + 5 * 60 * 1000;
+        let simResult: any = null;
+        while (Date.now() < deadline) {
+          await sleep(4000);
+          const r = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(resultKey)}`, token);
+          process.stdout.write(` [${r.status}]`);
+          if (r.status === 200 && r.data && typeof r.data === 'object') {
+            simResult = r.data;
+            process.stdout.write('\n');
+            break;
+          }
+          // 404 = not ready yet, keep polling; anything else = stop
+        }
+        if (simResult) {
+          console.log('\n  Similarity result (summary):');
+          const pairs: any[] = simResult?.pairwiseSimilarities ?? [];
+          console.log(`  vectorTypeUsed : ${simResult?.vectorTypeUsed ?? 'n/a'}`);
+          console.log(`  pairs computed : ${pairs.length}`);
+          // Print top 5 pairs by binaryScore, strip bulky fields
+          const topPairs = pairs
+            .slice()
+            .sort((a: any, b: any) => (b.binaryScore ?? b.similarityScore ?? 0) - (a.binaryScore ?? a.similarityScore ?? 0))
+            .slice(0, 5)
+            .map((p: any) => ({
+              walletA: p.walletA?.slice(0, 8) + '...',
+              walletB: p.walletB?.slice(0, 8) + '...',
+              binaryScore: p.binaryScore ?? p.similarityScore,
+              capitalScore: p.capitalScore,
+              sharedTokens: p.binarySharedTokenCount ?? p.sharedTokenCount ?? p.sharedTokens?.length,
+            }));
+          console.log('  top pairs:');
+          console.log(JSON.stringify(topPairs, null, 2));
+        } else {
+          console.log('\n  ⚠️  Similarity result not ready within timeout');
+        }
       }
     }
   }
