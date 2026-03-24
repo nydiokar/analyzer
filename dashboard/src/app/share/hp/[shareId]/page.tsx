@@ -44,7 +44,18 @@ interface ShareRecord {
 async function fetchShare(shareId: string): Promise<ShareRecord | null> {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api/v1';
   try {
-    const res = await fetch(`${base}/share/hp/${shareId}`, {
+    const res = await fetch(`${base}/share/hp/${shareId}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchShareRaw(shareId: string): Promise<ShareRecord | null> {
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api/v1';
+  try {
+    const res = await fetch(`${base}/share/hp/${shareId}/raw`, {
       next: { revalidate: 60 },
     });
     if (!res.ok) return null;
@@ -60,7 +71,8 @@ export async function generateMetadata({
   params: Promise<{ shareId: string }>;
 }): Promise<Metadata> {
   const { shareId } = await params;
-  const share = await fetchShare(shareId);
+  // Use raw endpoint — metadata generation must not count as a view
+  const share = await fetchShareRaw(shareId);
 
   if (!share) {
     return { title: 'Analysis Not Found — Sova Intel' };
@@ -170,7 +182,7 @@ export default async function ShareHolderProfilesPage({
     notFound();
   }
 
-  const { snapshot } = share!;
+  const { snapshot } = share;
   const tokenLabel = snapshot.tokenSymbol
     ? `$${snapshot.tokenSymbol}`
     : snapshot.tokenMint
@@ -216,7 +228,7 @@ export default async function ShareHolderProfilesPage({
             { label: 'Holders Analyzed', value: String(snapshot.profiles.length) },
             { label: 'Requested', value: String(snapshot.metadata.totalHoldersRequested) },
             { label: 'Avg Analysis Time', value: `${Math.round(snapshot.metadata.avgProcessingTimePerWalletMs)}ms` },
-            { label: 'Views', value: String(share.viewCount + 1) },
+            { label: 'Views', value: String(share.viewCount) },
           ].map(({ label, value }) => (
             <div key={label} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
               <p className="text-[11px] text-white/40 uppercase tracking-wide">{label}</p>

@@ -1,13 +1,13 @@
-import { Injectable, Inject, Logger, NotFoundException } from '@nestjs/common';
-import Redis from 'ioredis';
-import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { prisma } from '../../core/services/database-service';
+import type { Prisma } from '@prisma/client';
 import type { HolderProfile, HolderProfilesResult } from '../../queues/jobs/types';
+import { HolderProfilesCacheService } from './holder-profiles-cache.service';
 
 export interface ShareSnapshot {
   mode: string;
   tokenMint?: string;
-  tokenSymbol?: string;
+  tokenSymbol?: string | null;
   topN?: number;
   profiles: Array<Pick<
     HolderProfile,
@@ -46,13 +46,12 @@ export interface ShareRecord {
   viewCount: number;
 }
 
-
 @Injectable()
 export class HolderProfileShareService {
   private readonly logger = new Logger(HolderProfileShareService.name);
 
   constructor(
-    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly cacheService: HolderProfilesCacheService,
   ) {}
 
   /**
@@ -66,15 +65,12 @@ export class HolderProfileShareService {
   }): Promise<{ shareId: string; url: string }> {
     const { tokenMint, topN, userId } = params;
 
-    const cacheKey = `holder-profiles:token:${tokenMint}:${topN}`;
-    const cached = await this.redis.get(cacheKey);
-    if (!cached) {
+    const result = await this.cacheService.getTokenResult(tokenMint, topN);
+    if (!result) {
       throw new NotFoundException(
         `No cached holder-profiles result for mint=${tokenMint} topN=${topN}. Run the analysis first.`,
       );
     }
-
-    const result: HolderProfilesResult = JSON.parse(cached);
 
     // Pick only the fields we need — keeps persisted JSON small
     const strippedProfiles: ShareSnapshot['profiles'] = result.profiles.map((p) => ({
@@ -110,7 +106,7 @@ export class HolderProfileShareService {
     const snapshot: ShareSnapshot = {
       mode: result.mode,
       tokenMint,
-      tokenSymbol: tokenSymbol ?? undefined,
+      tokenSymbol: tokenSymbol ?? null,
       topN,
       profiles: strippedProfiles,
       metadata: result.metadata,
@@ -118,7 +114,7 @@ export class HolderProfileShareService {
 
     const record = await prisma.holderProfileShare.create({
       data: {
-        snapshotJson: snapshot as object,
+        snapshotJson: snapshot as unknown as Prisma.InputJsonValue,
         tokenMint,
         tokenSymbol,
         topN,
@@ -132,6 +128,20 @@ export class HolderProfileShareService {
       shareId: record.id,
       url: `/share/hp/${record.id}`,
     };
+  }
+
+  /**
+   * Fetch a share record by ID without incrementing the view counter.
+   * Used by server-side rendering paths (OG image, metadata) that must not
+   * pollute the view count analytics.
+   */
+  async getShareRaw(shareId: string): Promise<ShareRecord | null> {
+    const record = await prisma.holderProfileShare.findUnique({
+      where: { id: shareId },
+    });
+    if (!record) return null;
+    if (record.expiresAt && record.expiresAt < new Date()) return null;
+    return this.toShareRecord(record);
   }
 
   /**
@@ -156,6 +166,19 @@ export class HolderProfileShareService {
       .update({ where: { id: shareId }, data: { viewCount: { increment: 1 } } })
       .catch((err) => this.logger.warn(`Failed to increment viewCount for ${shareId}: ${err?.message}`));
 
+    return this.toShareRecord(record);
+  }
+
+  private toShareRecord(record: {
+    id: string;
+    snapshotJson: unknown;
+    tokenMint: string | null;
+    tokenSymbol: string | null;
+    topN: number | null;
+    createdAt: Date;
+    expiresAt: Date | null;
+    viewCount: number;
+  }): ShareRecord {
     return {
       id: record.id,
       snapshot: record.snapshotJson as unknown as ShareSnapshot,

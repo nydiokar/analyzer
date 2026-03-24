@@ -66,7 +66,7 @@ function formatHoldTime(hours: number | null | undefined): string {
 async function fetchShare(shareId: string): Promise<ShareRecord | null> {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api/v1';
   try {
-    const res = await fetch(`${base}/share/hp/${shareId}`);
+    const res = await fetch(`${base}/share/hp/${shareId}/raw`);
     if (!res.ok) return null;
     return res.json();
   } catch {
