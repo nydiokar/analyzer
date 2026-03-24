@@ -125,7 +125,7 @@ export class BalanceCacheService {
    * @param walletAddresses Array of wallet addresses to fetch balances for
    * @param preFetchedTokenCounts Optional pre-fetched token counts to avoid double RPC calls
    */
-  async getManyBalances(walletAddresses: string[], preFetchedTokenCounts?: Record<string, number>, preFetchedTokenData?: Record<string, any[]>): Promise<Record<string, WalletBalance | null>> {
+  async getManyBalances(walletAddresses: string[], preFetchedTokenCounts?: Record<string, number>, preFetchedTokenData?: Record<string, any[]>, skipIncrementalRefresh = false): Promise<Record<string, WalletBalance | null>> {
     if (walletAddresses.length === 0) {
       return {};
     }
@@ -158,15 +158,16 @@ export class BalanceCacheService {
 
         // ✅ SMART INCREMENTAL FETCH: Only refresh if cache is older than threshold (default: 30sec)
         // This prevents wasteful API calls for rapid successive requests (holder profiles → similarity)
-        // while still keeping data fresh for longer-lived cache entries
+        // while still keeping data fresh for longer-lived cache entries.
+        // skipIncrementalRefresh=true bypasses this entirely — used when caller knows balances are fresh.
         const cacheAge = now - new Date(balance.fetchedAt).getTime();
 
-        if (cacheAge > minAgeForRefresh && Number.isFinite(slot)) {
+        if (!skipIncrementalRefresh && cacheAge > minAgeForRefresh && Number.isFinite(slot)) {
           // Cache is old enough - do incremental refresh
           incrementalAddresses.push(address);
           incrementalSlots[address] = slot as number;
         }
-        // If cache is fresh (< threshold), just return it without incremental fetch
+        // If cache is fresh (< threshold) or skip flag set, just return it without incremental fetch
       } else {
         // Redis cache miss - full fetch required since we have no baseline to merge into.
         // Even if a DB watermark exists, changedSinceSlot only returns changed accounts

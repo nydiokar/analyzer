@@ -958,6 +958,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
                   includeVectors: false,
                   failureThreshold: 0.8,
                   timeoutMinutes: 15,
+                  skipIncrementalBalanceRefresh: true,
                   similarityConfig: { vectorType: 'capital' },
                 },
                 { priority: JobPriority.NORMAL, delay: 0 },
@@ -1384,6 +1385,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           (a, b) => (orderLookup.get(a.walletAddress) ?? 0) - (orderLookup.get(b.walletAddress) ?? 0),
         );
         const percent = Math.min(95, 20 + Math.floor((analyzedCount / walletAddresses.length) * 70));
+        // Strip large array fields to keep BullMQ event payload small.
+        // Large payloads (e.g. currentHoldings for wallets with thousands of tokens) can block
+        // the event loop long enough to starve the BullMQ lock renewal timer, causing stalls.
+        // Full data is always available in the final result stored in Redis.
+        const strippedProfiles = orderedProfiles.map(({ currentHoldings: _ch, enrichedHoldTimeDistribution: _ehd, ...rest }) => rest);
         // BullMQ handles rich progress objects - bridge picks it up automatically
         await job.updateProgress({
           percent,
@@ -1391,7 +1397,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           tokenMint,
           totalHoldersRequested: walletAddresses.length,
           analyzedCount,
-          profiles: orderedProfiles,
+          profiles: strippedProfiles,
         });
       };
 

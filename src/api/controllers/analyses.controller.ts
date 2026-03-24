@@ -256,6 +256,7 @@ export class AnalysesController {
         includeVectors: dto.includeVectors ?? false,
         failureThreshold: 0.8, // 80% success rate required
         timeoutMinutes: walletsNeedingSync.length > 0 ? 45 : 15, // Longer timeout if sync is needed
+        skipIncrementalBalanceRefresh: walletsNeedingSync.length === 0, // No sync needed → balances are fresh enough
         similarityConfig: {
           vectorType: dto.vectorType || 'capital', // Use DTO vectorType
         }

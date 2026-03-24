@@ -91,6 +91,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       includeVectors = false,
       failureThreshold = 0.8,
       timeoutMinutes = 45,
+      skipIncrementalBalanceRefresh = false,
       similarityConfig,
     } = job.data;
     
@@ -167,7 +168,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       // Start balance fetching in parallel - DON'T await yet
       // 🎯 CRITICAL FIX: Pass token counts to balance fetcher to enable whale protection
       // Fetch balances for all valid wallets (uses cache internally)
-      const balancePromise = this.balanceCacheService.getManyBalances(validWallets, tokenCounts);
+      const balancePromise = this.balanceCacheService.getManyBalances(validWallets, tokenCounts, undefined, skipIncrementalBalanceRefresh);
       
       // Log progress but don't block
       await job.updateProgress(10);
@@ -189,7 +190,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
         // Try to get any valid wallets that were processed before the error
         // This is a fallback for when balance fetch fails
         try {
-          const fallbackBalances = await this.balanceCacheService.getManyBalances(validWallets, tokenCounts);
+          const fallbackBalances = await this.balanceCacheService.getManyBalances(validWallets, tokenCounts, undefined, skipIncrementalBalanceRefresh);
 
           if (Object.keys(fallbackBalances).length >= 2) {
             this.logger.log(`Recovered ${Object.keys(fallbackBalances).length} valid wallets after balance fetch error`);

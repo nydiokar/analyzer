@@ -1,3 +1,4 @@
+import pLimit from 'p-limit';
 import { HeliusApiClient } from './helius-api-client';
 import { TokenBalanceDetails, WalletBalance } from '@/types/wallet';
 import { GetMultipleAccountsResult, GetTokenAccountsByOwnerResult, TokenAccount } from '@/types/helius-api';
@@ -110,9 +111,9 @@ export class WalletBalanceService {
     }
 
     // 2. Fetch SPL Token balances for each wallet using getTokenAccountsByOwner
-    // This is done sequentially per wallet to avoid overwhelming the RPC with many concurrent requests.
-    // HeliusApiClient handles internal rate limiting for its methods.
-    for (const address of walletAddresses) {
+    // Bounded concurrency (5 parallel) — HeliusApiClient handles rate limiting internally.
+    const limit = pLimit(5);
+    await Promise.all(walletAddresses.map(address => limit(async () => {
       try {
         let currentTokenAccounts: TokenAccount[] = [];
         let contextSlot = 0;
@@ -124,7 +125,7 @@ export class WalletBalanceService {
           currentTokenAccounts = preFetchedTokenData[address];
         } else if (preFetchedTokenCounts && preFetchedTokenCounts[address] === 0) {
           logger.debug(`Address ${address}: Skipping token fetch - pre-fetched count is 0`);
-          continue; // Skip RPC call for wallets with no tokens
+          return; // Skip RPC call for wallets with no tokens
         } else {
           // logger.debug(`Fetching token balances for address: ${address} for SPL Token program.`);
           
@@ -307,7 +308,7 @@ export class WalletBalanceService {
         }
         // Token balances for this address will remain empty []
       }
-    }
+    })));
 
     logger.debug(`Successfully processed RAW wallet balance fetching for ${walletAddresses.length} addresses (no metadata).`);
     return walletBalances;

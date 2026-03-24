@@ -96,6 +96,7 @@ export interface ComprehensiveSimilarityFlowData {
   failureThreshold?: number;    // Partial failure tolerance (default 0.8)
   timeoutMinutes?: number;      // Job-level timeout (default 45)
   skipSystemWalletDetection?: boolean; // Skip system wallet filtering (default false) - for pure similarity analysis
+  skipIncrementalBalanceRefresh?: boolean; // Skip incremental Helius refresh — use when balances were just fetched (e.g. chained from holder-profiles)
   similarityConfig?: {
     vectorType?: 'capital' | 'binary';
     minSharedTokens?: number;
