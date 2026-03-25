@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-03-23  **Status:** 3 carry-over bugs fixed and committed; migration pending for HUD-TOKENS-DAY
+**Branch:** `main`  **Last Updated:** 2026-03-25  **Status:** Market context enrichment scaffolded on `feat/market-context-enrichment`; migration pending
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,6 +8,56 @@
 
 ##  Active Work
 
+### March 25, 2026 — Market Context Enrichment (`feat/market-context-enrichment`)
+
+**Branch:** `feat/market-context-enrichment` — 3 commits, not yet merged to `main`.
+
+**What was built (SOP: `.ai/context/MARKET_CONTEXT_ENRICHMENT_SOP.md`):**
+
+| Phase | Status | Notes |
+|:------|:------:|:------|
+| Schema: `SolDailyPrice`, `TokenSupplyCache`, enrichment fields on `SwapAnalysisInput` | ✅ Done | All new fields nullable — zero breaking changes |
+| `sol-price-cache.ts` — DeFiLlama historical SOL/USD prices | ✅ Done | `backfillSolPrices`, `appendTodaySolPrice`, `getSolPrice`, **`buildSolPriceMap`** (batch, no N+1) |
+| `token-supply-cache.ts` — Token supply via Helius RPC | ✅ Done | `ensureSuppliesCached`, `getTokenSupply`, **`buildSupplyMap`** (batch, no N+1) |
+| `enrichment-engine.ts` — Core enrichment logic | ✅ Done | `enrichSwapBatch`, `enrichAll`; infinite loop bug fixed; all N+1 DB queries eliminated |
+| `sanity-check.ts` — Cross-reference vs DexScreener `TokenInfo` | ✅ Done | |
+| Test scripts: `test-sol-price-cache.ts`, `test-enrichment-manual.ts` | ✅ Done | |
+| Backfill script: `backfill-market-context.ts` | ✅ Done | |
+| **Phase 6 — on-ingest integration hook** | ❌ Not wired | See divergence note below |
+| **Phase 7 — downstream extensions** (AnalysisResult, WalletBehaviorProfile, etc.) | ⚪ Future | Optional, planned |
+
+**Migration pending:** `npx prisma migrate dev --name add-market-context-enrichment` (needs PostgreSQL with shadow DB permission, or `prisma migrate deploy` in prod)
+
+**Divergences from SOP and why:**
+
+1. **Phase 6 hook not placed in `helius-sync-service.ts`** — The SOP says "hook into the existing mapping pipeline after swap insertion." The obvious place looked like `helius-sync-service.ts:474` (`saveSwapAnalysisInputs`). This was implemented and then reverted because `HeliusSyncService` is a core-layer service instantiated directly with `new` in standalone scripts, bot commands, and test harnesses — not a NestJS injectable. Importing market-context modules there would couple a transport service to enrichment business logic and drag the pipeline into contexts without the DB tables. **Correct integration point documented in JSDoc of `enrichSwapBatch`.**
+
+2. **`TokenSupplyCache` is a standalone Postgres table, not reusing `TokenInfoService`** — The app already has `TokenInfoService.getTokenSupply()` with a permanent Redis cache backed by `HeliusApiClient`. The new `TokenSupplyCache` table is intentionally separate for standalone backfill scripts that run outside NestJS DI. Inside the app, the existing service should be used. This is noted in `token-supply-cache.ts` comments.
+
+3. **`buildSolPriceMap` and `buildSupplyMap` added (not in SOP)** — The SOP's per-row `getSolPrice()` / `getTokenSupply()` calls would cause N+1 DB queries inside the batch loop (500 rows = 500 queries each). Added bulk-load helpers that resolve the full batch in 1-2 queries. `enrichSwapBatch` uses these instead.
+
+**Architectural decision on integration (confirmed, do not revisit):**
+The enrichment pipeline is a **separate consumer** of `SwapAnalysisInput` rows — not middleware in the sync pipeline. The correct flow is:
+
+```
+sync-wallet job → saves SwapAnalysisInput (enrichedAt: null) → done
+                   ↓ (completely independent, async)
+market-context-enrich job → polls WHERE enrichedAt IS NULL → enriches → done
+                   ↓
+dashboard query → SELECT WHERE enrichedAt IS NOT NULL → mcap bands + metrics
+```
+
+This means the integration hook for Phase 6 should be a **new BullMQ job** dispatched by `WalletOperationsProcessor` (NestJS DI, queue processor) after sync completes — matching the existing `enrich-token-balances` pattern in `EnrichmentOperationsProcessor`. This keeps sync jobs fast, enrichment non-blocking, and the two pipelines independently deployable.
+
+**Next logical steps for this feature (next session):**
+1. Run `npx prisma migrate deploy` in the environment with PostgreSQL access
+2. After migration, run `npx ts-node scripts/test-sol-price-cache.ts` to verify DeFiLlama + DB
+3. Run `npx ts-node scripts/backfill-market-context.ts` to enrich all historical data
+4. Wire Phase 6: add `market-context-enrich` job type to `src/queues/jobs/types/index.ts`, dispatch from `WalletOperationsProcessor` after sync, handle in `EnrichmentOperationsProcessor` (or new `MarketContextProcessor`)
+5. Wire `appendTodaySolPrice()` into `QueueModule.onModuleInit()` (startup hook — it's already the NestJS init point)
+6. Phase 7 downstream: add mcap fields to `AnalysisResult` + `WalletBehaviorProfile` for dashboard mcap band charts
+
+---
 
 ### March 23, 2026 — GTM Week 1 Remaining Tasks (Day 5 of 7)
 
@@ -65,6 +115,14 @@
 ---
 
 ##  Recent Activity
+
+### March 25, 2026 — Market Context Enrichment scaffold
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 25.1 | 🎯 FEAT | **[MCE-1–7]** Market context enrichment pipeline scaffolded on `feat/market-context-enrichment`. Schema updated (3 models/fields). Services: `sol-price-cache.ts`, `token-supply-cache.ts`, `enrichment-engine.ts`, `sanity-check.ts`. Backfill + test scripts. Bugs fixed: infinite loop in `enrichAll`, N+1 DB queries eliminated with `buildSolPriceMap`/`buildSupplyMap`, `HELIUS_RPC_URL` module-level capture fixed. Phase 6 hook **not wired** — correct integration point is `WalletOperationsProcessor` → BullMQ job, documented in JSDoc. | 🔴 L | `prisma/schema.prisma`, `src/services/market-context/` (5 files), `scripts/` (3 files) |
+
+---
 
 ### March 23, 2026 — Carry-over bug fixes + SDK update + pre-commit hook
 
