@@ -27,6 +27,8 @@ import {
 } from '@/components/holder-profiles/v2/WalletClassifier';
 import { AppShell } from '@/components/layout/AppShell';
 import { useAuthStore } from '@/store/auth-store';
+import { useHolderProfileHistory } from '@/hooks/useHolderProfileHistory';
+import { SnapshotHistoryModal } from '@/components/holder-profiles/SnapshotHistoryModal';
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 type AnalysisMode = 'token' | 'wallet';
@@ -566,6 +568,13 @@ function HolderProfilesContent() {
       }
     : null;
 
+  const { runs: historyRuns } = useHolderProfileHistory({
+    tokenMint: analysisMode === 'token' ? tokenMint : null,
+    topN,
+    // Fetch after completion OR after a failure where we still have a prior result to show
+    enabled: analysisMode === 'token' && (tokenStatus === 'completed' || (tokenStatus === 'failed' && !!displayedTokenResult)),
+  });
+
   const retrySimilarity = useCallback(() => {
     if (tokenStatus === 'running') {
       toast.error('Wait for holder profiles to finish before retrying similarity');
@@ -601,7 +610,10 @@ function HolderProfilesContent() {
         </div>
         <Card className="max-w-6xl mx-auto p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex-1 min-w-[220px]">
+            {analysisMode === 'token' && historyRuns.length > 0 && (
+              <SnapshotHistoryModal runs={historyRuns} tokenMint={tokenMint} />
+            )}
+            <div className="flex-1 min-w-[180px]">
               {analysisMode === 'token' ? (
                 <Input
                   id="tokenMint"
@@ -669,14 +681,16 @@ function HolderProfilesContent() {
         </Card>
 
         {analysisMode === 'token' && displayedTokenResult && (
-          <TokenPulse
-            result={displayedTokenResult}
-            similarityResult={similarityResult}
-            similarityStatus={similarityStatus}
-            isFinalAnalysis={similarityStatus !== 'idle'}
-            notice={tokenNotice}
-            onRetrySimilarity={retrySimilarity}
-          />
+          <div className="space-y-2">
+            <TokenPulse
+              result={displayedTokenResult}
+              similarityResult={similarityResult}
+              similarityStatus={similarityStatus}
+              isFinalAnalysis={similarityStatus !== 'idle'}
+              notice={tokenNotice}
+              onRetrySimilarity={retrySimilarity}
+            />
+          </div>
         )}
 
         {analysisMode === 'token' && tokenStatus === 'failed' && !displayedTokenResult && (

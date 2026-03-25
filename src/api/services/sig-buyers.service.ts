@@ -60,7 +60,7 @@ export class SigBuyersService {
     const walletAnalysis = this.analyzeWallets(transactionsByWallet, mint, validSet);
 
     // Phase 5: filter + sort
-    let buyers = Array.from(walletAnalysis.entries())
+    const buyers = Array.from(walletAnalysis.entries())
       .filter(([, a]) => a.solSpent >= minSolSpent)
       .sort(([, a], [, b]) => b.solSpent - a.solSpent)
       .map(([walletAddress, a]): SigBuyerResult => ({

@@ -87,10 +87,18 @@ export interface HolderProfile {
   newestTransactionTimestamp?: number;
 }
 
+export interface TokenSnapshot {
+  marketCapUsd?: number | null;
+  priceUsd?: string | number | null;
+  name?: string | null;
+  symbol?: string | null;
+}
+
 export interface HolderProfilesResult {
   mode: 'token' | 'wallet';
   tokenMint?: string;
   targetWallet?: string;
+  tokenSnapshot?: TokenSnapshot | null;
   profiles: HolderProfile[];
   similaritySummaries?: Array<{
     overallSimilarityPercent: number;
