@@ -93,24 +93,33 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
   async getTokenSupply(tokenMint: string): Promise<number | undefined> {
     const cacheKey = `token_supply:${tokenMint}`;
 
-    // Try cache first (no TTL - supply is immutable)
+    // Layer 1: Redis (hot, no TTL — supply is immutable)
     const cached = await this.redis.get(cacheKey);
     if (cached) {
-      const supply = parseFloat(cached);
-      this.logger.debug(`[Token Supply] Cache hit for ${tokenMint}: ${supply}`);
+      return parseFloat(cached);
+    }
+
+    // Layer 2: TokenInfo DB row (survives restarts, already written during any prior fetch)
+    const dbRow = await this.db.findManyTokenInfo([tokenMint]);
+    if (dbRow.length > 0 && dbRow[0].totalSupply != null) {
+      const supply = dbRow[0].totalSupply;
+      // Warm Redis so next call is free
+      await this.redis.set(cacheKey, supply.toString());
       return supply;
     }
 
-    // Cache miss - fetch from Helius RPC
-    this.logger.debug(`[Token Supply] Cache miss for ${tokenMint}, fetching from RPC`);
+    // Layer 3: Helius RPC — one call per mint, ever
+    this.logger.debug(`[Token Supply] Fetching from RPC for ${tokenMint}`);
     try {
       const supplyResult = await this.heliusApiClient.getTokenSupply(tokenMint);
       const supply = supplyResult.value.uiAmount;
 
       if (supply !== null && supply !== undefined) {
-        // Cache WITHOUT TTL (supply is immutable for most tokens)
-        await this.redis.set(cacheKey, supply.toString());
-        this.logger.debug(`[Token Supply] Fetched and cached ${tokenMint}: ${supply} (permanent cache)`);
+        // Persist to Redis and DB in parallel — never hits Helius again for this mint
+        await Promise.all([
+          this.redis.set(cacheKey, supply.toString()),
+          this.db.updateTokenSupply(tokenMint, supply),
+        ]);
         return supply;
       }
 

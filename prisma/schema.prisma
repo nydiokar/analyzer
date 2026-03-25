@@ -518,6 +518,7 @@ model TokenInfo {
   onchainDiscordUrl       String?
   onchainSocialsFetchedAt DateTime?
   metadataSource          String?
+  totalSupply             Float?         // SPL token total supply (uiAmount); immutable for most memecoins
   TokenTag                TokenTag[]
   WatchedToken            WatchedToken[]
   userWatchedTokens       UserWatchedToken[]
@@ -847,19 +848,4 @@ model SolDailyPrice {
   date      String   @id          // format: "YYYY-MM-DD" (UTC)
   priceUsd  Float                 // SOL/USD closing price for that day
   fetchedAt DateTime @default(now())
-}
-
-// ---------------------------------------------------------------------------
-// Market Context — SPL token supply cache (source: Helius RPC, already paid)
-// One row per token mint. Most memecoin supplies are fixed at creation,
-// so this rarely needs updating. Refresh periodically for edge cases.
-// ---------------------------------------------------------------------------
-model TokenSupplyCache {
-  mint         String   @id       // SPL mint address
-  totalSupply  Float              // decimal-adjusted total supply (uiAmount)
-  decimals     Int?               // token decimals (useful for verification)
-  fetchedAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([fetchedAt])
 }

@@ -3109,6 +3109,18 @@ export class DatabaseService {
     }
 
     /**
+     * Upsert the totalSupply field on a TokenInfo row.
+     * Creates a minimal row if the token hasn't been seen before.
+     */
+    async updateTokenSupply(tokenAddress: string, totalSupply: number): Promise<void> {
+        await this.prismaClient.tokenInfo.upsert({
+            where: { tokenAddress },
+            update: { totalSupply },
+            create: { tokenAddress, totalSupply },
+        });
+    }
+
+    /**
      * Finds multiple TokenInfo records but only selects a partial set of fields.
      * This is optimized for the similarity lab's "skeleton" load.
      */

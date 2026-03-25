@@ -2,9 +2,8 @@ import { Inject, Logger, Injectable } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult, ParallelEnrichmentJobData, ProcessMarketContextJobData } from '../jobs/types';
-import { enrichSwapBatch } from '../../services/market-context/enrichment-engine';
-import { prisma } from '../../core/services/database-service';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
+import { MarketContextService } from '../../api/services/market-context.service';
 import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
@@ -23,6 +22,7 @@ export class EnrichmentOperationsProcessor {
     private readonly tokenInfoService: TokenInfoService,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly jobPayloadCache: JobPayloadCacheService,
+    private readonly marketContextService: MarketContextService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis, // For result caching
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
@@ -552,7 +552,7 @@ export class EnrichmentOperationsProcessor {
 
     this.logger.log(`Processing market context for wallet ${walletAddress}`);
 
-    const processed = await enrichSwapBatch(prisma, 500, walletAddress);
+    const processed = await this.marketContextService.enrichSwapBatch(500, walletAddress);
 
     this.logger.log(`Market context processed ${processed} swaps for ${walletAddress} in ${Date.now() - startTime}ms`);
     return { processed };

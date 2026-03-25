@@ -1,23 +1,25 @@
-import { PrismaClient } from "@prisma/client";
-import { backfillSolPrices, getSolPrice } from "../src/services/market-context/sol-price-cache";
+import { prisma } from '../src/core/services/database-service';
+import { backfillSolPrices, buildSolPriceMap, timestampToDateKey } from '../src/core/services/market-context-standalone';
 
 async function test() {
-  const prisma = new PrismaClient();
+  try {
+    // 1. Backfill
+    console.log('Backfilling SOL prices...');
+    await backfillSolPrices(prisma, 90);
 
-  // 1. Backfill
-  console.log("Backfilling SOL prices...");
-  await backfillSolPrices(prisma, 90);
+    // 2. Verify: look up a known date
+    const threeDaysAgo = Math.floor(Date.now() / 1000) - 3 * 86400;
+    const priceMap = await buildSolPriceMap(prisma, [threeDaysAgo]);
+    const dateKey = timestampToDateKey(threeDaysAgo);
+    const price = priceMap.get(dateKey) ?? null;
+    console.log(`SOL price 3 days ago: $${price?.toFixed(2) ?? 'NOT FOUND'}`);
 
-  // 2. Verify: look up a known date
-  const threeDaysAgo = Math.floor(Date.now() / 1000) - 3 * 86400;
-  const price = await getSolPrice(prisma, threeDaysAgo);
-  console.log(`SOL price 3 days ago: $${price?.toFixed(2) ?? "NOT FOUND"}`);
-
-  // 3. Count cached rows
-  const count = await prisma.solDailyPrice.count();
-  console.log(`Total cached days: ${count}`);
-
-  await prisma.$disconnect();
+    // 3. Count cached rows
+    const count = await prisma.solDailyPrice.count();
+    console.log(`Total cached days: ${count}`);
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
 test().catch(console.error);

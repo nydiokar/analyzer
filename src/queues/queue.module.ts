@@ -46,8 +46,8 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
 import { SigBuyersModule } from '../api/modules/sig-buyers.module';
 import { PaymentConfirmationService } from '../api/services/payment-confirmation.service';
 import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
-import { appendTodaySolPrice, backfillSolPrices } from '../services/market-context/sol-price-cache';
-import { prisma } from '../core/services/database-service';
+import { MarketContextModule } from '../api/modules/market-context.module';
+import { MarketContextService } from '../api/services/market-context.service';
 
 
 @Global()
@@ -86,6 +86,7 @@ import { prisma } from '../core/services/database-service';
     HolderProfilesCacheModule, // Provides HolderProfilesCacheService
     WalletHudModule,   // Provides WalletHudService
     SigBuyersModule,   // Provides SigBuyersService for the sig-buyers-run processor
+    MarketContextModule, // Provides MarketContextService
   ],
   
   providers: [
@@ -159,6 +160,7 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
     private readonly analysisOperationsProcessor: AnalysisOperationsProcessor,
     private readonly similarityOperationsProcessor: SimilarityOperationsProcessor,
     private readonly enrichmentOperationsProcessor: EnrichmentOperationsProcessor,
+    private readonly marketContextService: MarketContextService,
   ) {}
 
   async onModuleInit() {
@@ -191,12 +193,12 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
   }
 
   private async initSolPriceCache(): Promise<void> {
-    await appendTodaySolPrice(prisma);
+    await this.marketContextService.appendTodaySolPrice();
 
-    const count = await prisma.solDailyPrice.count();
+    const count = await this.marketContextService.getSolPriceDayCount();
     if (count < 30) {
       this.logger.log(`SOL price cache has only ${count} days — backfilling 90 days from DeFiLlama...`);
-      await backfillSolPrices(prisma, 90);
+      await this.marketContextService.backfillSolPrices(90);
       this.logger.log('SOL price cache backfill complete.');
     }
   }

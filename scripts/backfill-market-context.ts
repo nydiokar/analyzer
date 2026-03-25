@@ -1,15 +1,12 @@
-import { PrismaClient } from "@prisma/client";
-import { backfillSolPrices } from "../src/services/market-context/sol-price-cache";
-import { enrichAll } from "../src/services/market-context/enrichment-engine";
+import { prisma } from '../src/core/services/database-service';
+import { backfillSolPrices, enrichAll } from '../src/core/services/market-context-standalone';
 
 async function backfill() {
-  const prisma = new PrismaClient();
-
   try {
     // Check how far back our data goes
     const oldest = await prisma.swapAnalysisInput.findFirst({
       where: { enrichedAt: null },
-      orderBy: { timestamp: "asc" },
+      orderBy: { timestamp: 'asc' },
     });
 
     if (oldest) {
