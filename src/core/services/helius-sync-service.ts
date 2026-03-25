@@ -2,7 +2,6 @@ import { createLogger } from 'core/utils/logger';
 import { getErrorMessage } from 'core/utils/error-utils';
 import { HeliusApiClient } from 'core/services/helius-api-client';
 import { DatabaseService } from '../../api/services/database.service';
-import { prisma as prismaSingleton } from './database-service';
 import {
     mapHeliusTransactionsToIntermediateRecords,
     MappingResult
@@ -13,8 +12,6 @@ import { Injectable } from '@nestjs/common';
 import { HELIUS_CONFIG } from '../../config/constants';
 import { isAnalysisBlockingType, type KnownWalletType } from '../../config/known-wallets';
 import { SmartFetchService } from './smart-fetch-service';
-import { appendTodaySolPrice } from '../../services/market-context/sol-price-cache';
-import { enrichSwapBatch } from '../../services/market-context/enrichment-engine';
 
 const logger = createLogger('HeliusSyncService');
 
@@ -479,14 +476,6 @@ export class HeliusSyncService {
         // ✅ UPDATE COUNTER: Track total processed for this wallet
         const currentCount = walletTransactionCounters.get(walletAddress) || 0;
         walletTransactionCounters.set(walletAddress, currentCount + analysisInputsToSave.length);
-
-        // Market context enrichment: runs in background, never blocks the sync pipeline
-        appendTodaySolPrice(prismaSingleton).catch((err) =>
-          logger.warn(`appendTodaySolPrice failed: ${getErrorMessage(err)}`)
-        );
-        enrichSwapBatch(prismaSingleton, analysisInputsToSave.length).catch((err) =>
-          logger.warn(`enrichSwapBatch failed: ${getErrorMessage(err)}`)
-        );
       }
     
       if (transactions.length > 0) {

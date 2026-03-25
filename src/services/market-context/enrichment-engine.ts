@@ -20,6 +20,14 @@ function classifyMcap(mcapUsd: number): string {
 /**
  * Enrich a batch of SwapAnalysisInput rows with market context.
  *
+ * Integration hook:
+ * Call this from WalletOperationsProcessor after heliusSyncService.syncWallet()
+ * completes — it already has NestJS DI and the prisma singleton.
+ * Do NOT call from helius-sync-service.ts (core layer, used standalone in scripts)
+ * or from database-service.ts (pure DB layer). The right pattern is to dispatch
+ * a BullMQ job from WalletOperationsProcessor after each sync, matching how
+ * enrich-token-balances is handled in EnrichmentOperationsProcessor.
+ *
  * Design:
  * - Fetches one batch of un-enriched rows.
  * - Pre-loads all needed SOL prices and token supplies in two bulk queries.
