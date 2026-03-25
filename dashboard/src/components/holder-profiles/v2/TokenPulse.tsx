@@ -6,7 +6,6 @@ import { MinimalHoldersTable } from './MinimalHoldersTable';
 import { getTokenOutcome as getTokenStats } from './utils/outcome-logic';
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { WalletBaseballCard } from './WalletBaseballCard';
-import { createPortal } from 'react-dom';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { SimilaritySidebar, type SimilarityGraphAnalysis, type SimilarityStatus } from './SimilaritySidebar';
 import { CognitiveMetricCard } from './CognitiveMetricCard';
@@ -18,6 +17,7 @@ interface Props {
   similarityResult?: CombinedSimilarityResult | null;
   similarityStatus?: SimilarityStatus;
   isFinalAnalysis?: boolean;
+  isSnapshot?: boolean;
   notice?: {
     title: string;
     description?: string;
@@ -31,6 +31,7 @@ export function TokenPulse({
   similarityResult = null,
   similarityStatus = 'idle',
   isFinalAnalysis = false,
+  isSnapshot = false,
   notice = null,
   onRetrySimilarity,
 }: Props) {
@@ -132,7 +133,7 @@ export function TokenPulse({
   if (!result?.profiles?.length) return null;
 
   return (
-    <section className="space-y-4 max-w-7xl mx-auto">
+    <section className="relative space-y-4 max-w-7xl mx-auto">
       {notice && (
         <Alert
           variant={notice.variant}
@@ -147,7 +148,11 @@ export function TokenPulse({
       <div className="grid grid-cols-1 xl:grid-cols-[auto_repeat(4,minmax(0,1fr))] gap-3 items-start">
         {result.tokenMint && (
           <div className="flex items-start">
-            <TokenBadge mint={result.tokenMint} size="lg" />
+            <TokenBadge
+              mint={result.tokenMint}
+              size="lg"
+              metadata={isSnapshot ? { onchainName: result.tokenMint } : undefined}
+            />
           </div>
         )}
         <CognitiveMetricCard primitive={speed} />
@@ -226,10 +231,13 @@ export function TokenPulse({
         />
       </div>
 
-      {selectedProfile && typeof window !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-50 bg-background/20 backdrop-blur-sm overflow-y-auto">
+      {selectedProfile && (
+        <div
+          className="absolute inset-0 z-10 bg-background/20 backdrop-blur-sm overflow-y-auto"
+          onClick={() => setSelectedProfile(null)}
+        >
           <div className="flex min-h-full items-start justify-center py-10 px-4">
-            <div className="relative w-full max-w-4xl">
+            <div className="relative w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
               <button
                 className="absolute -top-3 -right-3 h-8 w-8 rounded-full bg-card border shadow hover:bg-muted transition-colors"
                 onClick={() => setSelectedProfile(null)}
@@ -243,8 +251,7 @@ export function TokenPulse({
               />
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
     </section>
   );

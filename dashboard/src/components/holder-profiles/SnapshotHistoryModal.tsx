@@ -113,7 +113,11 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-6xl w-full max-h-[90vh] overflow-y-auto"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <History className="h-4 w-4 text-muted-foreground" />
@@ -139,6 +143,7 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
           ) : snapshotResult ? (
             <TokenPulse
               result={snapshotResult}
+              isSnapshot
               notice={{
                 title: 'Past snapshot',
                 description: snapshotRun

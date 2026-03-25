@@ -21,6 +21,7 @@ interface TokenMetadata {
 // Global queue for batching token metadata requests
 class TokenMetadataBatcher {
   private queue: Set<string> = new Set();
+  private skipEnrichmentQueue: Set<string> = new Set();
   private callbacks: Map<string, Array<(metadata: TokenMetadata | null) => void>> = new Map();
   private cache: Map<string, { data: TokenMetadata | null; fetchedAt: number }> = new Map();
   private timeoutId: NodeJS.Timeout | null = null;
@@ -32,7 +33,7 @@ class TokenMetadataBatcher {
   private refreshTimers: Map<string, NodeJS.Timeout[]> = new Map();
 
   // Add a token to the batch queue
-  request(mint: string, callback: (metadata: TokenMetadata | null) => void) {
+  request(mint: string, callback: (metadata: TokenMetadata | null) => void, skipEnrichment = false) {
     // Subscribe for updates (for auto-refresh after enrichment)
     if (!this.subscribers.has(mint)) {
       this.subscribers.set(mint, new Set());
@@ -51,6 +52,9 @@ class TokenMetadataBatcher {
 
     // Add to queue
     this.queue.add(mint);
+    if (skipEnrichment) {
+      this.skipEnrichmentQueue.add(mint);
+    }
 
     // Register callback
     if (!this.callbacks.has(mint)) {
@@ -98,14 +102,26 @@ class TokenMetadataBatcher {
 
     this.isFetching = true;
     const mints = Array.from(this.queue);
+    const skipEnrichmentMints = new Set(this.skipEnrichmentQueue);
     this.queue.clear();
+    this.skipEnrichmentQueue.clear();
+
+    // Split into two groups: normal (with enrichment) and snapshot (skip enrichment)
+    const normalMints = mints.filter(m => !skipEnrichmentMints.has(m));
+    const snapshotMints = mints.filter(m => skipEnrichmentMints.has(m));
 
     try {
       // PHASE 1: Fetch immediate cached data from database
-      const response = await fetcher('/token-info', {
-        method: 'POST',
-        body: JSON.stringify({ tokenAddresses: mints }),
-      });
+      // Fire both requests in parallel if needed
+      const fetches: Promise<any>[] = [];
+      if (normalMints.length > 0) {
+        fetches.push(fetcher('/token-info', { method: 'POST', body: JSON.stringify({ tokenAddresses: normalMints }) }));
+      }
+      if (snapshotMints.length > 0) {
+        fetches.push(fetcher('/token-info', { method: 'POST', body: JSON.stringify({ tokenAddresses: snapshotMints, skipEnrichment: true }) }));
+      }
+      const responses = await Promise.all(fetches);
+      const response = responses.flat();
 
       // Cache and notify with immediate data (might have "Unknown Token" or partial data)
       const resultMap = new Map<string, TokenMetadata>();
@@ -147,28 +163,23 @@ class TokenMetadataBatcher {
         this.callbacks.delete(mint);
       });
 
-      // PHASE 2: Auto-refresh after enrichment completes
-      // Backend triggers enrichment (fire-and-forget), enrichment typically completes in ~200-500ms
-      // DexScreener stage can take longer (especially for new tokens), so we:
-      // - First retry after 2s (catches most enrichments)
-      // - Second retry after 5s (catches slower DexScreener responses)
+      // PHASE 2: Auto-refresh after enrichment completes (only for non-snapshot mints)
+      if (normalMints.length > 0) {
+        const batchKey = normalMints.slice().sort().join(',');
+        const timers: NodeJS.Timeout[] = [];
 
-      // Create batch key for tracking timers
-      const batchKey = mints.sort().join(',');
-      const timers: NodeJS.Timeout[] = [];
+        const timer1 = setTimeout(() => {
+          this.refreshEnrichedData(normalMints, batchKey, true);
+        }, 2000);
+        timers.push(timer1);
 
-      const timer1 = setTimeout(() => {
-        this.refreshEnrichedData(mints, batchKey, true);
-      }, 2000);
-      timers.push(timer1);
+        const timer2 = setTimeout(() => {
+          this.refreshEnrichedData(normalMints, batchKey, true);
+        }, 5000);
+        timers.push(timer2);
 
-      const timer2 = setTimeout(() => {
-        this.refreshEnrichedData(mints, batchKey, true);
-      }, 5000);
-      timers.push(timer2);
-
-      // Store timers for potential cancellation
-      this.refreshTimers.set(batchKey, timers);
+        this.refreshTimers.set(batchKey, timers);
+      }
 
     } catch (error) {
       console.error('[TokenMetadataBatcher] Failed to fetch batch:', error);
@@ -284,7 +295,7 @@ const globalBatcher = new TokenMetadataBatcher();
  * Multiple components requesting metadata simultaneously will be batched into ONE API call
  * Auto-refreshes after 2 seconds to show enriched data
  */
-export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata) {
+export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata, skipEnrichment = false) {
   const [metadata, setMetadata] = useState<TokenMetadata | null>(providedMetadata || null);
   const [isLoading, setIsLoading] = useState(!providedMetadata);
 
@@ -329,7 +340,7 @@ export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata
     // CRITICAL FIX: Only request if metadata is incomplete
     // If metadata is complete, just subscribe for future enrichment updates (no fetch)
     if (!isMetadataComplete) {
-      globalBatcher.request(mint, updateCallback);
+      globalBatcher.request(mint, updateCallback, skipEnrichment);
     } else {
       globalBatcher.subscribeOnly(mint, updateCallback);
     }
