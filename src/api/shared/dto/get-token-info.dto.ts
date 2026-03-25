@@ -1,5 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsArray, IsString } from 'class-validator';
 
 export class GetTokenInfoRequestDto {
   @ApiProperty({
@@ -10,12 +10,4 @@ export class GetTokenInfoRequestDto {
   @IsArray()
   @IsString({ each: true })
   tokenAddresses: string[];
-
-  @ApiPropertyOptional({
-    description: 'If true, skip background enrichment and only return cached DB data.',
-    default: false,
-  })
-  @IsOptional()
-  @IsBoolean()
-  skipEnrichment?: boolean;
-} 
+}

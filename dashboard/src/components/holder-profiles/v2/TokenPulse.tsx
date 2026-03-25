@@ -151,7 +151,12 @@ export function TokenPulse({
             <TokenBadge
               mint={result.tokenMint}
               size="lg"
-              metadata={isSnapshot ? { onchainName: result.tokenMint } : undefined}
+              metadata={isSnapshot && result.tokenSnapshot ? {
+                name: result.tokenSnapshot.name ?? undefined,
+                symbol: result.tokenSnapshot.symbol ?? undefined,
+                marketCapUsd: result.tokenSnapshot.marketCapUsd ?? undefined,
+                priceUsd: result.tokenSnapshot.priceUsd ?? undefined,
+              } : undefined}
             />
           </div>
         )}

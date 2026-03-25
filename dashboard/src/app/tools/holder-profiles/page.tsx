@@ -610,7 +610,10 @@ function HolderProfilesContent() {
         </div>
         <Card className="max-w-6xl mx-auto p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex-1 min-w-[220px]">
+            {analysisMode === 'token' && historyRuns.length > 0 && (
+              <SnapshotHistoryModal runs={historyRuns} tokenMint={tokenMint} />
+            )}
+            <div className="flex-1 min-w-[180px]">
               {analysisMode === 'token' ? (
                 <Input
                   id="tokenMint"
@@ -679,11 +682,6 @@ function HolderProfilesContent() {
 
         {analysisMode === 'token' && displayedTokenResult && (
           <div className="space-y-2">
-            {historyRuns.length > 0 && (
-              <div className="max-w-6xl mx-auto flex justify-end">
-                <SnapshotHistoryModal runs={historyRuns} tokenMint={tokenMint} />
-              </div>
-            )}
             <TokenPulse
               result={displayedTokenResult}
               similarityResult={similarityResult}

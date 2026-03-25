@@ -1646,6 +1646,26 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         const jobIdStr = job.id?.toString() ?? null;
         const profilesToSnapshot = hydratedFinalProfiles.filter((p) => !p.analysisSkipped);
         const knownWalletStubs = hydratedFinalProfiles.filter((p) => p.analysisSkipped);
+
+        // Fetch token metadata once to stamp into the rank-1 snapshot row.
+        // This lets the snapshot endpoint return the mcap/price/symbol at run time
+        // so historical snapshots can show "mcap then" rather than the live value.
+        let tokenSnapshot: { marketCapUsd?: number | null; priceUsd?: string | number | null; name?: string; symbol?: string } | null = null;
+        try {
+          const tokenInfoRows = await this.tokenInfoService.findMany([tokenMint]);
+          const ti = tokenInfoRows[0];
+          if (ti) {
+            tokenSnapshot = {
+              marketCapUsd: ti.marketCapUsd ?? null,
+              priceUsd: ti.priceUsd ?? null,
+              name: ti.name ?? null,
+              symbol: ti.symbol ?? null,
+            };
+          }
+        } catch {
+          // non-fatal — snapshot writes fine without it
+        }
+
         await Promise.allSettled(
           profilesToSnapshot.map((profile, idx) =>
             this.holderProfilesCacheService.saveSnapshot({
@@ -1658,10 +1678,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
               jobId: jobIdStr,
               requestId: job.data.requestId,
               profile,
-              // Attach known-wallet stubs to the first real profile's metadata so the snapshot
-              // endpoint can merge them back without a separate storage row.
-              metadata: idx === 0 && knownWalletStubs.length > 0
-                ? { mode: 'token', topN, knownWalletStubs }
+              // Attach known-wallet stubs + token snapshot to the first real profile's metadata.
+              metadata: idx === 0
+                ? { mode: 'token', topN, knownWalletStubs: knownWalletStubs.length > 0 ? knownWalletStubs : undefined, tokenSnapshot }
                 : { mode: 'token', topN },
             })
           )

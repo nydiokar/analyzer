@@ -21,7 +21,6 @@ interface TokenMetadata {
 // Global queue for batching token metadata requests
 class TokenMetadataBatcher {
   private queue: Set<string> = new Set();
-  private skipEnrichmentQueue: Set<string> = new Set();
   private callbacks: Map<string, Array<(metadata: TokenMetadata | null) => void>> = new Map();
   private cache: Map<string, { data: TokenMetadata | null; fetchedAt: number }> = new Map();
   private timeoutId: NodeJS.Timeout | null = null;
@@ -33,7 +32,7 @@ class TokenMetadataBatcher {
   private refreshTimers: Map<string, NodeJS.Timeout[]> = new Map();
 
   // Add a token to the batch queue
-  request(mint: string, callback: (metadata: TokenMetadata | null) => void, skipEnrichment = false) {
+  request(mint: string, callback: (metadata: TokenMetadata | null) => void) {
     // Subscribe for updates (for auto-refresh after enrichment)
     if (!this.subscribers.has(mint)) {
       this.subscribers.set(mint, new Set());
@@ -52,9 +51,6 @@ class TokenMetadataBatcher {
 
     // Add to queue
     this.queue.add(mint);
-    if (skipEnrichment) {
-      this.skipEnrichmentQueue.add(mint);
-    }
 
     // Register callback
     if (!this.callbacks.has(mint)) {
@@ -102,26 +98,11 @@ class TokenMetadataBatcher {
 
     this.isFetching = true;
     const mints = Array.from(this.queue);
-    const skipEnrichmentMints = new Set(this.skipEnrichmentQueue);
     this.queue.clear();
-    this.skipEnrichmentQueue.clear();
-
-    // Split into two groups: normal (with enrichment) and snapshot (skip enrichment)
-    const normalMints = mints.filter(m => !skipEnrichmentMints.has(m));
-    const snapshotMints = mints.filter(m => skipEnrichmentMints.has(m));
 
     try {
       // PHASE 1: Fetch immediate cached data from database
-      // Fire both requests in parallel if needed
-      const fetches: Promise<any>[] = [];
-      if (normalMints.length > 0) {
-        fetches.push(fetcher('/token-info', { method: 'POST', body: JSON.stringify({ tokenAddresses: normalMints }) }));
-      }
-      if (snapshotMints.length > 0) {
-        fetches.push(fetcher('/token-info', { method: 'POST', body: JSON.stringify({ tokenAddresses: snapshotMints, skipEnrichment: true }) }));
-      }
-      const responses = await Promise.all(fetches);
-      const response = responses.flat();
+      const response = await fetcher('/token-info', { method: 'POST', body: JSON.stringify({ tokenAddresses: mints }) });
 
       // Cache and notify with immediate data (might have "Unknown Token" or partial data)
       const resultMap = new Map<string, TokenMetadata>();
@@ -163,18 +144,18 @@ class TokenMetadataBatcher {
         this.callbacks.delete(mint);
       });
 
-      // PHASE 2: Auto-refresh after enrichment completes (only for non-snapshot mints)
-      if (normalMints.length > 0) {
-        const batchKey = normalMints.slice().sort().join(',');
+      // PHASE 2: Auto-refresh after enrichment completes
+      if (mints.length > 0) {
+        const batchKey = mints.slice().sort().join(',');
         const timers: NodeJS.Timeout[] = [];
 
         const timer1 = setTimeout(() => {
-          this.refreshEnrichedData(normalMints, batchKey, true);
+          this.refreshEnrichedData(mints, batchKey, true);
         }, 2000);
         timers.push(timer1);
 
         const timer2 = setTimeout(() => {
-          this.refreshEnrichedData(normalMints, batchKey, true);
+          this.refreshEnrichedData(mints, batchKey, true);
         }, 5000);
         timers.push(timer2);
 
@@ -295,7 +276,7 @@ const globalBatcher = new TokenMetadataBatcher();
  * Multiple components requesting metadata simultaneously will be batched into ONE API call
  * Auto-refreshes after 2 seconds to show enriched data
  */
-export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata, skipEnrichment = false) {
+export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata) {
   const [metadata, setMetadata] = useState<TokenMetadata | null>(providedMetadata || null);
   const [isLoading, setIsLoading] = useState(!providedMetadata);
 
@@ -340,7 +321,7 @@ export function useTokenMetadata(mint?: string, providedMetadata?: TokenMetadata
     // CRITICAL FIX: Only request if metadata is incomplete
     // If metadata is complete, just subscribe for future enrichment updates (no fetch)
     if (!isMetadataComplete) {
-      globalBatcher.request(mint, updateCallback, skipEnrichment);
+      globalBatcher.request(mint, updateCallback);
     } else {
       globalBatcher.subscribeOnly(mint, updateCallback);
     }

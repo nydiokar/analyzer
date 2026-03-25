@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { History, ChevronDown, Loader2, AlertCircle, Clock } from 'lucide-react';
+import { History, ChevronDown, Loader2, AlertCircle, Clock, GitCompareArrows } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
+import { SnapshotDiffPanel } from '@/components/holder-profiles/SnapshotDiffPanel';
+import { useHolderProfileDiff } from '@/hooks/useHolderProfileDiff';
 import { fetcher } from '@/lib/fetcher';
 import type { HolderProfileRun } from '@/hooks/useHolderProfileHistory';
 import type { HolderProfilesResult } from '@/components/holder-profiles/types';
@@ -53,6 +55,20 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
   const [snapshotResult, setSnapshotResult] = useState<HolderProfilesResult | null>(null);
   const [snapshotRun, setSnapshotRun] = useState<HolderProfileRun | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
+  const { diff, isLoading: isDiffLoading, error: diffError, fetchDiff, clear: clearDiff } = useHolderProfileDiff();
+
+  // Most recent run is runs[0]; snapshot being viewed is snapshotRun.
+  const newestRun = runs[0] ?? null;
+  const isNewestRun = !!(snapshotRun && newestRun && snapshotRun.jobId === newestRun.jobId);
+  const canCompare = !!(snapshotRun && newestRun && !isNewestRun);
+
+  const handleCompare = useCallback(() => {
+    if (!snapshotRun || !newestRun) return;
+    setShowDiff(true);
+    // jobIdA = older snapshot, jobIdB = newer (most recent)
+    fetchDiff(tokenMint, snapshotRun.jobId, newestRun.jobId);
+  }, [snapshotRun, newestRun, tokenMint, fetchDiff]);
 
   const loadSnapshot = useCallback(async (run: HolderProfileRun) => {
     // Open dialog immediately so the user sees feedback right away
@@ -60,6 +76,8 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
     setSnapshotRun(run);
     setSnapshotResult(null);
     setFetchError(null);
+    setShowDiff(false);
+    clearDiff();
     setOpen(true);
     try {
       const params = new URLSearchParams({ tokenMint, jobId: run.jobId });
@@ -70,7 +88,7 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
     } finally {
       setLoadingJobId(null);
     }
-  }, [tokenMint]);
+  }, [tokenMint, clearDiff]);
 
   if (runs.length === 0) return null;
 
@@ -112,23 +130,54 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
         )}
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setShowDiff(false); clearDiff(); } }}>
         <DialogContent
           className="max-w-6xl w-full max-h-[90vh] overflow-y-auto"
           onInteractOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <History className="h-4 w-4 text-muted-foreground" />
-              Historical Snapshot
-              {snapshotRun && (
-                <span className="text-muted-foreground font-normal text-sm">
-                  — {formatRunLabel(snapshotRun)}
-                </span>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <History className="h-4 w-4 text-muted-foreground" />
+                Historical Snapshot
+                {snapshotRun && (
+                  <span className="text-muted-foreground font-normal text-sm">
+                    — {formatRunLabel(snapshotRun)}
+                  </span>
+                )}
+              </DialogTitle>
+              {!loadingJobId && (
+                isNewestRun ? (
+                  <span className="text-xs text-muted-foreground italic shrink-0">Most recent run</span>
+                ) : canCompare ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs shrink-0"
+                    onClick={showDiff ? () => { setShowDiff(false); clearDiff(); } : handleCompare}
+                    disabled={isDiffLoading}
+                  >
+                    {isDiffLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <GitCompareArrows className="h-3.5 w-3.5" />
+                    )}
+                    {showDiff ? 'Hide diff' : 'Compare with current'}
+                  </Button>
+                ) : null
               )}
-            </DialogTitle>
+            </div>
           </DialogHeader>
+
+          {showDiff && (
+            <SnapshotDiffPanel
+              diff={diff}
+              isLoading={isDiffLoading}
+              error={diffError}
+              compareLabel={newestRun ? formatRunLabel(newestRun) : 'current'}
+            />
+          )}
 
           {loadingJobId ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">

@@ -40,10 +40,7 @@ export class TokenInfoController {
       throw new ForbiddenException('User could not be identified.');
     }
 
-    // Fire-and-forget enrichment — skip if caller explicitly opts out (e.g. snapshot viewers).
-    if (!body.skipEnrichment) {
-      this.tokenInfoService.triggerTokenInfoEnrichment(validTokenAddresses, userId);
-    }
+    this.tokenInfoService.triggerTokenInfoEnrichment(validTokenAddresses, userId);
     
     // Immediately return whatever data we have in the database right now.
     const records = await this.tokenInfoService.findMany(validTokenAddresses);
