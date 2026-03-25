@@ -94,6 +94,14 @@ model SwapAnalysisInput {
   feeAmount           Float?
   feePercentage       Float?
 
+  // --- Market Context (enrichment) ---
+  solPriceUsd    Float?     // SOL/USD price at time of trade
+  usdValue       Float?     // total USD value of the trade (associatedSolValue × solPriceUsd)
+  tokenPriceUsd  Float?     // per-token USD price: usdValue / amount
+  marketCapUsd   Float?     // fully diluted: tokenPriceUsd × totalSupply
+  mcapBucket     String?    // "micro" | "small" | "mid" | "large" | "mega"
+  enrichedAt     DateTime?  // when this row was enriched (null = not yet)
+
   @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")
   @@index([walletAddress, timestamp])
   @@index([mint])
@@ -829,4 +837,29 @@ model AlertNotification {
 
   @@index([userId, isRead])
   @@index([triggeredAt])
+}
+
+// ---------------------------------------------------------------------------
+// Market Context — SOL/USD daily price cache (source: DeFiLlama, free)
+// Stores one row per calendar day. Populated on startup, appended daily.
+// ---------------------------------------------------------------------------
+model SolDailyPrice {
+  date      String   @id          // format: "YYYY-MM-DD" (UTC)
+  priceUsd  Float                 // SOL/USD closing price for that day
+  fetchedAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Market Context — SPL token supply cache (source: Helius RPC, already paid)
+// One row per token mint. Most memecoin supplies are fixed at creation,
+// so this rarely needs updating. Refresh periodically for edge cases.
+// ---------------------------------------------------------------------------
+model TokenSupplyCache {
+  mint         String   @id       // SPL mint address
+  totalSupply  Float              // decimal-adjusted total supply (uiAmount)
+  decimals     Int?               // token decimals (useful for verification)
+  fetchedAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([fetchedAt])
 }
