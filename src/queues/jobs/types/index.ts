@@ -121,6 +121,12 @@ export interface SigBuyersJobData {
   requestId: string;
 }
 
+// Market Context Processing Job Data
+export interface ProcessMarketContextJobData {
+  walletAddress: string;
+  requestId: string;
+}
+
 // Enrichment Operations Job Data
 export interface EnrichTokenBalancesJobData {
   walletBalances?: Record<string, { tokenBalances: { mint: string, uiBalance: number }[] }>;

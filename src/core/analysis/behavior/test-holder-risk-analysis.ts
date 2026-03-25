@@ -44,6 +44,12 @@ function createSwapRecord(
     interactionType: 'swap',
     feeAmount: null,
     feePercentage: null,
+    solPriceUsd: null,
+    usdValue: null,
+    tokenPriceUsd: null,
+    marketCapUsd: null,
+    mcapBucket: null,
+    enrichedAt: null,
   };
 }
 

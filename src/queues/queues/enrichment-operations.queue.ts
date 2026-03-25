@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { QueueNames, QueueConfigs } from '../config/queue.config';
-import { EnrichTokenBalancesJobData, ParallelEnrichmentJobData } from '../jobs/types';
+import { EnrichTokenBalancesJobData, ParallelEnrichmentJobData, ProcessMarketContextJobData } from '../jobs/types';
 import { generateJobId } from '../utils/job-id-generator';
 import { Job } from 'bullmq';
 import { REDIS_CLIENT } from '../config/redis.provider';
@@ -47,6 +47,25 @@ export class EnrichmentOperationsQueue {
       // Persist routing metadata for room-based websocket delivery (24h TTL)
       await this.redisClient.set(key, data.userId, 'EX', 24 * 60 * 60);
     }
+
+    return job;
+  }
+
+  /**
+   * Add a market context processing job for a wallet.
+   * Dispatched after sync completes — fills solPriceUsd, tokenPriceUsd, marketCapUsd, mcapBucket
+   * on all un-processed SwapAnalysisInput rows for this wallet.
+   * Uses deduplication: if the same wallet is already queued, the job is skipped.
+   */
+  async addProcessMarketContext(data: ProcessMarketContextJobData): Promise<Job> {
+    const jobId = generateJobId.processMarketContext(data.walletAddress);
+
+    const job = await this.queue.add('process-market-context', data, {
+      jobId,
+      priority: 9, // Lower than token balance enrichment — background, non-urgent
+      removeOnComplete: { count: 3, age: 600 },
+      removeOnFail: 10,
+    });
 
     return job;
   }

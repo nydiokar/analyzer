@@ -46,6 +46,8 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
 import { SigBuyersModule } from '../api/modules/sig-buyers.module';
 import { PaymentConfirmationService } from '../api/services/payment-confirmation.service';
 import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import { appendTodaySolPrice, backfillSolPrices } from '../services/market-context/sol-price-cache';
+import { prisma } from '../core/services/database-service';
 
 
 @Global()
@@ -181,6 +183,22 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
     this.queueHealthService.registerQueue(QueueNames.ENRICHMENT_OPERATIONS, this.enrichmentOperationsQueue.getQueue());
 
     this.logger.log('Queue module initialized - all queues registered for health monitoring');
+
+    // Ensure SOL daily price time-series is current (needed for market context processing)
+    this.initSolPriceCache().catch((err) => {
+      this.logger.warn(`SOL price cache init failed (non-critical): ${getErrorMessage(err)}`);
+    });
+  }
+
+  private async initSolPriceCache(): Promise<void> {
+    await appendTodaySolPrice(prisma);
+
+    const count = await prisma.solDailyPrice.count();
+    if (count < 30) {
+      this.logger.log(`SOL price cache has only ${count} days — backfilling 90 days from DeFiLlama...`);
+      await backfillSolPrices(prisma, 90);
+      this.logger.log('SOL price cache backfill complete.');
+    }
   }
 
   async onModuleDestroy() {

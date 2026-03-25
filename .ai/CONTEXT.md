@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-03-25  **Status:** Market context enrichment scaffolded on `feat/market-context-enrichment`; migration pending
+**Branch:** `main`  **Last Updated:** 2026-03-25  **Status:** Market context pipeline wired on `feat/market-context-enrichment`; structural refactor pending before merge
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,54 +8,49 @@
 
 ##  Active Work
 
-### March 25, 2026 — Market Context Enrichment (`feat/market-context-enrichment`)
+### March 25, 2026 — Market Context Pipeline (`feat/market-context-enrichment`)
 
-**Branch:** `feat/market-context-enrichment` — 3 commits, not yet merged to `main`.
+**Branch:** `feat/market-context-enrichment` — not yet merged to `main`.
 
 **What was built (SOP: `.ai/context/MARKET_CONTEXT_ENRICHMENT_SOP.md`):**
 
 | Phase | Status | Notes |
 |:------|:------:|:------|
-| Schema: `SolDailyPrice`, `TokenSupplyCache`, enrichment fields on `SwapAnalysisInput` | ✅ Done | All new fields nullable — zero breaking changes |
-| `sol-price-cache.ts` — DeFiLlama historical SOL/USD prices | ✅ Done | `backfillSolPrices`, `appendTodaySolPrice`, `getSolPrice`, **`buildSolPriceMap`** (batch, no N+1) |
-| `token-supply-cache.ts` — Token supply via Helius RPC | ✅ Done | `ensureSuppliesCached`, `getTokenSupply`, **`buildSupplyMap`** (batch, no N+1) |
-| `enrichment-engine.ts` — Core enrichment logic | ✅ Done | `enrichSwapBatch`, `enrichAll`; infinite loop bug fixed; all N+1 DB queries eliminated |
-| `sanity-check.ts` — Cross-reference vs DexScreener `TokenInfo` | ✅ Done | |
-| Test scripts: `test-sol-price-cache.ts`, `test-enrichment-manual.ts` | ✅ Done | |
-| Backfill script: `backfill-market-context.ts` | ✅ Done | |
-| **Phase 6 — on-ingest integration hook** | ❌ Not wired | See divergence note below |
-| **Phase 7 — downstream extensions** (AnalysisResult, WalletBehaviorProfile, etc.) | ⚪ Future | Optional, planned |
+| Schema: `SolDailyPrice`, `TokenSupplyCache`, 6 fields on `SwapAnalysisInput` | ✅ Done | All nullable — zero breaking changes. Applied via `prisma db push` (no migration file). |
+| `sol-price-cache.ts` — DeFiLlama historical SOL/USD prices | ✅ Done | `backfillSolPrices`, `appendTodaySolPrice`, `buildSolPriceMap` (batch, no N+1) |
+| `token-supply-cache.ts` — Token supply via Helius RPC | ✅ Done | `ensureSuppliesCached`, `buildSupplyMap` (batch, no N+1) |
+| `enrichment-engine.ts` — Core batch logic | ✅ Done | `enrichSwapBatch(prisma, batchSize, walletAddress?)`, `enrichAll` |
+| `sanity-check.ts` — Cross-reference vs DexScreener `TokenInfo` | ✅ Done | Dev/validation tool only, not called at runtime |
+| Backfill + test scripts | ✅ Done | `backfill-market-context.ts`, `test-sol-price-cache.ts`, `test-enrichment-manual.ts` |
+| **Phase 6 — BullMQ job wired** | ✅ Done | `process-market-context` job dispatched from `WalletOperationsProcessor` after sync, handled in `EnrichmentOperationsProcessor` |
+| **Startup hook** | ✅ Done | `QueueModule.onModuleInit` calls `appendTodaySolPrice` + backfills if <30 days cached |
+| **Phase 7 — downstream** (AnalysisResult, WalletBehaviorProfile, mcap band charts) | ⚪ Future | Next major task after backfill is verified |
 
-**Migration pending:** `npx prisma migrate dev --name add-market-context-enrichment` (needs PostgreSQL with shadow DB permission, or `prisma migrate deploy` in prod)
+**⚠️ STRUCTURAL DEBT — must fix before Phase 7:**
 
-**Divergences from SOP and why:**
+The market context logic was scaffolded in `src/services/market-context/` — **a directory that does not exist in the project structure**. All other services in this project are `@Injectable()` NestJS services in `src/api/services/` with a corresponding module in `src/api/modules/`. The current implementation uses plain functions that take `PrismaClient` as a parameter, forcing raw `prisma` singleton imports into `queue.module.ts` and `enrichment-operations.processor.ts`.
 
-1. **Phase 6 hook not placed in `helius-sync-service.ts`** — The SOP says "hook into the existing mapping pipeline after swap insertion." The obvious place looked like `helius-sync-service.ts:474` (`saveSwapAnalysisInputs`). This was implemented and then reverted because `HeliusSyncService` is a core-layer service instantiated directly with `new` in standalone scripts, bot commands, and test harnesses — not a NestJS injectable. Importing market-context modules there would couple a transport service to enrichment business logic and drag the pipeline into contexts without the DB tables. **Correct integration point documented in JSDoc of `enrichSwapBatch`.**
+**Required refactor (next session, before Phase 7):**
+1. Create `src/api/services/market-context.service.ts` — `@Injectable()` class, inject `DatabaseService`, `HeliusApiClient`, `TokenInfoService` (supply already there, reuse it — drop `TokenSupplyCache` table and `token-supply-cache.ts`)
+2. Create `src/api/modules/market-context.module.ts` — register and export `MarketContextService`
+3. Import `MarketContextModule` in `QueueModule` — inject `MarketContextService` into `EnrichmentOperationsProcessor` and `QueueModule`
+4. Delete `src/services/` directory entirely
+5. Remove raw `prisma` imports from `queue.module.ts` and `enrichment-operations.processor.ts` introduced by this session
+6. Update backfill scripts to bootstrap NestJS or use the prisma singleton directly (existing pattern in other scripts)
 
-2. **`TokenSupplyCache` is a standalone Postgres table, not reusing `TokenInfoService`** — The app already has `TokenInfoService.getTokenSupply()` with a permanent Redis cache backed by `HeliusApiClient`. The new `TokenSupplyCache` table is intentionally separate for standalone backfill scripts that run outside NestJS DI. Inside the app, the existing service should be used. This is noted in `token-supply-cache.ts` comments.
-
-3. **`buildSolPriceMap` and `buildSupplyMap` added (not in SOP)** — The SOP's per-row `getSolPrice()` / `getTokenSupply()` calls would cause N+1 DB queries inside the batch loop (500 rows = 500 queries each). Added bulk-load helpers that resolve the full batch in 1-2 queries. `enrichSwapBatch` uses these instead.
-
-**Architectural decision on integration (confirmed, do not revisit):**
-The enrichment pipeline is a **separate consumer** of `SwapAnalysisInput` rows — not middleware in the sync pipeline. The correct flow is:
-
+**Data flow (correct, do not change):**
 ```
-sync-wallet job → saves SwapAnalysisInput (enrichedAt: null) → done
-                   ↓ (completely independent, async)
-market-context-enrich job → polls WHERE enrichedAt IS NULL → enriches → done
+sync-wallet job → saves SwapAnalysisInput (enrichedAt: null)
+                   ↓ async, fire-and-forget
+process-market-context job → WHERE enrichedAt IS NULL AND walletAddress = X → enriches
                    ↓
-dashboard query → SELECT WHERE enrichedAt IS NOT NULL → mcap bands + metrics
+dashboard → mcap band charts, mcap-aware profiles (Phase 7)
 ```
 
-This means the integration hook for Phase 6 should be a **new BullMQ job** dispatched by `WalletOperationsProcessor` (NestJS DI, queue processor) after sync completes — matching the existing `enrich-token-balances` pattern in `EnrichmentOperationsProcessor`. This keeps sync jobs fast, enrichment non-blocking, and the two pipelines independently deployable.
-
-**Next logical steps for this feature (next session):**
-1. Run `npx prisma migrate deploy` in the environment with PostgreSQL access
-2. After migration, run `npx ts-node scripts/test-sol-price-cache.ts` to verify DeFiLlama + DB
-3. Run `npx ts-node scripts/backfill-market-context.ts` to enrich all historical data
-4. Wire Phase 6: add `market-context-enrich` job type to `src/queues/jobs/types/index.ts`, dispatch from `WalletOperationsProcessor` after sync, handle in `EnrichmentOperationsProcessor` (or new `MarketContextProcessor`)
-5. Wire `appendTodaySolPrice()` into `QueueModule.onModuleInit()` (startup hook — it's already the NestJS init point)
-6. Phase 7 downstream: add mcap fields to `AnalysisResult` + `WalletBehaviorProfile` for dashboard mcap band charts
+**To run the historical backfill (do this once DB is confirmed live):**
+```bash
+npx ts-node -r tsconfig-paths/register scripts/backfill-market-context.ts
+```
 
 ---
 
@@ -116,11 +111,12 @@ This means the integration hook for Phase 6 should be a **new BullMQ job** dispa
 
 ##  Recent Activity
 
-### March 25, 2026 — Market Context Enrichment scaffold
+### March 25, 2026 — Market Context Pipeline scaffold + wire-up
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
-| 25.1 | 🎯 FEAT | **[MCE-1–7]** Market context enrichment pipeline scaffolded on `feat/market-context-enrichment`. Schema updated (3 models/fields). Services: `sol-price-cache.ts`, `token-supply-cache.ts`, `enrichment-engine.ts`, `sanity-check.ts`. Backfill + test scripts. Bugs fixed: infinite loop in `enrichAll`, N+1 DB queries eliminated with `buildSolPriceMap`/`buildSupplyMap`, `HELIUS_RPC_URL` module-level capture fixed. Phase 6 hook **not wired** — correct integration point is `WalletOperationsProcessor` → BullMQ job, documented in JSDoc. | 🔴 L | `prisma/schema.prisma`, `src/services/market-context/` (5 files), `scripts/` (3 files) |
+| 25.1 | 🎯 FEAT | **[MCE-1–6]** Market context pipeline scaffolded + wired. Schema: `SolDailyPrice`, `TokenSupplyCache`, 6 nullable fields on `SwapAnalysisInput` (applied via `db push`). Services: `sol-price-cache.ts`, `token-supply-cache.ts`, `enrichment-engine.ts`, `sanity-check.ts` in `src/services/market-context/` (**structural debt — must refactor to `src/api/services/`**). Phase 6 wired: `process-market-context` BullMQ job dispatched from `WalletOperationsProcessor` after sync, handled in `EnrichmentOperationsProcessor`. Startup hook in `QueueModule.onModuleInit` keeps `SolDailyPrice` current. | 🔴 L | `prisma/schema.prisma`, `src/services/market-context/` (5 files), `src/queues/jobs/types/index.ts`, `src/queues/queues/enrichment-operations.queue.ts`, `src/queues/processors/wallet-operations.processor.ts`, `src/queues/processors/enrichment-operations.processor.ts`, `src/queues/queue.module.ts`, `scripts/` (3 files) |
+| 25.2 | 🔧 INFRA | **[MCE-RULES]** `RULES.md` updated with mandatory project structure rules — new services must be `@Injectable()` in `src/api/services/`, registered in `src/api/modules/`, never plain functions in a new directory. Reference implementation: `token-info.service.ts`. | 🟢 S | `.ai/RULES.md` |
 
 ---
 

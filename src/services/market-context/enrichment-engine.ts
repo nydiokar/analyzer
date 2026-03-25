@@ -41,11 +41,12 @@ function classifyMcap(mcapUsd: number): string {
  */
 export async function enrichSwapBatch(
   prisma: PrismaClient,
-  batchSize: number = 500
+  batchSize: number = 500,
+  walletAddress?: string
 ): Promise<number> {
-  // 1. Fetch un-enriched rows
+  // 1. Fetch un-enriched rows — scoped to wallet if provided
   const rows = await prisma.swapAnalysisInput.findMany({
-    where: { enrichedAt: null },
+    where: { enrichedAt: null, ...(walletAddress ? { walletAddress } : {}) },
     orderBy: { timestamp: "desc" }, // newest first — most useful
     take: batchSize,
   });
