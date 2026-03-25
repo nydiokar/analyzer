@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
-import { getSolPrice } from "./sol-price-cache";
-import { getTokenSupply, ensureSuppliesCached } from "./token-supply-cache";
+import { buildSolPriceMap, timestampToDateKey } from "./sol-price-cache";
+import { buildSupplyMap, ensureSuppliesCached } from "./token-supply-cache";
 
 const MCAP_BUCKETS = [
   { label: "micro", max: 1_000_000 },
@@ -20,15 +20,22 @@ function classifyMcap(mcapUsd: number): string {
 /**
  * Enrich a batch of SwapAnalysisInput rows with market context.
  *
- * @param batchSize - How many rows to process per run. Default 500.
- *                    Use smaller batches if running alongside other workloads.
+ * Design:
+ * - Fetches one batch of un-enriched rows.
+ * - Pre-loads all needed SOL prices and token supplies in two bulk queries.
+ * - Writes each enriched row individually (values differ per row).
+ * - Rows that permanently cannot be enriched (zero amount, no SOL/USDC value)
+ *   are marked with enrichedAt so they are never retried, preventing an
+ *   infinite loop in `enrichAll`.
+ *
+ * @param batchSize How many rows to process per call. Default 500.
  * @returns Number of rows successfully enriched.
  */
 export async function enrichSwapBatch(
   prisma: PrismaClient,
   batchSize: number = 500
 ): Promise<number> {
-  // 1. Get un-enriched rows
+  // 1. Fetch un-enriched rows
   const rows = await prisma.swapAnalysisInput.findMany({
     where: { enrichedAt: null },
     orderBy: { timestamp: "desc" }, // newest first — most useful
@@ -42,49 +49,51 @@ export async function enrichSwapBatch(
 
   console.log(`Enriching ${rows.length} swap records...`);
 
-  // 2. Pre-fetch all needed token supplies in one pass
+  // 2. Pre-fetch all token supplies in one bulk operation
   const uniqueMints = [...new Set(rows.map((r) => r.mint))];
   await ensureSuppliesCached(prisma, uniqueMints);
 
-  // 3. Enrich each row
+  // 3. Load all required data in two queries — no N+1
+  const [solPriceMap, supplyMap] = await Promise.all([
+    buildSolPriceMap(prisma, rows.map((r) => r.timestamp)),
+    buildSupplyMap(prisma, uniqueMints),
+  ]);
+
+  // 4. Enrich each row
   let enriched = 0;
-  let errors = 0;
+  let skipped = 0; // rows we can derive no value from — mark done to prevent retry
 
   for (const row of rows) {
     try {
-      // Get SOL price for the trade's day
-      const solPriceUsd = await getSolPrice(prisma, row.timestamp);
-      if (!solPriceUsd) {
-        errors++;
-        continue;
-      }
+      const dateKey = timestampToDateKey(row.timestamp);
+      const solPriceUsd = solPriceMap.get(dateKey) ?? null;
 
       // Calculate USD value of the trade
-      let usdValue: number;
-      if (row.associatedSolValue > 0) {
+      let usdValue: number | null = null;
+
+      if (row.associatedSolValue > 0 && solPriceUsd) {
         usdValue = row.associatedSolValue * solPriceUsd;
       } else if (row.associatedUsdcValue && row.associatedUsdcValue > 0) {
-        // USDC-routed trade: USDC value IS the USD value
+        // USDC-routed trade: USDC value IS the USD value (no SOL price needed)
         usdValue = row.associatedUsdcValue;
-      } else {
-        // No value to derive price from
-        errors++;
+      }
+
+      if (usdValue === null || row.amount <= 0) {
+        // Cannot derive price — mark enrichedAt so this row is never retried.
+        // Fields stay null, meaning downstream code knows data is unavailable.
+        await prisma.swapAnalysisInput.update({
+          where: { id: row.id },
+          data: { enrichedAt: new Date() },
+        });
+        skipped++;
         continue;
       }
 
-      // Derive token price
-      if (row.amount <= 0) {
-        errors++;
-        continue;
-      }
       const tokenPriceUsd = usdValue / row.amount;
+      const totalSupply = supplyMap.get(row.mint) ?? null;
+      const marketCapUsd = totalSupply !== null ? tokenPriceUsd * totalSupply : null;
+      const mcapBucket = marketCapUsd !== null ? classifyMcap(marketCapUsd) : null;
 
-      // Get supply and derive market cap
-      const totalSupply = await getTokenSupply(prisma, row.mint);
-      const marketCapUsd = totalSupply ? tokenPriceUsd * totalSupply : null;
-      const mcapBucket = marketCapUsd ? classifyMcap(marketCapUsd) : null;
-
-      // Write back
       await prisma.swapAnalysisInput.update({
         where: { id: row.id },
         data: {
@@ -100,35 +109,36 @@ export async function enrichSwapBatch(
       enriched++;
     } catch (err: any) {
       console.warn(`Error enriching row ${row.id}: ${err.message}`);
-      errors++;
+      // Do NOT mark enrichedAt — a transient error (DB timeout, etc.) should be retried.
     }
   }
 
-  console.log(`Enriched: ${enriched} | Errors: ${errors} | Remaining: ${rows.length - enriched - errors}`);
-  return enriched;
+  const errors = rows.length - enriched - skipped;
+  console.log(`Enriched: ${enriched} | Skipped (no data): ${skipped} | Transient errors: ${errors}`);
+  return enriched + skipped; // Return total processed so enrichAll knows to continue
 }
 
 /**
  * Run enrichment until all rows are processed.
  * Processes in batches to avoid memory issues.
+ * Safe against infinite loops: rows with no derivable data are marked done.
  */
 export async function enrichAll(
   prisma: PrismaClient,
   batchSize: number = 500
 ): Promise<number> {
-  let totalEnriched = 0;
+  let totalProcessed = 0;
   let batchResult: number;
 
   do {
     batchResult = await enrichSwapBatch(prisma, batchSize);
-    totalEnriched += batchResult;
+    totalProcessed += batchResult;
 
-    // Small pause between batches
     if (batchResult > 0) {
       await new Promise((r) => setTimeout(r, 100));
     }
   } while (batchResult > 0);
 
-  console.log(`\nTotal enriched: ${totalEnriched} swap records.`);
-  return totalEnriched;
+  console.log(`\nTotal processed: ${totalProcessed} swap records.`);
+  return totalProcessed;
 }

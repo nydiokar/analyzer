@@ -18,7 +18,7 @@ export async function fetchSolPriceAtTimestamp(
     return null;
   }
 
-  const data = await res.json();
+  const data = await res.json() as { coins?: Record<string, { price?: number }> };
   return data.coins?.["coingecko:solana"]?.price ?? null;
 }
 
@@ -33,7 +33,7 @@ export async function backfillSolPrices(
   const now = Math.floor(Date.now() / 1000);
   let inserted = 0;
 
-  // Get existing dates to skip them
+  // Get existing dates to skip them — one query, not per-day
   const existing = await prisma.solDailyPrice.findMany({
     select: { date: true },
   });
@@ -67,6 +67,10 @@ export async function backfillSolPrices(
 
 /**
  * Append today's SOL price. Call on startup or via daily cron.
+ *
+ * NOTE: If you are inside the NestJS app, prefer calling
+ * `TokenInfoService.getSolPrice()` for the live price and only use
+ * this function to persist a daily snapshot to `SolDailyPrice`.
  */
 export async function appendTodaySolPrice(
   prisma: PrismaClient
@@ -89,8 +93,10 @@ export async function appendTodaySolPrice(
 }
 
 /**
- * Look up SOL/USD price for a given transaction timestamp.
- * Returns the exact day's price, or the nearest available day.
+ * Look up SOL/USD price for a given transaction timestamp from the DB cache.
+ * Returns the exact day's price, or the nearest available day within ±3 days.
+ *
+ * For the enrichment engine, prefer `buildSolPriceMap()` to avoid N+1 DB queries.
  */
 export async function getSolPrice(
   prisma: PrismaClient,
@@ -104,7 +110,7 @@ export async function getSolPrice(
   });
   if (exact) return exact.priceUsd;
 
-  // Fallback: nearest date within ±3 days
+  // Fallback: nearest date within ±3 days, preferring the closest one
   const nearbyDate = new Date(unixTimestamp * 1000);
   const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
   const minDate = new Date(nearbyDate.getTime() - threeDaysMs)
@@ -114,14 +120,75 @@ export async function getSolPrice(
     .toISOString()
     .split("T")[0];
 
-  const nearest = await prisma.solDailyPrice.findFirst({
+  const candidates = await prisma.solDailyPrice.findMany({
     where: { date: { gte: minDate, lte: maxDate } },
-    orderBy: { date: "desc" },
   });
 
-  return nearest?.priceUsd ?? null;
+  if (candidates.length === 0) return null;
+
+  // Pick the candidate whose date is closest to dateKey
+  candidates.sort((a, b) => {
+    const distA = Math.abs(dateDiffDays(a.date, dateKey));
+    const distB = Math.abs(dateDiffDays(b.date, dateKey));
+    return distA - distB;
+  });
+
+  return candidates[0].priceUsd;
 }
 
-function timestampToDateKey(unixTimestamp: number): string {
+/**
+ * Load all SOL prices for a set of unix timestamps in a single DB query.
+ * Returns a Map<dateKey, priceUsd>. Use this inside batch loops to avoid N+1.
+ */
+export async function buildSolPriceMap(
+  prisma: PrismaClient,
+  unixTimestamps: number[]
+): Promise<Map<string, number>> {
+  if (unixTimestamps.length === 0) return new Map();
+
+  const dateKeys = [...new Set(unixTimestamps.map(timestampToDateKey))];
+
+  // Widen the range by ±3 days to cover the fallback window in one query
+  const allTimes = unixTimestamps.map((t) => t * 1000);
+  const minDate = new Date(Math.min(...allTimes) - 3 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .split("T")[0];
+  const maxDate = new Date(Math.max(...allTimes) + 3 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .split("T")[0];
+
+  const rows = await prisma.solDailyPrice.findMany({
+    where: { date: { gte: minDate, lte: maxDate } },
+  });
+
+  const dbMap = new Map(rows.map((r) => [r.date, r.priceUsd]));
+  const result = new Map<string, number>();
+
+  for (const dateKey of dateKeys) {
+    if (dbMap.has(dateKey)) {
+      result.set(dateKey, dbMap.get(dateKey)!);
+      continue;
+    }
+    // Nearest fallback within the loaded rows
+    let best: { date: string; priceUsd: number } | null = null;
+    let bestDist = Infinity;
+    for (const row of rows) {
+      const dist = Math.abs(dateDiffDays(row.date, dateKey));
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = row;
+      }
+    }
+    if (best) result.set(dateKey, best.priceUsd);
+  }
+
+  return result;
+}
+
+export function timestampToDateKey(unixTimestamp: number): string {
   return new Date(unixTimestamp * 1000).toISOString().split("T")[0];
+}
+
+function dateDiffDays(dateA: string, dateB: string): number {
+  return (new Date(dateA).getTime() - new Date(dateB).getTime()) / (1000 * 60 * 60 * 24);
 }
