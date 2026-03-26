@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, Suspense } from 'react';
 import { ThemeProvider } from "@/components/theme-provider";
 import { EmailVerificationBanner } from "@/components/auth/EmailVerificationBanner";
 import { UserMenu } from "@/components/auth/UserMenu";
@@ -121,12 +121,23 @@ function buildRouteTitle(pathname: string, searchParams: URLSearchParams): strin
  * - SWR cache provider
  * - Proactive JWT refresh
  */
+function RouteTitleUpdater() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const nextTitle = buildRouteTitle(pathname, searchParams);
+    if (document.title !== nextTitle) {
+      document.title = nextTitle;
+    }
+  }, [pathname, searchParams]);
+  return null;
+}
+
 export function AppShell({ children }: AppShellProps) {
   // Keep active users signed in by refreshing 5 minutes before expiry when tab is active
   useProactiveRefresh();
 
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const router = useRouter();
   const { isAuthenticated, user } = useAuth();
   const { balance } = useCredits();
@@ -144,13 +155,6 @@ export function AppShell({ children }: AppShellProps) {
     ...defaultSWRConfig,
     provider: () => cacheProvider,
   }), [cacheProvider]);
-
-  useEffect(() => {
-    const nextTitle = buildRouteTitle(pathname, searchParams);
-    if (document.title !== nextTitle) {
-      document.title = nextTitle;
-    }
-  }, [pathname, searchParams]);
 
   const navItems = [
     { href: '/discover', label: 'Discover' },
@@ -323,6 +327,9 @@ export function AppShell({ children }: AppShellProps) {
           </main>
         </div>
         <Toaster />
+        <Suspense fallback={null}>
+          <RouteTitleUpdater />
+        </Suspense>
 
         {/* Auth Modal */}
         <AuthModal
