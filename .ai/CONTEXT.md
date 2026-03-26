@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/market-context-enrichment`  **Last Updated:** 2026-03-25  **Status:** Structural refactor complete — pipeline ready for backfill verification; Phase 7 next
+**Branch:** `feat/market-context-enrichment`  **Last Updated:** 2026-03-26  **Status:** Phase 1-6 implemented and hardened; DB migration history repaired; live-data verification still required before Phase 7 or production
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -14,14 +14,15 @@
 
 | Phase | Status | Notes |
 |:------|:------:|:------|
-| Schema: `SolDailyPrice`, 6 fields on `SwapAnalysisInput`, `TokenInfo.totalSupply` | ✅ Done | All nullable, applied via `prisma db push`. No separate `TokenSupplyCache` table — supply lives in `TokenInfo`. |
-| SOL price cache — DeFiLlama | ✅ Done | `backfillSolPrices`, `appendTodaySolPrice`, `buildSolPriceMap` (bulk query, ±3 day fallback) |
+| Schema: `SolDailyPrice`, 6 fields on `SwapAnalysisInput`, `TokenInfo.totalSupply` | ✅ Done | All nullable in `schema.prisma`. For contaminated dev DB: restore share migration history first, then use `prisma db push` to align without reset. Proper market-context migration still needs to be committed before merge/production. |
+| SOL price cache — DeFiLlama | ✅ Done | `backfillSolPrices`, `appendTodaySolPrice`, `buildSolPriceMap` now auto-backfills to oldest needed timestamp before enrichment and keeps fallback bounded to ±3 days. |
 | Token supply — `TokenInfo.totalSupply` | ✅ Done | `getTokenSupply()` upgraded to Redis → DB → Helius RPC (write-back to both on miss). One RPC call per mint ever, system-wide. |
 | `MarketContextService` + `MarketContextModule` | ✅ Done | `@Injectable()` in `src/api/services/`, injects `DatabaseService` + `TokenInfoService`. Module in `src/api/modules/`. |
-| `src/core/services/market-context-standalone.ts` | ✅ Done | Pure functions shared by service + scripts. No raw RPC calls from scripts. |
-| Backfill + test scripts | ✅ Done | Use `prisma` singleton from `database-service.ts`. |
-| Phase 6 — BullMQ `process-market-context` job | ✅ Done | Dispatched after sync, handled in `EnrichmentOperationsProcessor`. Startup hook keeps `SolDailyPrice` current. |
-| **Phase 7 — downstream** | ⚪ **Next** | Add `mcapBucket`, `avgEntryMcap` to `AnalysisResult` + `WalletBehaviorProfile`. Surface in behavior analyzer and HUD. Start only after backfill is verified on live data. |
+| `src/core/services/market-context-standalone.ts` | ✅ Done | Shared pure helpers. Classification buckets updated to: `nano`, `ultra-micro`, `micro`, `small`, `mid`, `large`, `mega`. |
+| Backfill + test scripts | ✅ Done | Both scripts now bootstrap Nest context and call the DI-backed `MarketContextService` path, not the weaker standalone-only path. |
+| Phase 6 — BullMQ `process-market-context` job | ✅ Done | Dispatched after sync, handled in `EnrichmentOperationsProcessor`. Job now drains a wallet fully instead of stopping after one 500-row batch. Rows missing SOL cache are deferred for retry instead of being falsely stamped complete. |
+| **Pre-production verification** | 🟡 **Now** | Required before merge: apply schema to dev DB, run backfill, verify heavy wallet (>500 swaps), wallet with >90d history, USDC-routed wallet, and normal recent wallet. Check for zero false-completes and acceptable supply/mcap miss rate. |
+| **Phase 7 — downstream** | ⚪ **Blocked on verification** | Add `mcapBucket`, `avgEntryMcap` to `AnalysisResult` + `WalletBehaviorProfile`. Surface in behavior analyzer and HUD only after live backfill verification passes. |
 
 **Data flow (do not change):**
 ```
@@ -36,6 +37,23 @@ Phase 7 → mcap-aware profiles, HUD fields, band charts
 ```bash
 npx ts-node -r tsconfig-paths/register scripts/backfill-market-context.ts
 ```
+
+**Immediate verification gates before calling this production-ready:**
+- Resolve drift from the removed holder-profile-share feature without reset:
+  - restore `20260324115336_add_holder_profile_share`
+  - add/mark applied `20260326000000_remove_holder_profile_share`
+- Apply current market-context schema to contaminated dev DB with `npx prisma db push`
+- Run `npx prisma generate` and `pnpm verify`
+- Run historical backfill
+- Validate:
+  - one wallet with >500 swaps drains fully
+  - one wallet with swaps older than 90 days gets SOL prices after auto-backfill
+  - one USDC-routed wallet derives `usdValue` correctly
+  - one recent normal wallet produces plausible `tokenPriceUsd`, `marketCapUsd`, `mcapBucket`
+- SQL checks after run:
+  - false completes should be zero:
+    `associatedSolValue > 0 AND associatedUsdcValue IS NULL AND solPriceUsd IS NULL AND enrichedAt IS NOT NULL`
+  - inspect remaining `marketCapUsd IS NULL` rows by mint to confirm they are supply-cache misses, not logic bugs
 
 ---
 
@@ -95,6 +113,23 @@ npx ts-node -r tsconfig-paths/register scripts/backfill-market-context.ts
 ---
 
 ##  Recent Activity
+
+### March 26, 2026 — Market Context hardening + migration-history repair
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 26.1 | 🐛 FIX | **[MCE-VERIFY]** Verified branch against actual code and dev DB state. Found: live DB missing market-context columns/table, one historical migration missing locally (`20260324115336_add_holder_profile_share`), wallet sync path only processed one 500-row batch, and rows missing SOL cache were being stamped complete. | 🔴 L | `.ai/CONTEXT.md`, `prisma/migrations/`, `src/api/services/market-context.service.ts`, `src/core/services/market-context-standalone.ts`, `src/queues/processors/enrichment-operations.processor.ts` |
+| 26.2 | 🐛 FIX | **[MCE-DRAIN]** `process-market-context` now drains a wallet fully via `MarketContextService.enrichWallet()` instead of stopping after one batch. This closes the >500-swap wallet backlog risk discovered during review. | 🟡 M | `src/api/services/market-context.service.ts`, `src/queues/processors/enrichment-operations.processor.ts` |
+| 26.3 | 🐛 FIX | **[MCE-RETRY]** Enrichment now distinguishes permanent skips from deferred retries. Rows missing prerequisite SOL price cache are left pending, not falsely marked `enrichedAt`. SOL price coverage auto-backfills to the oldest needed timestamp before classification; fallback remains bounded to ±3 days. | 🟡 M | `src/core/services/market-context-standalone.ts`, `src/api/services/market-context.service.ts` |
+| 26.4 | ♻️ REFACTOR | **[MCE-SCRIPTS]** `scripts/backfill-market-context.ts` and `scripts/test-enrichment-manual.ts` now bootstrap Nest context and use `MarketContextService`, so verification uses the same supply-resolution path as production (Redis → DB → Helius RPC) instead of standalone DB-only supply reads. Manual script is now wallet-scoped. | 🟡 M | `scripts/backfill-market-context.ts`, `scripts/test-enrichment-manual.ts` |
+| 26.5 | 🔧 INFRA | **[MCE-MIGRATIONS]** Restored missing migration `20260324115336_add_holder_profile_share` from git history and added compensating migration `20260326000000_remove_holder_profile_share` to keep migration history consistent with the current schema without reset. `npx prisma migrate status` no longer reports the missing-migration reset condition after restore. | 🟡 M | `prisma/migrations/20260324115336_add_holder_profile_share/`, `prisma/migrations/20260326000000_remove_holder_profile_share/` |
+| 26.6 | ♻️ REFACTOR | **[MCE-BUCKETS]** Reworked market-cap banding from coarse 5-band labels to `nano`, `ultra-micro`, `micro`, `small`, `mid`, `large`, `mega` so sub-$100K tokens are not misclassified. Existing enriched rows will need reclassification/backfill if buckets were already written. | 🟢 S | `src/core/services/market-context-standalone.ts`, `prisma/schema.prisma` |
+
+**Current technical state:**
+- `pnpm verify` passes after regenerating Prisma client.
+- Dev DB migration history issue around holder-profile-share is repaired locally; branch-safe next step is to mark `20260326000000_remove_holder_profile_share` applied on contaminated dev DB.
+- Market-context schema itself still needs a real committed Prisma migration before merge/production. For contaminated dev DB, use `npx prisma db push` first to enable testing without reset.
+- Remaining work before production claim is verification, not more structural coding.
 
 ### March 25, 2026 — Market Context Pipeline: structural refactor + supply cache redesign
 
@@ -345,6 +380,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-25  **Branch:** `feat/market-context-enrichment`
+**Last Updated:** 2026-03-26  **Branch:** `feat/market-context-enrichment`
 
 ---
