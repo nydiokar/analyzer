@@ -10,4 +10,4 @@ export class GetTokenInfoRequestDto {
   @IsArray()
   @IsString({ each: true })
   tokenAddresses: string[];
-} 
+}

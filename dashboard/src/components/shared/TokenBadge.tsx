@@ -124,7 +124,7 @@ const TokenBadge = memo(({
   metadata: providedMetadata,
   className,
   size = "m",
-  variant = "card"
+  variant = "card",
 }: TokenBadgeProps) => {
   // ===== SMART METADATA FETCHING WITH BATCHING =====
   const { metadata: fetchedMetadata, isLoading } = useTokenMetadata(mint, providedMetadata);

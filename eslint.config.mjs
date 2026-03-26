@@ -19,6 +19,7 @@ export default [
       'pft-bot_v2/**',
       'docs/**',
       'packages/**',
+      'submodules/**',
       'prisma/**',
       'scripts/**',
     ],

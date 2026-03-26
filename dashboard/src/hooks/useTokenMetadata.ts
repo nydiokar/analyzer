@@ -102,10 +102,7 @@ class TokenMetadataBatcher {
 
     try {
       // PHASE 1: Fetch immediate cached data from database
-      const response = await fetcher('/token-info', {
-        method: 'POST',
-        body: JSON.stringify({ tokenAddresses: mints }),
-      });
+      const response = await fetcher('/token-info', { method: 'POST', body: JSON.stringify({ tokenAddresses: mints }) });
 
       // Cache and notify with immediate data (might have "Unknown Token" or partial data)
       const resultMap = new Map<string, TokenMetadata>();
@@ -148,27 +145,22 @@ class TokenMetadataBatcher {
       });
 
       // PHASE 2: Auto-refresh after enrichment completes
-      // Backend triggers enrichment (fire-and-forget), enrichment typically completes in ~200-500ms
-      // DexScreener stage can take longer (especially for new tokens), so we:
-      // - First retry after 2s (catches most enrichments)
-      // - Second retry after 5s (catches slower DexScreener responses)
+      if (mints.length > 0) {
+        const batchKey = mints.slice().sort().join(',');
+        const timers: NodeJS.Timeout[] = [];
 
-      // Create batch key for tracking timers
-      const batchKey = mints.sort().join(',');
-      const timers: NodeJS.Timeout[] = [];
+        const timer1 = setTimeout(() => {
+          this.refreshEnrichedData(mints, batchKey, true);
+        }, 2000);
+        timers.push(timer1);
 
-      const timer1 = setTimeout(() => {
-        this.refreshEnrichedData(mints, batchKey, true);
-      }, 2000);
-      timers.push(timer1);
+        const timer2 = setTimeout(() => {
+          this.refreshEnrichedData(mints, batchKey, true);
+        }, 5000);
+        timers.push(timer2);
 
-      const timer2 = setTimeout(() => {
-        this.refreshEnrichedData(mints, batchKey, true);
-      }, 5000);
-      timers.push(timer2);
-
-      // Store timers for potential cancellation
-      this.refreshTimers.set(batchKey, timers);
+        this.refreshTimers.set(batchKey, timers);
+      }
 
     } catch (error) {
       console.error('[TokenMetadataBatcher] Failed to fetch batch:', error);
