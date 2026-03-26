@@ -9,12 +9,15 @@ import { PrismaClient } from '@prisma/client';
 
 const DEFILLAMA_BASE = 'https://coins.llama.fi';
 const ONE_DAY = 86400;
+const MAX_SOL_PRICE_FALLBACK_DAYS = 3;
 
 export const MCAP_BUCKETS = [
-  { label: 'micro', max: 1_000_000 },
-  { label: 'small', max: 10_000_000 },
-  { label: 'mid', max: 100_000_000 },
-  { label: 'large', max: 1_000_000_000 },
+  { label: 'nano', max: 3000 },
+  { label: 'ultra-micro', max: 30_000 },
+  { label: 'micro', max: 100_000 },
+  { label: 'small', max: 1_000_000 },
+  { label: 'mid', max: 10_000_000 },
+  { label: 'large', max: 100_000_000 },
   { label: 'mega', max: Infinity },
 ] as const;
 
@@ -89,6 +92,31 @@ export async function backfillSolPrices(prisma: PrismaClient, lookbackDays = 90)
   return inserted;
 }
 
+async function ensureSolPriceCoverage(
+  prisma: PrismaClient,
+  unixTimestamps: number[],
+): Promise<void> {
+  if (unixTimestamps.length === 0) return;
+
+  const oldestTimestamp = Math.min(...unixTimestamps);
+  const oldestNeededDate = timestampToDateKey(oldestTimestamp);
+  const oldestCached = await prisma.solDailyPrice.findFirst({
+    orderBy: { date: 'asc' },
+    select: { date: true },
+  });
+
+  if (oldestCached && oldestCached.date <= oldestNeededDate) {
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const lookbackDays = Math.ceil((now - oldestTimestamp) / ONE_DAY) + MAX_SOL_PRICE_FALLBACK_DAYS;
+  console.log(
+    `[SOL] Cache coverage missing for ${oldestNeededDate}. Backfilling ${lookbackDays} day(s) before enrichment...`,
+  );
+  await backfillSolPrices(prisma, lookbackDays);
+}
+
 /**
  * Bulk-load SOL prices for a set of unix timestamps. One DB query,
  * nearest-day fallback within ±3 days. Avoids N+1 in batch loops.
@@ -99,10 +127,12 @@ export async function buildSolPriceMap(
 ): Promise<Map<string, number>> {
   if (unixTimestamps.length === 0) return new Map();
 
+  await ensureSolPriceCoverage(prisma, unixTimestamps);
+
   const dateKeys = [...new Set(unixTimestamps.map(timestampToDateKey))];
   const allTimes = unixTimestamps.map(t => t * 1000);
-  const minDate = new Date(Math.min(...allTimes) - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const maxDate = new Date(Math.max(...allTimes) + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const minDate = new Date(Math.min(...allTimes) - MAX_SOL_PRICE_FALLBACK_DAYS * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const maxDate = new Date(Math.max(...allTimes) + MAX_SOL_PRICE_FALLBACK_DAYS * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const rows = await prisma.solDailyPrice.findMany({
     where: { date: { gte: minDate, lte: maxDate } },
@@ -122,7 +152,9 @@ export async function buildSolPriceMap(
       const dist = Math.abs(dateDiffDays(row.date, dateKey));
       if (dist < bestDist) { bestDist = dist; best = row; }
     }
-    if (best) result.set(dateKey, best.priceUsd);
+    if (best && bestDist <= MAX_SOL_PRICE_FALLBACK_DAYS) {
+      result.set(dateKey, best.priceUsd);
+    }
   }
 
   return result;
@@ -194,11 +226,21 @@ export async function enrichSwapBatch(
 
   let enriched = 0;
   let skipped = 0;
+  let deferred = 0;
 
   for (const row of rows) {
     try {
       const dateKey = timestampToDateKey(row.timestamp);
       const solPriceUsd = solPriceMap.get(dateKey) ?? null;
+
+      if (row.amount <= 0) {
+        await prisma.swapAnalysisInput.update({
+          where: { id: row.id },
+          data: { enrichedAt: new Date() },
+        });
+        skipped++;
+        continue;
+      }
 
       let usdValue: number | null = null;
       if (row.associatedSolValue > 0 && solPriceUsd) {
@@ -207,7 +249,12 @@ export async function enrichSwapBatch(
         usdValue = row.associatedUsdcValue;
       }
 
-      if (usdValue === null || row.amount <= 0) {
+      if (usdValue === null) {
+        if (row.associatedSolValue > 0 && solPriceUsd === null) {
+          deferred++;
+          continue;
+        }
+
         await prisma.swapAnalysisInput.update({
           where: { id: row.id },
           data: { enrichedAt: new Date() },
@@ -232,8 +279,10 @@ export async function enrichSwapBatch(
     }
   }
 
-  const errors = rows.length - enriched - skipped;
-  console.log(`Enriched: ${enriched} | Skipped (no data): ${skipped} | Transient errors: ${errors}`);
+  const errors = rows.length - enriched - skipped - deferred;
+  console.log(
+    `Enriched: ${enriched} | Skipped (permanent): ${skipped} | Deferred (retry later): ${deferred} | Transient errors: ${errors}`,
+  );
   return enriched + skipped;
 }
 

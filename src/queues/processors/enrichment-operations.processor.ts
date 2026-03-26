@@ -552,7 +552,7 @@ export class EnrichmentOperationsProcessor {
 
     this.logger.log(`Processing market context for wallet ${walletAddress}`);
 
-    const processed = await this.marketContextService.enrichSwapBatch(500, walletAddress);
+    const processed = await this.marketContextService.enrichWallet(walletAddress, 500);
 
     this.logger.log(`Market context processed ${processed} swaps for ${walletAddress} in ${Date.now() - startTime}ms`);
     return { processed };

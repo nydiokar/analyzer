@@ -20,7 +20,7 @@ export class MarketContextService {
   ) {}
 
   // ---------------------------------------------------------------------------
-  // SOL price cache — delegates to standalone pure functions
+  // SOL price cache - delegates to standalone shared functions
   // ---------------------------------------------------------------------------
 
   async appendTodaySolPrice(): Promise<void> {
@@ -36,24 +36,13 @@ export class MarketContextService {
   }
 
   // ---------------------------------------------------------------------------
-  // Token supply — one bulk DB read, then targeted RPC only for misses
+  // Token supply - one bulk DB read, then targeted RPC only for misses
   // ---------------------------------------------------------------------------
 
-  /**
-   * Builds a Map<mint, totalSupply> for a set of mints.
-   *
-   * Strategy:
-   *   1. Single SELECT on TokenInfo for all mints — free, fast.
-   *   2. For any mint missing totalSupply, call TokenInfoService.getTokenSupply()
-   *      which goes Redis → DB → Helius RPC and writes back to both layers.
-   *   In steady state (post-backfill) step 2 fires for zero mints.
-   */
   private async buildSupplyMap(mints: string[]): Promise<Map<string, number>> {
     if (mints.length === 0) return new Map();
 
     const uniqueMints = [...new Set(mints)];
-
-    // Bulk read — one query for all mints
     const rows = await this.db.findManyTokenInfo(uniqueMints);
     const result = new Map<string, number>();
     const missing: string[] = [];
@@ -66,14 +55,11 @@ export class MarketContextService {
       }
     }
 
-    // Mints with no TokenInfo row at all
     const seen = new Set(rows.map(r => r.tokenAddress));
     for (const mint of uniqueMints) {
       if (!seen.has(mint)) missing.push(mint);
     }
 
-    // For cache misses: TokenInfoService handles Redis → DB → Helius → write-back
-    // These are genuinely unseen mints — call one at a time (RPC has no batch for getTokenSupply)
     if (missing.length > 0) {
       this.logger.log(`[Supply] Fetching ${missing.length} mints from RPC (not yet cached)`);
       for (const mint of missing) {
@@ -92,16 +78,8 @@ export class MarketContextService {
   /**
    * Enrich a batch of SwapAnalysisInput rows with SOL price + token market cap.
    *
-   * Flow per batch:
-   *   1. Fetch up to batchSize un-enriched rows (scoped to wallet if provided).
-   *   2. Build SOL price map — one DB query covering all timestamps.
-   *   3. Build supply map — one bulk TokenInfo read; RPC only for true misses.
-   *   4. Compute and write enriched fields row by row.
-   *
-   * Rows with no derivable value (zero amounts, missing SOL price) are stamped
-   * with enrichedAt so they are never retried.
-   *
-   * @returns Total rows processed (enriched + permanently skipped).
+   * Rows with structurally invalid inputs are stamped as complete so they are
+   * not retried forever. Rows missing prerequisite cache data stay pending.
    */
   async enrichSwapBatch(batchSize = 500, walletAddress?: string): Promise<number> {
     const rows = await prisma.swapAnalysisInput.findMany({
@@ -118,7 +96,6 @@ export class MarketContextService {
     this.logger.log(`Enriching ${rows.length} swap records...`);
 
     const uniqueMints = [...new Set(rows.map(r => r.mint))];
-
     const [solPriceMap, supplyMap] = await Promise.all([
       buildSolPriceMap(prisma, rows.map(r => r.timestamp)),
       this.buildSupplyMap(uniqueMints),
@@ -126,11 +103,21 @@ export class MarketContextService {
 
     let enriched = 0;
     let skipped = 0;
+    let deferred = 0;
 
     for (const row of rows) {
       try {
         const dateKey = timestampToDateKey(row.timestamp);
         const solPriceUsd = solPriceMap.get(dateKey) ?? null;
+
+        if (row.amount <= 0) {
+          await prisma.swapAnalysisInput.update({
+            where: { id: row.id },
+            data: { enrichedAt: new Date() },
+          });
+          skipped++;
+          continue;
+        }
 
         let usdValue: number | null = null;
         if (row.associatedSolValue > 0 && solPriceUsd) {
@@ -139,8 +126,12 @@ export class MarketContextService {
           usdValue = row.associatedUsdcValue;
         }
 
-        if (usdValue === null || row.amount <= 0) {
-          // Permanently un-enrichable — stamp so it's never retried
+        if (usdValue === null) {
+          if (row.associatedSolValue > 0 && solPriceUsd === null) {
+            deferred++;
+            continue;
+          }
+
           await prisma.swapAnalysisInput.update({
             where: { id: row.id },
             data: { enrichedAt: new Date() },
@@ -165,18 +156,17 @@ export class MarketContextService {
       }
     }
 
-    const errors = rows.length - enriched - skipped;
-    this.logger.log(`Enriched: ${enriched} | Skipped (no data): ${skipped} | Transient errors: ${errors}`);
+    const errors = rows.length - enriched - skipped - deferred;
+    this.logger.log(
+      `Enriched: ${enriched} | Skipped (permanent): ${skipped} | Deferred (retry later): ${deferred} | Transient errors: ${errors}`,
+    );
     return enriched + skipped;
   }
 
-  /**
-   * Run enrichment until all un-enriched rows are processed.
-   * Used by the backfill script via NestJS app bootstrap.
-   */
   async enrichAll(batchSize = 500): Promise<number> {
     let totalProcessed = 0;
     let batchResult: number;
+
     do {
       batchResult = await this.enrichSwapBatch(batchSize);
       totalProcessed += batchResult;
@@ -184,6 +174,20 @@ export class MarketContextService {
     } while (batchResult > 0);
 
     this.logger.log(`Total processed: ${totalProcessed} swap records.`);
+    return totalProcessed;
+  }
+
+  async enrichWallet(walletAddress: string, batchSize = 500): Promise<number> {
+    let totalProcessed = 0;
+    let batchResult: number;
+
+    do {
+      batchResult = await this.enrichSwapBatch(batchSize, walletAddress);
+      totalProcessed += batchResult;
+      if (batchResult > 0) await new Promise(r => setTimeout(r, 100));
+    } while (batchResult > 0);
+
+    this.logger.log(`Wallet ${walletAddress} market context processed ${totalProcessed} swap records.`);
     return totalProcessed;
   }
 }

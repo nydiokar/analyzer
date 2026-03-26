@@ -99,7 +99,7 @@ model SwapAnalysisInput {
   usdValue       Float?     // total USD value of the trade (associatedSolValue × solPriceUsd)
   tokenPriceUsd  Float?     // per-token USD price: usdValue / amount
   marketCapUsd   Float?     // fully diluted: tokenPriceUsd × totalSupply
-  mcapBucket     String?    // "micro" | "small" | "mid" | "large" | "mega"
+  mcapBucket     String?    // "nano" | "ultra-micro" | "micro" | "small" | "mid" | "large" | "mega"
   enrichedAt     DateTime?  // when this row was enriched (null = not yet)
 
   @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")

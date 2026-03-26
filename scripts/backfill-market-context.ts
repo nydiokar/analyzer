@@ -1,9 +1,18 @@
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from '../src/app.module';
 import { prisma } from '../src/core/services/database-service';
-import { backfillSolPrices, enrichAll } from '../src/core/services/market-context-standalone';
+import { MarketContextService } from '../src/api/services/market-context.service';
 
 async function backfill() {
+  let app: Awaited<ReturnType<typeof NestFactory.createApplicationContext>> | null = null;
+
   try {
-    // Check how far back our data goes
+    app = await NestFactory.createApplicationContext(AppModule, {
+      logger: ['error', 'warn', 'log'],
+      abortOnError: false,
+    });
+    const marketContextService = app.get(MarketContextService);
+
     const oldest = await prisma.swapAnalysisInput.findFirst({
       where: { enrichedAt: null },
       orderBy: { timestamp: 'asc' },
@@ -13,15 +22,17 @@ async function backfill() {
       const daysBack = Math.ceil((Date.now() / 1000 - oldest.timestamp) / 86400);
       console.log(`Oldest un-enriched swap: ${daysBack} days ago.`);
       console.log(`Backfilling SOL prices for ${daysBack} days...`);
-      await backfillSolPrices(prisma, Math.min(daysBack + 5, 365)); // +5 buffer
+      await marketContextService.backfillSolPrices(Math.min(daysBack + 5, 365));
     }
 
-    // Enrich all un-enriched rows
     const total = await prisma.swapAnalysisInput.count({ where: { enrichedAt: null } });
     console.log(`\n${total} swap records to enrich. Starting...\n`);
 
-    await enrichAll(prisma);
+    await marketContextService.enrichAll();
   } finally {
+    if (app) {
+      await app.close();
+    }
     await prisma.$disconnect();
   }
 }
