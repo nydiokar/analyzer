@@ -784,6 +784,173 @@ Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the
     };
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // HOLDER SNAPSHOT RETRIEVAL — not yet exposed externally
+  //
+  // Intent: let callers retrieve and diff holder-profile snapshots they produced
+  // themselves via POST /intel/token/:mint/holders (or /holders/deep).
+  //
+  // Contract (when ready to expose):
+  //   - No history-list endpoint: callers must save their own jobIds from the
+  //     original POST response. jobIds are receipts — if you didn't save it,
+  //     you don't get it back. This avoids cross-user data leakage (the DB table
+  //     holds snapshots from all callers; a list endpoint would need userId
+  //     filtering, which requires a schema migration to add userId to
+  //     HolderProfileSnapshot — see Model B note in code history).
+  //   - Snapshot retrieval: 0–1cr (read-only, cheap). Returns the full
+  //     HolderProfilesResult payload for a jobId the caller already owns.
+  //   - Diff: 0–1cr. Compares two jobIds the caller already owns and returns
+  //     structured delta: new/departed holders, tier migrations, supply
+  //     concentration delta.
+  //
+  // Prerequisite before exposing:
+  //   1. Add `userId String?` to HolderProfileSnapshot schema + migration.
+  //   2. Stamp userId at save time in HolderProfilesCacheService.saveSnapshot().
+  //   3. Enforce userId match in getHolderProfileSnapshotsByJobId() so a caller
+  //      cannot retrieve another user's snapshot by guessing a jobId.
+  //   4. Uncomment the handlers below and add to ApiModule / IntelModule.
+  //
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /*
+  @Get('token/:mint/holder-versions/:jobId')
+  @RequireCredits(1)
+  @ApiOperation({
+    summary: 'Retrieve a holder-profiles snapshot by jobId (1cr)',
+    description: `Returns the full holder-profiles result for a specific past run identified
+by the jobId you received when you called POST /intel/token/:mint/holders.
+
+**You must have saved the jobId** from the original response — there is no listing endpoint.
+jobIds are receipts. The snapshot is immutable; it reflects the holder composition at the
+time the job ran.`,
+  })
+  @ApiParam({ name: 'mint', description: 'Token mint address' })
+  @ApiParam({ name: 'jobId', description: 'jobId returned by POST /intel/token/:mint/holders' })
+  @ApiResponse({ status: 200, description: 'Snapshot payload for this run' })
+  @ApiResponse({ status: 400, description: 'Invalid mint or jobId not found' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async getTokenHolderSnapshot(
+    @Param('mint') mint: string,
+    @Param('jobId') jobId: string,
+    @Req() req: Request & { user?: User },
+  ) {
+    if (!isValidSolanaAddress(mint)) {
+      throw new BadRequestException(`Invalid token mint address: ${mint}`);
+    }
+    if (!jobId || jobId.trim().length === 0) {
+      throw new BadRequestException('jobId is required');
+    }
+    // TODO: once userId is on HolderProfileSnapshot, enforce req.user?.id match here
+    // to prevent cross-user snapshot access by guessing jobIds.
+    const snapshots = await this.databaseService.getHolderProfileSnapshotsByJobId(mint, jobId.trim());
+    if (snapshots.length === 0) {
+      throw new BadRequestException(`No snapshot found for mint=${mint} jobId=${jobId}`);
+    }
+    const firstMeta = snapshots[0]?.metadata as Record<string, any> | null;
+    const knownWalletStubs: any[] = Array.isArray(firstMeta?.knownWalletStubs) ? firstMeta.knownWalletStubs : [];
+    const analyzedProfiles = snapshots.map((s) => s.profile);
+    const allProfiles = [...analyzedProfiles, ...knownWalletStubs].sort(
+      (a: any, b: any) => (a.rank ?? 0) - (b.rank ?? 0),
+    );
+    return {
+      status: 'ok' as const,
+      tokenMint: mint,
+      jobId: jobId.trim(),
+      snapshotRunAt: snapshots[0]?.computedAt?.toISOString() ?? null,
+      profiles: allProfiles,
+      metadata: {
+        totalHoldersAnalyzed: analyzedProfiles.length,
+        totalHoldersInSnapshot: allProfiles.length,
+      },
+    };
+  }
+
+  @Get('token/:mint/holder-diff')
+  @RequireCredits(1)
+  @ApiOperation({
+    summary: 'Diff two holder-profile snapshots (1cr)',
+    description: `Compares two past runs for the same token mint and returns structured changes.
+
+**You must have saved both jobIds** from your previous POST /intel/token/:mint/holders calls.
+Pass the older run as \`v1\` and the newer run as \`v2\`.
+
+Returns:
+- \`newHolders\` — wallets that appear in v2 but not v1
+- \`departedHolders\` — wallets that appear in v1 but not v2
+- \`tierMigrations\` — wallets present in both with a changed behaviorType
+- \`supplyConcentrationDelta\` — change in total supply % held across the snapshot set
+- \`holderCountDelta\` — net change in holder count`,
+  })
+  @ApiParam({ name: 'mint', description: 'Token mint address' })
+  @ApiQuery({ name: 'v1', description: 'jobId of the older snapshot (baseline)' })
+  @ApiQuery({ name: 'v2', description: 'jobId of the newer snapshot (current)' })
+  @ApiResponse({ status: 200, description: 'Structured diff between the two snapshots' })
+  @ApiResponse({ status: 400, description: 'Invalid mint, missing jobIds, or snapshots not found' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async diffTokenHolderSnapshots(
+    @Param('mint') mint: string,
+    @Query('v1') v1: string,
+    @Query('v2') v2: string,
+    @Req() req: Request & { user?: User },
+  ) {
+    if (!isValidSolanaAddress(mint)) {
+      throw new BadRequestException(`Invalid token mint address: ${mint}`);
+    }
+    if (!v1 || v1.trim().length === 0) throw new BadRequestException('v1 (baseline jobId) is required');
+    if (!v2 || v2.trim().length === 0) throw new BadRequestException('v2 (current jobId) is required');
+    if (v1.trim() === v2.trim()) throw new BadRequestException('v1 and v2 must be different');
+
+    // TODO: once userId is on HolderProfileSnapshot, enforce req.user?.id match on both
+    // snapshots before diffing to prevent cross-user access.
+    const [snapshotsA, snapshotsB] = await Promise.all([
+      this.databaseService.getHolderProfileSnapshotsByJobId(mint, v1.trim()),
+      this.databaseService.getHolderProfileSnapshotsByJobId(mint, v2.trim()),
+    ]);
+    if (snapshotsA.length === 0) throw new BadRequestException(`No snapshot found for v1=${v1}`);
+    if (snapshotsB.length === 0) throw new BadRequestException(`No snapshot found for v2=${v2}`);
+
+    type Row = { walletAddress: string; rank: number; behaviorType: string | null; supplyPercent: number };
+    const toRow = (s: any): Row => {
+      const p = s.profile as any;
+      return {
+        walletAddress: s.walletAddress,
+        rank: s.holderRank ?? p?.rank ?? 0,
+        behaviorType: p?.behaviorType ?? null,
+        supplyPercent: s.supplyPercent ?? p?.supplyPercent ?? 0,
+      };
+    };
+
+    const rowsA = snapshotsA.map(toRow);
+    const rowsB = snapshotsB.map(toRow);
+    const setA = new Map(rowsA.map((r) => [r.walletAddress, r]));
+    const setB = new Map(rowsB.map((r) => [r.walletAddress, r]));
+
+    const newHolders = rowsB.filter((r) => !setA.has(r.walletAddress));
+    const departedHolders = rowsA.filter((r) => !setB.has(r.walletAddress));
+    const tierMigrations: Array<{ walletAddress: string; rank: number; from: string | null; to: string | null }> = [];
+    for (const [addr, rowB] of setB) {
+      const rowA = setA.get(addr);
+      if (rowA && rowA.behaviorType !== rowB.behaviorType) {
+        tierMigrations.push({ walletAddress: addr, rank: rowB.rank, from: rowA.behaviorType, to: rowB.behaviorType });
+      }
+    }
+    const supplyA = rowsA.reduce((sum, r) => sum + r.supplyPercent, 0);
+    const supplyB = rowsB.reduce((sum, r) => sum + r.supplyPercent, 0);
+
+    return {
+      status: 'ok' as const,
+      tokenMint: mint,
+      v1: v1.trim(),
+      v2: v2.trim(),
+      newHolders,
+      departedHolders,
+      tierMigrations,
+      supplyConcentrationDelta: Math.round((supplyB - supplyA) * 1000) / 1000,
+      holderCountDelta: rowsB.length - rowsA.length,
+    };
+  }
+  */
+
   /**
    * POST /intel/wallets/batch-hud
    * 5 credits — batch HUD for up to 30 wallets. Same freshness logic as GET /intel/wallet/:addr

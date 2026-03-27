@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState, Suspense } from 'react';
 import { ThemeProvider } from "@/components/theme-provider";
 import { EmailVerificationBanner } from "@/components/auth/EmailVerificationBanner";
 import { UserMenu } from "@/components/auth/UserMenu";
@@ -16,7 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUIStore } from '@/store/ui-store';
 import { useCredits } from '@/hooks/useCredits';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Star, Menu, Send, Coins } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -33,6 +33,83 @@ interface AppShellProps {
   children: React.ReactNode;
 }
 
+function truncateIdentifier(value: string, prefixLength = 6, suffixLength = 4): string {
+  if (value.length <= prefixLength + suffixLength + 1) {
+    return value;
+  }
+
+  return `${value.slice(0, prefixLength)}...${value.slice(-suffixLength)}`;
+}
+
+function startCaseSegment(segment: string): string {
+  return segment
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function buildRouteTitle(pathname: string, searchParams: URLSearchParams): string {
+  if (pathname === '/discover') return 'Discover';
+  if (pathname === '/trackers') return 'Tracked Wallets';
+  if (pathname === '/similarity-lab') return 'Similarity Lab';
+  if (pathname === '/wallet-hunt') return 'Wallet Hunt';
+  if (pathname === '/radar') return 'Radar';
+  if (pathname === '/tokens') {
+    const tokenAddress = searchParams.get('addr');
+    if (searchParams.get('view') === 'token' && tokenAddress) {
+      return `Token ${truncateIdentifier(tokenAddress)}`;
+    }
+
+    return 'Tokens';
+  }
+
+  if (pathname === '/tools/holder-profiles') {
+    const mode = searchParams.get('mode');
+    const token = searchParams.get('token');
+    if (mode === 'token' && token) {
+      return `Holder Profiles ${truncateIdentifier(token)}`;
+    }
+
+    if (mode === 'wallet') {
+      return 'Holder Profiles by Wallet';
+    }
+
+    return 'Holder Profiles';
+  }
+
+  if (pathname === '/tools/sig-buyers') return 'Significant Buyers';
+  if (pathname === '/tools/top-holders') return 'Top Holders';
+  if (pathname === '/dashboard/developer') return 'Developer Dashboard';
+  if (pathname === '/dashboard/credits') return 'Credits';
+  if (pathname.startsWith('/dashboard/credits/checkout/')) {
+    const packId = pathname.split('/').filter(Boolean).at(-1);
+    return packId ? `Checkout ${startCaseSegment(packId)}` : 'Credits Checkout';
+  }
+  if (pathname === '/help') return 'Help';
+  if (pathname.startsWith('/help/')) {
+    const slug = pathname.split('/').filter(Boolean).at(-1);
+    return slug ? `${startCaseSegment(slug)} Help` : 'Help';
+  }
+  if (pathname === '/terms') return 'Terms';
+  if (pathname === '/admin') return 'Admin';
+  if (pathname.startsWith('/wallets/')) {
+    const walletAddress = pathname.split('/').filter(Boolean).at(-1);
+    const tab = searchParams.get('tab');
+    const walletLabel = walletAddress ? truncateIdentifier(walletAddress) : 'Wallet';
+    if (tab) {
+      return `${startCaseSegment(tab)} ${walletLabel}`;
+    }
+
+    return `Wallet ${walletLabel}`;
+  }
+
+  if (pathname === '/') return 'Sova Intel';
+
+  const fallbackSegment = pathname.split('/').filter(Boolean).at(-1);
+  return fallbackSegment ? startCaseSegment(fallbackSegment) : 'Sova Intel';
+}
+
 /**
  * AppShell - Main application layout with top bar navigation
  *
@@ -44,6 +121,18 @@ interface AppShellProps {
  * - SWR cache provider
  * - Proactive JWT refresh
  */
+function RouteTitleUpdater() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const nextTitle = buildRouteTitle(pathname, searchParams);
+    if (document.title !== nextTitle) {
+      document.title = nextTitle;
+    }
+  }, [pathname, searchParams]);
+  return null;
+}
+
 export function AppShell({ children }: AppShellProps) {
   // Keep active users signed in by refreshing 5 minutes before expiry when tab is active
   useProactiveRefresh();
@@ -238,6 +327,9 @@ export function AppShell({ children }: AppShellProps) {
           </main>
         </div>
         <Toaster />
+        <Suspense fallback={null}>
+          <RouteTitleUpdater />
+        </Suspense>
 
         {/* Auth Modal */}
         <AuthModal

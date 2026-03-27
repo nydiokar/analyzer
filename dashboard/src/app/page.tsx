@@ -1,14 +1,64 @@
 'use client';
 
-import React, { useState, Suspense, useEffect } from 'react';
-import Image from 'next/image';
-import Link from 'next/link';
+import { AuthModal } from '@/components/auth/AuthModal';
+import { LandingShell } from '@/components/layout/LandingShell';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
-import { AuthModal } from '@/components/auth/AuthModal';
+import { ArrowRight, ChevronRight, Code2, LineChart, LogIn, Menu, Send, ShieldCheck, Terminal, Wallet } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LandingShell } from '@/components/layout/LandingShell';
-import { Send, ChevronRight, Terminal, ArrowRight } from 'lucide-react';
+import { Suspense, useEffect, useState } from 'react';
+
+const stats = [
+  ['8', 'Speed categories', 'Sniper to Hodler'],
+  ['5', 'Flow patterns', 'Buy-only to Sell-only'],
+  ['6', 'API endpoints', 'Snapshots and async jobs'],
+  ['$0.009', 'Lowest unit cost', 'At Pro volume'],
+] as const;
+
+const features = [
+  ['Discover', 'Filter ranked wallets by behavior, PnL, win rate, and activity instead of reviewing addresses one by one.'],
+  ['Similarity Lab', 'Run overlap and coordination analysis on wallet lists or token holder sets and inspect cluster-level behavior.'],
+  ['Tracked Wallets', 'Save addresses into named collections, keep context, and batch-run the same research workflow repeatedly.'],
+  ['Holder Profiles', 'Open a deep report with exit timing, behavior composition, similarity pairs, and a structured narrative.'],
+  ['Wallet Hunt', 'Search for wallets matching explicit behavioral criteria before digging into individual cases.'],
+] as const;
+
+const endpoints = [
+  ['Wallet HUD', 'GET', 'Speed, flow, win rate, PnL, whale and bot flags.'],
+  ['Wallet Profile', 'GET', 'Full behavioral analysis for a single wallet.'],
+  ['Wallet Tokens', 'GET', 'Per-token PnL breakdown by address.'],
+  ['Batch HUD', 'GET', 'Behavior snapshots for multiple wallets in one request.'],
+  ['Token Holder Profiles', 'GET', 'Behavioral profiles of top holders of a token.'],
+  ['Wallet Similarity', 'GET', 'Run overlap and coordination analysis for wallet sets.'],
+] as const;
+
+const steps = [
+  ['01', '2 min', 'Register', 'Create an account and open the dashboard or developer surface immediately.'],
+  ['02', '5 min', 'Configure', 'Choose browser research or SDK-driven access and set your working path.'],
+  ['03', 'Instant', 'Query', 'Pull wallet HUDs, inspect profiles, or start async jobs against holder sets.'],
+  ['04', 'Continuous', 'Monitor', 'Reuse saved collections and polling flows for repeat analysis.'],
+] as const;
+
+const pricing = [
+  ['Starter', '$15', '1,000 credits', '$0.015 / credit'],
+  ['Builder', '$120', '10,000 credits', '$0.012 / credit'],
+  ['Pro', '$900', '100,000 credits', '$0.009 / credit'],
+] as const;
+
+const editorLines = [
+  { line: '1', parts: [{ text: 'import', className: 'text-sky-300' }, { text: ' { ', className: 'text-slate-300' }, { text: 'SovaClient', className: 'text-slate-100' }, { text: ' } ', className: 'text-slate-300' }, { text: 'from', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: "'@sova-intel/sdk'", className: 'text-emerald-300' }, { text: ';', className: 'text-slate-500' }] },
+  { line: '2', parts: [] },
+  { line: '3', parts: [{ text: 'const', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'client', className: 'text-slate-100' }, { text: ' = ', className: 'text-slate-500' }, { text: 'new', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'SovaClient', className: 'text-cyan-300' }, { text: '({', className: 'text-slate-500' }] },
+  { line: '4', parts: [{ text: '    ', className: 'text-slate-300' }, { text: 'apiKey', className: 'text-slate-100' }, { text: ': ', className: 'text-slate-500' }, { text: 'process', className: 'text-orange-300' }, { text: '.', className: 'text-slate-500' }, { text: 'env', className: 'text-orange-300' }, { text: '.', className: 'text-slate-500' }, { text: 'SOVA_API_KEY', className: 'text-slate-100' }, { text: ',', className: 'text-slate-500' }] },
+  { line: '5', parts: [{ text: '});', className: 'text-slate-500' }] },
+  { line: '6', parts: [] },
+  { line: '7', parts: [{ text: 'const', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'hud', className: 'text-slate-100' }, { text: ' = ', className: 'text-slate-500' }, { text: 'await', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'client', className: 'text-slate-100' }, { text: '.', className: 'text-slate-500' }, { text: 'walletHud', className: 'text-cyan-300' }, { text: '(', className: 'text-slate-500' }, { text: "'7xKX...mPqR'", className: 'text-emerald-300' }, { text: ');', className: 'text-slate-500' }] },
+  { line: '8', parts: [{ text: 'const', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'profile', className: 'text-slate-100' }, { text: ' = ', className: 'text-slate-500' }, { text: 'await', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'client', className: 'text-slate-100' }, { text: '.', className: 'text-slate-500' }, { text: 'walletProfile', className: 'text-cyan-300' }, { text: '(', className: 'text-slate-500' }, { text: "'7xKX...mPqR'", className: 'text-emerald-300' }, { text: ');', className: 'text-slate-500' }] },
+  { line: '9', parts: [{ text: 'const', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'job', className: 'text-slate-100' }, { text: ' = ', className: 'text-slate-500' }, { text: 'await', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'client', className: 'text-slate-100' }, { text: '.', className: 'text-slate-500' }, { text: 'walletSimilarity', className: 'text-cyan-300' }, { text: '([', className: 'text-slate-500' }, { text: "'addr1'", className: 'text-emerald-300' }, { text: ', ', className: 'text-slate-500' }, { text: "'addr2'", className: 'text-emerald-300' }, { text: ', ', className: 'text-slate-500' }, { text: "'addr3'", className: 'text-emerald-300' }, { text: ']);', className: 'text-slate-500' }] },
+  { line: '10', parts: [{ text: 'const', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'result', className: 'text-slate-100' }, { text: ' = ', className: 'text-slate-500' }, { text: 'await', className: 'text-sky-300' }, { text: ' ', className: 'text-slate-300' }, { text: 'job', className: 'text-slate-100' }, { text: '.', className: 'text-slate-500' }, { text: 'poll', className: 'text-cyan-300' }, { text: '();', className: 'text-slate-500' }] },
+] as const;
 
 function SearchParamsHandler({
   showAuthModal,
@@ -35,7 +85,9 @@ function SearchParamsHandler({
     }
   }, [isAuthenticated, router, searchParams]);
 
-  if (isAuthenticated) return null;
+  if (isAuthenticated) {
+    return null;
+  }
 
   return (
     <AuthModal
@@ -54,631 +106,567 @@ export default function LandingPage() {
 
   return (
     <LandingShell>
-      {/*
-        .landing-noise and .hero-grid are defined in globals.css (or injected below via <style>).
-        Noise: fixed SVG fractal overlay at opacity 0.025 — adds micro-texture without being visible in scans.
-        Hero grid: radial-gradient dot pattern at 7% slate-400 on 32px grid.
-      */}
-      <style>{`
-        .landing-noise::before {
-          content: '';
-          position: fixed;
-          top: 0; left: 0;
-          width: 100%; height: 100%;
-          pointer-events: none;
-          z-index: 100;
-          opacity: 0.025;
-          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-          background-repeat: repeat;
-          background-size: 128px 128px;
-        }
-        .hero-grid {
-          background-image: radial-gradient(circle, rgb(148 163 184 / 0.07) 1px, transparent 1px);
-          background-size: 32px 32px;
-        }
-        @keyframes blink {
-          0%, 50% { opacity: 1; }
-          51%, 100% { opacity: 0; }
-        }
-        .cursor-blink::after {
-          content: '▋';
-          animation: blink 1s step-end infinite;
-          color: rgb(74 222 128);
-          margin-left: 2px;
-        }
-      `}</style>
+      <div className="min-h-screen bg-slate-950 text-slate-100">
+        <div className="pointer-events-none fixed inset-0 opacity-30">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.22),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(124,58,237,0.18),_transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.02),_transparent_35%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:96px_96px] [mask-image:linear-gradient(to_bottom,rgba(0,0,0,0.65),transparent)]" />
+        </div>
 
-      <div className="landing-noise min-h-screen w-full bg-slate-950 text-slate-100">
+        <header className="sticky top-0 z-50 border-b border-slate-800/70 bg-slate-950/85 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 md:px-8">
+            <Link href="/" className="flex items-center gap-3">
+              <Image src="/sova_badge_primary.svg" alt="Sova Intel" width={34} height={34} className="rounded-md ring-1 ring-white/10" />
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Sova Intel</div>
+                <div className="text-sm font-semibold text-slate-100">Behavioral Solana research</div>
+              </div>
+            </Link>
 
-        {/* ── 1. Navigation ─────────────────────────────────────────── */}
-        <header className="sticky top-0 z-50 w-full border-b border-slate-800/60 bg-slate-950/90 backdrop-blur-md">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-            <div className="flex items-center gap-2.5">
-              <Image
-                src="/sova_badge_primary.svg"
-                alt="Sova Intel"
-                width={32}
-                height={32}
-                className="rounded-md"
-              />
-              <span className="text-sm font-semibold tracking-tight text-white">Sova Intel</span>
-            </div>
-            <nav className="flex items-center gap-2">
+            <nav className="hidden items-center gap-6 text-sm text-slate-400 md:flex">
+              <a href="#features" className="transition-colors hover:text-slate-100">Features</a>
+              <a href="#access" className="transition-colors hover:text-slate-100">Access</a>
+              <a href="#pricing" className="transition-colors hover:text-slate-100">Pricing</a>
+              <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-slate-100">
+                Docs
+              </Link>
+            </nav>
+
+            <div className="flex items-center gap-2">
               <Button
-                onClick={() => setShowAuthModal(true)}
                 variant="outline"
-                className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white text-sm transition-all duration-150"
+                onClick={() => setShowAuthModal(true)}
+                className="hidden border-white/70 bg-white text-slate-950 hover:bg-slate-100 md:inline-flex"
               >
+                <LogIn className="mr-2 h-4 w-4" />
                 Sign In
               </Button>
-              <Button
-                onClick={() => setShowAuthModal(true)}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-sm px-5 transition-all duration-150"
-              >
-                Sign Up
+              <Button variant="ghost" size="icon" className="border border-slate-800 text-slate-300 hover:bg-slate-900 md:hidden" aria-label="Open navigation">
+                <Menu className="h-4 w-4" />
               </Button>
-            </nav>
+            </div>
           </div>
         </header>
 
-        {/* ── 2. Hero ───────────────────────────────────────────────── */}
-        <section className="hero-grid relative overflow-hidden border-b border-slate-800">
-          {/* Ambient blobs — radial-gradient, no blur-3xl to avoid compositing cost */}
-          <div
-            className="pointer-events-none absolute left-1/3 top-0 -translate-x-1/2"
-            style={{ width: 800, height: 600, background: 'radial-gradient(ellipse at center, rgb(37 99 235 / 0.07) 0%, transparent 70%)' }}
-          />
-          <div
-            className="pointer-events-none absolute right-1/4 top-1/4"
-            style={{ width: 500, height: 400, background: 'radial-gradient(ellipse at center, rgb(124 58 237 / 0.06) 0%, transparent 70%)' }}
-          />
+        <main className="relative">
+          <section className="border-b border-slate-800/70">
+            <div className="mx-auto grid max-w-7xl gap-14 px-5 py-16 md:px-8 md:py-24 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+              <div className="max-w-3xl">
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-blue-300">
+                  <span className="h-2 w-2 rounded-full bg-blue-400" />
+                  Solana wallet intelligence
+                </div>
 
-          <div className="relative mx-auto max-w-7xl px-6 pt-24 pb-24 md:pt-32">
-            <div className="mx-auto max-w-3xl text-center">
+                <h1 className="mt-6 max-w-4xl text-5xl font-semibold tracking-[-0.04em] text-slate-50 md:text-7xl">
+                  Stop reading wallets one transfer at a time.
+                </h1>
 
-              {/* Eyebrow badge with pulsing live dot */}
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-4 py-1.5 font-mono text-xs text-slate-400">
-                <span aria-hidden="true" className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-                </span>
-                Solana wallet behavioral intelligence
-              </div>
+                <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300 md:text-xl">
+                  Sova Intel turns Solana wallet activity into behavior labels, profile reports, similarity graphs,
+                  and programmatic research primitives for teams that need faster judgment.
+                </p>
 
-              {/* H1 — specific claim, gradient on the classification vocabulary */}
-              <h1 className="mb-6 text-5xl font-bold leading-tight tracking-tight text-white md:text-6xl lg:text-7xl">
-                Classify any Solana wallet
-                <br />
-                by how it trades.{' '}
-                <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  Speed. Flow. Coordination.
-                </span>
-              </h1>
+                <div className="mt-8 flex flex-wrap gap-3">
+                  {['Speed taxonomy', 'Similarity analysis', 'Tracked collections', 'SDK + X402'].map((item, index) => (
+                    <div
+                      key={item}
+                      className={`rounded-full border px-4 py-2 text-sm transition-colors ${
+                        index === 3
+                          ? 'border-purple-500/20 bg-purple-500/10 text-purple-200'
+                          : 'border-blue-500/20 bg-blue-500/10 text-blue-200'
+                      }`}
+                    >
+                      {item}
+                    </div>
+                  ))}
+                </div>
 
-              {/* Subheadline — two sentences, dense, specific */}
-              <p className="mx-auto mb-10 max-w-2xl text-base text-slate-400 leading-relaxed md:text-lg">
-                Eight speed categories — Sniper to Hodler — and five flow patterns — Accumulator to Distributor — applied to every wallet on Solana.
-                Use the dashboard to browse, filter, and profile, or query the same behavioral data through the REST API.
-              </p>
-
-              {/* CTA pair */}
-              <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-                <Button
-                  onClick={() => setShowAuthModal(true)}
-                  size="lg"
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-8 py-3.5 text-base font-medium shadow-lg shadow-blue-900/30 transition-all duration-150"
-                >
-                  Start Analyzing
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
-                <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer">
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white px-8 py-3.5 text-base font-medium transition-all duration-150"
-                  >
-                    API Docs
-                    <ArrowRight className="ml-2 h-4 w-4" />
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                  <Button onClick={() => setShowAuthModal(true)} size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 px-7 text-white hover:from-blue-700 hover:to-purple-700">
+                    Open Dashboard
+                    <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
-                </Link>
-              </div>
-            </div>
-
-            {/* Stats strip — data-table border-grid pattern */}
-            <div className="mx-auto mt-20 max-w-5xl grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-800 bg-slate-800 md:grid-cols-4">
-              {[
-                { value: '8', label: 'Speed categories' },
-                { value: '5', label: 'Flow patterns' },
-                { value: '6', label: 'API endpoints' },
-                { value: '$0.009', label: 'Per call at scale' },
-              ].map((stat) => (
-                <div key={stat.label} className="bg-slate-900/80 px-6 py-6 text-center">
-                  <div className="text-2xl font-bold text-white md:text-3xl">{stat.value}</div>
-                  <div className="mt-1 text-xs text-slate-500 uppercase tracking-wider">{stat.label}</div>
+                  <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="lg" className="w-full border-slate-700 bg-slate-900/40 px-7 text-slate-200 hover:bg-slate-800 hover:text-white sm:w-auto">
+                      Read API Docs
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </Link>
                 </div>
-              ))}
-            </div>
-          </div>
-        </section>
 
-        {/* ── 3. Two-Surface Split ──────────────────────────────────── */}
-        <section className="border-b border-slate-800 bg-slate-900/40">
-          <div className="mx-auto max-w-7xl px-6 py-20 md:py-28">
-            <div className="mb-12 text-center">
-              <h2 className="text-3xl font-bold text-white md:text-4xl">Two surfaces, one intelligence layer</h2>
-              <p className="mt-3 text-base text-slate-400 leading-normal">
-                Use the dashboard manually or consume the same data programmatically via API.
-              </p>
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-2">
-              {/* Dashboard card — blue path */}
-              <div className="group rounded-2xl border border-slate-800 bg-slate-900 p-8 transition-colors duration-150 hover:border-slate-700">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
+                <div className="mt-10 grid gap-4 sm:grid-cols-3">
+                  <div className="group rounded-2xl border border-slate-800 bg-slate-900/40 p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/30 hover:bg-slate-900/70 hover:shadow-[0_18px_50px_rgba(37,99,235,0.16)]">
+                    <div className="mb-4 h-1.5 w-14 rounded-full bg-gradient-to-r from-blue-400/50 to-blue-500/10" />
+                    <h2 className="text-lg font-semibold text-slate-100">Behavior classification</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">Label wallets by holding speed and buy-sell balance instead of reading raw transfers by hand.</p>
                   </div>
-                  <div>
-                    <div className="font-mono text-xs text-slate-500 uppercase tracking-wider">sova-intel.com</div>
-                    <div className="text-base font-semibold text-white">The Dashboard</div>
+                  <div className="group rounded-2xl border border-slate-800 bg-slate-900/40 p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/30 hover:bg-slate-900/70 hover:shadow-[0_18px_50px_rgba(37,99,235,0.16)]">
+                    <div className="mb-4 h-1.5 w-14 rounded-full bg-gradient-to-r from-blue-400/50 to-blue-500/10" />
+                    <h2 className="text-lg font-semibold text-slate-100">Similarity detection</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">Compare wallets for overlap in token exposure, allocation patterns, and coordinated action.</p>
+                  </div>
+                  <div className="group rounded-2xl border border-slate-800 bg-slate-900/40 p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/30 hover:bg-slate-900/70 hover:shadow-[0_18px_50px_rgba(37,99,235,0.16)]">
+                    <div className="mb-4 h-1.5 w-14 rounded-full bg-gradient-to-r from-blue-400/50 to-blue-500/10" />
+                    <h2 className="text-lg font-semibold text-slate-100">Portfolio tracking</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">Keep named wallet collections and batch-run repeat research without rebuilding inputs.</p>
                   </div>
                 </div>
-                <p className="mb-5 text-sm text-slate-400 leading-normal">
-                  A web application for Solana wallet analytics. Browse wallets ranked by PnL and winrate,
-                  run similarity analysis across holder sets, build tracked collections, and read deep
-                  behavioral profiles for any address.
-                </p>
-                <div className="mb-5 text-xs font-mono text-slate-500 uppercase tracking-wider">For traders and researchers</div>
-                <Button
-                  onClick={() => setShowAuthModal(true)}
-                  variant="outline"
-                  size="sm"
-                  className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white transition-all duration-150"
-                >
-                  Open Dashboard
-                  <ChevronRight className="ml-1.5 h-3.5 w-3.5" />
-                </Button>
               </div>
 
-              {/* API card — purple path */}
-              <div className="group rounded-2xl border border-slate-800 bg-slate-900 p-8 transition-colors duration-150 hover:border-slate-700">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10 text-purple-400">
-                    <Terminal className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="font-mono text-xs text-slate-500 uppercase tracking-wider">api.sova-intel.com</div>
-                    <div className="text-base font-semibold text-white">The Intel API</div>
-                  </div>
-                </div>
-                <p className="mb-5 text-sm text-slate-400 leading-normal">
-                  A REST API for developers and autonomous agents. Query wallet behavior snapshots, full profiles,
-                  per-token P&L breakdowns, and batch similarity jobs — authenticated by API key or direct
-                  X402 payment from a USDC wallet.
-                </p>
-                <div className="mb-5 text-xs font-mono text-slate-500 uppercase tracking-wider">For developers and builders</div>
-                <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white transition-all duration-150"
-                  >
-                    Read the Docs
-                    <ChevronRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── 4. Dashboard Feature Highlights ──────────────────────── */}
-        <section className="border-b border-slate-800">
-          <div className="mx-auto max-w-7xl px-6 py-20 md:py-28">
-
-            <div className="mb-4 text-center">
-              <span className="font-mono text-xs uppercase tracking-widest text-blue-400">Dashboard</span>
-            </div>
-            <h2 className="mb-3 text-center text-3xl font-bold text-white md:text-4xl">
-              Five surfaces, one source of truth
-            </h2>
-            <p className="mx-auto mb-14 max-w-xl text-center text-base text-slate-400 leading-relaxed">
-              Each feature is built around a specific research question that manual methods cannot answer at scale.
-            </p>
-
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-
-              {/* Discover */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition-colors duration-150 hover:border-slate-700">
-                <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800 text-slate-300" aria-hidden="true">
-                  <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                      d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
-                  </svg>
-                </div>
-                <h3 className="mb-2 text-base font-semibold text-white">Discover</h3>
-                <p className="min-h-[120px] text-sm text-slate-400 leading-relaxed">
-                  A filterable feed of Solana wallets ranked by PnL, winrate, and activity. Each wallet carries
-                  a Speed classification — Sniper through Hodler — and a Flow classification — Buy-Only through
-                  Sell-Only. Filter by any combination of both axes to surface wallets that match your research frame.
-                </p>
-              </div>
-
-              {/* Similarity Lab */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition-colors duration-150 hover:border-slate-700">
-                <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800/80 text-slate-300" aria-hidden="true">
-                  <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <h3 className="mb-2 text-base font-semibold text-white">Similarity Lab</h3>
-                <p className="min-h-[120px] text-sm text-slate-400 leading-relaxed">
-                  Submit a list of wallet addresses or pull the top holders of any token. The system runs a background
-                  analysis job and returns a similarity matrix showing which wallets share capital allocation patterns,
-                  overlapping token exposure, and coordinated buying behavior. Used to detect shared teams, related
-                  smart money clusters, and organized accumulation.
-                </p>
-              </div>
-
-              {/* Tracked Wallets */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition-colors duration-150 hover:border-slate-700">
-                <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800 text-slate-300" aria-hidden="true">
-                  <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                      d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                  </svg>
-                </div>
-                <h3 className="mb-2 text-base font-semibold text-white">Tracked Wallets</h3>
-                <p className="min-h-[120px] text-sm text-slate-400 leading-relaxed">
-                  Save wallets with custom nicknames and organize them into named collections. View portfolio-level
-                  stats across all tracked addresses, batch-analyze groups, and import or export wallet lists.
-                  State persists across sessions.
-                </p>
-              </div>
-
-              {/* Holder Profiles */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition-colors duration-150 hover:border-slate-700">
-                <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800/80 text-slate-300" aria-hidden="true">
-                  <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
-                <h3 className="mb-2 text-base font-semibold text-white">Holder Profiles</h3>
-                <p className="min-h-[120px] text-sm text-slate-400 leading-relaxed">
-                  A full behavioral profile for any wallet address: behavior composition, exit timing breakdown
-                  by position duration, cognitive primitives, similarity pairs, and a human-readable narrative
-                  of how the wallet trades. Not a summary — a structured analysis of the address as a market actor.
-                </p>
-              </div>
-
-              {/* Wallet Hunt */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition-colors duration-150 hover:border-slate-700">
-                <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800 text-slate-300" aria-hidden="true">
-                  <svg className="h-[18px] w-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
-                <h3 className="mb-2 text-base font-semibold text-white">Wallet Hunt</h3>
-                <p className="min-h-[120px] text-sm text-slate-400 leading-relaxed">
-                  Search the wallet database by behavioral criteria. Set the Speed category, Flow pattern, and
-                  performance thresholds you are looking for and retrieve the addresses that match — without
-                  reviewing wallets one at a time.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-12 text-center">
-              <Button
-                onClick={() => setShowAuthModal(true)}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-7 transition-all duration-150"
-              >
-                Open the Dashboard
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        {/* ── 5. API / Developer Section ────────────────────────────── */}
-        <section className="border-b border-slate-800 bg-slate-900/40">
-          <div className="mx-auto max-w-7xl px-6 py-20 md:py-28">
-
-            <div className="mb-4 text-center">
-              <span className="font-mono text-xs uppercase tracking-widest text-purple-400">Intel API</span>
-            </div>
-            <h2 className="mb-3 text-center text-3xl font-bold text-white md:text-4xl">
-              Behavioral data as infrastructure
-            </h2>
-            <p className="mx-auto mb-16 max-w-xl text-center text-base text-slate-400 leading-relaxed">
-              One SDK. Two auth modes. Every wallet data type Sova Intel produces, available programmatically.
-            </p>
-
-            <div className="grid gap-8 lg:grid-cols-2">
-
-              {/* Left: code blocks */}
-              <div className="space-y-5">
-
-                {/* Install block */}
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-5">
-                  {/* Terminal chrome */}
-                  <div className="mb-3 flex items-center gap-3">
-                    <div aria-hidden="true" className="flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-full bg-slate-700" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-slate-700" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-slate-700" />
+              <div className="relative rounded-[32px] border border-slate-800 bg-[linear-gradient(180deg,rgba(10,26,47,0.95),rgba(15,23,42,0.96))] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.35)] transition-all duration-500 hover:-translate-y-1 hover:border-blue-500/30 hover:shadow-[0_28px_90px_rgba(37,99,235,0.18)]">
+                <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/40 to-transparent" />
+                <div className="rounded-[24px] border border-slate-700 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] p-6">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Active Wallet Signal</div>
+                      <div className="mt-1 text-xl font-semibold text-slate-50">Behavior snapshot</div>
                     </div>
-                    <div className="flex items-center gap-2 font-mono text-xs text-slate-500">
-                      <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
-                      install
+                    <div className="rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs text-blue-300">Fresh</div>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                      <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Speed</div>
+                      <div className="mt-2 text-3xl font-semibold text-blue-300">Momentum</div>
+                      <div className="mt-1 text-sm text-slate-400">Median hold time 8.4h</div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                      <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Flow</div>
+                      <div className="mt-2 text-3xl font-semibold text-slate-100">Balanced</div>
+                      <div className="mt-1 text-sm text-slate-400">Net buying profile</div>
                     </div>
                   </div>
-                  {/* Separator line */}
-                  <div className="border-t border-slate-800/60 -mx-5 mb-4 mt-0" />
-                  <code>
-                    <pre className="font-mono text-sm text-green-400">
-                      <span className="cursor-blink">npm install @sova-intel/sdk</span>
-                    </pre>
-                  </code>
-                  <p className="mt-3 font-mono text-xs text-slate-500">Zero dependencies. TypeScript. Handles async job polling and both auth modes.</p>
-                </div>
 
-                {/* Usage snippet */}
-                <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950 p-5">
-                  {/* Terminal chrome */}
-                  <div className="mb-3 flex items-center gap-3">
-                    <div aria-hidden="true" className="flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-full bg-slate-700" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-slate-700" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-slate-700" />
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                      <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Win rate</div>
+                      <div className="mt-2 text-2xl font-semibold text-slate-100">74%</div>
                     </div>
-                    <div className="flex items-center gap-2 font-mono text-xs text-slate-500">
-                      <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
-                      usage
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                      <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Trimmed PnL</div>
+                      <div className="mt-2 text-2xl font-semibold text-slate-100">+412 SOL</div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                      <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Tokens / day</div>
+                      <div className="mt-2 text-2xl font-semibold text-slate-100">3.8</div>
                     </div>
                   </div>
-                  {/* Separator line */}
-                  <div className="border-t border-slate-800/60 -mx-5 mb-4 mt-0" />
-                  <code>
-                    <pre className="font-mono text-xs leading-relaxed text-slate-300 whitespace-pre">{`import { SovaClient } from '@sova-intel/sdk';
 
-const client = new SovaClient({
-  apiKey: process.env.SOVA_API_KEY,
-});
-
-// Wallet HUD — behavior snapshot, 1 credit
-const hud = await client.walletHud('7xKX...mPqR');
-console.log(hud.speedCategory);   // 'Sniper'
-console.log(hud.flowPattern);     // 'Accumulator'
-console.log(hud.winrate);         // 0.74
-
-// Full behavioral profile — 5 credits
-const profile = await client.walletProfile('7xKX...mPqR');
-console.log(profile.narrative);   // human-readable trade summary
-
-// Similarity job (async) — 20 credits
-const job = await client.walletSimilarity(['addr1', 'addr2', 'addr3']);
-const result = await job.poll(); // SDK handles polling`}</pre>
-                  </code>
-                </div>
-              </div>
-
-              {/* Right: endpoint list + X402 + docs link */}
-              <div className="space-y-5">
-
-                {/* Endpoint list */}
-                <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-                  <div className="mb-4 font-mono text-xs text-slate-400 uppercase tracking-widest">Endpoints</div>
-                  <div className="space-y-3.5">
-                    {[
-                      { name: 'Wallet HUD', desc: 'Behavior snapshot — speed category, flow pattern, winrate, PnL, bot and whale flags', credits: '1 cr' },
-                      { name: 'Wallet Profile', desc: 'Full behavioral analysis with exit timing breakdown and trade narrative', credits: '5 cr' },
-                      { name: 'Wallet Tokens', desc: 'Per-token P&L breakdown for any address', credits: '3 cr' },
-                      { name: 'Batch HUD', desc: 'Behavior snapshots for multiple wallets in a single call', credits: '5 cr' },
-                      { name: 'Token Holder Profiles', desc: 'Async job — behavioral profiles for all holders of a given token', credits: '20 cr' },
-                      { name: 'Wallet Similarity', desc: 'Async job — behavioral overlap and coordination comparison across a wallet set', credits: '20 cr' },
-                    ].map((ep) => (
-                      <div key={ep.name} className="flex items-start gap-3 text-sm">
-                        <span className="mt-0.5 shrink-0 font-mono text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">
-                          {ep.credits}
-                        </span>
-                        <div>
-                          <span className="font-semibold text-slate-200">{ep.name}</span>
-                          <span className="text-slate-500"> — {ep.desc}</span>
+                  <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Analysis modes</div>
+                      <div className="text-xs text-slate-400">Dashboard + API</div>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                        <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
+                          <LineChart className="h-4 w-4 text-blue-300" />
+                          Manual research
                         </div>
+                        <p className="mt-2 text-sm leading-6 text-slate-400">Browse, inspect, and save wallets directly in the dashboard.</p>
                       </div>
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+                        <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
+                          <Code2 className="h-4 w-4 text-blue-300" />
+                          Programmatic access
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-slate-400">Query the same intelligence layer from the SDK and REST API.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mx-auto mt-2 max-w-7xl px-5 pb-10 md:px-8">
+              <div className="overflow-hidden rounded-[28px] border border-slate-800 bg-[linear-gradient(180deg,rgba(15,23,42,0.92),rgba(15,23,42,0.72))]">
+                <div className="grid gap-px bg-slate-800/80 md:grid-cols-4">
+                  {stats.map(([value, label, note], index) => (
+                    <div
+                      key={label}
+                      className={`group relative bg-slate-900/80 px-6 py-6 transition-all duration-300 hover:bg-slate-900 ${
+                        index < stats.length - 1 ? 'md:border-r md:border-slate-800' : ''
+                      }`}
+                    >
+                      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/0 to-transparent opacity-0 transition-opacity duration-300 group-hover:via-blue-400/50 group-hover:opacity-100" />
+                      <div className="text-3xl font-semibold text-slate-100">{value}</div>
+                      <div className="mt-2 text-sm text-slate-300">{label}</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-500">{note}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="features" className="border-b border-slate-800/70">
+            <div className="mx-auto max-w-7xl px-5 py-16 md:px-8 md:py-24">
+              <div className="max-w-3xl">
+                <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Dashboard tools</div>
+                <h2 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-slate-50 md:text-5xl">What you can do inside the dashboard.</h2>
+                <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-400">
+                  These are the main analyst workflows: surface wallets, compare behavior, track collections, and inspect deep profiles without leaving the product.
+                </p>
+              </div>
+
+              <div className="mt-12 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+                <div className="grid gap-5 md:grid-cols-2">
+                  {features.map(([title, description]) => (
+                    <div key={title} className="group rounded-[28px] border border-slate-800 bg-slate-900/40 p-6 transition-all duration-300 hover:-translate-y-1.5 hover:border-blue-500/20 hover:bg-slate-900/70 hover:shadow-[0_20px_55px_rgba(15,23,42,0.45)]">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/40 text-slate-200 transition-transform duration-300 group-hover:scale-110 group-hover:border-blue-500/30">
+                        {title === 'Discover' && <LineChart className="h-5 w-5" />}
+                        {title === 'Similarity Lab' && <Code2 className="h-5 w-5" />}
+                        {title === 'Tracked Wallets' && <Wallet className="h-5 w-5" />}
+                        {title === 'Holder Profiles' && <ShieldCheck className="h-5 w-5" />}
+                        {title === 'Wallet Hunt' && <Terminal className="h-5 w-5" />}
+                      </div>
+                      <h3 className="mt-5 text-xl font-semibold text-slate-100">{title}</h3>
+                      <p className="mt-3 text-sm leading-7 text-slate-400">{description}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-[32px] border border-slate-800 bg-[linear-gradient(180deg,rgba(15,23,42,0.92),rgba(10,26,47,0.96))] p-7 transition-all duration-300 hover:-translate-y-1 hover:border-purple-500/20 hover:shadow-[0_18px_48px_rgba(37,99,235,0.12)]">
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-blue-300/80">Research angle</div>
+                  <h3 className="mt-4 text-2xl font-semibold text-slate-50">Two behavioral axes define the system.</h3>
+                  <p className="mt-4 text-sm leading-7 text-slate-400">
+                    Sova Intel treats wallet behavior as something measurable: how quickly a wallet exits and how it balances buying against selling over time.
+                  </p>
+
+                  <div className="mt-8 space-y-4">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5">
+                      <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Speed</div>
+                      <div className="mt-2 text-lg font-semibold text-slate-100">Sniper, Scalper, Momentum, Intraday, Day Trader, Swing, Position, Hodler</div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5">
+                      <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Flow</div>
+                      <div className="mt-2 text-lg font-semibold text-slate-100">Buy-Only, Accumulator, Balanced, Distributor, Sell-Only</div>
+                    </div>
+                    <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5">
+                      <div className="text-xs uppercase tracking-[0.22em] text-blue-300/80">Why it matters</div>
+                      <p className="mt-2 text-sm leading-7 text-slate-100/90">These labels let an analyst filter for behavior first, then inspect profitability, overlap, and timing with much less noise.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="access" className="border-b border-slate-800/70 bg-slate-950/40">
+            <div className="mx-auto max-w-7xl px-5 py-16 md:px-8 md:py-24">
+              <div className="max-w-2xl">
+                <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Access channels</div>
+                <h2 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-slate-50 md:text-5xl">Use the interface that fits the work.</h2>
+                <p className="mt-4 text-lg leading-8 text-slate-400">
+                  Both surfaces sit on the same intelligence layer. Choose the browser when you need visual inspection, or code when you need repeatable throughput.
+                </p>
+              </div>
+
+              <div className="mt-12 grid gap-6 lg:grid-cols-2">
+                <div className="group rounded-[32px] border border-slate-800 bg-slate-900/40 p-7 transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/20 hover:bg-slate-900/70 hover:shadow-[0_20px_55px_rgba(37,99,235,0.14)]">
+                  <div className="flex items-start justify-between gap-6">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Recommended for analysts and traders</div>
+                      <h3 className="mt-3 text-2xl font-semibold text-slate-100">Web Dashboard</h3>
+                    </div>
+                    <div className="rounded-full bg-blue-500/10 px-3 py-1 text-xs text-blue-300">Browser workflow</div>
+                  </div>
+                  <p className="mt-4 text-sm leading-7 text-slate-400">
+                    Browse ranked wallets, open full holder profiles, save collections, and work through behavioral research in a visual interface.
+                  </p>
+                  <div className="mt-6 grid grid-cols-2 gap-3">
+                    {['Discover', 'Holder Profiles', 'Similarity Lab', 'Tracked Wallets'].map((item) => (
+                      <div key={item} className="rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">{item}</div>
                     ))}
                   </div>
+                  <div className="mt-6">
+                    <Button onClick={() => setShowAuthModal(true)} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700">
+                      Get Started
+                      <ChevronRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
 
-                {/* X402 card — blue-tinted, left accent stripe */}
-                <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 p-6 border-l-2 border-l-blue-500/40">
-                  <h3 className="mb-2 text-sm font-semibold text-slate-200">X402 — Autonomous Payments</h3>
-                  <p className="text-sm text-slate-400 leading-relaxed">
-                    Pay per call directly from a Solana USDC wallet with no pre-funded account required.
-                    The API returns HTTP 402 with payment instructions; the client builds and signs a USDC
-                    transaction, then resends the request with a{' '}
-                    <code className="font-mono text-xs text-blue-300 bg-slate-900 px-1 py-0.5 rounded">payment-signature</code>{' '}
-                    header. Designed for AI agents operating autonomously — the SDK handles the full X402 flow.
+                <div className="group rounded-[32px] border border-slate-800 bg-slate-900/40 p-7 transition-all duration-300 hover:-translate-y-1 hover:border-purple-500/20 hover:bg-slate-900/70 hover:shadow-[0_20px_55px_rgba(124,58,237,0.14)]">
+                  <div className="flex items-start justify-between gap-6">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Recommended for developers and autonomous systems</div>
+                      <h3 className="mt-3 text-2xl font-semibold text-slate-100">Intel API</h3>
+                    </div>
+                    <div className="rounded-full bg-purple-500/10 px-3 py-1 text-xs text-purple-300">Programmatic workflow</div>
+                  </div>
+                  <p className="mt-4 text-sm leading-7 text-slate-400">
+                    Call wallet HUD, wallet profile, wallet tokens, and async analysis jobs from code using API keys or direct X402 payment.
+                  </p>
+                  <div className="mt-6 grid grid-cols-2 gap-3">
+                    {['SDK', 'API key auth', 'X402 payments', 'Job polling'].map((item) => (
+                      <div key={item} className="rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-300">{item}</div>
+                    ))}
+                  </div>
+                  <div className="mt-6">
+                    <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer">
+                      <Button variant="outline" className="border-slate-700 bg-slate-900/40 text-slate-200 hover:bg-slate-800 hover:text-white">
+                        View Docs
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="border-b border-slate-800/70">
+            <div className="mx-auto max-w-7xl px-5 py-16 md:px-8 md:py-24">
+              <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr]">
+                <div className="max-w-xl">
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Getting started</div>
+                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-slate-50 md:text-5xl">Operational in minutes.</h2>
+                  <p className="mt-4 text-lg leading-8 text-slate-400">
+                    The product should feel immediate: account, configure access, query data, then keep the workflow running.
                   </p>
                 </div>
 
-                <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer">
-                  <Button
-                    variant="outline"
-                    className="border-slate-700 bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white transition-all duration-150"
-                  >
-                    Full API Reference
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {steps.map(([number, time, title, description]) => (
+                    <div key={number} className="group rounded-[28px] border border-slate-800 bg-slate-900/40 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/20 hover:bg-slate-900/70 hover:shadow-[0_18px_50px_rgba(37,99,235,0.12)]">
+                      <div className="flex items-end justify-between gap-3">
+                        <div className="text-4xl font-semibold tracking-[-0.04em] text-slate-100">{number}</div>
+                        <div className="text-xs uppercase tracking-[0.22em] text-slate-500">{time}</div>
+                      </div>
+                      <h3 className="mt-6 text-xl font-semibold text-slate-100">{title}</h3>
+                      <p className="mt-3 text-sm leading-7 text-slate-400">{description}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
+            </div>
+          </section>
+
+          <section className="border-b border-slate-800/70 bg-slate-950/40">
+            <div className="mx-auto max-w-7xl px-5 py-16 md:px-8 md:py-24">
+              <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr]">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Developer section</div>
+                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-slate-50 md:text-5xl">Behavioral data as infrastructure.</h2>
+                  <p className="mt-4 text-lg leading-8 text-slate-400">Use the SDK for typed access to the same wallet intelligence exposed in the dashboard.</p>
+
+                  <div className="mt-8 overflow-hidden rounded-[28px] border border-slate-800 bg-[linear-gradient(180deg,rgba(10,26,47,0.95),rgba(15,23,42,0.96))] transition-all duration-300 hover:border-blue-500/25 hover:shadow-[0_18px_48px_rgba(37,99,235,0.14)]">
+                    <div className="flex items-center gap-2 border-b border-slate-800 px-5 py-4 text-xs uppercase tracking-[0.22em] text-slate-500">
+                      <Terminal className="h-4 w-4" />
+                      Install
+                    </div>
+                    <div className="px-5 py-6 font-mono text-sm text-blue-300">npm install @sova-intel/sdk</div>
+                  </div>
+
+                  <div className="mt-4 overflow-hidden rounded-[28px] border border-slate-800 bg-[#0a1220] transition-all duration-300 hover:border-purple-500/25 hover:shadow-[0_18px_48px_rgba(124,58,237,0.14)]">
+                    <div className="border-b border-slate-800 bg-[#111827] px-5 py-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-2.5 w-2.5 rounded-full bg-rose-400/80" />
+                            <span className="h-2.5 w-2.5 rounded-full bg-amber-300/80" />
+                            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
+                          </div>
+                          <div className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1 font-mono text-[11px] text-slate-300">
+                            wallet-intel.ts
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-[11px] text-purple-300">
+                          Node / TS SDK
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-b border-slate-800 bg-[#0f172a] px-5 py-3">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500">SDK usage</div>
+                      <div className="mt-1 text-sm font-medium text-slate-200">Programmatic access through `@sova-intel/sdk`</div>
+                    </div>
+
+                    <div className="overflow-x-auto bg-[#08111f] px-0 py-5 font-mono text-[13px] leading-8 text-slate-300">
+                      {editorLines.map((editorLine) => (
+                        <div key={editorLine.line} className="grid grid-cols-[44px_minmax(0,1fr)] gap-0 px-5">
+                          <div className="select-none pr-4 text-right text-slate-600">{editorLine.line}</div>
+                          <div>
+                            {editorLine.parts.map((part, index) => (
+                              <span key={`${editorLine.line}-${index}`} className={part.className}>
+                                {part.text}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-5">
+                  <div className="rounded-[32px] border border-slate-800 bg-slate-900/40 p-7 transition-all duration-300 hover:-translate-y-1 hover:border-purple-500/20 hover:bg-slate-900/70 hover:shadow-[0_20px_55px_rgba(124,58,237,0.14)]">
+                    <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Endpoints</div>
+                    <div className="mt-6 space-y-4">
+                      {endpoints.map(([name, credits, description]) => (
+                        <div key={name} className="flex gap-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 transition-all duration-300 hover:border-purple-500/20 hover:bg-slate-950/70">
+                          <div className="h-fit rounded-full bg-purple-500/10 px-3 py-1 text-xs text-purple-300">{credits}</div>
+                          <div>
+                            <div className="font-semibold text-slate-100">{name}</div>
+                            <div className="mt-1 text-sm leading-6 text-slate-400">{description}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[32px] border border-blue-500/20 bg-[linear-gradient(180deg,rgba(37,99,235,0.12),rgba(124,58,237,0.12))] p-7 transition-all duration-300 hover:-translate-y-1 hover:border-blue-400/35 hover:shadow-[0_20px_60px_rgba(59,130,246,0.18)]">
+                    <div className="text-[11px] uppercase tracking-[0.28em] text-blue-300/80">Autonomous payments</div>
+                    <h3 className="mt-4 text-2xl font-semibold text-slate-50">X402 for pay-per-call execution.</h3>
+                    <p className="mt-4 text-sm leading-7 text-slate-200/85">
+                      When a client is not using a pre-funded account, the API can return HTTP 402 payment instructions.
+                      The caller signs the USDC payment and resends with a <code className="rounded bg-slate-950/60 px-1 py-0.5 font-mono text-xs text-blue-200">payment-signature</code> header.
+                      This is built for autonomous agent flows without changing the underlying wallet intelligence contract.
+                    </p>
+                    <div className="mt-6">
+                      <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer">
+                        <Button className="bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700">
+                          Full API Reference
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="border-b border-white/10">
+            <div className="mx-auto max-w-7xl px-5 py-16 md:px-8 md:py-24">
+              <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr]">
+                <div className="max-w-xl">
+                  <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Security and trust</div>
+                  <h2 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-slate-50 md:text-5xl">Built for serious Solana research workflows.</h2>
+                  <p className="mt-4 text-lg leading-8 text-slate-400">
+                    The product is designed around verifiable trading behavior, repeatable access paths, and a narrower claim set than generic analytics tooling.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[
+                    'Specific wallet behavior taxonomy instead of generic scoring.',
+                    'Direct Solana-native and on-chain-adjacent workflows.',
+                    'Self-serve API access with optional X402 pay-per-call routing.',
+                    'Operational for both browser research and autonomous agents.',
+                  ].map((point) => (
+                    <div key={point} className="rounded-[28px] border border-slate-800 bg-slate-900/40 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/20 hover:bg-slate-900/70">
+                      <ShieldCheck className="h-5 w-5 text-blue-300" />
+                      <p className="mt-4 text-sm leading-7 text-slate-300">{point}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="pricing" className="border-b border-slate-800/70 bg-slate-950/40">
+            <div className="mx-auto max-w-7xl px-5 py-16 md:px-8 md:py-24">
+              <div className="max-w-2xl">
+                <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Pricing</div>
+                <h2 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-slate-50 md:text-5xl">Credit packs. No subscription layer.</h2>
+                <p className="mt-4 text-lg leading-8 text-slate-400">
+                  Credits are purchased in advance and deducted per API call. Dashboard access is included with an account.
+                </p>
+              </div>
+
+              <div className="mt-12 grid gap-5 md:grid-cols-3">
+                {pricing.map(([name, price, credits, unit]) => {
+                  const highlighted = name === 'Builder';
+                  return (
+                    <div key={name} className={`rounded-[32px] border p-7 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(15,23,42,0.32)] ${highlighted ? 'border-blue-500/30 bg-[linear-gradient(180deg,rgba(37,99,235,0.12),rgba(124,58,237,0.12))] hover:border-blue-400/40' : 'border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/70'}`}>
+                      <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">{name}</div>
+                      <div className="mt-5 text-5xl font-semibold tracking-[-0.05em] text-slate-50">{price}</div>
+                      <div className="mt-4 text-lg font-medium text-slate-200">{credits}</div>
+                      <div className="mt-1 text-sm text-slate-400">{unit}</div>
+                      <div className="mt-8 space-y-3 text-sm text-slate-300">
+                        <div>Wallet HUD, profile, tokens, and batch endpoints.</div>
+                        <div>API key and X402 auth paths.</div>
+                        <div>Works for manual teams and programmatic use.</div>
+                      </div>
+                      <Button
+                        onClick={() => setShowAuthModal(true)}
+                        className={`mt-8 w-full ${highlighted ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700' : 'border border-slate-700 bg-slate-900/40 text-slate-200 hover:bg-slate-800 hover:text-white'}`}
+                        variant={highlighted ? 'default' : 'outline'}
+                      >
+                        Choose {name}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <footer className="relative border-t border-slate-800/70 bg-slate-950/70">
+          <div className="mx-auto max-w-7xl px-5 py-14 md:px-8 md:py-16">
+            <div className="grid gap-12 border-b border-slate-800/70 pb-12 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
+              <div className="max-w-sm">
+                <div className="flex items-center gap-3">
+                  <Image src="/sova_badge_primary.svg" alt="Sova Intel" width={32} height={32} className="rounded-md ring-1 ring-white/10" />
+                  <span className="text-lg font-semibold text-slate-100">Sova Intel</span>
+                </div>
+                <p className="mt-4 text-sm leading-7 text-slate-400">
+                  Solana wallet behavioral intelligence for analysts, traders, and developers.
+                </p>
+                <div className="mt-5 flex items-center gap-4 text-slate-400">
+                  <Link href="https://x.com/Sova_intel" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-slate-100">
+                    X
+                  </Link>
+                  <Link href="https://t.me/sovaintel" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 transition-colors hover:text-slate-100">
+                    <Send className="h-4 w-4" />
+                    Telegram
+                  </Link>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Product</div>
+                <div className="mt-5 space-y-3 text-sm text-slate-400">
+                  <a href="#features" className="block transition-colors hover:text-slate-100">Features</a>
+                  <a href="#access" className="block transition-colors hover:text-slate-100">Access</a>
+                  <a href="#pricing" className="block transition-colors hover:text-slate-100">Pricing</a>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Resources</div>
+                <div className="mt-5 space-y-3 text-sm text-slate-400">
+                  <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer" className="block transition-colors hover:text-slate-100">
+                    Documentation
+                  </Link>
+                  <Link href="/help" className="block transition-colors hover:text-slate-100">Help</Link>
+                  <Link href="https://t.me/sovaintel" target="_blank" rel="noopener noreferrer" className="block transition-colors hover:text-slate-100">
+                    Telegram
+                  </Link>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-100">Legal</div>
+                <div className="mt-5 space-y-3 text-sm text-slate-400">
+                  <Link href="/terms" className="block transition-colors hover:text-slate-100">Terms</Link>
+                  <Link href="https://x.com/Sova_intel" target="_blank" rel="noopener noreferrer" className="block transition-colors hover:text-slate-100">
+                    X
+                  </Link>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-8 text-center text-sm text-slate-500">
+              © 2026 Sova Intel. All rights reserved.
             </div>
           </div>
-        </section>
 
-        {/* ── 6. Pricing ────────────────────────────────────────────── */}
-        <section className="border-b border-slate-800">
-          <div className="mx-auto max-w-7xl px-6 py-20 md:py-28">
-
-            <div className="mb-4 text-center">
-              <span className="font-mono text-xs uppercase tracking-widest text-slate-500">Pricing</span>
-            </div>
-            <h2 className="mb-3 text-center text-3xl font-bold text-white md:text-4xl">
-              Credit packs. No subscriptions.
-            </h2>
-            <p className="mx-auto mb-14 max-w-md text-center text-base text-slate-400 leading-relaxed">
-              Buy credits, use them when you need them. Credits do not expire.
-            </p>
-
-            <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-3">
-
-              {/* Starter */}
-              <div className="flex flex-col rounded-2xl border border-slate-800 bg-slate-900 p-7">
-                <div className="mb-1 font-mono text-xs text-slate-500 uppercase tracking-wider">Starter</div>
-                {/* Oversized background number */}
-                <div className="relative mb-1">
-                  <span aria-hidden="true" className="pointer-events-none select-none absolute -top-3 left-0 text-7xl font-black leading-none text-slate-800/40">$15</span>
-                  <div className="relative text-3xl font-bold text-white">$15</div>
-                </div>
-                <div className="mb-6 text-sm text-slate-500">1,000 credits &nbsp;·&nbsp; $0.015 / credit</div>
-                <ul className="flex-1 space-y-2.5 text-sm text-slate-400">
-                  {['1,000 Wallet HUDs', '200 Full Profiles', '50 Similarity jobs', 'API Key auth', 'X402 auth'].map(f => (
-                    <li key={f} className="flex items-start gap-2">
-                      <span className="mt-0.5 text-green-500" aria-hidden="true">&#10003;</span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  onClick={() => setShowAuthModal(true)}
-                  variant="outline"
-                  className="mt-8 w-full border-slate-700 bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white transition-all duration-150"
-                >
-                  Get Starter
-                </Button>
-              </div>
-
-              {/* Builder — highlighted */}
-              <div className="flex flex-col rounded-2xl border border-blue-700/50 bg-gradient-to-b from-blue-950/40 to-slate-900 p-7 ring-1 ring-blue-700/30">
-                {/* Gradient top-edge accent line */}
-                <div aria-hidden="true" className="-mx-7 -mt-7 mb-6 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
-                <div className="mb-1 font-mono text-xs text-blue-400 uppercase tracking-wider">Builder</div>
-                {/* Oversized background number */}
-                <div className="relative mb-1">
-                  <span aria-hidden="true" className="pointer-events-none select-none absolute -top-3 left-0 text-7xl font-black leading-none text-slate-800/40">$120</span>
-                  <div className="relative text-3xl font-bold text-white">$120</div>
-                </div>
-                <div className="mb-6 text-sm text-slate-400">10,000 credits &nbsp;·&nbsp; $0.012 / credit</div>
-                <ul className="flex-1 space-y-2.5 text-sm text-slate-400">
-                  {['10,000 Wallet HUDs', '2,000 Full Profiles', '500 Similarity jobs', 'API Key auth', 'X402 auth'].map(f => (
-                    <li key={f} className="flex items-start gap-2">
-                      <span className="mt-0.5 text-green-500" aria-hidden="true">&#10003;</span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  onClick={() => setShowAuthModal(true)}
-                  className="mt-8 w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white transition-all duration-150"
-                >
-                  Get Builder
-                </Button>
-              </div>
-
-              {/* Pro */}
-              <div className="flex flex-col rounded-2xl border border-slate-800 bg-slate-900 p-7">
-                <div className="mb-1 font-mono text-xs text-slate-500 uppercase tracking-wider">Pro</div>
-                {/* Oversized background number */}
-                <div className="relative mb-1">
-                  <span aria-hidden="true" className="pointer-events-none select-none absolute -top-3 left-0 text-7xl font-black leading-none text-slate-800/40">$900</span>
-                  <div className="relative text-3xl font-bold text-white">$900</div>
-                </div>
-                <div className="mb-6 text-sm text-slate-500">100,000 credits &nbsp;·&nbsp; $0.009 / credit</div>
-                <ul className="flex-1 space-y-2.5 text-sm text-slate-400">
-                  {['100,000 Wallet HUDs', '20,000 Full Profiles', '5,000 Similarity jobs', 'API Key auth', 'X402 auth'].map(f => (
-                    <li key={f} className="flex items-start gap-2">
-                      <span className="mt-0.5 text-green-500" aria-hidden="true">&#10003;</span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  onClick={() => setShowAuthModal(true)}
-                  variant="outline"
-                  className="mt-8 w-full border-slate-700 bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white transition-all duration-150"
-                >
-                  Get Pro
-                </Button>
-              </div>
-            </div>
-
-            <p className="mt-8 text-center text-xs text-slate-500">
-              Credits are deducted per API call. Dashboard access is included with any account.
-            </p>
-          </div>
-        </section>
-
-        {/* ── 7. Footer ─────────────────────────────────────────────── */}
-        <footer className="bg-slate-950">
-          <div className="mx-auto max-w-7xl px-6 py-12">
-            <div className="flex flex-col items-center gap-8 md:flex-row md:justify-between">
-              <div className="flex items-center gap-2.5">
-                <Image src="/sova_badge_primary.svg" alt="Sova Intel" width={28} height={28} className="rounded-md" />
-                <span className="text-sm font-semibold text-white">Sova Intel</span>
-              </div>
-              <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
-                <Link
-                  href="https://t.me/sovaintel"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  <Send className="h-3.5 w-3.5" aria-hidden="true" />
-                  Telegram
-                </Link>
-                <Link
-                  href="https://x.com/Sova_intel"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                  </svg>
-                  X
-                </Link>
-                <Link
-                  href="https://docs.sova-intel.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  Docs
-                </Link>
-                <Link href="/terms" className="text-sm text-slate-500 hover:text-slate-300 transition-colors">
-                  Terms
-                </Link>
-                <Link href="/help" className="text-sm text-slate-500 hover:text-slate-300 transition-colors">
-                  Help
-                </Link>
-              </div>
-            </div>
-            <div className="mt-8 border-t border-slate-800/60 pt-8 text-center text-xs text-slate-700">
-              Sova Intel &mdash; Solana wallet behavioral intelligence
-            </div>
-          </div>
+          <Suspense fallback={null}>
+            <SearchParamsHandler showAuthModal={showAuthModal} setShowAuthModal={setShowAuthModal} />
+          </Suspense>
         </footer>
-
-        {/* Auth modal handler */}
-        <Suspense fallback={null}>
-          <SearchParamsHandler showAuthModal={showAuthModal} setShowAuthModal={setShowAuthModal} />
-        </Suspense>
       </div>
     </LandingShell>
   );

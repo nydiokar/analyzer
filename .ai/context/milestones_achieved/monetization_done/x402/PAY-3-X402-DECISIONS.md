@@ -144,8 +144,6 @@ Examples:
 
 ## Still To Do / Known Gaps
 
-- **E2E test not yet run** — needs agent wallet funded with USDC on mainnet (`AGENT_PRIVKEY` in `.env`, `TEST_WALLET_ADDR` set)
 - **Treasury ATA** — must exist on-chain (confirmed: already received USDC in PAY-2c test)
-- **`transferChecked` account index assumption** — destination is `keys[2]`. This is standard for SPL token but should be verified against a real agent-built tx in the E2E test
 - **No test for blocked wallet (`isActive=false`)** — manual DB test needed
-- **`behavior-analysis` response latency during X402** — handler may take 5-30s; the confirm step adds ~5s on top. Total latency for agents: 10-35s. Acceptable for autonomous agents, worth documenting
+
