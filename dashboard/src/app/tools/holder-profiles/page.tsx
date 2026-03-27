@@ -13,7 +13,7 @@ import { fetcher } from '@/lib/fetcher';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import type { JobProgressData, JobFailedData, JobCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
-import { Loader2, Search, Users } from 'lucide-react';
+import { Check, Loader2, Search, Share2, Users } from 'lucide-react';
 import type { HolderProfilesResult } from '@/components/holder-profiles/types';
 import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import type { SimilarityStatus } from '@/components/holder-profiles/v2/SimilaritySidebar';
@@ -79,6 +79,8 @@ function HolderProfilesContent() {
   const [walletInput, setWalletInput] = useState('');
   const [walletEntries, setWalletEntries] = useState<WalletClassifierEntry[]>([]);
   const [tokenResult, setTokenResult] = useState<HolderProfilesResult | null>(null);
+  const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'copied'>('idle');
+  const [latestShareableJobId, setLatestShareableJobId] = useState<string | null>(null);
   const [tokenPartialResult, setTokenPartialResult] = useState<HolderProfilesResult | null>(null);
   const [lastSuccessfulTokenResult, setLastSuccessfulTokenResult] = useState<HolderProfilesResult | null>(null);
   const [lastSuccessfulTokenTimestamp, setLastSuccessfulTokenTimestamp] = useState<number | null>(null);
@@ -217,7 +219,9 @@ function HolderProfilesContent() {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
           const resultData = data.result as unknown as HolderProfilesResult;
           if (resultData?.profiles) {
+            const completedJobId = data.jobId;
             setTokenResult(resultData);
+            setLatestShareableJobId(completedJobId);
             setTokenPartialResult(null);
             setTokenStatus('completed');
             setTokenProgress(100);
@@ -327,7 +331,7 @@ function HolderProfilesContent() {
       return;
     }
     resumeAttemptedRef.current = tokenStorageKey;
-    const jobId = window.localStorage.getItem(tokenStorageKey);
+      const jobId = window.localStorage.getItem(tokenStorageKey);
     if (!jobId) {
       return;
     }
@@ -338,6 +342,7 @@ function HolderProfilesContent() {
         const resultData = resultResponse?.result as HolderProfilesResult | undefined;
         if (resultData?.profiles) {
           setTokenResult(resultData);
+          setLatestShareableJobId(jobId);
           setTokenPartialResult(null);
           setTokenStatus('completed');
           setTokenProgress(100);
@@ -541,6 +546,32 @@ function HolderProfilesContent() {
     else handleWalletAnalyze();
   };
 
+  const handleShare = useCallback(async () => {
+    if (!tokenResult || !tokenMint || !latestShareableJobId || shareStatus === 'loading') return;
+    setShareStatus('loading');
+    try {
+      const response = await fetcher('/share/hp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokenMint, jobId: latestShareableJobId }),
+      }) as { shareId: string; url: string };
+      const shareUrl = `${window.location.origin}${response.url}`;
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareStatus('copied');
+        toast.success('Share link copied!', { description: shareUrl });
+        setTimeout(() => setShareStatus('idle'), 2500);
+      } catch {
+        // Clipboard unavailable (non-HTTPS or permission denied) — still show the URL
+        setShareStatus('idle');
+        toast.success('Share link created!', { description: shareUrl });
+      }
+    } catch (err: any) {
+      setShareStatus('idle');
+      toast.error('Failed to create share link', { description: err?.message ?? 'Unknown error' });
+    }
+  }, [latestShareableJobId, tokenResult, tokenMint, shareStatus]);
+
   const handleRemoveWallet = (address: string) => {
     const updated = parsedWallets.list.filter((value) => value !== address);
     setWalletInput(updated.join('\n'));
@@ -664,6 +695,25 @@ function HolderProfilesContent() {
                 </>
               )}
             </Button>
+
+            {analysisMode === 'token' && tokenResult && latestShareableJobId && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 px-4"
+                onClick={handleShare}
+                disabled={shareStatus === 'loading'}
+              >
+                {shareStatus === 'loading' ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : shareStatus === 'copied' ? (
+                  <Check className="mr-2 h-4 w-4 text-emerald-500" />
+                ) : (
+                  <Share2 className="mr-2 h-4 w-4" />
+                )}
+                {shareStatus === 'copied' ? 'Copied!' : 'Share'}
+              </Button>
+            )}
 
             <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
               <TabsList className="h-9 grid w-[140px] grid-cols-2">
