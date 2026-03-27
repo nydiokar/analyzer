@@ -129,7 +129,7 @@ export async function generateMetadata({
   const description = buildShareDescription(share);
   const siteUrl = getPublicSiteUrl();
   const pageUrl = `${siteUrl}/share/hp/${shareId}`;
-  const ogImageUrl = `${siteUrl}/api/og/hp/${shareId}?v=4`;
+  const ogImageUrl = `${siteUrl}/api/og/hp/${shareId}?v=5`;
   const pageTitle = `${tokenLabel} Holder Profiles — Trader Distribution & Behavior Analysis`;
 
   return {

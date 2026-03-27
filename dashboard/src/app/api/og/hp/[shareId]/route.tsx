@@ -63,9 +63,9 @@ const BEHAVIOR_LABELS: Record<string, string> = {
   MOMENTUM: 'Momentum',
   INTRADAY: 'Intraday',
   DAY_TRADER: 'Day Trader',
-  SWING_TRADER: 'Swing',
+  SWING_TRADER: 'Swing Trader',
   POSITION_TRADER: 'Position',
-  HODLER: 'Fresh',
+  HODLER: 'Hodler',
 };
 
 const BEHAVIOR_COLORS: Record<string, string> = {
@@ -84,7 +84,7 @@ function getBehaviorColor(type: string): string {
 }
 
 function formatHoldTime(hours: number | null | undefined): string {
-  if (hours == null) return '-';
+  if (hours == null) return '—';
   if (hours < 1) return `${Math.round(hours * 60)}m`;
   if (hours < 24) return `${hours.toFixed(1)}h`;
   return `${(hours / 24).toFixed(1)}d`;
@@ -109,12 +109,36 @@ async function fetchShare(shareId: string): Promise<ShareRecord | null> {
   }
 }
 
+async function fetchLogoDataUri(): Promise<string | null> {
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sova-intel.com').replace(/\/$/, '');
+  try {
+    const res = await fetch(`${siteUrl}/sova_badge_primary.svg`);
+    if (!res.ok) return null;
+    const svg = await res.text();
+    const b64 = btoa(unescape(encodeURIComponent(svg)));
+    return `data:image/svg+xml;base64,${b64}`;
+  } catch {
+    return null;
+  }
+}
+
+// Brand colors matching the app dark theme
+const BG = '#06111f';
+const CARD_BG = '#0d1f35';
+const BORDER = '#1e3352';
+const TEXT_PRIMARY = '#f1f5f9';
+const TEXT_MUTED = '#64748b';
+const VIOLET = '#a78bfa';
+const VIOLET_BG = 'rgba(167,139,250,0.12)';
+const BLUE = '#3b82f6';
+const BLUE_BG = 'rgba(59,130,246,0.15)';
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ shareId: string }> },
 ) {
   const { shareId } = await params;
-  const share = await fetchShare(shareId);
+  const [share, logoDataUri] = await Promise.all([fetchShare(shareId), fetchLogoDataUri()]);
 
   if (!share) {
     return new ImageResponse(
@@ -123,12 +147,12 @@ export async function GET(
           style={{
             width: 1200,
             height: 630,
-            background: '#040a14',
+            background: BG,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#ffffff',
-            fontSize: 32,
+            color: TEXT_MUTED,
+            fontSize: 28,
             fontFamily: 'sans-serif',
           }}
         >
@@ -155,7 +179,6 @@ export async function GET(
     if (profile.medianHoldTimeHours != null && !profile.analysisSkipped) {
       holdTimes.push(profile.medianHoldTimeHours);
     }
-
     if (profile.behaviorType && !profile.analysisSkipped) {
       behaviorCounts.set(profile.behaviorType, (behaviorCounts.get(profile.behaviorType) ?? 0) + 1);
     }
@@ -165,7 +188,7 @@ export async function GET(
     ? holdTimes.sort((a, b) => a - b)[Math.floor(holdTimes.length / 2)]
     : null;
   const qualityCount = snapshot.profiles.filter(
-    (profile) => profile.dataQualityTier === 'GOLD' || profile.dataQualityTier === 'SILVER',
+    (p) => p.dataQualityTier === 'GOLD' || p.dataQualityTier === 'SILVER',
   ).length;
 
   const orderedBehaviorBuckets = BEHAVIOR_ORDER
@@ -175,12 +198,23 @@ export async function GET(
       count: behaviorCounts.get(type) ?? 0,
       color: getBehaviorColor(type),
     }))
-    .filter((bucket) => bucket.count > 0);
+    .filter((b) => b.count > 0);
+
+  const totalBehaviorCount = orderedBehaviorBuckets.reduce((s, b) => s + b.count, 0);
 
   const similarityPairs = snapshot.similaritySnapshot?.pairs ?? [];
   const highSimilarityPairs = similarityPairs.filter(
     (pair) => calculateOverallScore(pair.binaryScore, pair.capitalScore) >= 0.5,
   ).length;
+
+  const totalHolders = snapshot.profiles.length;
+
+  const metrics = [
+    { label: 'Holders', value: String(totalHolders) },
+    { label: 'High Quality', value: `${qualityCount}/${totalHolders}` },
+    { label: 'Median Hold', value: formatHoldTime(medianHold) },
+    { label: 'Similar Pairs', value: snapshot.similaritySnapshot ? String(highSimilarityPairs) : '—' },
+  ];
 
   return new ImageResponse(
     (
@@ -190,233 +224,215 @@ export async function GET(
           height: 630,
           display: 'flex',
           flexDirection: 'column',
-          position: 'relative',
-          overflow: 'hidden',
-          background: 'linear-gradient(180deg, #040a14 0%, #08101d 100%)',
-          color: '#f8fafc',
+          background: BG,
+          color: TEXT_PRIMARY,
           fontFamily: 'sans-serif',
-          padding: '40px 44px',
+          padding: '48px 52px',
+          gap: 0,
         }}
       >
+        {/* Header: logo + branding */}
         <div
           style={{
-            position: 'absolute',
-            inset: 0,
-            background:
-              'radial-gradient(circle at top right, rgba(37, 99, 235, 0.14), transparent 36%), radial-gradient(circle at top left, rgba(14, 165, 233, 0.08), transparent 28%)',
-          }}
-        />
-
-        <div
-          style={{
-            position: 'relative',
             display: 'flex',
-            justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: 28,
+            justifyContent: 'space-between',
+            marginBottom: 36,
           }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                fontSize: 16,
-                color: 'rgba(226,232,240,0.72)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.18em',
-              }}
-            >
-              <span>Holder Profiles</span>
-              <span
+          {/* Left: Sova logo + wordmark */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {logoDataUri ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoDataUri} width={44} height={44} alt="Sova Intel" style={{ borderRadius: 12 }} />
+            ) : (
+              <div
                 style={{
-                  border: '1px solid rgba(148,163,184,0.24)',
-                  borderRadius: 999,
-                  padding: '5px 10px',
-                  fontSize: 12,
-                  letterSpacing: '0.12em',
-                  color: 'rgba(226,232,240,0.56)',
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: '#0A1A2F',
+                  border: `1px solid ${BORDER}`,
                 }}
-              >
-                Shared
+              />
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <span style={{ fontSize: 20, fontWeight: 700, color: TEXT_PRIMARY, letterSpacing: '-0.02em' }}>
+                Sova Intel
               </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 54, fontWeight: 700, letterSpacing: '-0.03em' }}>{tokenLabel}</span>
-              {snapshot.tokenMint ? (
-                <span style={{ fontSize: 18, color: 'rgba(148,163,184,0.72)' }}>{snapshot.tokenMint}</span>
-              ) : null}
+              <span style={{ fontSize: 13, color: TEXT_MUTED, letterSpacing: '0.04em' }}>
+                HOLDER PROFILES
+              </span>
             </div>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '14px 18px',
-              borderRadius: 22,
-              border: '1px solid rgba(148,163,184,0.14)',
-              background: 'rgba(15, 23, 42, 0.72)',
-            }}
-          >
+          {/* Right: token + Shared badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div
               style={{
-                width: 42,
-                height: 42,
-                borderRadius: 14,
-                background: 'rgba(59,130,246,0.14)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#bfdbfe',
-                fontSize: 22,
+                padding: '6px 14px',
+                borderRadius: 999,
+                border: `1px solid ${BORDER}`,
+                background: CARD_BG,
+                fontSize: 13,
+                color: TEXT_MUTED,
+                letterSpacing: '0.06em',
               }}
             >
-              S
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 13, color: 'rgba(148,163,184,0.72)' }}>Sova Intel</span>
-              <span style={{ fontSize: 18, fontWeight: 600 }}>Shared Snapshot</span>
+              SHARED SNAPSHOT
             </div>
           </div>
         </div>
 
-        <div style={{ position: 'relative', display: 'flex', gap: 16, marginBottom: 28 }}>
-          {[
-            { label: 'Holders', value: String(snapshot.profiles.length) },
-            { label: 'High Quality', value: `${qualityCount}/${snapshot.profiles.length}` },
-            { label: 'Median Hold', value: formatHoldTime(medianHold) },
-            {
-              label: 'Similar Pairs',
-              value: snapshot.similaritySnapshot ? String(highSimilarityPairs) : '-',
-            },
-          ].map((metric) => (
+        {/* Token name */}
+        <div style={{ marginBottom: 28 }}>
+          <span
+            style={{
+              fontSize: 62,
+              fontWeight: 800,
+              letterSpacing: '-0.04em',
+              color: TEXT_PRIMARY,
+              lineHeight: 1,
+            }}
+          >
+            {tokenLabel}
+          </span>
+          {snapshot.tokenMint ? (
+            <div style={{ marginTop: 8, fontSize: 15, color: TEXT_MUTED, fontFamily: 'monospace' }}>
+              {snapshot.tokenMint}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Metric tiles */}
+        <div style={{ display: 'flex', gap: 14, marginBottom: 24 }}>
+          {metrics.map((m) => (
             <div
-              key={metric.label}
+              key={m.label}
               style={{
                 flex: 1,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 6,
-                padding: '16px 18px',
-                borderRadius: 18,
-                border: '1px solid rgba(148,163,184,0.14)',
-                background: 'rgba(15, 23, 42, 0.78)',
+                gap: 8,
+                padding: '18px 20px',
+                borderRadius: 14,
+                border: `1px solid ${BORDER}`,
+                background: CARD_BG,
               }}
             >
               <span
                 style={{
-                  fontSize: 12,
+                  fontSize: 11,
+                  fontWeight: 600,
                   textTransform: 'uppercase',
-                  letterSpacing: '0.12em',
-                  color: 'rgba(148,163,184,0.76)',
+                  letterSpacing: '0.1em',
+                  color: TEXT_MUTED,
                 }}
               >
-                {metric.label}
+                {m.label}
               </span>
-              <span style={{ fontSize: 34, fontWeight: 700 }}>{metric.value}</span>
+              <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', color: TEXT_PRIMARY }}>
+                {m.value}
+              </span>
             </div>
           ))}
         </div>
 
-        <div
-          style={{
-            position: 'relative',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 18,
-            padding: '24px 26px',
-            borderRadius: 24,
-            border: '1px solid rgba(148,163,184,0.12)',
-            background: 'rgba(15, 23, 42, 0.72)',
-          }}
-        >
+        {/* Trader distribution */}
+        {orderedBehaviorBuckets.length > 0 ? (
           <div
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
+              flexDirection: 'column',
+              gap: 14,
+              padding: '20px 22px',
+              borderRadius: 14,
+              border: `1px solid ${BORDER}`,
+              background: CARD_BG,
+              flex: 1,
             }}
           >
-            <span
-              style={{
-                fontSize: 18,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                color: 'rgba(226,232,240,0.86)',
-              }}
-            >
-              Trader Distribution
-            </span>
-            <span style={{ fontSize: 16, color: 'rgba(148,163,184,0.72)' }}>
-              Canonical holder-profiles layout
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {orderedBehaviorBuckets.map((bucket) => (
-              <div
-                key={bucket.type}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 14px',
-                  borderRadius: 999,
-                  background: `${bucket.color}20`,
-                  border: `1px solid ${bucket.color}40`,
-                  color: bucket.color,
-                  fontSize: 16,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  color: TEXT_MUTED,
                 }}
               >
-                <span style={{ fontWeight: 700 }}>{bucket.count}</span>
-                <span>{bucket.label}</span>
-              </div>
-            ))}
-          </div>
+                Trader Distribution
+              </span>
+              <span style={{ fontSize: 12, color: TEXT_MUTED }}>
+                {totalBehaviorCount} of {totalHolders} classified
+              </span>
+            </div>
 
-          <div style={{ display: 'flex', gap: 8, height: 10 }}>
-            {orderedBehaviorBuckets.map((bucket) => (
-              <div
-                key={bucket.type}
-                style={{
-                  height: 10,
-                  flex: bucket.count,
-                  minWidth: 16,
-                  borderRadius: 999,
-                  background: bucket.color,
-                }}
-              />
-            ))}
-          </div>
-        </div>
+            {/* Behavior pills */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {orderedBehaviorBuckets.map((b) => (
+                <div
+                  key={b.type}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '5px 12px',
+                    borderRadius: 999,
+                    background: `${b.color}18`,
+                    border: `1px solid ${b.color}35`,
+                    color: b.color,
+                    fontSize: 14,
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>{b.count}</span>
+                  <span style={{ fontWeight: 400, opacity: 0.85 }}>{b.label}</span>
+                </div>
+              ))}
+            </div>
 
+            {/* Stacked bar */}
+            <div style={{ display: 'flex', gap: 4, height: 8, borderRadius: 999, overflow: 'hidden' }}>
+              {orderedBehaviorBuckets.map((b) => (
+                <div
+                  key={b.type}
+                  style={{
+                    height: 8,
+                    flex: b.count,
+                    background: b.color,
+                    minWidth: 12,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Footer */}
         <div
           style={{
-            position: 'relative',
             display: 'flex',
-            justifyContent: 'space-between',
             alignItems: 'center',
-            marginTop: 'auto',
-            paddingTop: 20,
-            borderTop: '1px solid rgba(148,163,184,0.12)',
+            justifyContent: 'space-between',
+            marginTop: 20,
+            paddingTop: 18,
+            borderTop: `1px solid ${BORDER}`,
           }}
         >
-          <span style={{ fontSize: 18, color: 'rgba(148,163,184,0.76)' }}>sova-intel.com</span>
+          <span style={{ fontSize: 14, color: TEXT_MUTED }}>sova-intel.com</span>
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              padding: '10px 20px',
+              padding: '8px 18px',
               borderRadius: 999,
-              background: 'rgba(59,130,246,0.18)',
-              border: '1px solid rgba(59,130,246,0.36)',
+              background: BLUE_BG,
+              border: `1px solid rgba(59,130,246,0.3)`,
               color: '#93c5fd',
-              fontSize: 17,
+              fontSize: 14,
               fontWeight: 600,
             }}
           >
