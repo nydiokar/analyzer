@@ -14,6 +14,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sova-intel.com'),
   title: "Sova Intel - Solana Wallet Analyzer",
   description: "Gain deep insights into Solana wallet performance, behavior, and profitability.",
   other: {
