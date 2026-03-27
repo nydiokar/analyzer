@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { History, ChevronDown, Loader2, AlertCircle, Clock, GitCompareArrows } from 'lucide-react';
+import { History, ChevronDown, Loader2, AlertCircle, Clock, GitCompareArrows, Check, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -55,6 +55,7 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
   const [snapshotResult, setSnapshotResult] = useState<HolderProfilesResult | null>(null);
   const [snapshotRun, setSnapshotRun] = useState<HolderProfileRun | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'copied'>('idle');
   const [showDiff, setShowDiff] = useState(false);
   const { diff, isLoading: isDiffLoading, error: diffError, fetchDiff, clear: clearDiff } = useHolderProfileDiff();
 
@@ -69,6 +70,33 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
     // jobIdA = older snapshot, jobIdB = newer (most recent)
     fetchDiff(tokenMint, snapshotRun.jobId, newestRun.jobId);
   }, [snapshotRun, newestRun, tokenMint, fetchDiff]);
+
+  const handleShare = useCallback(async () => {
+    if (!snapshotRun || shareStatus === 'loading') return;
+    setShareStatus('loading');
+    try {
+      const response = await fetcher('/share/hp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tokenMint,
+          jobId: snapshotRun.jobId,
+        }),
+      }) as { url: string };
+      const shareUrl = `${window.location.origin}${response.url}`;
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareStatus('copied');
+        setTimeout(() => setShareStatus('idle'), 2500);
+        return;
+      } catch {
+        setShareStatus('idle');
+      }
+    } catch (err: any) {
+      setShareStatus('idle');
+      setFetchError(err?.message ?? 'Failed to create share');
+    }
+  }, [shareStatus, snapshotRun, tokenMint]);
 
   const loadSnapshot = useCallback(async (run: HolderProfileRun) => {
     // Open dialog immediately so the user sees feedback right away
@@ -148,24 +176,44 @@ export function SnapshotHistoryModal({ runs, tokenMint }: Props) {
                 )}
               </DialogTitle>
               {!loadingJobId && (
-                isNewestRun ? (
-                  <span className="text-xs text-muted-foreground italic shrink-0">Most recent run</span>
-                ) : canCompare ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-1.5 text-xs shrink-0"
-                    onClick={showDiff ? () => { setShowDiff(false); clearDiff(); } : handleCompare}
-                    disabled={isDiffLoading}
-                  >
-                    {isDiffLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <GitCompareArrows className="h-3.5 w-3.5" />
-                    )}
-                    {showDiff ? 'Hide diff' : 'Compare with current'}
-                  </Button>
-                ) : null
+                <div className="flex items-center gap-2 shrink-0">
+                  {isNewestRun ? (
+                    <span className="text-xs text-muted-foreground italic">Most recent run</span>
+                  ) : canCompare ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={showDiff ? () => { setShowDiff(false); clearDiff(); } : handleCompare}
+                      disabled={isDiffLoading}
+                    >
+                      {isDiffLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <GitCompareArrows className="h-3.5 w-3.5" />
+                      )}
+                      {showDiff ? 'Hide diff' : 'Compare with current'}
+                    </Button>
+                  ) : null}
+                  {snapshotRun && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={handleShare}
+                      disabled={shareStatus === 'loading'}
+                    >
+                      {shareStatus === 'loading' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : shareStatus === 'copied' ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-500" />
+                      ) : (
+                        <Share2 className="h-3.5 w-3.5" />
+                      )}
+                      {shareStatus === 'copied' ? 'Copied!' : 'Share'}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           </DialogHeader>

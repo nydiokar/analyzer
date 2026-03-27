@@ -80,6 +80,7 @@ function HolderProfilesContent() {
   const [walletEntries, setWalletEntries] = useState<WalletClassifierEntry[]>([]);
   const [tokenResult, setTokenResult] = useState<HolderProfilesResult | null>(null);
   const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'copied'>('idle');
+  const [latestShareableJobId, setLatestShareableJobId] = useState<string | null>(null);
   const [tokenPartialResult, setTokenPartialResult] = useState<HolderProfilesResult | null>(null);
   const [lastSuccessfulTokenResult, setLastSuccessfulTokenResult] = useState<HolderProfilesResult | null>(null);
   const [lastSuccessfulTokenTimestamp, setLastSuccessfulTokenTimestamp] = useState<number | null>(null);
@@ -218,7 +219,9 @@ function HolderProfilesContent() {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
           const resultData = data.result as unknown as HolderProfilesResult;
           if (resultData?.profiles) {
+            const completedJobId = data.jobId;
             setTokenResult(resultData);
+            setLatestShareableJobId(completedJobId);
             setTokenPartialResult(null);
             setTokenStatus('completed');
             setTokenProgress(100);
@@ -328,7 +331,7 @@ function HolderProfilesContent() {
       return;
     }
     resumeAttemptedRef.current = tokenStorageKey;
-    const jobId = window.localStorage.getItem(tokenStorageKey);
+      const jobId = window.localStorage.getItem(tokenStorageKey);
     if (!jobId) {
       return;
     }
@@ -339,6 +342,7 @@ function HolderProfilesContent() {
         const resultData = resultResponse?.result as HolderProfilesResult | undefined;
         if (resultData?.profiles) {
           setTokenResult(resultData);
+          setLatestShareableJobId(jobId);
           setTokenPartialResult(null);
           setTokenStatus('completed');
           setTokenProgress(100);
@@ -543,13 +547,13 @@ function HolderProfilesContent() {
   };
 
   const handleShare = useCallback(async () => {
-    if (!tokenResult || !tokenMint || shareStatus === 'loading') return;
+    if (!tokenResult || !tokenMint || !latestShareableJobId || shareStatus === 'loading') return;
     setShareStatus('loading');
     try {
       const response = await fetcher('/share/hp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokenMint, topN }),
+        body: JSON.stringify({ tokenMint, jobId: latestShareableJobId }),
       }) as { shareId: string; url: string };
       const shareUrl = `${window.location.origin}${response.url}`;
       try {
@@ -566,7 +570,7 @@ function HolderProfilesContent() {
       setShareStatus('idle');
       toast.error('Failed to create share link', { description: err?.message ?? 'Unknown error' });
     }
-  }, [tokenResult, tokenMint, topN, shareStatus]);
+  }, [latestShareableJobId, tokenResult, tokenMint, shareStatus]);
 
   const handleRemoveWallet = (address: string) => {
     const updated = parsedWallets.list.filter((value) => value !== address);
@@ -692,7 +696,7 @@ function HolderProfilesContent() {
               )}
             </Button>
 
-            {analysisMode === 'token' && tokenResult && (
+            {analysisMode === 'token' && tokenResult && latestShareableJobId && (
               <Button
                 variant="outline"
                 size="sm"

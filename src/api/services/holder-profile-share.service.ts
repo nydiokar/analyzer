@@ -2,7 +2,17 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { prisma } from '../../core/services/database-service';
 import type { Prisma } from '@prisma/client';
 import type { HolderProfile, HolderProfilesResult } from '../../queues/jobs/types';
-import { HolderProfilesCacheService } from './holder-profiles-cache.service';
+
+interface PersistedTokenSnapshot {
+  marketCapUsd?: number | null;
+  priceUsd?: string | number | null;
+  name?: string | null;
+  symbol?: string | null;
+}
+
+interface PersistedHolderProfilesResult extends HolderProfilesResult {
+  tokenSnapshot?: PersistedTokenSnapshot | null;
+}
 
 export interface ShareSnapshot {
   mode: string;
@@ -50,27 +60,24 @@ export interface ShareRecord {
 export class HolderProfileShareService {
   private readonly logger = new Logger(HolderProfileShareService.name);
 
-  constructor(
-    private readonly cacheService: HolderProfilesCacheService,
-  ) {}
-
   /**
-   * Create a share from the current cached holder-profiles result for a token.
-   * Reads from Redis Tier-1 cache. Strips large fields before persisting.
+   * Create a share from a persisted holder-profiles snapshot run.
+   * Shares are version-based: callers must provide the exact jobId they want to publish.
    */
   async createShare(params: {
     tokenMint: string;
-    topN: number;
+    jobId: string;
     userId?: string;
   }): Promise<{ shareId: string; url: string }> {
-    const { tokenMint, topN, userId } = params;
+    const { tokenMint, jobId, userId } = params;
 
-    const result = await this.cacheService.getTokenResult(tokenMint, topN);
-    if (!result) {
+    const shareSource = await this.getTokenResultFromSnapshotRun(tokenMint, jobId);
+    if (!shareSource) {
       throw new NotFoundException(
-        `No cached holder-profiles result for mint=${tokenMint} topN=${topN}. Run the analysis first.`,
+        `No holder-profiles snapshot found for mint=${tokenMint} jobId=${jobId}.`,
       );
     }
+    const { result, topN } = shareSource;
 
     // Pick only the fields we need — keeps persisted JSON small
     const strippedProfiles: ShareSnapshot['profiles'] = result.profiles.map((p) => ({
@@ -117,16 +124,63 @@ export class HolderProfileShareService {
         snapshotJson: snapshot as unknown as Prisma.InputJsonValue,
         tokenMint,
         tokenSymbol,
-        topN,
+        topN: snapshot.topN ?? null,
         createdBy: userId ?? null,
       },
     });
 
-    this.logger.log(`Created share ${record.id} for mint=${tokenMint} topN=${topN} by user=${userId ?? 'anon'}`);
+    this.logger.log(`Created share ${record.id} for mint=${tokenMint} topN=${topN ?? 'n/a'} by user=${userId ?? 'anon'}`);
 
     return {
       shareId: record.id,
       url: `/share/hp/${record.id}`,
+    };
+  }
+
+  private async getTokenResultFromSnapshotRun(
+    tokenMint: string,
+    jobId: string,
+  ): Promise<{ result: PersistedHolderProfilesResult; topN: number | null } | null> {
+    const snapshots = await prisma.holderProfileSnapshot.findMany({
+      where: {
+        tokenMint,
+        jobId,
+        analysisMode: 'token',
+      },
+      orderBy: { holderRank: 'asc' },
+    });
+
+    if (snapshots.length === 0) {
+      return null;
+    }
+
+    const firstMeta = snapshots[0]?.metadata as Record<string, unknown> | null;
+    const topN = snapshots[0]?.topN ?? null;
+    const knownWalletStubs = Array.isArray(firstMeta?.knownWalletStubs)
+      ? (firstMeta.knownWalletStubs as HolderProfile[])
+      : [];
+    const tokenSnapshot = (firstMeta?.tokenSnapshot ?? null) as PersistedTokenSnapshot | null;
+    const analyzedProfiles = snapshots.map((snapshot) => snapshot.profile as unknown as HolderProfile);
+    const allProfiles = [...analyzedProfiles, ...knownWalletStubs].sort(
+      (a, b) => (a.rank ?? 0) - (b.rank ?? 0),
+    );
+
+    return {
+      topN,
+      result: {
+        success: true,
+        timestamp: Date.now(),
+        mode: 'token',
+        tokenMint,
+        tokenSnapshot,
+        profiles: allProfiles,
+        metadata: {
+          totalHoldersRequested: allProfiles.length,
+          totalHoldersAnalyzed: analyzedProfiles.length,
+          totalProcessingTimeMs: 0,
+          avgProcessingTimePerWalletMs: 0,
+        },
+      },
     };
   }
 

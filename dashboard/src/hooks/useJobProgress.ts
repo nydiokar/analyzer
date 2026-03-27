@@ -161,6 +161,17 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       }
     }
 
+    if (job.queue === 'similarity-operations' && !result) {
+      const hydrated = await hydrateJobResult(job.id);
+      if (hydrated) {
+        result = {
+          success: true,
+          timestamp: Date.now(),
+          data: hydrated,
+        } as JobResult;
+      }
+    }
+
     const completionData: JobCompletionData = {
       jobId: job.id,
       queue: job.queue,
@@ -336,9 +347,18 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       }
 
         if (data.queue === 'similarity-operations' && !resolvedResult) {
-          console.warn(
-            `[JobBridgeClient] Similarity completion ${data.jobId} missing result payload even after hydration`
-          );
+          const hydrated = await hydrateJobResult(normalizedJobId);
+          if (hydrated) {
+            resolvedResult = {
+              success: true,
+              timestamp: Date.now(),
+              data: hydrated,
+            } as JobResult;
+          } else {
+            console.warn(
+              `[JobBridgeClient] Similarity completion ${data.jobId} missing result payload even after hydration`
+            );
+          }
         }
 
         const finalData: JobCompletionData = {
@@ -471,7 +491,14 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     // for these events - they were legacy code from an old per-job subscription system.
     // The room-based system is simpler and prevents race conditions where jobs complete
     // before the frontend can register individual subscriptions.
-    activeJobIdsRef.current.add(normalizedJobId);
+    const wasAlreadyTracked = activeJobIdsRef.current.has(normalizedJobId);
+    if (!wasAlreadyTracked) {
+      activeJobIdsRef.current.add(normalizedJobId);
+      console.log(`📋 Tracking job: ${normalizedJobId} (auto-broadcast via user room)`);
+      debugLog('job-track', { jobId: normalizedJobId, roomBased: true });
+    } else {
+      debugLog('job-track-skip-already-active', { jobId: normalizedJobId, roomBased: true });
+    }
     const socketConnected = !!socket?.connected;
     incrementDebugCounter(normalizedJobId, 'subscribe', { socketConnected });
     incrementDebugCounter(normalizedJobId, 'httpFallbacks', { socketConnected });
@@ -479,8 +506,10 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     try {
       const trackedJob: JobStatusResponseDto = await fetcher(`/jobs/${normalizedJobId}`);
       if (trackedJob?.status === 'completed') {
+        debugLog('job-track-immediate-complete', { jobId: normalizedJobId, status: trackedJob.status });
         await handleJobCompletedFromHttp(trackedJob);
       } else if (trackedJob?.status === 'failed') {
+        debugLog('job-track-immediate-fail', { jobId: normalizedJobId, status: trackedJob.status });
         handleJobFailedFromHttp(trackedJob);
       }
     } catch (error: unknown) {
@@ -489,9 +518,6 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
         console.error(`Error checking immediate job status for ${normalizedJobId}:`, error);
       }
     }
-
-    console.log(`📋 Tracking job: ${normalizedJobId} (auto-broadcast via user room)`);
-    debugLog('job-track', { jobId: normalizedJobId, roomBased: true });
 
     // If WebSocket is not connected, poll via HTTP as fallback
     if (!socket?.connected) {
@@ -537,7 +563,11 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     // 'unsubscribe-from-job' which had no backend handler. The room-based system means
     // we simply stop tracking this jobId locally - the server continues broadcasting
     // all events to the user room, but we ignore events for jobs not in activeJobIdsRef.
-    activeJobIdsRef.current.delete(normalizedJobId);
+    const removed = activeJobIdsRef.current.delete(normalizedJobId);
+    if (!removed) {
+      debugLog('job-untrack-skip-not-active', { jobId: normalizedJobId, roomBased: true });
+      return;
+    }
     incrementDebugCounter(normalizedJobId, 'unsubscribe');
 
     console.log(`📋 Stopped tracking job: ${normalizedJobId}`);

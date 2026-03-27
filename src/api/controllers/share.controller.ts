@@ -28,20 +28,20 @@ export class ShareController {
 
   /**
    * POST /api/v1/share/hp
-   * Auth required. Freezes the current cached holder-profiles result for public sharing.
+   * Auth required. Freezes a specific persisted holder-profiles snapshot run for public sharing.
    */
   @Post('hp')
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
     summary: 'Create a shareable holder-profiles link',
     description:
-      'Reads the cached holder-profiles result for the given token from Redis and persists a frozen snapshot. Returns shareId and public URL. The analysis must have been run recently (result must still be in cache).',
+      'Creates a frozen public share from a specific persisted holder-profiles snapshot run (jobId). Returns shareId and public URL.',
   })
   @ApiBody({ type: CreateHolderProfileShareDto })
   @ApiResponse({ status: 201, description: 'Share created — { shareId, url }' })
   @ApiResponse({ status: 400, description: 'Invalid mint address' })
   @ApiResponse({ status: 401, description: 'Authentication required' })
-  @ApiResponse({ status: 404, description: 'No cached result — run analysis first' })
+  @ApiResponse({ status: 404, description: 'Snapshot run not found' })
   async createShare(
     @Req() req: Request & { user: User },
     @Body() body: CreateHolderProfileShareDto,
@@ -51,7 +51,7 @@ export class ShareController {
     }
     return this.shareService.createShare({
       tokenMint: body.tokenMint,
-      topN: body.topN ?? 20,
+      jobId: body.jobId,
       userId: req.user.id,
     });
   }
