@@ -55,6 +55,30 @@ function formatBehaviorLabel(type: string): string {
   return map[type] ?? type;
 }
 
+function buildShareDescription(share: ShareRecord): string {
+  const { snapshot } = share;
+  const holderCount = snapshot.profiles.length;
+  const behaviorCounts: Record<string, number> = {};
+
+  for (const profile of snapshot.profiles) {
+    if (profile.behaviorType && !profile.analysisSkipped) {
+      behaviorCounts[profile.behaviorType] = (behaviorCounts[profile.behaviorType] ?? 0) + 1;
+    }
+  }
+
+  const topBehaviors = Object.entries(behaviorCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([type, count]) => `${count} ${formatBehaviorLabel(type)}`)
+    .join(' • ');
+
+  const summary = topBehaviors
+    ? `${holderCount} holders • ${topBehaviors}`
+    : `${holderCount} holders analyzed`;
+
+  return `Shared holder profile snapshot on Sova Intel • ${summary}`;
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -73,31 +97,15 @@ export async function generateMetadata({
     : snapshot.tokenMint
       ? `${snapshot.tokenMint.slice(0, 6)}...`
       : 'Token';
-  const holderCount = snapshot.profiles.length;
-  const behaviorCounts: Record<string, number> = {};
-
-  for (const profile of snapshot.profiles) {
-    if (profile.behaviorType && !profile.analysisSkipped) {
-      behaviorCounts[profile.behaviorType] = (behaviorCounts[profile.behaviorType] ?? 0) + 1;
-    }
-  }
-
-  const topBehaviors = Object.entries(behaviorCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([type, count]) => `${count} ${formatBehaviorLabel(type)}`)
-    .join(' · ');
-
-  const description = topBehaviors
-    ? `${holderCount} holders - ${topBehaviors}`
-    : `${holderCount} holders analyzed`;
-  const ogImageUrl = `/api/og/hp/${shareId}`;
+  const description = buildShareDescription(share);
+  const ogImageUrl = `/api/og/hp/${shareId}?v=2`;
+  const pageTitle = `Sova Intel • Shared Holder Profiles • ${tokenLabel}`;
 
   return {
-    title: `Holder Profiles: ${tokenLabel} - Sova Intel`,
+    title: pageTitle,
     description,
     openGraph: {
-      title: `Holder Profiles: ${tokenLabel}`,
+      title: pageTitle,
       description,
       url: `/share/hp/${shareId}`,
       images: [{ url: ogImageUrl, width: 1200, height: 630 }],
@@ -105,7 +113,7 @@ export async function generateMetadata({
     },
     twitter: {
       card: 'summary_large_image',
-      title: `Holder Profiles: ${tokenLabel}`,
+      title: pageTitle,
       description,
       images: [ogImageUrl],
     },
