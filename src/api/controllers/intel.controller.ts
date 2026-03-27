@@ -671,7 +671,8 @@ export class IntelController {
       jobId: job.id,
       requestId,
       monitoringUrl: `/api/v1/jobs/${job.id}`,
-      message: 'Holder-profiles analysis queued. Poll monitoringUrl for completion.',
+      resultKey: `holder-profiles:result:${job.id}`,
+      message: 'Holder-profiles analysis queued. Poll monitoringUrl for completion, then fetch resultKey via GET /api/v1/jobs/result/by-key?key={resultKey}.',
     };
   }
 
@@ -773,6 +774,7 @@ Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the
         jobId: holderProfilesJob.id,
         requestId: holderProfilesRequestId,
         monitoringUrl: `/api/v1/jobs/${holderProfilesJob.id}`,
+        resultKey: `holder-profiles:result:${holderProfilesJob.id}`,
       },
       similarity: {
         jobId: null,
