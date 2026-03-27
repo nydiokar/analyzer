@@ -133,6 +133,7 @@ export class JobsController {
    * it skips the BullMQ job lookup entirely and does a single Redis GET.
    */
   @Get('result/by-key')
+  @Public()
   @ApiOperation({
     summary: 'Fetch a job result directly from Redis by result key',
     description:
