@@ -403,12 +403,25 @@ export async function GET(
             marginTop: 'auto',
             paddingTop: 20,
             borderTop: '1px solid rgba(148,163,184,0.12)',
-            color: 'rgba(148,163,184,0.76)',
-            fontSize: 18,
           }}
         >
-          <span>sova-intel.com</span>
-          <span>View full holder profile snapshot</span>
+          <span style={{ fontSize: 18, color: 'rgba(148,163,184,0.76)' }}>sova-intel.com</span>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 20px',
+              borderRadius: 999,
+              background: 'rgba(59,130,246,0.18)',
+              border: '1px solid rgba(59,130,246,0.36)',
+              color: '#93c5fd',
+              fontSize: 17,
+              fontWeight: 600,
+            }}
+          >
+            View Full Snapshot →
+          </div>
         </div>
       </div>
     ),

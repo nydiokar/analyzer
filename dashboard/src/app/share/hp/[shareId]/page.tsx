@@ -63,10 +63,14 @@ function buildShareDescription(share: ShareRecord): string {
   const { snapshot } = share;
   const holderCount = snapshot.profiles.length;
   const behaviorCounts: Record<string, number> = {};
+  const holdTimes: number[] = [];
 
   for (const profile of snapshot.profiles) {
     if (profile.behaviorType && !profile.analysisSkipped) {
       behaviorCounts[profile.behaviorType] = (behaviorCounts[profile.behaviorType] ?? 0) + 1;
+    }
+    if (profile.medianHoldTimeHours != null && !profile.analysisSkipped) {
+      holdTimes.push(profile.medianHoldTimeHours);
     }
   }
 
@@ -74,13 +78,34 @@ function buildShareDescription(share: ShareRecord): string {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([type, count]) => `${count} ${formatBehaviorLabel(type)}`)
-    .join(' • ');
+    .join(', ');
 
-  const summary = topBehaviors
-    ? `${holderCount} holders • ${topBehaviors}`
-    : `${holderCount} holders analyzed`;
+  const qualityCount = snapshot.profiles.filter(
+    (p) => p.dataQualityTier === 'GOLD' || p.dataQualityTier === 'SILVER',
+  ).length;
 
-  return summary;
+  const medianHold = holdTimes.length > 0
+    ? holdTimes.sort((a, b) => a - b)[Math.floor(holdTimes.length / 2)]
+    : null;
+
+  const holdStr = medianHold != null
+    ? medianHold < 1
+      ? `${Math.round(medianHold * 60)}m median hold`
+      : medianHold < 24
+        ? `${medianHold.toFixed(1)}h median hold`
+        : `${(medianHold / 24).toFixed(1)}d median hold`
+    : null;
+
+  const parts: string[] = [];
+  if (topBehaviors) parts.push(topBehaviors);
+  if (holdStr) parts.push(holdStr);
+  if (qualityCount > 0) parts.push(`${qualityCount}/${holderCount} high-quality wallets`);
+
+  const detail = parts.join(' · ');
+
+  return detail
+    ? `${holderCount} holders analyzed — ${detail}. View the full breakdown on Sova Intel.`
+    : `${holderCount} holders analyzed. View the full breakdown on Sova Intel.`;
 }
 
 export async function generateMetadata({
@@ -104,8 +129,8 @@ export async function generateMetadata({
   const description = buildShareDescription(share);
   const siteUrl = getPublicSiteUrl();
   const pageUrl = `${siteUrl}/share/hp/${shareId}`;
-  const ogImageUrl = `${siteUrl}/api/og/hp/${shareId}?v=3`;
-  const pageTitle = `Holder Profiles • ${tokenLabel}`;
+  const ogImageUrl = `${siteUrl}/api/og/hp/${shareId}?v=4`;
+  const pageTitle = `${tokenLabel} Holder Profiles — Trader Distribution & Behavior Analysis`;
 
   return {
     title: pageTitle,
