@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
-import logger from '../../../src/core/utils/logger';
+import { getErrorMessage, getErrorDetails } from '../../../../src/core/utils/error-utils';
+import logger from '../../../../src/core/utils/logger';
 
 
 
