@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feature/holder-profile-sharing`  **Last Updated:** 2026-03-27  **Status:** Share backend is shipped; public holder profile page is being rebuilt for UI parity with holder-profiles v2
+**Branch:** `feature/holder-profile-sharing`  **Last Updated:** 2026-03-27  **Status:** Share page parity rebuild complete; share snapshots now persist trimmed similarity sidebar data for public rendering
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -17,7 +17,7 @@
 | Pass | Goal | Scope | Notes |
 |:-----|:-----|:------|:------|
 | Pass 1 | Replace the bespoke shared page with a share-safe holder-profiles v2 renderer | `dashboard` + share snapshot normalization | Reuse `TokenPulse`/v2 presentation, keep page public/read-only, add `tokenSnapshot` to share payload for token hero parity |
-| Pass 2 | Persist and render similarity data on shared pages | backend share snapshot + frontend sidebar parity | Restore the similar-pairs sidebar and related highlighting so shared links feel like the real page, not a reduced clone |
+| Pass 2 | Persist and render similarity data on shared pages | backend share snapshot + frontend sidebar parity | Restore the similar-pairs sidebar and related highlighting so shared links feel like the real page, not a reduced clone. Persist only trimmed pairwise similarity fields, not the full raw similarity payload |
 
 **Success criteria:** Shared holder profile links should look and feel like Sova Intel holder profiles, not a separate microsite with ad hoc styling.
 
@@ -70,7 +70,7 @@
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| 🟡 | **[SHARE-3]** Holder profile share page parity rebuild — replace the bespoke shared page with holder-profiles v2 presentation, then restore similarity/sidebar parity in a second pass. | 🟡 M | IN PROGRESS. |
+| ✅ | **[SHARE-3]** Holder profile share page parity rebuild — shared holder profile links now use holder-profiles v2 presentation and persist trimmed similarity sidebar data in the share snapshot. | 🟡 M | DONE. |
 | ✅ | **[SHARE-1+2]** Shareable holder profiles — fully built, code-reviewed, committed on `feature/holder-profile-sharing`. Ready for smoke test + merge. | 🟡 M | DONE. |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
@@ -106,7 +106,7 @@
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
-| 27.1 | 🎯 FEAT | **[SHARE-3]** Rebuild `/share/hp/[shareId]` on top of the holder-profiles v2 UI instead of the bespoke summary page. Pass 1 reuses the canonical presentation path and token metadata snapshot; Pass 2 will persist similarity payload so shared pages regain the sidebar/similarity affordances. | 🟡 M | `src/api/services/holder-profile-share.service.ts`, `dashboard/src/app/share/hp/[shareId]/page.tsx`, `dashboard/src/components/holder-profiles/v2/`, `dashboard/src/lib/` |
+| 27.1 | 🎯 FEAT | **[SHARE-3]** Rebuild `/share/hp/[shareId]` on top of the holder-profiles v2 UI instead of the bespoke summary page. Shared pages now use the canonical presentation path, token metadata snapshot, and a trimmed persisted similarity snapshot (`walletA`, `walletB`, scores, shared/unique counts only) so the public sidebar renders without storing the full raw similarity payload. | 🟡 M | `src/api/services/holder-profile-share.service.ts`, `src/api/controllers/dto/create-holder-profile-share.dto.ts`, `src/api/controllers/share.controller.ts`, `dashboard/src/app/share/hp/[shareId]/page.tsx`, `dashboard/src/app/tools/holder-profiles/page.tsx`, `dashboard/src/components/holder-profiles/v2/`, `dashboard/src/lib/` |
 
 ---
 

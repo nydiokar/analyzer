@@ -21,6 +21,7 @@ import type { JobResult } from '@/types/websockets';
 import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
 import { PageTitle } from '@/components/shared/PageTitle';
 import { FeatureHelpLink } from '@/components/help/FeatureHelpLink';
+import { trimSimilarityResultForShare } from '@/lib/holder-profile-share';
 import {
   WalletClassifier,
   WalletClassifierEntry,
@@ -553,7 +554,11 @@ function HolderProfilesContent() {
       const response = await fetcher('/share/hp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tokenMint, jobId: latestShareableJobId }),
+        body: JSON.stringify({
+          tokenMint,
+          jobId: latestShareableJobId,
+          similaritySnapshot: trimSimilarityResultForShare(similarityResult),
+        }),
       }) as { shareId: string; url: string };
       const shareUrl = `${window.location.origin}${response.url}`;
       try {
@@ -570,7 +575,7 @@ function HolderProfilesContent() {
       setShareStatus('idle');
       toast.error('Failed to create share link', { description: err?.message ?? 'Unknown error' });
     }
-  }, [latestShareableJobId, tokenResult, tokenMint, shareStatus]);
+  }, [latestShareableJobId, shareStatus, similarityResult, tokenMint, tokenResult]);
 
   const handleRemoveWallet = (address: string) => {
     const updated = parsedWallets.list.filter((value) => value !== address);

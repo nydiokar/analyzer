@@ -53,6 +53,7 @@ export class ShareController {
       tokenMint: body.tokenMint,
       jobId: body.jobId,
       userId: req.user.id,
+      similaritySnapshot: body.similaritySnapshot,
     });
   }
 

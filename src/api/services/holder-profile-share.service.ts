@@ -10,6 +10,22 @@ interface PersistedTokenSnapshot {
   symbol?: string | null;
 }
 
+interface PersistedSimilarityPairSnapshot {
+  walletA: string;
+  walletB: string;
+  binaryScore: number;
+  capitalScore: number;
+  binarySharedTokenCount: number;
+  binaryUniqueTokenCountA: number;
+  binaryUniqueTokenCountB: number;
+}
+
+interface PersistedSimilaritySnapshot {
+  version: 1;
+  walletCount: number;
+  pairs: PersistedSimilarityPairSnapshot[];
+}
+
 interface PersistedHolderProfilesResult extends HolderProfilesResult {
   tokenSnapshot?: PersistedTokenSnapshot | null;
 }
@@ -20,6 +36,7 @@ export interface ShareSnapshot {
   tokenSymbol?: string | null;
   topN?: number;
   tokenSnapshot?: PersistedTokenSnapshot | null;
+  similaritySnapshot?: PersistedSimilaritySnapshot | null;
   profiles: Array<Pick<
     HolderProfile,
     | 'walletAddress'
@@ -69,8 +86,9 @@ export class HolderProfileShareService {
     tokenMint: string;
     jobId: string;
     userId?: string;
+    similaritySnapshot?: PersistedSimilaritySnapshot | null;
   }): Promise<{ shareId: string; url: string }> {
-    const { tokenMint, jobId, userId } = params;
+    const { tokenMint, jobId, userId, similaritySnapshot } = params;
 
     const shareSource = await this.getTokenResultFromSnapshotRun(tokenMint, jobId);
     if (!shareSource) {
@@ -117,6 +135,7 @@ export class HolderProfileShareService {
       tokenSymbol: tokenSymbol ?? null,
       topN,
       tokenSnapshot: result.tokenSnapshot ?? null,
+      similaritySnapshot: similaritySnapshot ?? null,
       profiles: strippedProfiles,
       metadata: result.metadata,
     };

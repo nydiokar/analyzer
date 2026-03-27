@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { SharedHolderProfilesView } from '@/components/holder-profiles/v2/SharedHolderProfilesView';
 import {
+  expandShareSimilaritySnapshot,
   mapShareSnapshotToHolderProfilesResult,
   type ShareRecord,
 } from '@/lib/holder-profile-share';
@@ -127,7 +128,7 @@ export default async function ShareHolderProfilesPage({
     <SharedHolderProfilesView
       share={share}
       result={mapShareSnapshotToHolderProfilesResult(share.snapshot)}
-      similarityResult={share.snapshot.similarityResult ?? null}
+      similarityResult={expandShareSimilaritySnapshot(share.snapshot.similaritySnapshot)}
     />
   );
 }
