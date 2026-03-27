@@ -8,6 +8,10 @@ import {
   type ShareRecord,
 } from '@/lib/holder-profile-share';
 
+function getPublicSiteUrl(): string {
+  return (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.sova-intel.com').replace(/\/$/, '');
+}
+
 async function fetchShare(shareId: string): Promise<ShareRecord | null> {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api/v1';
 
@@ -76,7 +80,7 @@ function buildShareDescription(share: ShareRecord): string {
     ? `${holderCount} holders • ${topBehaviors}`
     : `${holderCount} holders analyzed`;
 
-  return `Shared holder profile snapshot on Sova Intel • ${summary}`;
+  return summary;
 }
 
 export async function generateMetadata({
@@ -98,8 +102,10 @@ export async function generateMetadata({
       ? `${snapshot.tokenMint.slice(0, 6)}...`
       : 'Token';
   const description = buildShareDescription(share);
-  const ogImageUrl = `/api/og/hp/${shareId}?v=2`;
-  const pageTitle = `Sova Intel • Shared Holder Profiles • ${tokenLabel}`;
+  const siteUrl = getPublicSiteUrl();
+  const pageUrl = `${siteUrl}/share/hp/${shareId}`;
+  const ogImageUrl = `${siteUrl}/api/og/hp/${shareId}?v=3`;
+  const pageTitle = `Holder Profiles • ${tokenLabel}`;
 
   return {
     title: pageTitle,
@@ -107,7 +113,8 @@ export async function generateMetadata({
     openGraph: {
       title: pageTitle,
       description,
-      url: `/share/hp/${shareId}`,
+      url: pageUrl,
+      siteName: 'Sova Intel',
       images: [{ url: ogImageUrl, width: 1200, height: 630 }],
       type: 'website',
     },
@@ -116,6 +123,9 @@ export async function generateMetadata({
       title: pageTitle,
       description,
       images: [ogImageUrl],
+    },
+    alternates: {
+      canonical: pageUrl,
     },
   };
 }
