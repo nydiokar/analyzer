@@ -19,6 +19,7 @@ export interface ShareSnapshot {
   tokenMint?: string;
   tokenSymbol?: string | null;
   topN?: number;
+  tokenSnapshot?: PersistedTokenSnapshot | null;
   profiles: Array<Pick<
     HolderProfile,
     | 'walletAddress'
@@ -115,6 +116,7 @@ export class HolderProfileShareService {
       tokenMint,
       tokenSymbol: tokenSymbol ?? null,
       topN,
+      tokenSnapshot: result.tokenSnapshot ?? null,
       profiles: strippedProfiles,
       metadata: result.metadata,
     };
