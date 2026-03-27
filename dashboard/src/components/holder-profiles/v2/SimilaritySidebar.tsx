@@ -57,7 +57,7 @@ function transformToPairs(result: CombinedSimilarityResult): SimilarityPairData[
       overallScore: calculateOverallScore(pair.binaryScore, pair.capitalScore),
       behavioralScore: pair.binaryScore,
       capitalScore: pair.capitalScore,
-      sharedTokensCount: pair.sharedTokens?.length ?? pair.binarySharedTokenCount ?? 0,
+      sharedTokensCount: pair.binarySharedTokenCount ?? pair.sharedTokens?.length ?? 0,
       uniqueTokensA: pair.binaryUniqueTokenCountA ?? 0,
       uniqueTokensB: pair.binaryUniqueTokenCountB ?? 0,
     }))
