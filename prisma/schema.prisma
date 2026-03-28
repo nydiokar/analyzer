@@ -93,6 +93,12 @@ model SwapAnalysisInput {
   interactionType     String
   feeAmount           Float?
   feePercentage       Float?
+  solPriceUsd         Float?
+  usdValue            Float?
+  tokenPriceUsd       Float?
+  marketCapUsd        Float?
+  mcapBucket          String?
+  enrichedAt          DateTime?
 
   @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")
   @@index([walletAddress, timestamp])
@@ -511,6 +517,7 @@ model TokenInfo {
   onchainDiscordUrl       String?
   onchainSocialsFetchedAt DateTime?
   metadataSource          String?
+  totalSupply             Float?
   TokenTag                TokenTag[]
   WatchedToken            WatchedToken[]
   userWatchedTokens       UserWatchedToken[]
@@ -521,6 +528,12 @@ model TokenInfo {
   @@index([marketCapUsd])
   @@index([liquidityUsd])
   @@index([pairCreatedAt])
+}
+
+model SolDailyPrice {
+  date      String   @id
+  priceUsd  Float
+  fetchedAt DateTime @default(now())
 }
 
 model Message {

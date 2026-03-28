@@ -27,6 +27,12 @@ function makeSwapInput(params: {
     interactionType: 'SWAP',
     feeAmount: 0,
     feePercentage: null,
+    solPriceUsd: null,
+    usdValue: null,
+    tokenPriceUsd: null,
+    marketCapUsd: null,
+    mcapBucket: null,
+    enrichedAt: null,
   };
 }
 

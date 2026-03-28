@@ -148,8 +148,8 @@ async function main() {
   // ── Addresses ──────────────────────────────────────────────────────────────
   let wallet = process.env.TEST_WALLET ?? '';
   let mint   = process.env.TEST_MINT ?? '';
-  if (!wallet) wallet = await prompt('\nWallet address (for GET /intel/wallet tests): ');
-  if (!mint)   mint   = await prompt('Token mint    (for POST /intel/token/:mint/holders, Enter to skip): ');
+  if (!wallet) wallet = await prompt('\nWallet address (for GET /intel/wallet tests, Enter to skip): ');
+  if (!mint)   mint   = await prompt('Token mint    (for holder-profiles tests, Enter to skip): ');
 
   // ── Balance before ─────────────────────────────────────────────────────────
   section('0. Credit balance before');
@@ -212,14 +212,132 @@ async function main() {
   const r5 = await req('POST', `/intel/wallets/batch-hud`, token, { wallets: batchWallets });
   show(r5.status, r5.data);
 
+  // ── Test 6: POST /intel/token/:mint/holders/agent ─────────────────────────
+  if (mint) {
+    section(`6. POST /intel/token/:mint/holders/agent  (20cr)  →  mint: ${mint}  topN: 5`);
+    const r6 = await req('POST', `/intel/token/${mint}/holders/agent`, token, { topN: 5 });
+    show(r6.status, r6.data);
+
+    if (r6.status === 202 && r6.data?.jobId) {
+      console.log('\n  → Holder-profiles/agent job queued. Polling until complete...');
+      const outcome = await pollJob(r6.data.jobId, token);
+      if (outcome === 'completed') {
+        const jobId = r6.data.jobId as string;
+
+        console.log('\n  → Fetching agent result via GET /intel/jobs/result/agent/holder-profiles/:jobId ...');
+        const agentRes = await req('GET', `/intel/jobs/result/agent/holder-profiles/${jobId}`, token);
+        const agentBytes = Buffer.byteLength(JSON.stringify(agentRes.data), 'utf8');
+        show(agentRes.status, agentRes.data);
+        if (agentRes.status === 200) {
+          const agg = agentRes.data?.aggregate;
+          console.log(`\n  ── Aggregate summary ──`);
+          console.log(`     totalHolders      : ${agg?.totalHolders}`);
+          console.log(`     analyzedHolders   : ${agg?.analyzedHolders}`);
+          console.log(`     top1SupplyPct     : ${agg?.top1SupplyPct}`);
+          console.log(`     top5SupplyPct     : ${agg?.top5SupplyPct}`);
+          console.log(`     fastMoneyPct      : ${agg?.fastMoneyPct}`);
+          console.log(`     clusterAlert      : ${agg?.clusterAlert}`);
+          console.log(`     avgWalletPnlSol   : ${agg?.avgWalletPnlSol}`);
+          if (Array.isArray(agg?.behaviorDistribution)) {
+            console.log(`     behaviorDistrib   : ${agg.behaviorDistribution.map((b: any) => `${b.behaviorType}×${b.count}`).join(', ')}`);
+          }
+          console.log(`\n  ── Payload size ──`);
+          console.log(`     agent result      : ${agentBytes} bytes  (${(agentBytes / 1024).toFixed(1)} KB)`);
+
+          // Also fetch via generic by-key to confirm whitelist works
+          const agentKey = r6.data.agentResultKey as string;
+          if (agentKey) {
+            console.log(`\n  → Also fetching via GET /jobs/result/by-key?key=${agentKey} (whitelist check)...`);
+            const byKey = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(agentKey)}`, token);
+            console.log(`  ${byKey.status === 200 ? '✅' : '❌'}  HTTP ${byKey.status} — by-key path ${byKey.status === 200 ? 'OK' : 'FAILED'}`);
+          }
+
+          // Compare size against full result
+          const fullResultKey = r6.data.resultKey as string;
+          if (fullResultKey) {
+            console.log(`\n  → Fetching full result via by-key for size comparison...`);
+            const fullRes = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(fullResultKey)}`, token);
+            if (fullRes.status === 200) {
+              const fullBytes = Buffer.byteLength(JSON.stringify(fullRes.data), 'utf8');
+              const reduction = Math.round((1 - agentBytes / fullBytes) * 100);
+              console.log(`     full result       : ${fullBytes} bytes  (${(fullBytes / 1024).toFixed(1)} KB)`);
+              console.log(`     size reduction    : ${reduction}%`);
+            }
+          }
+        }
+      }
+    }
+  } else {
+    console.log('\n⊘  Test 6 skipped — no mint provided');
+  }
+
+  // ── Test 7: POST /intel/wallets/similarity/agent ──────────────────────────
+  // Requires at least 2 wallets — use the provided wallet + prompt for a second
+  let wallet2 = process.env.TEST_WALLET2 ?? '';
+  if (!wallet2) wallet2 = await prompt('\nSecond wallet for similarity/agent test (Enter to skip): ');
+
+  if (wallet2 && wallet2 !== wallet) {
+    section(`7. POST /intel/wallets/similarity/agent  (20cr)  →  2 wallets`);
+    const r7 = await req('POST', `/intel/wallets/similarity/agent`, token, {
+      wallets: [wallet, wallet2],
+    });
+    show(r7.status, r7.data);
+
+    if (r7.status === 202 && r7.data?.jobId) {
+      console.log('\n  → Similarity/agent job queued. Polling until complete...');
+      const outcome = await pollJob(r7.data.jobId, token);
+      if (outcome === 'completed') {
+        const requestId = r7.data.requestId as string;
+
+        console.log('\n  → Fetching agent result via GET /intel/jobs/result/agent/similarity/:requestId ...');
+        const agentRes = await req('GET', `/intel/jobs/result/agent/similarity/${requestId}`, token);
+        const agentBytes = Buffer.byteLength(JSON.stringify(agentRes.data), 'utf8');
+        show(agentRes.status, agentRes.data);
+        if (agentRes.status === 200) {
+          console.log(`\n  ── Signal summary ──`);
+          console.log(`     coordinationScore : ${agentRes.data?.coordinationScore}`);
+          console.log(`     flaggedPairs      : ${agentRes.data?.flaggedPairs?.length ?? 0}`);
+          console.log(`     topOverlaps       : ${agentRes.data?.topOverlaps?.length ?? 0} pairs`);
+          console.log(`     avgSimilarity     : ${agentRes.data?.globalMetrics?.averageSimilarity}`);
+          console.log(`\n  ── Payload size ──`);
+          console.log(`     agent result      : ${agentBytes} bytes  (${(agentBytes / 1024).toFixed(1)} KB)`);
+
+          // Also verify by-key whitelist
+          const agentKey = r7.data.agentResultKey as string;
+          if (agentKey) {
+            console.log(`\n  → Also fetching via GET /jobs/result/by-key?key=${agentKey} (whitelist check)...`);
+            const byKey = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(agentKey)}`, token);
+            console.log(`  ${byKey.status === 200 ? '✅' : '❌'}  HTTP ${byKey.status} — by-key path ${byKey.status === 200 ? 'OK' : 'FAILED'}`);
+          }
+
+          // Size comparison against full result
+          const fullResultKey = r7.data.resultKey as string;
+          if (fullResultKey) {
+            console.log(`\n  → Fetching full result via by-key for size comparison...`);
+            const fullRes = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(fullResultKey)}`, token);
+            if (fullRes.status === 200) {
+              const fullBytes = Buffer.byteLength(JSON.stringify(fullRes.data), 'utf8');
+              const reduction = Math.round((1 - agentBytes / fullBytes) * 100);
+              console.log(`     full result       : ${fullBytes} bytes  (${(fullBytes / 1024).toFixed(1)} KB)`);
+              console.log(`     size reduction    : ${reduction}%`);
+            }
+          }
+        }
+      }
+    }
+  } else {
+    console.log('\n⊘  Test 7 skipped — need two distinct wallet addresses');
+  }
+
   // ── Balance after ──────────────────────────────────────────────────────────
-  section('6. Credit balance after');
+  section('8. Credit balance after');
   const b1 = await req('GET', '/users/me/credits', token);
   show(b1.status, b1.data);
   const balAfter: number = b1.data?.balance ?? 0;
   console.log(`\n  → Balance before : ${balBefore} cr`);
   console.log(`  → Balance after  : ${balAfter} cr`);
   console.log(`  → Credits spent  : ${balBefore - balAfter} cr`);
+  console.log(`  (Tests 1+2+3+5 = 14cr; Test 4 = 20cr; Test 6 = 20cr; Test 7 = 20cr if run)`);
   console.log('\nDone.\n');
 }
 
