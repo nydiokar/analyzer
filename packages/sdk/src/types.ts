@@ -146,13 +146,22 @@ export interface TokenPnlParams {
 }
 
 // --- Batch HUD ------------------------------------------------------------
-// Matches BatchWalletHudResponseDto — note: notFound (not skipped), no queued array
+// Matches BatchWalletHudResponseDto
 
 export type BatchHudResult = Record<string, WalletHud>;
 
+export interface BatchHudQueuedEntry {
+  walletAddress: string;
+  jobId: string;
+  monitoringUrl: string;
+}
+
 export interface BatchHudResponse {
   huds: BatchHudResult;
-  notFound: string[];
+  /** Wallets that were missing/stale and have been queued for analysis. */
+  queued: BatchHudQueuedEntry[];
+  /** Wallets that were skipped (e.g. invalid or over batch limit). */
+  skipped: string[];
   calculatedAt: string;
 }
 
@@ -265,6 +274,137 @@ export interface HolderProfilesResult {
     totalProcessingTimeMs: number;
     avgProcessingTimePerWalletMs: number;
     failedHolders?: number;
+  };
+}
+
+// --- Agent-optimised job accepted responses --------------------------------
+// These 202 shapes are returned by the /agent endpoint variants and include
+// an extra `agentResultKey` field for fetching the slim transformed result.
+
+export interface HolderProfilesAgentJobAcceptedResponse {
+  status: "queued";
+  tokenMint: string;
+  topN: number;
+  jobId: string;
+  requestId: string;
+  monitoringUrl: string;
+  /** Full developer result key — fetch via GET /jobs/result/by-key?key=... */
+  resultKey: string;
+  /** Slim agent-optimised result key — fetch via GET /jobs/result/by-key?key=... */
+  agentResultKey: string;
+  message: string;
+}
+
+export interface SimilarityAgentJobAcceptedResponse {
+  status: "queued";
+  jobId: string;
+  requestId: string;
+  walletCount: number;
+  monitoringUrl: string;
+  /** Full developer result key — fetch via GET /jobs/result/by-key?key=... */
+  resultKey: string;
+  /** Slim agent-optimised result key — fetch via GET /jobs/result/by-key?key=... */
+  agentResultKey: string;
+  message: string;
+}
+
+// --- Agent-optimised result types ------------------------------------------
+// Compact shapes returned by the /agent endpoints.
+// Same underlying job; result is transformed at read time.
+
+export interface AgentHoldingsSummary {
+  totalPositions: number | null;
+  /** Sum of SOL value across ALL current holdings */
+  totalCurrentHoldingsValueSol: number | null;
+  /** Top 5 current holdings by SOL value */
+  topHoldings: Array<{ tokenAddress: string; valueSol: number }>;
+}
+
+export interface AgentHolderProfile {
+  walletAddress: string;
+  rank: number;
+  supplyPercent: number;
+  tokenHoldingValueSol: number | null;
+  analysisSkipped?: boolean;
+  knownType?: string;
+  knownLabel?: string;
+  behaviorType: string | null;
+  exitPattern: string | null;
+  medianHoldTimeHours: number | null;
+  dataQualityTier: string;
+  confidence: number;
+  completedCycleCount: number;
+  walletPnlSol: number | null;
+  solBalance: number | null;
+  /** Replaces the full currentHoldings[] array. */
+  holdingsSummary: AgentHoldingsSummary;
+}
+
+export interface AgentHolderAggregate {
+  totalHolders: number;
+  analyzedHolders: number;
+  /** Supply % held by rank-1 non-skipped holder */
+  top1SupplyPct: number;
+  /** Supply % held by top-5 non-skipped holders */
+  top5SupplyPct: number;
+  /**
+   * Count and supply % per behavior type, sorted descending by count.
+   * Null behaviorType on analyzed wallets surfaces as "FRESH".
+   * Skipped wallets (LP, burn, system) are excluded.
+   */
+  behaviorDistribution: Array<{ behaviorType: string; count: number; supplyPct: number }>;
+  avgWalletPnlSol: number | null;
+}
+
+export interface AgentHolderProfilesResult {
+  aggregate: AgentHolderAggregate;
+  profiles: AgentHolderProfile[];
+  metadata: {
+    tokenMint: string | undefined;
+    totalHoldersRequested: number;
+    totalHoldersAnalyzed: number;
+  };
+}
+
+export interface AgentSimilarityPair {
+  walletA: string;
+  walletB: string;
+  /** Combined score: binaryScore * 0.6 + capitalScore * 0.4 */
+  similarityScore: number;
+  sharedTokenCount: number;
+  portfolioSizeA: number;
+  portfolioSizeB: number;
+  /** Fraction of walletA's portfolio shared with walletB */
+  overlapPctA: number;
+  /** Fraction of walletB's portfolio shared with walletA */
+  overlapPctB: number;
+  /**
+   * Present when the pair crosses a coordination threshold.
+   * HIGH_SIMILARITY: combinedScore > 0.7
+   * HIGH_OVERLAP: either wallet >50% overlap OR >20 shared tokens
+   * HIGH_SIMILARITY_AND_OVERLAP: both conditions met
+   */
+  flag?: "HIGH_SIMILARITY" | "HIGH_OVERLAP" | "HIGH_SIMILARITY_AND_OVERLAP";
+}
+
+export interface AgentSimilarityResult {
+  /** Weighted average of meaningful pair scores (rank-1 = weight N). Range 0–1. */
+  coordinationScore: number;
+  /**
+   * Pairs with meaningful signal, sorted descending by similarityScore.
+   * Included if combinedScore >= 0.15 OR sharedTokenCount >= 20.
+   */
+  pairs: AgentSimilarityPair[];
+  globalMetrics: {
+    averageSimilarity: number;
+  };
+  metadata: {
+    walletsAnalyzed: number;
+    /** n*(n-1)/2 — all possible pairs */
+    totalPairs: number;
+    /** Pairs that cleared the signal filter */
+    meaningfulPairs: number;
+    flaggedPairs: number;
   };
 }
 
