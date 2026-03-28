@@ -707,7 +707,8 @@ export class IntelController {
       requestId: similarity.requestId,
       walletCount: body.wallets.length,
       monitoringUrl: `/api/v1/jobs/${similarity.jobId}`,
-      message: 'Similarity analysis queued. Poll monitoringUrl for completion.',
+      resultKey: `similarity:result:${similarity.requestId}`,
+      message: 'Similarity analysis queued. Poll monitoringUrl for completion, then fetch resultKey via GET /api/v1/jobs/result/by-key?key={resultKey}.',
     };
   }
 

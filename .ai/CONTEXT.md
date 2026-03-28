@@ -1,12 +1,79 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feature/holder-profile-sharing`  **Last Updated:** 2026-03-27  **Status:** Share page parity rebuild complete; share snapshots now persist trimmed similarity sidebar data for public rendering
+**Branch:** `feature/holder-profile-sharing`  **Last Updated:** 2026-03-28  **Status:** Share page parity rebuild complete. Agent-slim endpoint plan added ([INTEL-SLIM]).
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
 ---
 
 ##  Active Work
+
+Finish market context branch before everything! 
+
+Do the GIF as well 
+
+### [INTEL-SLIM] Agent-Optimised Intel Endpoints — Slim Response Variants
+
+**Problem:**
+`POST /intel/token/:mint/holders` and `POST /intel/wallets/similarity` return responses designed for developer consumption. For agents operating under context-budget constraints, these payloads are massive:
+
+- **Holder profiles:** Each `HolderProfile` object in the `profiles[]` array includes a full `currentHoldings[]` array (one entry per token the wallet currently holds — a wallet holding 40+ tokens adds hundreds of tokens of JSON per holder). With 20 holders this can easily exceed 10k tokens.
+- **Similarity:** The full `pairwiseSimilarities` matrix includes per-pair `sharedTokens[]` arrays (every overlapping token with volume, counts, etc.) plus `uniqueTokensPerWallet` maps and `globalMetrics` vectors. This grows quadratically with wallet count.
+
+The raw payloads are valuable for devs who want to build on top of the data — don't touch those. But agents need a digested signal to make a buy/no-buy or coordination-flag decision, not arrays of raw token structs.
+
+**Design — two new `/agent` suffix variants:**
+
+#### 1. `POST /intel/token/:mint/holders/agent` (20cr, same as full endpoint)
+
+Returns the same job-acceptance shape as the regular endpoint (202 + `resultKey`). The *result* stored at `resultKey` (and returned after polling) replaces the per-holder `currentHoldings[]` array with a pre-computed `holdingsSummary` object, and drops internal processing fields that are only useful for debugging.
+
+**Full → Agent field mapping per holder:**
+
+| Full shape | Agent shape | Notes |
+|:-----------|:------------|:------|
+| `currentHoldings[]` (full token array) | `holdingsSummary: { totalValueSol, totalPositions, topHoldings: [{tokenAddress, valueSol}] }` | Top 3-5 holdings by value only |
+| `holdTimeDistribution`, `enrichedHoldTimeDistribution` | ❌ dropped | Internal bucketing, not needed for decisions |
+| `processingTimeMs`, `insufficientDataReason`, `typicalHoldTimeSource`, `dailyFlipRatioConfidence` | ❌ dropped | Debug/meta fields |
+| All behavioral signals | ✅ kept | `behaviorType`, `exitPattern`, `medianHoldTimeHours`, `dataQualityTier`, `confidence`, `completedCycleCount`, `walletPnlSol`, `solBalance`, `supplyPercent`, `rank` |
+
+**Target size:** ~1-2k tokens for a 20-holder result vs ~10k+ for the full shape.
+
+#### 2. `POST /intel/wallets/similarity/agent` (20cr, same as full endpoint)
+
+Same job-acceptance shape. The result replaces the raw pairwise matrix with a pre-digested coordination report:
+
+| Full shape | Agent shape | Notes |
+|:-----------|:------------|:------|
+| `pairwiseSimilarities[].sharedTokens[]` (full per-pair token list) | `topOverlaps: [{walletA, walletB, similarityScore, binarySharedTokenCount, capitalOverlapPct}]` sorted desc by score | Top 10 pairs only |
+| `uniqueTokensPerWallet` map | ❌ dropped | Per-wallet unique token vectors |
+| `globalMetrics.vectors` | ❌ dropped | Raw vector data |
+| `globalMetrics` summary fields | ✅ kept | `avgSimilarityScore`, `clusterCount` etc. if present |
+| New field | `coordinationScore: number (0–1)` | Derived: weighted avg of top-pair scores. Single number for quick agent decisions. |
+| New field | `flaggedPairs: [{walletA, walletB, score}]` | Pairs above threshold (e.g. >0.7) — direct signal for suspicious coordination |
+
+**Target size:** ~1-2k tokens for a 20-wallet similarity vs 10k+ for the full shape.
+
+**Implementation plan (in order):**
+
+| Step | What | Files |
+|:-----|:-----|:------|
+| **SLIM-1** | Add `buildAgentHolderProfile(profile: HolderProfile)` helper that maps to slim shape. Add `POST /intel/token/:mint/holders/agent` handler in `intel.controller.ts` — same queue logic as `/holders`, stores slim-mapped result at `holder-profiles:agent:result:{jobId}` | `intel.controller.ts`, possibly a new `intel-agent-transforms.ts` helper |
+| **SLIM-2** | Wire slim result storage: after the holder-profiles job completes, the agent endpoint reads the full result from Redis, maps it through `buildAgentHolderProfile()`, and writes the slim version to a separate Redis key with the same TTL | `holder-profiles-cache.service.ts` or post-processing in controller result endpoint |
+| **SLIM-3** | Add `buildAgentSimilarityResult(result)` helper. Compute `coordinationScore` (weighted avg of top-N pair scores), extract `flaggedPairs` (score > 0.7), keep only `topOverlaps` (top 10 pairs, no `sharedTokens[]` arrays). Add `POST /intel/wallets/similarity/agent` handler | `intel.controller.ts`, `intel-agent-transforms.ts` |
+| **SLIM-4** | Update SDK types: add `AgentHolderProfile`, `AgentHolderProfilesResult`, `AgentSimilarityResult` types. Add `queueHolderProfilesAgent()` and `queueSimilarityAgent()` methods to `SovaIntelClient`. Update `index.ts` exports | `packages/sdk/src/types.ts`, `packages/sdk/src/client.ts`, `packages/sdk/src/index.ts` |
+| **SLIM-5** | Update public docs (`sova-intel` Docusaurus site): add `/agent` endpoint pages with annotated response examples. Callout box explaining dev vs agent endpoints. | `submodules/sova-intel/` |
+
+**Key decisions made:**
+- `/agent` suffix (not `?slim=true` query param) — intent is explicit in the URL, easier to doc, easier to rate-limit/price differently later if needed
+- Same credit cost for now (20cr) — we're not charging less for less data, we're charging for the analysis. Pricing can diverge later.
+- Separate Redis key for agent result (`holder-profiles:agent:result:{jobId}`) — don't mutate the full result key, devs may also poll the same jobId
+- No new queue jobs — agent endpoints reuse the exact same job infrastructure; the transformation happens at read time, not compute time
+- `coordinationScore` is derived at transform time from existing similarity scores — no new math, just aggregation
+
+**Success criteria:** An agent can call `/agent` endpoints, get a complete actionable signal (buy/skip/flag-coordination), and consume fewer than 2k tokens per call for a 20-holder or 20-wallet run.
+
+---
 
 ### March 27, 2026 — Holder Profile Share Page Parity Rebuild
 
@@ -72,6 +139,7 @@
 |:------:|:-----|:-----:|:------|
 | ✅ | **[SHARE-3]** Holder profile share page parity rebuild — shared holder profile links now use holder-profiles v2 presentation and persist trimmed similarity sidebar data in the share snapshot. | 🟡 M | DONE. |
 | ✅ | **[SHARE-1+2]** Shareable holder profiles — fully built, code-reviewed, committed on `feature/holder-profile-sharing`. Ready for smoke test + merge. | 🟡 M | DONE. |
+| ⚪ | **[INTEL-SLIM]** Agent-optimised slim variants: `POST /intel/token/:mint/holders/agent` + `POST /intel/wallets/similarity/agent`. Full plan above (SLIM-1 through SLIM-5). | 🟡 M | `intel.controller.ts`, `intel-agent-transforms.ts`, SDK types |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
