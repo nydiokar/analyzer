@@ -29,7 +29,7 @@ import { RequireCredits } from '../shared/decorators/require-credits.decorator';
 import {
   buildAgentHolderProfilesResult,
   buildAgentSimilarityResult,
-} from './intel-agent-transforms';
+} from '../shared/intel-agent-transforms';
 import type { HolderProfilesResult } from '../../queues/jobs/types';
 import type { CombinedSimilarityResult } from '../../types/similarity';
 import { WalletHudService } from '../services/wallet-hud.service';

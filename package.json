@@ -28,6 +28,8 @@
     "seed:tgbot": "npx ts-node -r tsconfig-paths/register prisma/seed-telegram-bot.ts",
     "credits:topup": "npx ts-node -r tsconfig-paths/register scripts/topup-credits.ts",
     "test:integration": "npx ts-node -r tsconfig-paths/register src/queues/test-backend-integration.ts",
+    "test:agent-holder-by-key": "npx ts-node -r tsconfig-paths/register src/scripts/test-agent-holder-by-key.ts",
+    "test:agent-similarity-by-key": "npx ts-node -r tsconfig-paths/register src/scripts/test-agent-similarity-by-key.ts",
     "validate:deps": "npx ts-node -r tsconfig-paths/register scripts/validate-dependencies.ts",
     "clear:wallet": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-wallet-data.ts",
     "clear:queues": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-all-queues.ts",
