@@ -12,6 +12,12 @@ Finish market context branch before everything!
 
 Do the GIF as well 
 
+Colosseum Hackathon Angle - share the hackaton + the GIF of claude calling agents and tokens;
+
+Finish the wallet intelligence guide
+
+Finish Sova-X - wallets and open for tokens. 
+
 ### [INTEL-SLIM] Agent-Optimised Intel Endpoints — Slim Response Variants
 
 **Problem:**
@@ -24,52 +30,98 @@ The raw payloads are valuable for devs who want to build on top of the data — 
 
 **Design — two new `/agent` suffix variants:**
 
-#### 1. `POST /intel/token/:mint/holders/agent` (20cr, same as full endpoint)
+#### 1. `POST /intel/token/:mint/holders/agent` (20cr, same as full endpoint) ✅ SHIPPED
 
-Returns the same job-acceptance shape as the regular endpoint (202 + `resultKey`). The *result* stored at `resultKey` (and returned after polling) replaces the per-holder `currentHoldings[]` array with a pre-computed `holdingsSummary` object, and drops internal processing fields that are only useful for debugging.
+Returns 202 + `agentResultKey`. After polling, fetch `agentResultKey` via `GET /api/v1/jobs/result/by-key` or the dedicated `GET /api/v1/intel/jobs/result/agent/holder-profiles/:jobId` endpoint.
+
+**Agent result shape** (`AgentHolderProfilesResult`):
+
+```
+{
+  aggregate: {                    // ← agent reads this first to make a buy/skip decision
+    totalHolders,
+    analyzedHolders,
+    top1SupplyPct,
+    top5SupplyPct,
+    behaviorDistribution: [{ behaviorType, count, supplyPct }],  // sorted desc by count
+    fastMoneyPct,                 // fraction of analyzed holders who are SNIPER/SCALPER/MOMENTUM
+    clusterAlert: "HIGH"|"MEDIUM"|"LOW",  // HIGH if >60% fast-money, MEDIUM if >35%
+    avgWalletPnlSol,
+  },
+  profiles: [AgentHolderProfile],  // ← individual wallets for follow-up actions
+  metadata: { tokenMint, totalHoldersRequested, totalHoldersAnalyzed }
+}
+```
 
 **Full → Agent field mapping per holder:**
 
 | Full shape | Agent shape | Notes |
 |:-----------|:------------|:------|
-| `currentHoldings[]` (full token array) | `holdingsSummary: { totalValueSol, totalPositions, topHoldings: [{tokenAddress, valueSol}] }` | Top 3-5 holdings by value only |
-| `holdTimeDistribution`, `enrichedHoldTimeDistribution` | ❌ dropped | Internal bucketing, not needed for decisions |
+| `currentHoldings[]` (full token array) | `holdingsSummary: { totalPositions, percentValueInCurrentHoldings, topHoldings: [{tokenAddress, valueSol}] }` | Top 5 by SOL value |
+| `holdTimeDistribution`, `enrichedHoldTimeDistribution` | ❌ dropped | Internal bucketing |
 | `processingTimeMs`, `insufficientDataReason`, `typicalHoldTimeSource`, `dailyFlipRatioConfidence` | ❌ dropped | Debug/meta fields |
 | All behavioral signals | ✅ kept | `behaviorType`, `exitPattern`, `medianHoldTimeHours`, `dataQualityTier`, `confidence`, `completedCycleCount`, `walletPnlSol`, `solBalance`, `supplyPercent`, `rank` |
 
+**`clusterAlert` derivation:** purely from `fastMoneyPct` (fraction of analyzed holders whose `behaviorType` ∈ {SNIPER, SCALPER, MOMENTUM}). >60% → HIGH, >35% → MEDIUM, otherwise LOW. No invented signal.
+
 **Target size:** ~1-2k tokens for a 20-holder result vs ~10k+ for the full shape.
 
-#### 2. `POST /intel/wallets/similarity/agent` (20cr, same as full endpoint)
+#### 2. `POST /intel/wallets/similarity/agent` (20cr, same as full endpoint) ✅ SHIPPED
 
-Same job-acceptance shape. The result replaces the raw pairwise matrix with a pre-digested coordination report:
+Returns 202 + `agentResultKey`. After polling, fetch `agentResultKey` via `GET /api/v1/jobs/result/by-key` or `GET /api/v1/intel/jobs/result/agent/similarity/:requestId`.
+
+**Agent result shape** (`AgentSimilarityResult`):
+
+```
+{
+  coordinationScore,     // weighted avg of top-10 pair capitalScores (rank-1 = weight N). 0–1.
+  flaggedPairs: [{ walletA, walletB, similarityScore }],  // pairs with capitalScore > 0.7
+  topOverlaps: [{ walletA, walletB, similarityScore, binarySharedTokenCount, capitalSharedTokenCount }],  // top 10
+  globalMetrics: { averageSimilarity, clusterCount },
+  metadata: { walletCount, vectorTypeUsed }
+}
+```
+
+**Full → Agent field mapping:**
 
 | Full shape | Agent shape | Notes |
 |:-----------|:------------|:------|
-| `pairwiseSimilarities[].sharedTokens[]` (full per-pair token list) | `topOverlaps: [{walletA, walletB, similarityScore, binarySharedTokenCount, capitalOverlapPct}]` sorted desc by score | Top 10 pairs only |
+| `pairwiseSimilarities[].sharedTokens[]` (full per-pair token list) | `topOverlaps` sorted desc by capitalScore, token counts only | Top 10 pairs |
 | `uniqueTokensPerWallet` map | ❌ dropped | Per-wallet unique token vectors |
-| `globalMetrics.vectors` | ❌ dropped | Raw vector data |
-| `globalMetrics` summary fields | ✅ kept | `avgSimilarityScore`, `clusterCount` etc. if present |
-| New field | `coordinationScore: number (0–1)` | Derived: weighted avg of top-pair scores. Single number for quick agent decisions. |
-| New field | `flaggedPairs: [{walletA, walletB, score}]` | Pairs above threshold (e.g. >0.7) — direct signal for suspicious coordination |
+| `walletVectorsUsed` | ❌ dropped | Raw vector data |
+| `globalMetrics.averageSimilarity` | ✅ kept | Summary metric |
+| New | `coordinationScore: number (0–1)` | Weighted avg of top-pair scores — positional weights so top pairs count more |
+| New | `flaggedPairs` | Pairs above 0.7 threshold — direct coordination signal |
+
+**`coordinationScore` derivation:** weighted average where rank-1 pair has weight N, rank-N has weight 1. No new math beyond existing `capitalScore` values from `CombinedPairwiseSimilarity`.
 
 **Target size:** ~1-2k tokens for a 20-wallet similarity vs 10k+ for the full shape.
 
-**Implementation plan (in order):**
+**Result hydration — two options (agent endpoints):**
 
-| Step | What | Files |
+1. `GET /api/v1/intel/jobs/result/agent/holder-profiles/:jobId` — dedicated endpoint, 0cr, idempotent, applies transform + caches agent result
+2. `GET /api/v1/jobs/result/by-key?key=holder-profiles:agent:result:{jobId}` — generic by-key endpoint (whitelist updated to allow `holder-profiles:agent:result:` and `similarity:agent:result:` prefixes)
+
+Option 1 is preferred for agents (explicit contract). Option 2 works if the agent already uses `by-key` for the full endpoints.
+
+**Implementation status:**
+
+| Step | What | Status |
 |:-----|:-----|:------|
-| **SLIM-1** | Add `buildAgentHolderProfile(profile: HolderProfile)` helper that maps to slim shape. Add `POST /intel/token/:mint/holders/agent` handler in `intel.controller.ts` — same queue logic as `/holders`, stores slim-mapped result at `holder-profiles:agent:result:{jobId}` | `intel.controller.ts`, possibly a new `intel-agent-transforms.ts` helper |
-| **SLIM-2** | Wire slim result storage: after the holder-profiles job completes, the agent endpoint reads the full result from Redis, maps it through `buildAgentHolderProfile()`, and writes the slim version to a separate Redis key with the same TTL | `holder-profiles-cache.service.ts` or post-processing in controller result endpoint |
-| **SLIM-3** | Add `buildAgentSimilarityResult(result)` helper. Compute `coordinationScore` (weighted avg of top-N pair scores), extract `flaggedPairs` (score > 0.7), keep only `topOverlaps` (top 10 pairs, no `sharedTokens[]` arrays). Add `POST /intel/wallets/similarity/agent` handler | `intel.controller.ts`, `intel-agent-transforms.ts` |
-| **SLIM-4** | Update SDK types: add `AgentHolderProfile`, `AgentHolderProfilesResult`, `AgentSimilarityResult` types. Add `queueHolderProfilesAgent()` and `queueSimilarityAgent()` methods to `SovaIntelClient`. Update `index.ts` exports | `packages/sdk/src/types.ts`, `packages/sdk/src/client.ts`, `packages/sdk/src/index.ts` |
-| **SLIM-5** | Update public docs (`sova-intel` Docusaurus site): add `/agent` endpoint pages with annotated response examples. Callout box explaining dev vs agent endpoints. | `submodules/sova-intel/` |
+| **SLIM-1/2** | `intel-agent-transforms.ts` — `buildAgentHolderProfile()`, `buildAgentHolderAggregate()`, `buildAgentHolderProfilesResult()`. `POST /intel/token/:mint/holders/agent` + `GET /intel/jobs/result/agent/holder-profiles/:jobId` in controller. | ✅ Done |
+| **SLIM-3** | `buildAgentSimilarityResult()`. `POST /intel/wallets/similarity/agent` + `GET /intel/jobs/result/agent/similarity/:requestId`. `getResultByKey` whitelist updated for agent prefixes. | ✅ Done |
+| **SLIM-4** | SDK types + methods | ⚪ Pending |
+| **SLIM-5** | Docusaurus docs | ⚪ Pending |
 
 **Key decisions made:**
-- `/agent` suffix (not `?slim=true` query param) — intent is explicit in the URL, easier to doc, easier to rate-limit/price differently later if needed
-- Same credit cost for now (20cr) — we're not charging less for less data, we're charging for the analysis. Pricing can diverge later.
-- Separate Redis key for agent result (`holder-profiles:agent:result:{jobId}`) — don't mutate the full result key, devs may also poll the same jobId
-- No new queue jobs — agent endpoints reuse the exact same job infrastructure; the transformation happens at read time, not compute time
-- `coordinationScore` is derived at transform time from existing similarity scores — no new math, just aggregation
+- `/agent` suffix on POST endpoints (not `?slim=true`) — explicit in URL
+- Separate GET endpoints for result hydration (`/intel/jobs/result/agent/...`) at 0cr — transform + cache on first fetch, idempotent thereafter
+- Same credit cost (20cr) — charging for analysis, not payload size
+- Separate Redis keys (`holder-profiles:agent:result:{jobId}`, `similarity:agent:result:{requestId}`) — full result key untouched
+- No new queue jobs — transform happens at read time
+- Aggregation computed at transform time, not stored — cheap single pass over profiles[], same logic as Telegram bot and social card formatters
+- `coordinationScore` derived at transform time from existing `capitalScore` values
+- `clusterAlert` derived from `fastMoneyPct` (SNIPER+SCALPER+MOMENTUM share of analyzed holders) — mirrors holder-profiles UI behavior signal
 
 **Success criteria:** An agent can call `/agent` endpoints, get a complete actionable signal (buy/skip/flag-coordination), and consume fewer than 2k tokens per call for a 20-holder or 20-wallet run.
 

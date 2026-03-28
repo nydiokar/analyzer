@@ -563,10 +563,18 @@ export class JobsService {
    *
    * Allowed key prefixes (validated server-side to prevent arbitrary Redis reads):
    *   - similarity:result:{requestId}
+   *   - similarity:agent:result:{requestId}
    *   - holder-profiles:result:{jobId}
+   *   - holder-profiles:agent:result:{jobId}
    */
   async getResultByKey(key: string): Promise<unknown> {
-    const allowedPrefixes = ['similarity:result:', 'holder-profiles:result:', 'sig-buyers:result:'];
+    const allowedPrefixes = [
+      'similarity:result:',
+      'similarity:agent:result:',
+      'holder-profiles:result:',
+      'holder-profiles:agent:result:',
+      'sig-buyers:result:',
+    ];
     const isAllowed = allowedPrefixes.some((prefix) => key.startsWith(prefix));
     if (!isAllowed) {
       throw new BadRequestException(`Invalid result key prefix`);
