@@ -24,7 +24,9 @@ import type { CombinedSimilarityResult, CombinedPairwiseSimilarity } from '../..
 
 export interface AgentHoldingsSummary {
   totalPositions: number | null;
-  percentValueInCurrentHoldings: number | null;
+  /** Sum of valueSol across ALL current holdings (not just top 5) */
+  totalCurrentHoldingsValueSol: number | null;
+  /** Top 5 current holdings by SOL value */
   topHoldings: Array<{ tokenAddress: string; valueSol: number }>;
 }
 
@@ -50,30 +52,21 @@ export interface AgentHolderProfile {
   holdingsSummary: AgentHoldingsSummary;
 }
 
-/**
- * Behavior types considered "fast money" (short-term traders).
- * Used for the aggregate clusterAlert field.
- */
-const FAST_MONEY_TYPES = new Set(['SNIPER', 'SCALPER', 'MOMENTUM']);
 
 export interface AgentHolderAggregate {
   totalHolders: number;
   analyzedHolders: number;
-  /** supply % held by top 1 holder */
+  /** supply % held by top 1 non-LP/non-skipped holder */
   top1SupplyPct: number;
-  /** supply % held by top 5 holders */
+  /** supply % held by top 5 non-LP/non-skipped holders */
   top5SupplyPct: number;
-  /** count per behaviorType, sorted desc by count */
-  behaviorDistribution: Array<{ behaviorType: string; count: number; supplyPct: number }>;
-  /** % of analyzed holders whose behaviorType is SNIPER, SCALPER, or MOMENTUM */
-  fastMoneyPct: number;
   /**
-   * "HIGH" when >60% of analyzed holders are fast-money types (high churn risk).
-   * "MEDIUM" when >35%.
-   * "LOW" otherwise.
-   * Derived purely from behaviorDistribution — no invented signal.
+   * Count and supply % per behavior type, sorted desc by count.
+   * Null behaviorType on analyzed (non-skipped) wallets surfaces as "FRESH"
+   * — unclassified wallets with insufficient data to determine trading style.
+   * Skipped wallets (LP, burn, system) are excluded entirely.
    */
-  clusterAlert: 'HIGH' | 'MEDIUM' | 'LOW';
+  behaviorDistribution: Array<{ behaviorType: string; count: number; supplyPct: number }>;
   avgWalletPnlSol: number | null;
 }
 
@@ -97,9 +90,16 @@ export function buildAgentHolderProfile(profile: HolderProfile): AgentHolderProf
     .slice(0, 5)
     .map((h) => ({ tokenAddress: h.tokenAddress, valueSol: h.valueSol as number }));
 
+  const totalCurrentHoldingsValueSol = holdings.length > 0
+    ? holdings.reduce((sum, h) => sum + (typeof h.valueSol === 'number' ? h.valueSol : 0), 0)
+    : null;
+
   const holdingsSummary: AgentHoldingsSummary = {
     totalPositions: profile.currentHoldingsCount ?? holdings.length,
-    percentValueInCurrentHoldings: profile.percentValueInCurrentHoldings ?? null,
+    totalCurrentHoldingsValueSol:
+      totalCurrentHoldingsValueSol != null
+        ? Math.round(totalCurrentHoldingsValueSol * 1000) / 1000
+        : null,
     topHoldings,
   };
 
@@ -129,15 +129,18 @@ export function buildAgentHolderProfile(profile: HolderProfile): AgentHolderProf
 function buildAgentHolderAggregate(profiles: HolderProfile[]): AgentHolderAggregate {
   const analyzedProfiles = profiles.filter((p) => !p.analysisSkipped);
 
-  // Supply concentration
-  const sorted = [...profiles].sort((a, b) => b.supplyPercent - a.supplyPercent);
-  const top1SupplyPct = sorted[0]?.supplyPercent ?? 0;
-  const top5SupplyPct = sorted.slice(0, 5).reduce((sum, p) => sum + p.supplyPercent, 0);
+  // Supply concentration — exclude skipped wallets (LP, burn, system) so an LP
+  // sitting at rank 1 doesn't dominate the top1/top5 numbers
+  const tradableProfiles = [...analyzedProfiles].sort((a, b) => b.supplyPercent - a.supplyPercent);
+  const top1SupplyPct = tradableProfiles[0]?.supplyPercent ?? 0;
+  const top5SupplyPct = tradableProfiles.slice(0, 5).reduce((sum, p) => sum + p.supplyPercent, 0);
 
-  // Behavior distribution over analyzed profiles only
+  // Behavior distribution over analyzed profiles only.
+  // null behaviorType on a non-skipped profile = wallet exists but has insufficient
+  // data to classify — surface as "FRESH" (same label the bots use for new wallets)
   const countMap = new Map<string, { count: number; supplyPct: number }>();
   for (const p of analyzedProfiles) {
-    const bt = p.behaviorType ?? 'UNKNOWN';
+    const bt = p.behaviorType ?? 'FRESH';
     const entry = countMap.get(bt) ?? { count: 0, supplyPct: 0 };
     entry.count += 1;
     entry.supplyPct += p.supplyPercent;
@@ -151,18 +154,6 @@ function buildAgentHolderAggregate(profiles: HolderProfile[]): AgentHolderAggreg
       supplyPct: Math.round(supplyPct * 1000) / 1000,
     }))
     .sort((a, b) => b.count - a.count);
-
-  // Fast-money %
-  const fastMoneyCount = analyzedProfiles.filter(
-    (p) => p.behaviorType != null && FAST_MONEY_TYPES.has(p.behaviorType),
-  ).length;
-  const fastMoneyPct =
-    analyzedProfiles.length > 0
-      ? Math.round((fastMoneyCount / analyzedProfiles.length) * 1000) / 1000
-      : 0;
-
-  const clusterAlert: 'HIGH' | 'MEDIUM' | 'LOW' =
-    fastMoneyPct > 0.6 ? 'HIGH' : fastMoneyPct > 0.35 ? 'MEDIUM' : 'LOW';
 
   // Average PnL over analyzed profiles that have walletPnlSol
   const pnlValues = analyzedProfiles
@@ -179,8 +170,6 @@ function buildAgentHolderAggregate(profiles: HolderProfile[]): AgentHolderAggreg
     top1SupplyPct: Math.round(top1SupplyPct * 1000) / 1000,
     top5SupplyPct: Math.round(top5SupplyPct * 1000) / 1000,
     behaviorDistribution,
-    fastMoneyPct,
-    clusterAlert,
     avgWalletPnlSol,
   };
 }
@@ -207,109 +196,168 @@ export function buildAgentHolderProfilesResult(
 // SIMILARITY — agent shape
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface AgentSimilarityOverlap {
+export interface AgentSimilarityPair {
   walletA: string;
   walletB: string;
-  /** capitalScore from CombinedPairwiseSimilarity — primary score used throughout the product */
+  /**
+   * Combined similarity score: binaryScore*0.6 + capitalScore*0.4.
+   * Same formula as SimilaritySidebar and OG image (behavioral weighted higher).
+   */
   similarityScore: number;
-  binarySharedTokenCount: number;
-  capitalSharedTokenCount: number;
-}
-
-export interface AgentFlaggedPair {
-  walletA: string;
-  walletB: string;
-  similarityScore: number;
+  /** Number of tokens both wallets traded (binary set intersection) */
+  sharedTokenCount: number;
+  /** Total unique tokens in walletA's portfolio */
+  portfolioSizeA: number;
+  /** Total unique tokens in walletB's portfolio */
+  portfolioSizeB: number;
+  /** Fraction of walletA's portfolio shared with walletB — mirrors "95%" in UI */
+  overlapPctA: number;
+  /** Fraction of walletB's portfolio shared with walletA — mirrors "32%" in UI */
+  overlapPctB: number;
+  /**
+   * Present when this pair crosses a coordination threshold.
+   * HIGH_SIMILARITY: combinedScore > 0.7
+   * HIGH_OVERLAP: either wallet >50% overlap OR >20 shared tokens
+   * HIGH_SIMILARITY_AND_OVERLAP: both
+   */
+  flag?: 'HIGH_SIMILARITY' | 'HIGH_OVERLAP' | 'HIGH_SIMILARITY_AND_OVERLAP';
 }
 
 export interface AgentSimilarityResult {
   /**
-   * coordinationScore: weighted average of top-10 pair capitalScores.
-   * Weights are positional (rank 1 = weight N, rank N = weight 1) so top
-   * pairs contribute more. Range 0–1. Single number for quick agent decisions.
+   * Weighted average of all meaningful pair scores (rank-1 = weight N, rank-N = weight 1).
+   * Range 0–1. Single number for quick agent decisions.
    */
   coordinationScore: number;
   /**
-   * Pairs with capitalScore > 0.7 — direct coordination signal.
+   * All pairs with meaningful signal, sorted descending by similarityScore.
+   * Included if combinedScore >= 0.15 OR sharedTokenCount >= 20.
+   * Pairs with coordination signal have a `flag` field set.
    */
-  flaggedPairs: AgentFlaggedPair[];
-  /**
-   * Top 10 pairs sorted descending by capitalScore.
-   * No sharedTokens[] arrays — only counts.
-   */
-  topOverlaps: AgentSimilarityOverlap[];
+  pairs: AgentSimilarityPair[];
   globalMetrics: {
     averageSimilarity: number;
-    clusterCount: number;
   };
   metadata: {
-    walletCount: number;
-    vectorTypeUsed: string;
+    walletsAnalyzed: number;
+    /** n*(n-1)/2 — all possible pairs regardless of signal */
+    totalPairs: number;
+    /** Pairs that cleared the signal filter (combinedScore >= 0.15 OR sharedTokenCount >= 20) */
+    meaningfulPairs: number;
+    flaggedPairs: number;
   };
 }
 
-const COORDINATION_FLAG_THRESHOLD = 0.7;
-const TOP_OVERLAPS_LIMIT = 10;
+const HIGH_SIMILARITY_THRESHOLD = 0.7;
+const HIGH_OVERLAP_PCT_THRESHOLD = 0.5;   // either wallet >50% portfolio overlap
+const HIGH_OVERLAP_COUNT_THRESHOLD = 20;  // or >20 shared tokens regardless of score
+
+// A pair is worth showing if it clears at least one bar:
+//   - combinedScore >= 0.15 (binary*0.4 + capital*0.6, same formula as similarity-lab UI), OR
+//   - sharedTokenCount >= 20 (meaningful co-occurrence even at low score)
+// Pairs that fail both are trivial overlaps — noise for an agent.
+const MIN_COMBINED_SCORE_THRESHOLD = 0.15;
+const MIN_SHARED_TOKEN_THRESHOLD = 20;
+
+/**
+ * Combined score: binary*0.6 + capital*0.4.
+ * Binary (behavioral co-occurrence) weighted higher — more indicative of coordination.
+ * Matches SimilaritySidebar.tsx and the OG image route, which both use this formula
+ * in the holder-profiles coordination context.
+ */
+function combinedScore(p: CombinedPairwiseSimilarity): number {
+  return p.binaryScore * 0.6 + p.capitalScore * 0.4;
+}
+
+function pairOverlapPcts(p: CombinedPairwiseSimilarity): { overlapPctA: number; overlapPctB: number; portfolioSizeA: number; portfolioSizeB: number } {
+  // portfolioSize = shared + unique (binary counts)
+  const portfolioSizeA = p.binarySharedTokenCount + p.binaryUniqueTokenCountA;
+  const portfolioSizeB = p.binarySharedTokenCount + p.binaryUniqueTokenCountB;
+  const overlapPctA = portfolioSizeA > 0 ? Math.round((p.binarySharedTokenCount / portfolioSizeA) * 1000) / 1000 : 0;
+  const overlapPctB = portfolioSizeB > 0 ? Math.round((p.binarySharedTokenCount / portfolioSizeB) * 1000) / 1000 : 0;
+  return { overlapPctA, overlapPctB, portfolioSizeA, portfolioSizeB };
+}
 
 /** Map full CombinedSimilarityResult → AgentSimilarityResult */
 export function buildAgentSimilarityResult(
   result: CombinedSimilarityResult,
-  walletCount: number,
 ): AgentSimilarityResult {
-  // Sort all pairs descending by capitalScore
+  // Sort all pairs descending by combined score (binary*0.4 + capital*0.6) — same as the UI
   const sortedPairs = [...result.pairwiseSimilarities].sort(
-    (a, b) => b.capitalScore - a.capitalScore,
+    (a, b) => combinedScore(b) - combinedScore(a),
   );
 
-  const topPairs = sortedPairs.slice(0, TOP_OVERLAPS_LIMIT);
+  // Keep pairs with meaningful signal — combined score OR shared token count clears its bar.
+  // No hard cap: all pairs with real signal come through regardless of count.
+  const meaningfulPairs = sortedPairs.filter(
+    (p) => combinedScore(p) >= MIN_COMBINED_SCORE_THRESHOLD || p.binarySharedTokenCount >= MIN_SHARED_TOKEN_THRESHOLD,
+  );
 
   // coordinationScore: weighted average where rank-1 pair has weight N, rank-N has weight 1
-  const n = topPairs.length;
+  const n = meaningfulPairs.length;
   let coordinationScore = 0;
   if (n > 0) {
     let weightedSum = 0;
     let totalWeight = 0;
     for (let i = 0; i < n; i++) {
-      const weight = n - i; // rank 1 = n, rank n = 1
-      weightedSum += topPairs[i].capitalScore * weight;
+      const weight = n - i;
+      weightedSum += combinedScore(meaningfulPairs[i]) * weight;
       totalWeight += weight;
     }
     coordinationScore = Math.round((weightedSum / totalWeight) * 1000) / 1000;
   }
 
-  const flaggedPairs: AgentFlaggedPair[] = sortedPairs
-    .filter((p) => p.capitalScore > COORDINATION_FLAG_THRESHOLD)
-    .map((p) => ({
+  let flaggedCount = 0;
+
+  const pairs: AgentSimilarityPair[] = meaningfulPairs.map((p) => {
+    const { overlapPctA, overlapPctB, portfolioSizeA, portfolioSizeB } = pairOverlapPcts(p);
+    const score = combinedScore(p);
+    const highSim = score > HIGH_SIMILARITY_THRESHOLD;
+    const highOverlap =
+      overlapPctA > HIGH_OVERLAP_PCT_THRESHOLD ||
+      overlapPctB > HIGH_OVERLAP_PCT_THRESHOLD ||
+      p.binarySharedTokenCount > HIGH_OVERLAP_COUNT_THRESHOLD;
+
+    let flag: AgentSimilarityPair['flag'];
+    if (highSim || highOverlap) {
+      flag = highSim && highOverlap ? 'HIGH_SIMILARITY_AND_OVERLAP'
+        : highSim ? 'HIGH_SIMILARITY'
+        : 'HIGH_OVERLAP';
+      flaggedCount++;
+    }
+
+    return {
       walletA: p.walletA,
       walletB: p.walletB,
-      similarityScore: Math.round(p.capitalScore * 1000) / 1000,
-    }));
+      similarityScore: Math.round(score * 1000) / 1000,
+      sharedTokenCount: p.binarySharedTokenCount,
+      portfolioSizeA,
+      portfolioSizeB,
+      overlapPctA,
+      overlapPctB,
+      ...(flag != null && { flag }),
+    };
+  });
 
-  const topOverlaps: AgentSimilarityOverlap[] = topPairs.map((p) => ({
-    walletA: p.walletA,
-    walletB: p.walletB,
-    similarityScore: Math.round(p.capitalScore * 1000) / 1000,
-    binarySharedTokenCount: p.binarySharedTokenCount,
-    capitalSharedTokenCount: p.capitalSharedTokenCount,
-  }));
-
-  // clusters come from the similarity flow — stored in the full result?
-  // CombinedSimilarityResult doesn't carry clusters directly; globalMetrics has averageSimilarity.
-  // Cluster count is not available on CombinedSimilarityResult — omit rather than invent.
-  const clusterCount = 0; // not available in CombinedSimilarityResult shape
+  // Derive walletsAnalyzed from the unique addresses in all pairs
+  const walletSet = new Set<string>();
+  for (const p of result.pairwiseSimilarities) {
+    walletSet.add(p.walletA);
+    walletSet.add(p.walletB);
+  }
 
   return {
     coordinationScore,
-    flaggedPairs,
-    topOverlaps,
+    pairs,
     globalMetrics: {
       averageSimilarity:
         Math.round((result.globalMetrics?.averageSimilarity ?? 0) * 1000) / 1000,
-      clusterCount,
     },
     metadata: {
-      walletCount,
-      vectorTypeUsed: result.vectorTypeUsed,
+      walletsAnalyzed: walletSet.size,
+      totalPairs: result.pairwiseSimilarities.length,
+      meaningfulPairs: pairs.length,
+      flaggedPairs: flaggedCount,
     },
   };
 }

@@ -981,7 +981,7 @@ Result shape:
     }
 
     const fullResult = JSON.parse(raw) as CombinedSimilarityResult;
-    const agentResult = buildAgentSimilarityResult(fullResult, 0);
+    const agentResult = buildAgentSimilarityResult(fullResult);
 
     // Persist agent result with same TTL as full result
     const ttl = await this.redisClient.ttl(fullKey);

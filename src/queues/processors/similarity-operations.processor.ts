@@ -305,7 +305,11 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       };
       
       const mode = 'full_sync_raw_balances_with_background_enrichment';
-      const serialized = JSON.stringify(similarityResult);
+      // Strip walletVectorsUsed only — raw internal vectors with no product use for
+      // anyone (dashboard or external callers). uniqueTokensPerWallet stays because
+      // the dashboard OverlapHeatmap reads it from this same Redis key via by-key.
+      const { walletVectorsUsed: _vecs, ...publicSimilarityResult } = similarityResult;
+      const serialized = JSON.stringify(publicSimilarityResult);
       const payloadSize = Buffer.byteLength(serialized, 'utf8');
       if (payloadSize > this.PAYLOAD_WARN_BYTES) {
         this.logger.warn(`Similarity result is large (${(payloadSize / 1024 / 1024).toFixed(2)} MB) for request ${requestId}`);

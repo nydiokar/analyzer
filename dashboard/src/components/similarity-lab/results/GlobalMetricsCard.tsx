@@ -51,10 +51,10 @@ const StatCard = ({ title, value, icon, details, tooltipContent }: { title: stri
     return cardContent;
 };
 
-// Overall similarity score calculation - matches EnhancedKeyInsights.tsx
+// Overall similarity score calculation - matches EnhancedKeyInsights.tsx and SimilaritySidebar.tsx
 const calculateOverallScore = (binaryScore: number, capitalScore: number): number => {
-  // Weighted average: behavioral 40%, capital 60% (capital is often more meaningful)
-  return (binaryScore * 0.4) + (capitalScore * 0.6);
+  // Weighted average: behavioral 60%, capital 40% (behavioral is more indicative of coordination)
+  return (binaryScore * 0.6) + (capitalScore * 0.4);
 };
 
 // Helper function to get similarity status badge
