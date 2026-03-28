@@ -129,8 +129,8 @@ export async function generateMetadata({
   const description = buildShareDescription(share);
   const siteUrl = getPublicSiteUrl();
   const pageUrl = `${siteUrl}/share/hp/${shareId}`;
-  const ogImageUrl = `${siteUrl}/api/og/hp/${shareId}?v=6`;
-  const pageTitle = `${tokenLabel} Holder Profiles — Trader Distribution & Behavior Analysis`;
+  const ogImageUrl = `${siteUrl}/api/og/hp/${shareId}?v=7`;
+  const pageTitle = `${tokenLabel} Holder Profiles — Sova Intel`;
 
   return {
     title: pageTitle,

@@ -109,9 +109,6 @@ async function fetchShare(shareId: string): Promise<ShareRecord | null> {
   }
 }
 
-// sova_badge_primary.svg inlined to avoid runtime fetch failures in edge runtime
-const LOGO_DATA_URI = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" preserveAspectRatio="xMidYMid meet"><circle cx="512" cy="512" r="448" fill="#0A1A2F"/><g fill="#FFFFFF" stroke="none" fill-rule="evenodd" transform="translate(0,-50) scale(1.12) translate(-46,0)"><path d="M256 300 c0 0 120 -16 200 34 c34 21 64 56 80 98 h-16 c16 -42 46 -77 80 -98 c80 -50 200 -34 200 -34 v152 c0 68 -24 118 -72 176 c-44 54 -108 98 -216 156 c-108 -58 -172 -102 -216 -156 c-48 -58 -72 -108 -72 -176 Z M368 400 a60 60 0 1 0 0.1 0 Z M656 400 a60 60 0 1 0 0.1 0 Z M496 540 L528 540 L512 600 Z"/></g></svg>')}`;
-
 // Brand colors matching the app dark theme
 const BG = '#06111f';
 const CARD_BG = '#0d1f35';
@@ -232,8 +229,23 @@ export async function GET(
         >
           {/* Left: Sova logo + wordmark */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={LOGO_DATA_URI} width={44} height={44} alt="Sova Intel" style={{ borderRadius: 12 }} />
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: VIOLET_BG,
+                border: `1px solid rgba(167,139,250,0.25)`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: VIOLET,
+                fontSize: 22,
+                fontWeight: 800,
+              }}
+            >
+              S
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <span style={{ fontSize: 20, fontWeight: 700, color: TEXT_PRIMARY, letterSpacing: '-0.02em' }}>
                 Sova Intel
