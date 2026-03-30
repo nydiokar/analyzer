@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/market-context-enrichment`  **Last Updated:** 2026-03-30  **Status:** Phase 1-6 done + verified. Phase 7 in progress — WalletBehaviorProfile + AnalysisResult entry mcap done. Exit mcap, TokenLot, WalletPnlSummary USD, HUD DTO remaining.
+**Branch:** `main`  **Last Updated:** 2026-03-31  **Status:** Market context enrichment branch complete. Ready to merge to main.
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,49 +8,125 @@
 
 ##  Active Work
 
-### Market Context Enrichment (`feat/market-context-enrichment`) — not yet merged to `main`
+Finish the wallet intelligence guide
 
-**SOP:** `.ai/context/MARKET_CONTEXT_ENRICHMENT_SOP.md`
+Finish Sova-X - wallets and open for tokens.
 
-| Phase | Status | Notes |
-|:------|:------:|:------|
-| Schema: `SolDailyPrice`, 6 fields on `SwapAnalysisInput`, `TokenInfo.totalSupply` | ✅ Done | All nullable in `schema.prisma`. For contaminated dev DB: restore share migration history first, then use `prisma db push` to align without reset. Proper market-context migration still needs to be committed before merge/production. |
-| SOL price cache — DeFiLlama | ✅ Done | `backfillSolPrices`, `appendTodaySolPrice`, `buildSolPriceMap` now auto-backfills to oldest needed timestamp before enrichment and keeps fallback bounded to ±3 days. |
-| Token supply — `TokenInfo.totalSupply` | ✅ Done | `getTokenSupply()` upgraded to Redis → DB → Helius RPC (write-back to both on miss). One RPC call per mint ever, system-wide. |
-| `MarketContextService` + `MarketContextModule` | ✅ Done | `@Injectable()` in `src/api/services/`, injects `DatabaseService` + `TokenInfoService`. Module in `src/api/modules/`. |
-| `src/core/services/market-context-standalone.ts` | ✅ Done | Shared pure helpers. Classification buckets updated to: `nano`, `ultra-micro`, `micro`, `small`, `mid`, `large`, `mega`. |
-| Backfill + test scripts | ✅ Done | Both scripts now bootstrap Nest context and call the DI-backed `MarketContextService` path, not the weaker standalone-only path. |
-| Phase 6 — BullMQ `process-market-context` job | ✅ Done | Dispatched after sync, handled in `EnrichmentOperationsProcessor`. Job now drains a wallet fully instead of stopping after one 500-row batch. Rows missing SOL cache are deferred for retry instead of being falsely stamped complete. |
-| **Pre-production verification** | 🟡 **Now** | Required before merge: apply schema to dev DB, run backfill, verify heavy wallet (>500 swaps), wallet with >90d history, USDC-routed wallet, and normal recent wallet. Check for zero false-completes and acceptable supply/mcap miss rate. |
-| **Phase 7 — downstream** | ⚪ **Blocked on verification** | Add `mcapBucket`, `avgEntryMcap` to `AnalysisResult` + `WalletBehaviorProfile`. Surface in behavior analyzer and HUD only after live backfill verification passes. |
+---
 
-**Data flow (do not change):**
-```
-sync-wallet job → saves SwapAnalysisInput (enrichedAt: null)
-                   ↓ fire-and-forget
-process-market-context job → enriches WHERE enrichedAt IS NULL AND walletAddress = X
-                   ↓
-Phase 7 → mcap-aware profiles, HUD fields, band charts
-```
+### [MCE-7] Phase 7 — Market Context Downstream ✅ COMPLETE (2026-03-31)
 
-**To run the historical backfill:**
-```bash
-npx ts-node -r tsconfig-paths/register scripts/backfill-market-context.ts
-```
+**Branch:** `feat/market-context-enrichment` — **ready to merge + deploy**
 
-**Immediate verification gates before calling this production-ready:**
-- Apply current market-context schema to contaminated dev DB with `npx prisma db push`
-- Run `npx prisma generate` and `pnpm verify`
-- Run historical backfill
-- Validate:
-  - one wallet with >500 swaps drains fully
-  - one wallet with swaps older than 90 days gets SOL prices after auto-backfill
-  - one USDC-routed wallet derives `usdValue` correctly
-  - one recent normal wallet produces plausible `tokenPriceUsd`, `marketCapUsd`, `mcapBucket`
-- SQL checks after run:
-  - false completes should be zero:
-    `associatedSolValue > 0 AND associatedUsdcValue IS NULL AND solPriceUsd IS NULL AND enrichedAt IS NOT NULL`
-  - inspect remaining `marketCapUsd IS NULL` rows by mint to confirm they are supply-cache misses, not logic bugs
+#### What shipped
+
+**A — `AnalysisResult`: `avgExitMcap` + `avgExitMcapBucket`** ✅
+- Volume-weighted avg market cap at time of sells, per token
+- Computed from `direction='out'` enriched rows alongside existing entry mcap
+
+**B — `TokenLot`: `entryPriceUsd`, `entryMcapUsd`, `entryMcapBucket`, `costBasisUsd`** ✅
+- Lookup keyed by `${signature}:${mint}` (not signature alone — avoids multi-token swap collision)
+- `costBasisUsd = costBasisSol × solPriceUsd` from the enriched buy row
+
+**C — `WalletPnlSummary`: `totalVolumeUsd`, `realizedPnlUsd`, `unrealizedPnlUsd`, `netPnlUsd`** ✅
+- `realizedPnlUsd` uses **true FIFO replay in USD** — same algorithm as SOL path (`buildFifoLotsForToken`): same sort, same tolerances, per-unit cost consumption. Correct for partial exits.
+- `unrealizedPnlUsd` = current holdings USD − remaining open lot cost basis (fraction-scaled for partial lots)
+- All computed from a single `SwapAnalysisInput` query (1 round-trip, not 5)
+
+#### Key implementation details
+- All new fields nullable — zero risk to existing queries or API responses
+- Single consolidated `allEnrichedRows` query feeds Tasks A, B, C — replaces 4 separate queries that existed before code review
+- `DEFAULT_EXCLUDED_MINTS` filtered from USD path, consistent with SOL path
+- Entire new block inside `!isViewOnlyMode && !isHistoricalView` guard — no wasted I/O on dashboard loads
+- `pnm verify` clean, `prisma db push` applied to dev DB
+
+**D — HUD DTO: `preferredMcapBucket` + `avgEntryMcap`** ✅
+- Added to `WalletHudDto` as optional fields, passed through from `behaviorProfile` in `calculateHud()`
+- Files: `wallet-hud.dto.ts`, `wallet-hud.service.ts`
+
+#### Deploy sequence
+1. `npx prisma migrate dev --name mce7-downstream` (or `db push` on prod if no migration history)
+2. Deploy backend
+3. Run `scripts/queue-market-context-backfill.ts` — populates `usdValue` + mcap fields on all historical `SwapAnalysisInput` rows
+4. New USD fields on `AnalysisResult`, `TokenLot`, `WalletPnlSummary` self-heal on next wallet analysis — no bulk re-analysis script needed
+5. Optionally queue re-analysis for recently-active wallets (`lastSuccessfulFetchTimestamp > 30d`) for immediate population
+
+---
+
+### March 28, 2026 — INTEL-SLIM Agent Endpoints + SDK v0.2.0 ✅ COMPLETE
+
+All SLIM steps done. Backend shipped earlier; SDK and docs completed this session.
+
+### March 31, 2026 — MCE-7: Market Context Downstream ✅
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 31.1 | 🎯 FEAT | **[MCE-7A]** `AnalysisResult`: `avgExitMcap` + `avgExitMcapBucket` — volume-weighted avg mcap at sell time, per token | 🟢 S | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.2 | 🎯 FEAT | **[MCE-7B]** `TokenLot`: `entryPriceUsd`, `entryMcapUsd`, `entryMcapBucket`, `costBasisUsd` — per-lot USD cost basis and entry mcap, keyed by `signature:mint` to avoid multi-token swap collisions | 🟢 S | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.3 | 🎯 FEAT | **[MCE-7C]** `WalletPnlSummary`: `totalVolumeUsd`, `realizedPnlUsd`, `unrealizedPnlUsd`, `netPnlUsd` — true FIFO USD replay matching SOL algorithm exactly (same sort, tolerances, per-unit cost consumption) | 🟡 M | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.4 | 🐛 FIX | **[MCE-7 review]** 6 bugs found and fixed before ship: signature collision on lot map, `realizedPnlUsd` including open positions, partial lot fraction on unrealized, 5→1 DB round-trips, excluded mints missing from USD path, lot enrichment query firing on view-only calls | 🟡 M | `pnl-analysis-service.ts` |
+| 31.5 | 🎯 FEAT | **[MCE-7D]** HUD DTO: `preferredMcapBucket` + `avgEntryMcap` surfaced from behavior profile. Proper migration file created (`20260331000000_mce7_downstream`) covering all 16 new columns across 4 tables. | 🟢 S | `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `prisma/migrations/` |
+
+**Key decisions:**
+- `realizedPnlUsd` uses full FIFO replay in USD — not aggregate flow. Partial exits are correct.
+- Single `allEnrichedRows` query per analysis feeds all three downstream computations (A, B, C)
+- All new fields nullable, no existing API surface changed — pure additive
+- Self-healing: USD fields populate on next wallet analysis after `SwapAnalysisInput` rows are enriched by backfill script
+
+---
+
+### March 28, 2026 — INTEL-SLIM Agent Endpoints + SDK v0.2.0 ✅ COMPLETE
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 28.1 | 🎯 FEAT | SLIM-1/2/3: `intel-agent-transforms.ts` — transforms, 4 new routes in `intel.controller.ts`, `getResultByKey` whitelist updated. | 🟡 M | `intel-agent-transforms.ts`, `intel.controller.ts`, `jobs.service.ts` |
+| 28.2–28.9 | 🐛 FIX | Aggregate LP exclusion, holdingsSummary, pairs[] merge, similarity formula fix, FRESH label, walletVectorsUsed strip. | 🟢 S | `intel-agent-transforms.ts`, `similarity-operations.processor.ts` |
+| 28.10 | 🎯 FEAT | **SLIM-4:** SDK v0.2.0 — `BatchHudResponse` fixed (`notFound` → `queued`+`skipped`), agent types added (`AgentHolderProfilesResult`, `AgentSimilarityResult`, 202 response types), 4 new client methods (`queueTokenHoldersAgent`, `pollTokenHoldersAgent`, `queueWalletSimilarityAgent`, `pollWalletSimilarityAgent`). All exported from `index.ts`. | 🟡 M | `packages/sdk/src/types.ts`, `client.ts`, `index.ts` |
+| 28.11 | 🎯 FEAT | **SLIM-5:** Docusaurus docs — `/holders/agent` + `/similarity/agent` full sections in `batch-token.md`. SDK page updated: batch HUD example fixed, agent method examples + exported types + method reference table. | 🟡 M | `sova-intel/docs/endpoints/batch-token.md`, `sova-intel/docs/sdk.md` |
+| 28.12 | 🎯 FEAT | SKILL.md v1.2 — agent endpoints promoted with full result shapes, `/holders` + `/similarity` compressed to 2 lines, `/holders/deep` stale "501" note removed (it's live), pricing table reordered agent-first, x402 TypeScript implementation removed (contract + constants kept). | 🟡 M | `documentation/agent-skill/SKILL.md` |
+| 28.13 | 🐛 FIX | README — wrong `SovaClient` class name + constructor shape fixed. "Built for AI agents" section added above SDK section. | 🟢 S | `sova-intel/README.md` |
+
+**Key decisions:**
+- `BatchHudResponse.notFound` was a breaking SDK bug — bumped to 0.2.0
+- Agent result keys are lazy derivatives of full keys — derived at first fetch, cached with remaining TTL of full key, 404 if full key expired (correct, no patch needed)
+- SKILL.md serves from `dashboard/src/app/skill.md/route.ts` reading `documentation/agent-skill/SKILL.md` at build time — needs dashboard redeploy to pick up changes
+
+---
+
+### March 27, 2026 — Holder Profile Share Page Parity Rebuild
+
+**Problem:** `/share/hp/[shareId]` shipped as a bespoke summary page that reuses the data but not the holder-profiles v2 product surface. Brand, ordering, colors, and layout diverged from the canonical page.
+
+**Plan (two passes):**
+
+| Pass | Goal | Scope | Notes |
+|:-----|:-----|:------|:------|
+| Pass 1 | Replace the bespoke shared page with a share-safe holder-profiles v2 renderer | `dashboard` + share snapshot normalization | Reuse `TokenPulse`/v2 presentation, keep page public/read-only, add `tokenSnapshot` to share payload for token hero parity |
+| Pass 2 | Persist and render similarity data on shared pages | backend share snapshot + frontend sidebar parity | Restore the similar-pairs sidebar and related highlighting so shared links feel like the real page, not a reduced clone. Persist only trimmed pairwise similarity fields, not the full raw similarity payload |
+
+**Success criteria:** Shared holder profile links should look and feel like Sova Intel holder profiles, not a separate microsite with ad hoc styling.
+
+---
+
+### March 24, 2026 — Shareable Holder Profiles ✅ COMMITTED + CODE REVIEWED
+
+**Feature branch:** `feature/holder-profile-sharing` (2 commits: initial build + code review fixes)
+
+| File | What |
+|:-----|:-----|
+| `prisma/schema.prisma` | `HolderProfileShare` model added; `User.holderProfileShares` relation |
+| `prisma/migrations/20260324115336_add_holder_profile_share/` | Migration applied to DB ✅ |
+| `src/api/services/holder-profile-share.service.ts` | Uses `HolderProfilesCacheService` (not raw Redis), proper Prisma cast, `getShareRaw()` for no-count reads |
+| `src/api/controllers/share.controller.ts` | `POST /share/hp` (auth) + `GET /share/hp/:id` + `GET /share/hp/:id/raw` (no view count) |
+| `src/api/controllers/dto/create-holder-profile-share.dto.ts` | DTO extracted to its own file |
+| `src/api/modules/share.module.ts` | Imports `HolderProfilesCacheModule` (not raw RedisModule) |
+| `src/api.module.ts` | ShareModule imported |
+| `dashboard/src/middleware.ts` | `/share` added to publicRoutes |
+| `dashboard/src/app/share/hp/[shareId]/page.tsx` | SSR server component; metadata uses `/raw` (no view count), page uses view-counting endpoint |
+| `dashboard/src/app/api/og/hp/[shareId]/route.tsx` | Edge OG image; calls `/raw` to avoid inflating view count on crawler hits |
+| `dashboard/src/app/tools/holder-profiles/page.tsx` | Share button (idle→loading→copied, clipboard + sonner toast) |
+
+**Key fix:** OG image + `generateMetadata` both called the view-counting endpoint — every social crawler preview was inflating analytics. Fixed with dedicated `/raw` endpoint.
 
 ---
 
@@ -125,32 +201,6 @@ npx ts-node -r tsconfig-paths/register scripts/backfill-market-context.ts
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
 | 24.1 | 🎯 FEAT | **[SHARE-1+2]** Shareable holder profiles — `HolderProfileShare` Prisma model + migration, `POST /share/hp` + `GET /share/hp/:id` NestJS endpoints, `/share/hp/[shareId]` SSR page with `generateMetadata` OG tags, `/api/og/hp/[shareId]` edge ImageResponse (1200×630), Share button in holder profiles UI (clipboard + toast). Zero TS errors both backend and frontend. **Not yet committed.** | 🟡 M | `prisma/schema.prisma`, `src/api/services/holder-profile-share.service.ts`, `src/api/controllers/share.controller.ts`, `src/api/modules/share.module.ts`, `dashboard/src/app/share/hp/[shareId]/page.tsx`, `dashboard/src/app/api/og/hp/[shareId]/route.tsx`, `dashboard/src/app/tools/holder-profiles/page.tsx`, `dashboard/src/middleware.ts` |
-
----
-
-### March 26, 2026 — Market Context hardening + migration-history repair
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 26.1 | 🐛 FIX | **[MCE-VERIFY]** Verified branch against actual code and dev DB state. Found: live DB missing market-context columns/table, wallet sync path only processed one 500-row batch, and rows missing SOL cache were being stamped complete. | 🔴 L | `.ai/CONTEXT.md`, `prisma/migrations/`, `src/api/services/market-context.service.ts`, `src/core/services/market-context-standalone.ts`, `src/queues/processors/enrichment-operations.processor.ts` |
-| 26.2 | 🐛 FIX | **[MCE-DRAIN]** `process-market-context` now drains a wallet fully via `MarketContextService.enrichWallet()` instead of stopping after one batch. This closes the >500-swap wallet backlog risk discovered during review. | 🟡 M | `src/api/services/market-context.service.ts`, `src/queues/processors/enrichment-operations.processor.ts` |
-| 26.3 | 🐛 FIX | **[MCE-RETRY]** Enrichment now distinguishes permanent skips from deferred retries. Rows missing prerequisite SOL price cache are left pending, not falsely marked `enrichedAt`. SOL price coverage auto-backfills to the oldest needed timestamp before classification; fallback remains bounded to ±3 days. | 🟡 M | `src/core/services/market-context-standalone.ts`, `src/api/services/market-context.service.ts` |
-| 26.4 | ♻️ REFACTOR | **[MCE-SCRIPTS]** `scripts/backfill-market-context.ts` and `scripts/test-enrichment-manual.ts` now bootstrap Nest context and use `MarketContextService`, so verification uses the same supply-resolution path as production (Redis → DB → Helius RPC) instead of standalone DB-only supply reads. Manual script is now wallet-scoped. | 🟡 M | `scripts/backfill-market-context.ts`, `scripts/test-enrichment-manual.ts` |
-| 26.5 | ♻️ REFACTOR | **[MCE-BUCKETS]** Reworked market-cap banding from coarse 5-band labels to `nano`, `ultra-micro`, `micro`, `small`, `mid`, `large`, `mega` so sub-$100K tokens are not misclassified. Existing enriched rows will need reclassification/backfill if buckets were already written. | 🟢 S | `src/core/services/market-context-standalone.ts`, `prisma/schema.prisma` |
-
-**Current technical state:**
-- `pnpm verify` passes after regenerating Prisma client.
-- Market-context schema itself still needs a real committed Prisma migration before merge/production. For contaminated dev DB, use `npx prisma db push` first to enable testing without reset.
-- Remaining work before production claim is verification, not more structural coding.
-
-### March 25, 2026 — Market Context Pipeline: structural refactor + supply cache redesign
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 25.1 | 🎯 FEAT | **[MCE-1–6]** Market context pipeline scaffolded + wired. Schema: `SolDailyPrice`, 6 nullable fields on `SwapAnalysisInput` (applied via `db push`). Phase 6 wired: `process-market-context` BullMQ job dispatched from `WalletOperationsProcessor` after sync, handled in `EnrichmentOperationsProcessor`. Startup hook in `QueueModule.onModuleInit` keeps `SolDailyPrice` current. | 🔴 L | `prisma/schema.prisma`, `src/queues/processors/wallet-operations.processor.ts`, `src/queues/processors/enrichment-operations.processor.ts`, `src/queues/queue.module.ts`, `scripts/` (3 files) |
-| 25.2 | 🔧 INFRA | **[MCE-RULES]** `RULES.md` updated with mandatory project structure rules. | 🟢 S | `.ai/RULES.md` |
-| 25.3 | ♻️ REFACTOR | **[MCE-REFACTOR]** Full structural refactor of market context pipeline. `src/services/` deleted. `MarketContextService` created as `@Injectable()` in `src/api/services/` — injects `DatabaseService` + `TokenInfoService`, uses shared pure functions from `market-context-standalone.ts`. `MarketContextModule` registered in `src/api/modules/`, imported by `QueueModule`. `EnrichmentOperationsProcessor` + `QueueModule` now use DI — no raw `prisma` singleton imports. Scripts updated to use `prisma` singleton from `database-service.ts` + standalone imports. `tsc --noEmit` clean. | 🔴 L | `src/api/services/market-context.service.ts` (new), `src/api/modules/market-context.module.ts` (new), `src/core/services/market-context-standalone.ts` (new), `src/queues/processors/enrichment-operations.processor.ts`, `src/queues/queue.module.ts`, `scripts/backfill-market-context.ts`, `scripts/test-enrichment-manual.ts`, `scripts/test-sol-price-cache.ts` |
-| 25.4 | ♻️ REFACTOR | **[MCE-SUPPLY]** Dropped `TokenSupplyCache` table entirely — redundant given `TokenInfo` already covers every seen mint. Added `totalSupply Float?` to `TokenInfo` (applied via `db push`). Upgraded `TokenInfoService.getTokenSupply()` to 3-layer cache: Redis → `TokenInfo.totalSupply` (DB, persistent) → Helius RPC (write-back to both). Added `DatabaseService.updateTokenSupply()`. `MarketContextService.buildSupplyMap()` does one bulk `findManyTokenInfo()` then targeted miss resolution — zero Helius calls in steady state. Benefit is system-wide: analysis processor + holder profiles also call `getTokenSupply()` and now hit the DB layer on cold Redis. | 🟡 M | `prisma/schema.prisma`, `src/api/services/token-info.service.ts`, `src/core/services/database-service.ts`, `src/api/services/market-context.service.ts`, `src/api/modules/market-context.module.ts` |
 
 ---
 
@@ -392,6 +442,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-30  **Branch:** `feat/market-context-enrichment`
+**Last Updated:** 2026-03-28  **Branch:** `main`
 
 ---

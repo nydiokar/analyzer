@@ -139,6 +139,8 @@ model AnalysisResult {
   unrealizedPnlSol            Float?
   avgEntryMcap                Float?    // volume-weighted avg marketCapUsd across buy trades for this token
   avgEntryMcapBucket          String?   // classified bucket of avgEntryMcap
+  avgExitMcap                 Float?    // volume-weighted avg marketCapUsd across sell trades for this token
+  avgExitMcapBucket           String?   // classified bucket of avgExitMcap
   wallet                      Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@unique([walletAddress, tokenAddress])
@@ -160,6 +162,10 @@ model TokenLot {
   sourceSignature   String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  entryPriceUsd     Float?   // per-token USD price at time of buy (tokenPriceUsd from enriched row)
+  entryMcapUsd      Float?   // market cap at time of buy (marketCapUsd from enriched row)
+  entryMcapBucket   String?  // classified bucket of entryMcapUsd
+  costBasisUsd      Float?   // costBasisSol × solPriceUsd at time of buy
   wallet            Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@index([walletAddress, tokenAddress, purchaseTimestamp])
@@ -188,6 +194,10 @@ model WalletPnlSummary {
   solBalanceFetchedAt               DateTime?
   profitableTradesCount             Int                 @default(0)
   totalIndividualTradesCount        Int                 @default(0)
+  totalVolumeUsd                    Float?              // Σ usdValue across all enriched swap rows for wallet
+  realizedPnlUsd                    Float?              // per-mint: Σ out usdValue − Σ in usdValue, summed across all mints
+  unrealizedPnlUsd                  Float?              // open lots costBasisUsd vs current holdings USD value
+  netPnlUsd                         Float?              // realizedPnlUsd + unrealizedPnlUsd
   advancedStats                     AdvancedTradeStats?
   wallet                            Wallet              @relation(fields: [walletAddress], references: [address])
 
