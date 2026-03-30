@@ -16,7 +16,11 @@ export interface ClusterAnalysisConfig {
   minSharedTokensForOverlap: number;
   highSharedTokensCount: number;
   minOverlapForHighShared: number;
+  extremeSharedTokensCount: number;
+  extremeSharedVolumeShare: number;
+  minOverlapForExtremeShared: number;
   minDensity: number;
+  minDensityForExtremeVolume: number;
   minClusterSize: number;
   sharedTokensNormalizer: number;
 }
@@ -61,7 +65,11 @@ export const HOLDER_PROFILES_CLUSTER_CONFIG: ClusterAnalysisConfig = {
   minSharedTokensForOverlap: 3,
   highSharedTokensCount: 10,
   minOverlapForHighShared: 0.45,
+  extremeSharedTokensCount: 18,
+  extremeSharedVolumeShare: 0.5,
+  minOverlapForExtremeShared: 0.28,
   minDensity: 0.6,
+  minDensityForExtremeVolume: 0.5,
   minClusterSize: 3,
   sharedTokensNormalizer: 24,
 };
@@ -73,7 +81,11 @@ export const SIMILARITY_LAB_CLUSTER_CONFIG: ClusterAnalysisConfig = {
   minSharedTokensForOverlap: 4,
   highSharedTokensCount: 12,
   minOverlapForHighShared: 0.35,
+  extremeSharedTokensCount: 120,
+  extremeSharedVolumeShare: 0.34,
+  minOverlapForExtremeShared: 0.12,
   minDensity: 0.55,
+  minDensityForExtremeVolume: 0.34,
   minClusterSize: 3,
   sharedTokensNormalizer: 40,
 };
@@ -149,7 +161,8 @@ function calculateOverlap(sharedTokensCount: number, uniqueTokensA?: number, uni
 
 function buildQualifyingEdge(
   pair: ClusterPairData,
-  config: ClusterAnalysisConfig
+  config: ClusterAnalysisConfig,
+  datasetMaxSharedTokens: number
 ): QualifyingClusterEdge | null {
   const behavioralScore = pair.behavioralScore ?? pair.overallScore;
   const sharedTokensCount = Math.max(pair.sharedTokensCount ?? 0, 0);
@@ -164,6 +177,10 @@ function buildQualifyingEdge(
       : 0;
 
   const qualificationReasons: string[] = [];
+  const relativeSharedVolumeThreshold = Math.max(
+    config.extremeSharedTokensCount,
+    Math.round(datasetMaxSharedTokens * config.extremeSharedVolumeShare)
+  );
 
   if (pair.overallScore >= config.strongOverallScore && behavioralScore >= config.minBehavioralScore) {
     qualificationReasons.push('score');
@@ -181,6 +198,13 @@ function buildQualifyingEdge(
     smallerWalletOverlap >= config.minOverlapForHighShared
   ) {
     qualificationReasons.push('shared-volume');
+  }
+
+  if (
+    sharedTokensCount >= relativeSharedVolumeThreshold &&
+    smallerWalletOverlap >= config.minOverlapForExtremeShared
+  ) {
+    qualificationReasons.push('extreme-volume');
   }
 
   if (qualificationReasons.length === 0) {
@@ -214,9 +238,13 @@ export function analyzeSimilarityGraph(
   const walletToCluster = new Map<string, number>();
   const unionFind = new UnionFind();
   const qualifyingEdges: QualifyingClusterEdge[] = [];
+  const datasetMaxSharedTokens = pairs.reduce(
+    (maxValue, pair) => Math.max(maxValue, pair.sharedTokensCount ?? 0),
+    0
+  );
 
   for (const pair of pairs) {
-    const edge = buildQualifyingEdge(pair, config);
+    const edge = buildQualifyingEdge(pair, config, datasetMaxSharedTokens);
     if (!edge) {
       continue;
     }
@@ -244,8 +272,14 @@ export function analyzeSimilarityGraph(
 
     const possibleEdgeCount = (wallets.length * (wallets.length - 1)) / 2;
     const density = possibleEdgeCount > 0 ? clusterEdges.length / possibleEdgeCount : 0;
+    const hasExtremeVolumeEdge = clusterEdges.some((edge) =>
+      edge.qualificationReasons.includes('extreme-volume')
+    );
+    const requiredDensity = hasExtremeVolumeEdge
+      ? config.minDensityForExtremeVolume
+      : config.minDensity;
 
-    if (density < config.minDensity) {
+    if (density < requiredDensity) {
       continue;
     }
 
