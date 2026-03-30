@@ -60,9 +60,9 @@ export function ClusterIndicator({
         <div className="flex flex-wrap gap-1.5">
           {clusters.map((cluster) => {
             const isSelected = selectedClusterId === cluster.id;
-            const strengthLabel = getClusterStrengthLabel(cluster.avgSimilarity);
-            const strengthColor = getClusterStrengthColor(cluster.avgSimilarity);
-            const bgColor = getClusterBgColor(cluster.avgSimilarity);
+            const strengthLabel = getClusterStrengthLabel(cluster.avgCohesionScore);
+            const strengthColor = getClusterStrengthColor(cluster.avgCohesionScore);
+            const bgColor = getClusterBgColor(cluster.avgCohesionScore);
 
             return (
               <Tooltip key={cluster.id}>
@@ -81,7 +81,7 @@ export function ClusterIndicator({
                     <Users className="h-3 w-3 text-muted-foreground" />
                     <span className="font-medium">{cluster.wallets.length}</span>
                     <span className={cn('font-semibold tabular-nums', strengthColor)}>
-                      {Math.round(cluster.avgSimilarity * 100)}%
+                      {Math.round(cluster.avgCohesionScore * 100)}%
                     </span>
                   </button>
                 </TooltipTrigger>
@@ -92,9 +92,10 @@ export function ClusterIndicator({
                       <span className={cn('font-semibold', strengthColor)}>{strengthLabel}</span>
                     </div>
                     <div className="text-muted-foreground">
-                      <p>Avg similarity: {Math.round(cluster.avgSimilarity * 100)}%</p>
-                      <p>Min edge: {Math.round(cluster.minSimilarity * 100)}%</p>
-                      <p>{cluster.edgeCount} connections</p>
+                      <p>Avg cohesion: {Math.round(cluster.avgCohesionScore * 100)}%</p>
+                      <p>Min cohesion: {Math.round(cluster.minCohesionScore * 100)}%</p>
+                      <p>Density: {Math.round(cluster.density * 100)}%</p>
+                      <p>{cluster.totalSharedTokens.toLocaleString()} shared tokens across {cluster.edgeCount} connections</p>
                     </div>
                   </div>
                 </TooltipContent>

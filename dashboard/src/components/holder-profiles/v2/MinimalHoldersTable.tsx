@@ -5,7 +5,6 @@ import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './uti
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { InfoIcon, Link2 } from 'lucide-react';
-import { CONNECTION_THRESHOLD } from './SimilaritySidebar';
 import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
 import { useWalletHudCache } from '@/hooks/useWalletHudCache';
 
@@ -221,7 +220,7 @@ export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highl
                           <TooltipContent side="right" className="text-xs max-w-xs">
                             <p className="font-medium">Connected Wallets</p>
                             <p className="text-muted-foreground mt-1">
-                              Similarity &gt;= {Math.round(CONNECTION_THRESHOLD * 100)}% with {connectionCounts.get(profile.walletAddress)} other {connectionCounts.get(profile.walletAddress) === 1 ? 'wallet' : 'wallets'} in this set.
+                              Meaningful cluster-qualified connections with {connectionCounts.get(profile.walletAddress)} other {connectionCounts.get(profile.walletAddress) === 1 ? 'wallet' : 'wallets'} in this set.
                             </p>
                           </TooltipContent>
                         </Tooltip>

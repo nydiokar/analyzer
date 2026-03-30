@@ -9,9 +9,6 @@ import { analyzeSimilarityGraph, type SimilarityGraphAnalysis } from './utils/si
 
 export type SimilarityStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
 
-/** Threshold for considering wallets "connected" (0-1) */
-export const CONNECTION_THRESHOLD = 0.7;
-
 interface Props {
   similarityResult?: CombinedSimilarityResult | null;
   status: SimilarityStatus;
@@ -92,7 +89,7 @@ export function SimilaritySidebar({
   // Analyze similarity graph for clusters and connection counts
   const graphAnalysis = useMemo<SimilarityGraphAnalysis | null>(() => {
     if (pairs.length === 0) return null;
-    return analyzeSimilarityGraph(pairs, CONNECTION_THRESHOLD);
+    return analyzeSimilarityGraph(pairs);
   }, [pairs]);
 
   // Calculate stats - high similarity pairs (>= 80%)
