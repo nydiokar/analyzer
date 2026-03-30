@@ -93,13 +93,6 @@ model SwapAnalysisInput {
   interactionType     String
   feeAmount           Float?
   feePercentage       Float?
-  solPriceUsd         Float?
-  usdValue            Float?
-  tokenPriceUsd       Float?
-  marketCapUsd        Float?
-  mcapBucket          String?
-  enrichedAt          DateTime?
-
   // --- Market Context (enrichment) ---
   solPriceUsd    Float?     // SOL/USD price at time of trade
   usdValue       Float?     // total USD value of the trade (associatedSolValue × solPriceUsd)
@@ -536,12 +529,6 @@ model TokenInfo {
   @@index([marketCapUsd])
   @@index([liquidityUsd])
   @@index([pairCreatedAt])
-}
-
-model SolDailyPrice {
-  date      String   @id
-  priceUsd  Float
-  fetchedAt DateTime @default(now())
 }
 
 model Message {
