@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `feat/market-context-enrichment`  **Last Updated:** 2026-03-26  **Status:** Phase 1-6 implemented and hardened; DB migration history repaired; live-data verification still required before Phase 7 or production
+**Branch:** `feat/market-context-enrichment`  **Last Updated:** 2026-03-30  **Status:** Phase 1-6 done + verified. Phase 7 in progress — WalletBehaviorProfile + AnalysisResult entry mcap done. Exit mcap, TokenLot, WalletPnlSummary USD, HUD DTO remaining.
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 

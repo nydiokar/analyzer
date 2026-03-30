@@ -13,6 +13,7 @@ import { TokenInfoService } from '../../api/services/token-info.service';
 import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 import { getKnownWallet, SKIP_PNL_CALCULATION, type KnownWalletType } from '../../config/known-wallets';
 import { getErrorMessage } from 'core/utils/error-utils';
+import { classifyMcap } from 'core/services/market-context-standalone';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -700,6 +701,31 @@ export class PnlAnalysisService {
                         });
                                         
 
+                    // Build per-token volume-weighted avg entry mcap from enriched buy rows
+                    const enrichedBuyRows = await prisma.swapAnalysisInput.findMany({
+                        where: {
+                            walletAddress,
+                            direction: 'in',
+                            marketCapUsd: { not: null },
+                            usdValue: { not: null },
+                        },
+                        select: { mint: true, marketCapUsd: true, usdValue: true },
+                    });
+                    const mcapAccum = new Map<string, { sumMcapWeighted: number; sumUsd: number }>();
+                    for (const row of enrichedBuyRows) {
+                        const acc = mcapAccum.get(row.mint) ?? { sumMcapWeighted: 0, sumUsd: 0 };
+                        acc.sumMcapWeighted += row.marketCapUsd! * row.usdValue!;
+                        acc.sumUsd += row.usdValue!;
+                        mcapAccum.set(row.mint, acc);
+                    }
+                    const avgEntryMcapByMint = new Map<string, { avgEntryMcap: number; avgEntryMcapBucket: string }>();
+                    for (const [mint, acc] of mcapAccum) {
+                        if (acc.sumUsd > 0) {
+                            const avg = acc.sumMcapWeighted / acc.sumUsd;
+                            avgEntryMcapByMint.set(mint, { avgEntryMcap: avg, avgEntryMcapBucket: classifyMcap(avg) });
+                        }
+                    }
+
                     // Upsert AnalysisResult records with token balances
                     const resultsToUpsert = enrichedSwapAnalysisResults.map((r: OnChainAnalysisResult) => ({
                         walletAddress: walletAddress,
@@ -730,6 +756,8 @@ export class PnlAnalysisService {
                         currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
                         currentHoldingsCostBasisSol: r.currentHoldingsCostBasisSol ?? null,
                         balanceFetchedAt: r.balanceFetchedAt,
+                        avgEntryMcap: avgEntryMcapByMint.get(r.tokenAddress)?.avgEntryMcap ?? null,
+                        avgEntryMcapBucket: avgEntryMcapByMint.get(r.tokenAddress)?.avgEntryMcapBucket ?? null,
                     }));
 
                     await this.databaseService.replaceTokenLotsForWallet(walletAddress, fifoLotsToPersist);

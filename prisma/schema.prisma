@@ -137,6 +137,8 @@ model AnalysisResult {
   realizedPnlSol              Float?
   totalPnlSol                 Float?
   unrealizedPnlSol            Float?
+  avgEntryMcap                Float?    // volume-weighted avg marketCapUsd across buy trades for this token
+  avgEntryMcapBucket          String?   // classified bucket of avgEntryMcap
   wallet                      Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@unique([walletAddress, tokenAddress])
@@ -256,6 +258,10 @@ model WalletBehaviorProfile {
   medianCurrentHoldingDurationHours  Float?
   percentOfValueInCurrentHoldings    Float?
   medianCompletedHoldTimeHours       Float?
+  preferredMcapBucket                String?  // bucket where most buy-side usdValue was deployed
+  avgEntryMcap                       Float?   // volume-weighted avg marketCapUsd across all buy trades
+  mcapDistribution                   Json?    // { nano: 0.4, micro: 0.3, ... } fraction of buy volume per bucket
+  mcapBucketPnl                      Json?    // { nano: { realizedPnlSol: 1.2, tradeCount: 12, winRate: 0.67 }, ... }
   wallet                             Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
