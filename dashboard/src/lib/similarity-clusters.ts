@@ -22,6 +22,8 @@ export interface ClusterAnalysisConfig {
   minDensity: number;
   minDensityForExtremeVolume: number;
   minClusterSize: number;
+  minInternalConnections: number;
+  minAvgCohesionToCluster: number;
   sharedTokensNormalizer: number;
 }
 
@@ -36,6 +38,7 @@ export interface QualifyingClusterEdge extends ClusterPairData {
 export interface WalletCluster {
   id: number;
   wallets: string[];
+  relatedWallets: string[];
   avgCohesionScore: number;
   minCohesionScore: number;
   avgOverallScore: number;
@@ -71,6 +74,8 @@ export const HOLDER_PROFILES_CLUSTER_CONFIG: ClusterAnalysisConfig = {
   minDensity: 0.6,
   minDensityForExtremeVolume: 0.5,
   minClusterSize: 3,
+  minInternalConnections: 2,
+  minAvgCohesionToCluster: 0.52,
   sharedTokensNormalizer: 24,
 };
 
@@ -87,6 +92,8 @@ export const SIMILARITY_LAB_CLUSTER_CONFIG: ClusterAnalysisConfig = {
   minDensity: 0.55,
   minDensityForExtremeVolume: 0.34,
   minClusterSize: 3,
+  minInternalConnections: 2,
+  minAvgCohesionToCluster: 0.48,
   sharedTokensNormalizer: 40,
 };
 
@@ -260,6 +267,55 @@ export function analyzeSimilarityGraph(
   const components = unionFind.getComponents();
   const clusters: WalletCluster[] = [];
 
+  const buildAdjacency = (edges: QualifyingClusterEdge[]) => {
+    const adjacency = new Map<string, QualifyingClusterEdge[]>();
+    for (const edge of edges) {
+      const leftEdges = adjacency.get(edge.walletA) ?? [];
+      leftEdges.push(edge);
+      adjacency.set(edge.walletA, leftEdges);
+
+      const rightEdges = adjacency.get(edge.walletB) ?? [];
+      rightEdges.push(edge);
+      adjacency.set(edge.walletB, rightEdges);
+    }
+    return adjacency;
+  };
+
+  const trimToCoreCluster = (wallets: string[], edges: QualifyingClusterEdge[]) => {
+    const retained = new Set(wallets);
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+      const retainedEdges = edges.filter(
+        (edge) => retained.has(edge.walletA) && retained.has(edge.walletB)
+      );
+      const adjacency = buildAdjacency(retainedEdges);
+
+      for (const wallet of [...retained]) {
+        const walletEdges = adjacency.get(wallet) ?? [];
+        const requiredConnections = Math.min(
+          config.minInternalConnections,
+          Math.max(retained.size - 1, 0)
+        );
+        const avgWalletCohesion =
+          walletEdges.length > 0
+            ? walletEdges.reduce((sum, edge) => sum + edge.cohesionScore, 0) / walletEdges.length
+            : 0;
+
+        if (
+          retained.size > config.minClusterSize &&
+          (walletEdges.length < requiredConnections || avgWalletCohesion < config.minAvgCohesionToCluster)
+        ) {
+          retained.delete(wallet);
+          changed = true;
+        }
+      }
+    }
+
+    return [...retained].sort();
+  };
+
   for (const wallets of components.values()) {
     if (wallets.length < config.minClusterSize) {
       continue;
@@ -270,9 +326,22 @@ export function analyzeSimilarityGraph(
       .filter((edge) => clusterWalletSet.has(edge.walletA) && clusterWalletSet.has(edge.walletB))
       .sort((left, right) => right.cohesionScore - left.cohesionScore);
 
-    const possibleEdgeCount = (wallets.length * (wallets.length - 1)) / 2;
-    const density = possibleEdgeCount > 0 ? clusterEdges.length / possibleEdgeCount : 0;
-    const hasExtremeVolumeEdge = clusterEdges.some((edge) =>
+    const coreWallets = trimToCoreCluster(wallets, clusterEdges);
+    if (coreWallets.length < config.minClusterSize) {
+      continue;
+    }
+
+    const coreWalletSet = new Set(coreWallets);
+    const coreEdges = clusterEdges.filter(
+      (edge) => coreWalletSet.has(edge.walletA) && coreWalletSet.has(edge.walletB)
+    );
+    const relatedWallets = wallets
+      .filter((wallet) => !coreWalletSet.has(wallet))
+      .sort();
+
+    const possibleEdgeCount = (coreWallets.length * (coreWallets.length - 1)) / 2;
+    const density = possibleEdgeCount > 0 ? coreEdges.length / possibleEdgeCount : 0;
+    const hasExtremeVolumeEdge = coreEdges.some((edge) =>
       edge.qualificationReasons.includes('extreme-volume')
     );
     const requiredDensity = hasExtremeVolumeEdge
@@ -283,38 +352,39 @@ export function analyzeSimilarityGraph(
       continue;
     }
 
-    const totalSharedTokens = clusterEdges.reduce(
+    const coreTotalSharedTokens = coreEdges.reduce(
       (sum, edge) => sum + (edge.sharedTokensCount ?? 0),
       0
     );
     const avgCohesionScore =
-      clusterEdges.length > 0
-        ? clusterEdges.reduce((sum, edge) => sum + edge.cohesionScore, 0) / clusterEdges.length
+      coreEdges.length > 0
+        ? coreEdges.reduce((sum, edge) => sum + edge.cohesionScore, 0) / coreEdges.length
         : 0;
     const avgOverallScore =
-      clusterEdges.length > 0
-        ? clusterEdges.reduce((sum, edge) => sum + edge.overallScore, 0) / clusterEdges.length
+      coreEdges.length > 0
+        ? coreEdges.reduce((sum, edge) => sum + edge.overallScore, 0) / coreEdges.length
         : 0;
     const avgOverlapRatio =
-      clusterEdges.length > 0
-        ? clusterEdges.reduce((sum, edge) => sum + edge.smallerWalletOverlap, 0) / clusterEdges.length
+      coreEdges.length > 0
+        ? coreEdges.reduce((sum, edge) => sum + edge.smallerWalletOverlap, 0) / coreEdges.length
         : 0;
 
     clusters.push({
       id: clusters.length,
-      wallets: [...wallets].sort(),
+      wallets: coreWallets,
+      relatedWallets,
       avgCohesionScore,
-      minCohesionScore: clusterEdges.length > 0 ? Math.min(...clusterEdges.map((edge) => edge.cohesionScore)) : 0,
+      minCohesionScore: coreEdges.length > 0 ? Math.min(...coreEdges.map((edge) => edge.cohesionScore)) : 0,
       avgOverallScore,
-      minOverallScore: clusterEdges.length > 0 ? Math.min(...clusterEdges.map((edge) => edge.overallScore)) : 0,
+      minOverallScore: coreEdges.length > 0 ? Math.min(...coreEdges.map((edge) => edge.overallScore)) : 0,
       avgOverlapRatio,
-      minOverlapRatio: clusterEdges.length > 0 ? Math.min(...clusterEdges.map((edge) => edge.smallerWalletOverlap)) : 0,
-      totalSharedTokens,
-      maxSharedTokens: clusterEdges.length > 0 ? Math.max(...clusterEdges.map((edge) => edge.sharedTokensCount ?? 0)) : 0,
-      edgeCount: clusterEdges.length,
+      minOverlapRatio: coreEdges.length > 0 ? Math.min(...coreEdges.map((edge) => edge.smallerWalletOverlap)) : 0,
+      totalSharedTokens: coreTotalSharedTokens,
+      maxSharedTokens: coreEdges.length > 0 ? Math.max(...coreEdges.map((edge) => edge.sharedTokensCount ?? 0)) : 0,
+      edgeCount: coreEdges.length,
       possibleEdgeCount,
       density,
-      strongestPairs: clusterEdges.slice(0, 3),
+      strongestPairs: coreEdges.slice(0, 3),
     });
   }
 

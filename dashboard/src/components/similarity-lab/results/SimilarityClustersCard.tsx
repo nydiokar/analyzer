@@ -157,6 +157,11 @@ export function SimilarityClustersCard({ results }: SimilarityClustersCardProps)
                       <span className="text-xs text-muted-foreground">
                         {cluster.wallets.length} wallets
                       </span>
+                      {cluster.relatedWallets.length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          + {cluster.relatedWallets.length} related
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -177,6 +182,12 @@ export function SimilarityClustersCard({ results }: SimilarityClustersCardProps)
                       <div className="text-xs text-foreground/70">
                         Anchor: {anchorPair.walletA.slice(0, 4)}...{anchorPair.walletA.slice(-4)} ↔ {anchorPair.walletB.slice(0, 4)}...{anchorPair.walletB.slice(-4)}
                         {' '}({formatSharedTokens(anchorPair.sharedTokensCount ?? 0)}, {formatPercent(anchorPair.cohesionScore)})
+                      </div>
+                    )}
+
+                    {cluster.relatedWallets.length > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        Related network: {cluster.relatedWallets.map((wallet) => `${wallet.slice(0, 4)}...${wallet.slice(-4)}`).join(', ')}
                       </div>
                     )}
                   </div>
