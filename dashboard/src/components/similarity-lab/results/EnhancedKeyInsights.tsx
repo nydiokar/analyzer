@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Handshake, Scale, Users2, ArrowUpRightFromSquare, TrendingDown, Lightbulb, ChevronDown, ChevronRight, ChevronUp, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { WalletBadge } from '@/components/shared/WalletBadge';
+import { SimilarityWalletBadge } from '@/components/similarity-lab/SimilarityWalletBadge';
 import { TokenBadge } from '@/components/shared/TokenBadge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useWalletHudCache } from '@/hooks/useWalletHudCache';
@@ -225,7 +225,7 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
 
           {/* Wallet Pair */}
           <div className="flex items-center gap-1.5 text-xs">
-            <WalletBadge
+            <SimilarityWalletBadge
               address={pair.walletA}
               size="s"
               knownType={labelA?.knownType}
@@ -235,7 +235,7 @@ const PairCard = memo(({ processedPair, sortKey, isSelected, onSelect, walletLab
               hudData={hudDataA}
             />
             <span className="text-foreground/30 shrink-0">↔</span>
-            <WalletBadge
+            <SimilarityWalletBadge
               address={pair.walletB}
               size="s"
               knownType={labelB?.knownType}
@@ -822,7 +822,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                   <span className="w-16 text-right cursor-help">Wallet A</span>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs max-w-xs">
-                  <WalletBadge
+                  <SimilarityWalletBadge
                     address={pair!.walletA}
                     size="s"
                     knownType={labelA?.knownType}
@@ -836,7 +836,7 @@ const PairDetail = memo(({ processedPair, results, sortKey, setSortKey, isLoadin
                   <span className="w-16 text-right cursor-help">Wallet B</span>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs max-w-xs">
-                  <WalletBadge
+                  <SimilarityWalletBadge
                     address={pair!.walletB}
                     size="s"
                     knownType={labelB?.knownType}

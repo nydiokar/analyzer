@@ -4,7 +4,7 @@ import { CombinedSimilarityResult } from './types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Info, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { WalletBadge } from '@/components/shared/WalletBadge';
+import { SimilarityWalletBadge } from '@/components/similarity-lab/SimilarityWalletBadge';
 
 interface HistoricalVsLiveComparisonProps {
   results: CombinedSimilarityResult;
@@ -210,9 +210,9 @@ export function HistoricalVsLiveComparison({ results }: HistoricalVsLiveComparis
                   <TableRow key={`${pair.walletA}-${pair.walletB}`} className="border-border">
                     <TableCell className="py-2">
                       <div className="flex items-center gap-1 text-xs">
-                        <WalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
+                        <SimilarityWalletBadge address={pair.walletA} size="s" knownType={getWalletLabel(pair.walletA)?.knownType} knownLabel={getWalletLabel(pair.walletA)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
                         <span className="text-muted-foreground">↔</span>
-                        <WalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
+                        <SimilarityWalletBadge address={pair.walletB} size="s" knownType={getWalletLabel(pair.walletB)?.knownType} knownLabel={getWalletLabel(pair.walletB)?.knownLabel} visibleActions={{ copy: false, solscan: false, profile: true }} />
                       </div>
                     </TableCell>
                     <TableCell className="text-center text-xs py-2">
