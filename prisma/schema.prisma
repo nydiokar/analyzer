@@ -93,6 +93,12 @@ model SwapAnalysisInput {
   interactionType     String
   feeAmount           Float?
   feePercentage       Float?
+  solPriceUsd         Float?
+  usdValue            Float?
+  tokenPriceUsd       Float?
+  marketCapUsd        Float?
+  mcapBucket          String?
+  enrichedAt          DateTime?
 
   // --- Market Context (enrichment) ---
   solPriceUsd    Float?     // SOL/USD price at time of trade
@@ -332,6 +338,7 @@ model User {
   messageReadStates   MessageReadState[]
   tokenAlerts         TokenAlert[]
   alertNotifications  AlertNotification[]
+  holderProfileShares HolderProfileShare[]
 
   @@index([lastBulkImportAt])
 }
@@ -529,6 +536,12 @@ model TokenInfo {
   @@index([marketCapUsd])
   @@index([liquidityUsd])
   @@index([pairCreatedAt])
+}
+
+model SolDailyPrice {
+  date      String   @id
+  priceUsd  Float
+  fetchedAt DateTime @default(now())
 }
 
 model Message {
@@ -769,6 +782,26 @@ model RadarHolding {
 // ---------------------------------------------------------------------------
 // Telegram Bot Intel — per-invocation attribution log
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Shareable Analysis Results — frozen snapshots of holder-profiles runs
+// ---------------------------------------------------------------------------
+
+model HolderProfileShare {
+  id           String    @id @default(cuid())
+  snapshotJson Json
+  tokenMint    String?
+  tokenSymbol  String?
+  topN         Int?
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime?
+  createdBy    String?
+  viewCount    Int       @default(0)
+  user         User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([createdBy])
+}
 
 model TelegramBotLog {
   id             String   @id @default(cuid())

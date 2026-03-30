@@ -13,7 +13,7 @@ import { fetcher } from '@/lib/fetcher';
 import { useJobProgress } from '@/hooks/useJobProgress';
 import type { JobProgressData, JobFailedData, JobCompletionData } from '@/types/websockets';
 import { isValidSolanaAddress } from '@/lib/solana-utils';
-import { Loader2, Search, Users } from 'lucide-react';
+import { Check, Loader2, Search, Share2, Users } from 'lucide-react';
 import type { HolderProfilesResult } from '@/components/holder-profiles/types';
 import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import type { SimilarityStatus } from '@/components/holder-profiles/v2/SimilaritySidebar';
@@ -21,12 +21,15 @@ import type { JobResult } from '@/types/websockets';
 import { TokenPulse } from '@/components/holder-profiles/v2/TokenPulse';
 import { PageTitle } from '@/components/shared/PageTitle';
 import { FeatureHelpLink } from '@/components/help/FeatureHelpLink';
+import { trimSimilarityResultForShare } from '@/lib/holder-profile-share';
 import {
   WalletClassifier,
   WalletClassifierEntry,
 } from '@/components/holder-profiles/v2/WalletClassifier';
 import { AppShell } from '@/components/layout/AppShell';
 import { useAuthStore } from '@/store/auth-store';
+import { useHolderProfileHistory } from '@/hooks/useHolderProfileHistory';
+import { SnapshotHistoryModal } from '@/components/holder-profiles/SnapshotHistoryModal';
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 type AnalysisMode = 'token' | 'wallet';
@@ -77,6 +80,8 @@ function HolderProfilesContent() {
   const [walletInput, setWalletInput] = useState('');
   const [walletEntries, setWalletEntries] = useState<WalletClassifierEntry[]>([]);
   const [tokenResult, setTokenResult] = useState<HolderProfilesResult | null>(null);
+  const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'copied'>('idle');
+  const [latestShareableJobId, setLatestShareableJobId] = useState<string | null>(null);
   const [tokenPartialResult, setTokenPartialResult] = useState<HolderProfilesResult | null>(null);
   const [lastSuccessfulTokenResult, setLastSuccessfulTokenResult] = useState<HolderProfilesResult | null>(null);
   const [lastSuccessfulTokenTimestamp, setLastSuccessfulTokenTimestamp] = useState<number | null>(null);
@@ -215,7 +220,9 @@ function HolderProfilesContent() {
         if (tokenJobIdRef.current && data.jobId === tokenJobIdRef.current) {
           const resultData = data.result as unknown as HolderProfilesResult;
           if (resultData?.profiles) {
+            const completedJobId = data.jobId;
             setTokenResult(resultData);
+            setLatestShareableJobId(completedJobId);
             setTokenPartialResult(null);
             setTokenStatus('completed');
             setTokenProgress(100);
@@ -325,7 +332,7 @@ function HolderProfilesContent() {
       return;
     }
     resumeAttemptedRef.current = tokenStorageKey;
-    const jobId = window.localStorage.getItem(tokenStorageKey);
+      const jobId = window.localStorage.getItem(tokenStorageKey);
     if (!jobId) {
       return;
     }
@@ -336,6 +343,7 @@ function HolderProfilesContent() {
         const resultData = resultResponse?.result as HolderProfilesResult | undefined;
         if (resultData?.profiles) {
           setTokenResult(resultData);
+          setLatestShareableJobId(jobId);
           setTokenPartialResult(null);
           setTokenStatus('completed');
           setTokenProgress(100);
@@ -539,6 +547,36 @@ function HolderProfilesContent() {
     else handleWalletAnalyze();
   };
 
+  const handleShare = useCallback(async () => {
+    if (!tokenResult || !tokenMint || !latestShareableJobId || shareStatus === 'loading') return;
+    setShareStatus('loading');
+    try {
+      const response = await fetcher('/share/hp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tokenMint,
+          jobId: latestShareableJobId,
+          similaritySnapshot: trimSimilarityResultForShare(similarityResult),
+        }),
+      }) as { shareId: string; url: string };
+      const shareUrl = `${window.location.origin}${response.url}`;
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareStatus('copied');
+        toast.success('Share link copied!', { description: shareUrl });
+        setTimeout(() => setShareStatus('idle'), 2500);
+      } catch {
+        // Clipboard unavailable (non-HTTPS or permission denied) — still show the URL
+        setShareStatus('idle');
+        toast.success('Share link created!', { description: shareUrl });
+      }
+    } catch (err: any) {
+      setShareStatus('idle');
+      toast.error('Failed to create share link', { description: err?.message ?? 'Unknown error' });
+    }
+  }, [latestShareableJobId, shareStatus, similarityResult, tokenMint, tokenResult]);
+
   const handleRemoveWallet = (address: string) => {
     const updated = parsedWallets.list.filter((value) => value !== address);
     setWalletInput(updated.join('\n'));
@@ -565,6 +603,13 @@ function HolderProfilesContent() {
         variant: 'default' as const,
       }
     : null;
+
+  const { runs: historyRuns } = useHolderProfileHistory({
+    tokenMint: analysisMode === 'token' ? tokenMint : null,
+    topN,
+    // Fetch after completion OR after a failure where we still have a prior result to show
+    enabled: analysisMode === 'token' && (tokenStatus === 'completed' || (tokenStatus === 'failed' && !!displayedTokenResult)),
+  });
 
   const retrySimilarity = useCallback(() => {
     if (tokenStatus === 'running') {
@@ -601,7 +646,10 @@ function HolderProfilesContent() {
         </div>
         <Card className="max-w-6xl mx-auto p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex-1 min-w-[220px]">
+            {analysisMode === 'token' && historyRuns.length > 0 && (
+              <SnapshotHistoryModal runs={historyRuns} tokenMint={tokenMint} />
+            )}
+            <div className="flex-1 min-w-[180px]">
               {analysisMode === 'token' ? (
                 <Input
                   id="tokenMint"
@@ -653,6 +701,25 @@ function HolderProfilesContent() {
               )}
             </Button>
 
+            {analysisMode === 'token' && tokenResult && latestShareableJobId && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 px-4"
+                onClick={handleShare}
+                disabled={shareStatus === 'loading'}
+              >
+                {shareStatus === 'loading' ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : shareStatus === 'copied' ? (
+                  <Check className="mr-2 h-4 w-4 text-emerald-500" />
+                ) : (
+                  <Share2 className="mr-2 h-4 w-4" />
+                )}
+                {shareStatus === 'copied' ? 'Copied!' : 'Share'}
+              </Button>
+            )}
+
             <Tabs value={analysisMode} onValueChange={(value) => setAnalysisMode(value as AnalysisMode)}>
               <TabsList className="h-9 grid w-[140px] grid-cols-2">
                 <TabsTrigger value="token" className="text-xs">Token</TabsTrigger>
@@ -669,14 +736,16 @@ function HolderProfilesContent() {
         </Card>
 
         {analysisMode === 'token' && displayedTokenResult && (
-          <TokenPulse
-            result={displayedTokenResult}
-            similarityResult={similarityResult}
-            similarityStatus={similarityStatus}
-            isFinalAnalysis={similarityStatus !== 'idle'}
-            notice={tokenNotice}
-            onRetrySimilarity={retrySimilarity}
-          />
+          <div className="space-y-2">
+            <TokenPulse
+              result={displayedTokenResult}
+              similarityResult={similarityResult}
+              similarityStatus={similarityStatus}
+              isFinalAnalysis={similarityStatus !== 'idle'}
+              notice={tokenNotice}
+              onRetrySimilarity={retrySimilarity}
+            />
+          </div>
         )}
 
         {analysisMode === 'token' && tokenStatus === 'failed' && !displayedTokenResult && (

@@ -26,6 +26,7 @@ export type {
   // Batch
   BatchHudResponse,
   BatchHudResult,
+  BatchHudQueuedEntry,
   // Similarity
   SimilarityPairResult,
   SimilarityGlobalMetrics,
@@ -39,6 +40,16 @@ export type {
   JobAcceptedResponse,
   WalletGetQueuedResponse,
   DeepJobAcceptedResponse,
+  // Agent-optimised job accepted responses
+  HolderProfilesAgentJobAcceptedResponse,
+  SimilarityAgentJobAcceptedResponse,
+  // Agent-optimised result types
+  AgentHoldingsSummary,
+  AgentHolderProfile,
+  AgentHolderAggregate,
+  AgentHolderProfilesResult,
+  AgentSimilarityPair,
+  AgentSimilarityResult,
   // X402
   X402Accept,
   X402ErrorBody,

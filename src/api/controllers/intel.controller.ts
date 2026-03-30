@@ -26,6 +26,12 @@ import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 
 import { RequireCredits } from '../shared/decorators/require-credits.decorator';
+import {
+  buildAgentHolderProfilesResult,
+  buildAgentSimilarityResult,
+} from '../shared/intel-agent-transforms';
+import type { HolderProfilesResult } from '../../queues/jobs/types';
+import type { CombinedSimilarityResult } from '../../types/similarity';
 import { WalletHudService } from '../services/wallet-hud.service';
 import { DatabaseService } from '../services/database.service';
 import { BehaviorService } from '../services/behavior.service';
@@ -671,7 +677,8 @@ export class IntelController {
       jobId: job.id,
       requestId,
       monitoringUrl: `/api/v1/jobs/${job.id}`,
-      message: 'Holder-profiles analysis queued. Poll monitoringUrl for completion.',
+      resultKey: `holder-profiles:result:${job.id}`,
+      message: 'Holder-profiles analysis queued. Poll monitoringUrl for completion, then fetch resultKey via GET /api/v1/jobs/result/by-key?key={resultKey}.',
     };
   }
 
@@ -706,8 +713,282 @@ export class IntelController {
       requestId: similarity.requestId,
       walletCount: body.wallets.length,
       monitoringUrl: `/api/v1/jobs/${similarity.jobId}`,
-      message: 'Similarity analysis queued. Poll monitoringUrl for completion.',
+      resultKey: `similarity:result:${similarity.requestId}`,
+      message: 'Similarity analysis queued. Poll monitoringUrl for completion, then fetch resultKey via GET /api/v1/jobs/result/by-key?key={resultKey}.',
     };
+  }
+
+  /**
+   * POST /intel/token/:mint/holders/agent
+   * 20 credits — agent-optimised variant of /holders.
+   *
+   * Queues the same holder-profiles job as /holders. On polling, the result
+   * endpoint reads the full result from Redis, applies the agent transform
+   * (drops debug fields, replaces currentHoldings[] with holdingsSummary,
+   * prepends a population-level aggregate block), and stores the slim version
+   * at holder-profiles:agent:result:{jobId} with the same TTL.
+   *
+   * The agent result key is included in the 202 response as `agentResultKey`.
+   * Poll monitoringUrl, then fetch agentResultKey via GET /api/v1/jobs/result/by-key.
+   * The full result is still available at resultKey for developer consumption.
+   *
+   * 20cr deducted on job acceptance (same as /holders).
+   */
+  @Post('token/:mint/holders/agent')
+  @RequireCredits(20)
+  @HttpCode(202)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({
+    summary: 'Agent-optimised holder-profiles analysis (20cr)',
+    description: `Same analysis as POST /intel/token/:mint/holders, but the result is transformed for agent consumption:
+
+- **Aggregate block first**: population-level signal (behavior distribution, supply concentration, fast-money %, clusterAlert) — an agent reads this to make a buy/skip decision without scanning individual profiles.
+- **Slim per-holder profiles**: behavioral signals kept in full; \`currentHoldings[]\` replaced with \`holdingsSummary\` (totalPositions, percentValueInCurrentHoldings, top 5 holdings by SOL value); debug fields dropped.
+- **Target size**: ~1–2k tokens for 20 holders vs ~10k+ for the full shape.
+
+Returns HTTP 202. Poll \`monitoringUrl\`. Once completed, fetch \`agentResultKey\` via GET /api/v1/jobs/result/by-key?key={agentResultKey}.
+The full developer result remains available at \`resultKey\`.
+
+20cr deducted on job acceptance.`,
+  })
+  @ApiParam({ name: 'mint', description: 'Solana token mint address' })
+  @ApiBody({ type: IntelTokenHoldersRequestDto })
+  @ApiResponse({ status: 202, description: 'Holder-profiles agent job accepted — poll monitoringUrl, then fetch agentResultKey' })
+  @ApiResponse({ status: 400, description: 'Invalid token mint address or topN out of range' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async queueTokenHoldersAgent(
+    @Param('mint') mint: string,
+    @Req() req: Request & { user?: User },
+    @Body() body: IntelTokenHoldersRequestDto,
+  ) {
+    if (!isValidSolanaAddress(mint)) {
+      throw new BadRequestException(`Invalid token mint address: ${mint}`);
+    }
+
+    const topN = body.topN ?? 20;
+    if (topN < 1 || topN > 50) {
+      throw new BadRequestException('topN must be between 1 and 50');
+    }
+
+    this.logger.log(`Intel holder-profiles/agent request: mint=${mint} topN=${topN}`);
+
+    const requestId = `intel-holders-agent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const jobData: AnalyzeHolderProfilesJobData = {
+      mode: 'token',
+      userId: req.user?.id,
+      tokenMint: mint,
+      topN,
+      requestId,
+    };
+
+    let job: Awaited<ReturnType<typeof this.analysisOperationsQueue.addHolderProfilesJob>>;
+    try {
+      job = await this.analysisOperationsQueue.addHolderProfilesJob(jobData, {
+        priority: JobPriority.HIGH,
+        delay: 0,
+      });
+    } catch (queueError) {
+      this.logger.error(`Intel holder-profiles/agent: failed to queue job for ${mint}: ${queueError}`);
+      throw new InternalServerErrorException('Failed to queue holder-profiles job');
+    }
+
+    this.logger.log(`Intel holder-profiles/agent: queued job ${job.id} for mint=${mint} topN=${topN}`);
+
+    const jobId = job.id;
+    const fullResultKey = `holder-profiles:result:${jobId}`;
+    const agentResultKey = `holder-profiles:agent:result:${jobId}`;
+
+    // HTTP 202 — CreditInterceptor fires on return → 20cr deducted.
+    return {
+      status: 'queued' as const,
+      tokenMint: mint,
+      topN,
+      jobId,
+      requestId,
+      monitoringUrl: `/api/v1/jobs/${jobId}`,
+      resultKey: fullResultKey,
+      agentResultKey,
+      message: 'Holder-profiles agent analysis queued. Poll monitoringUrl for completion, then fetch agentResultKey via GET /api/v1/jobs/result/by-key?key={agentResultKey}.',
+    };
+  }
+
+  /**
+   * GET /intel/jobs/result/agent/holder-profiles/:jobId
+   * 0 credits — read-only agent result hydration.
+   *
+   * Called after polling confirms the holder-profiles job is complete.
+   * Reads the full result from Redis (holder-profiles:result:{jobId}),
+   * applies the agent transform, writes the slim version to
+   * holder-profiles:agent:result:{jobId} (same TTL), and returns it.
+   *
+   * Idempotent: if the agent result key already exists, returns it directly
+   * (no re-transform on repeated calls).
+   *
+   * This endpoint is NOT credit-gated — the 20cr was charged on job acceptance.
+   * The transform happens here rather than in the processor so we never mutate
+   * or duplicate the full result key.
+   */
+  @Get('jobs/result/agent/holder-profiles/:jobId')
+  @ApiOperation({
+    summary: 'Fetch agent-transformed holder-profiles result (0cr)',
+    description: `Reads the completed holder-profiles result for the given jobId, applies the agent transform, and returns the slim payload. Call after polling confirms the job is complete.
+
+Result shape:
+- \`aggregate\`: population-level signal (behavior distribution, supply concentration, fast-money %, clusterAlert)
+- \`profiles[]\`: slim per-holder records with \`holdingsSummary\` instead of \`currentHoldings[]\`
+- \`metadata\`: token mint + holder counts`,
+  })
+  @ApiParam({ name: 'jobId', description: 'jobId returned by POST /intel/token/:mint/holders/agent' })
+  @ApiResponse({ status: 200, description: 'Agent-transformed holder-profiles result' })
+  @ApiResponse({ status: 404, description: 'Result not found or expired (TTL elapsed)' })
+  async getAgentHolderProfilesResult(@Param('jobId') jobId: string) {
+    if (!jobId || jobId.trim().length === 0) {
+      throw new BadRequestException('jobId is required');
+    }
+
+    const agentKey = `holder-profiles:agent:result:${jobId}`;
+    const fullKey = `holder-profiles:result:${jobId}`;
+
+    // Return cached agent result if already transformed
+    const cached = await this.redisClient.get(agentKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    // Read full result and transform
+    const raw = await this.redisClient.get(fullKey);
+    if (!raw) {
+      throw new NotFoundException(`Holder-profiles result not found for jobId=${jobId}. It may have expired (15-min TTL) or the job has not completed yet.`);
+    }
+
+    const fullResult = JSON.parse(raw) as HolderProfilesResult;
+    const agentResult = buildAgentHolderProfilesResult(fullResult);
+
+    // Persist agent result with same TTL as full result
+    const ttl = await this.redisClient.ttl(fullKey);
+    const effectiveTtl = ttl > 0 ? ttl : 900;
+    await this.redisClient.set(agentKey, JSON.stringify(agentResult), 'EX', effectiveTtl);
+
+    return agentResult;
+  }
+
+  /**
+   * POST /intel/wallets/similarity/agent
+   * 20 credits — agent-optimised variant of /similarity.
+   *
+   * Queues the same similarity job as /similarity. On result fetch, the full
+   * CombinedSimilarityResult is read from Redis, transformed to the agent shape
+   * (coordinationScore, flaggedPairs, topOverlaps, no sharedTokens[] arrays),
+   * and stored at similarity:agent:result:{requestId} with the same TTL.
+   *
+   * 20cr deducted on job acceptance (same as /similarity).
+   */
+  @Post('wallets/similarity/agent')
+  @RequireCredits(20)
+  @HttpCode(202)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiOperation({
+    summary: 'Agent-optimised similarity analysis (20cr)',
+    description: `Same analysis as POST /intel/wallets/similarity, but the result is transformed for agent consumption:
+
+- **coordinationScore** (0–1): weighted average of top-pair capital scores — single number for quick agent decisions.
+- **flaggedPairs**: pairs with capitalScore > 0.7 — direct suspicious coordination signal.
+- **topOverlaps**: top 10 pairs sorted by capitalScore, with shared/unique token counts but no \`sharedTokens[]\` arrays.
+- No \`uniqueTokensPerWallet\` map, no raw vector data.
+- **Target size**: ~1–2k tokens for 20 wallets vs ~10k+ for the full shape.
+
+Returns HTTP 202. Poll \`monitoringUrl\`. Once completed, fetch \`agentResultKey\` via GET /api/v1/jobs/result/by-key?key={agentResultKey}.
+
+20cr deducted on job acceptance.`,
+  })
+  @ApiBody({ type: IntelWalletSimilarityRequestDto })
+  @ApiResponse({ status: 202, description: 'Similarity agent job accepted — poll monitoringUrl, then fetch agentResultKey' })
+  @ApiResponse({ status: 400, description: 'Invalid wallet list or invalid wallet address' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async queueWalletSimilarityAgent(
+    @Req() req: Request & { user?: User },
+    @Body() body: IntelWalletSimilarityRequestDto,
+  ) {
+    const invalidWallets = body.wallets.filter((wallet) => !isValidSolanaAddress(wallet));
+    if (invalidWallets.length > 0) {
+      throw new BadRequestException(
+        `Invalid Solana address(es) provided: ${invalidWallets.slice(0, 5).join(', ')}${invalidWallets.length > 5 ? ` ... (+${invalidWallets.length - 5} more)` : ''}`,
+      );
+    }
+
+    const similarity = await this.queueSimilarityJob(req, body.wallets, 'intel-similarity-agent');
+
+    const agentResultKey = `similarity:agent:result:${similarity.requestId}`;
+
+    return {
+      status: 'queued' as const,
+      jobId: similarity.jobId,
+      requestId: similarity.requestId,
+      walletCount: body.wallets.length,
+      monitoringUrl: `/api/v1/jobs/${similarity.jobId}`,
+      resultKey: `similarity:result:${similarity.requestId}`,
+      agentResultKey,
+      message: 'Similarity agent analysis queued. Poll monitoringUrl for completion, then fetch agentResultKey via GET /api/v1/jobs/result/by-key?key={agentResultKey}.',
+    };
+  }
+
+  /**
+   * GET /intel/jobs/result/agent/similarity/:requestId
+   * 0 credits — read-only agent result hydration for similarity.
+   *
+   * Reads the full CombinedSimilarityResult from Redis (similarity:result:{requestId}),
+   * applies the agent transform, writes the slim version to
+   * similarity:agent:result:{requestId}, and returns it.
+   *
+   * Idempotent: returns cached agent result on repeated calls.
+   */
+  @Get('jobs/result/agent/similarity/:requestId')
+  @ApiOperation({
+    summary: 'Fetch agent-transformed similarity result (0cr)',
+    description: `Reads the completed similarity result for the given requestId, applies the agent transform, and returns the slim payload. Call after polling confirms the job is complete.
+
+Result shape:
+- \`coordinationScore\`: weighted average of top-pair scores (0–1)
+- \`flaggedPairs\`: pairs above 0.7 threshold
+- \`topOverlaps\`: top 10 pairs with token counts (no raw token arrays)
+- \`globalMetrics\`: averageSimilarity
+- \`metadata\`: wallet count + vector type`,
+  })
+  @ApiParam({ name: 'requestId', description: 'requestId returned by POST /intel/wallets/similarity/agent' })
+  @ApiResponse({ status: 200, description: 'Agent-transformed similarity result' })
+  @ApiResponse({ status: 404, description: 'Result not found or expired (TTL elapsed)' })
+  async getAgentSimilarityResult(
+    @Param('requestId') requestId: string,
+  ) {
+    if (!requestId || requestId.trim().length === 0) {
+      throw new BadRequestException('requestId is required');
+    }
+
+    const agentKey = `similarity:agent:result:${requestId}`;
+    const fullKey = `similarity:result:${requestId}`;
+
+    // Return cached agent result if already transformed
+    const cached = await this.redisClient.get(agentKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    // Read full result and transform
+    const raw = await this.redisClient.get(fullKey);
+    if (!raw) {
+      throw new NotFoundException(`Similarity result not found for requestId=${requestId}. It may have expired or the job has not completed yet.`);
+    }
+
+    const fullResult = JSON.parse(raw) as CombinedSimilarityResult;
+    const agentResult = buildAgentSimilarityResult(fullResult);
+
+    // Persist agent result with same TTL as full result
+    const ttl = await this.redisClient.ttl(fullKey);
+    const effectiveTtl = ttl > 0 ? ttl : 900;
+    await this.redisClient.set(agentKey, JSON.stringify(agentResult), 'EX', effectiveTtl);
+
+    return agentResult;
   }
 
   @Post('token/:mint/holders/deep')
@@ -773,6 +1054,7 @@ Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the
         jobId: holderProfilesJob.id,
         requestId: holderProfilesRequestId,
         monitoringUrl: `/api/v1/jobs/${holderProfilesJob.id}`,
+        resultKey: `holder-profiles:result:${holderProfilesJob.id}`,
       },
       similarity: {
         jobId: null,
@@ -783,6 +1065,173 @@ Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the
       message: 'Bundled holder-profiles + similarity queued. Poll holderProfiles.monitoringUrl until completed, then poll similarity.resultKey.',
     };
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // HOLDER SNAPSHOT RETRIEVAL — not yet exposed externally
+  //
+  // Intent: let callers retrieve and diff holder-profile snapshots they produced
+  // themselves via POST /intel/token/:mint/holders (or /holders/deep).
+  //
+  // Contract (when ready to expose):
+  //   - No history-list endpoint: callers must save their own jobIds from the
+  //     original POST response. jobIds are receipts — if you didn't save it,
+  //     you don't get it back. This avoids cross-user data leakage (the DB table
+  //     holds snapshots from all callers; a list endpoint would need userId
+  //     filtering, which requires a schema migration to add userId to
+  //     HolderProfileSnapshot — see Model B note in code history).
+  //   - Snapshot retrieval: 0–1cr (read-only, cheap). Returns the full
+  //     HolderProfilesResult payload for a jobId the caller already owns.
+  //   - Diff: 0–1cr. Compares two jobIds the caller already owns and returns
+  //     structured delta: new/departed holders, tier migrations, supply
+  //     concentration delta.
+  //
+  // Prerequisite before exposing:
+  //   1. Add `userId String?` to HolderProfileSnapshot schema + migration.
+  //   2. Stamp userId at save time in HolderProfilesCacheService.saveSnapshot().
+  //   3. Enforce userId match in getHolderProfileSnapshotsByJobId() so a caller
+  //      cannot retrieve another user's snapshot by guessing a jobId.
+  //   4. Uncomment the handlers below and add to ApiModule / IntelModule.
+  //
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /*
+  @Get('token/:mint/holder-versions/:jobId')
+  @RequireCredits(1)
+  @ApiOperation({
+    summary: 'Retrieve a holder-profiles snapshot by jobId (1cr)',
+    description: `Returns the full holder-profiles result for a specific past run identified
+by the jobId you received when you called POST /intel/token/:mint/holders.
+
+**You must have saved the jobId** from the original response — there is no listing endpoint.
+jobIds are receipts. The snapshot is immutable; it reflects the holder composition at the
+time the job ran.`,
+  })
+  @ApiParam({ name: 'mint', description: 'Token mint address' })
+  @ApiParam({ name: 'jobId', description: 'jobId returned by POST /intel/token/:mint/holders' })
+  @ApiResponse({ status: 200, description: 'Snapshot payload for this run' })
+  @ApiResponse({ status: 400, description: 'Invalid mint or jobId not found' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async getTokenHolderSnapshot(
+    @Param('mint') mint: string,
+    @Param('jobId') jobId: string,
+    @Req() req: Request & { user?: User },
+  ) {
+    if (!isValidSolanaAddress(mint)) {
+      throw new BadRequestException(`Invalid token mint address: ${mint}`);
+    }
+    if (!jobId || jobId.trim().length === 0) {
+      throw new BadRequestException('jobId is required');
+    }
+    // TODO: once userId is on HolderProfileSnapshot, enforce req.user?.id match here
+    // to prevent cross-user snapshot access by guessing jobIds.
+    const snapshots = await this.databaseService.getHolderProfileSnapshotsByJobId(mint, jobId.trim());
+    if (snapshots.length === 0) {
+      throw new BadRequestException(`No snapshot found for mint=${mint} jobId=${jobId}`);
+    }
+    const firstMeta = snapshots[0]?.metadata as Record<string, any> | null;
+    const knownWalletStubs: any[] = Array.isArray(firstMeta?.knownWalletStubs) ? firstMeta.knownWalletStubs : [];
+    const analyzedProfiles = snapshots.map((s) => s.profile);
+    const allProfiles = [...analyzedProfiles, ...knownWalletStubs].sort(
+      (a: any, b: any) => (a.rank ?? 0) - (b.rank ?? 0),
+    );
+    return {
+      status: 'ok' as const,
+      tokenMint: mint,
+      jobId: jobId.trim(),
+      snapshotRunAt: snapshots[0]?.computedAt?.toISOString() ?? null,
+      profiles: allProfiles,
+      metadata: {
+        totalHoldersAnalyzed: analyzedProfiles.length,
+        totalHoldersInSnapshot: allProfiles.length,
+      },
+    };
+  }
+
+  @Get('token/:mint/holder-diff')
+  @RequireCredits(1)
+  @ApiOperation({
+    summary: 'Diff two holder-profile snapshots (1cr)',
+    description: `Compares two past runs for the same token mint and returns structured changes.
+
+**You must have saved both jobIds** from your previous POST /intel/token/:mint/holders calls.
+Pass the older run as \`v1\` and the newer run as \`v2\`.
+
+Returns:
+- \`newHolders\` — wallets that appear in v2 but not v1
+- \`departedHolders\` — wallets that appear in v1 but not v2
+- \`tierMigrations\` — wallets present in both with a changed behaviorType
+- \`supplyConcentrationDelta\` — change in total supply % held across the snapshot set
+- \`holderCountDelta\` — net change in holder count`,
+  })
+  @ApiParam({ name: 'mint', description: 'Token mint address' })
+  @ApiQuery({ name: 'v1', description: 'jobId of the older snapshot (baseline)' })
+  @ApiQuery({ name: 'v2', description: 'jobId of the newer snapshot (current)' })
+  @ApiResponse({ status: 200, description: 'Structured diff between the two snapshots' })
+  @ApiResponse({ status: 400, description: 'Invalid mint, missing jobIds, or snapshots not found' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  async diffTokenHolderSnapshots(
+    @Param('mint') mint: string,
+    @Query('v1') v1: string,
+    @Query('v2') v2: string,
+    @Req() req: Request & { user?: User },
+  ) {
+    if (!isValidSolanaAddress(mint)) {
+      throw new BadRequestException(`Invalid token mint address: ${mint}`);
+    }
+    if (!v1 || v1.trim().length === 0) throw new BadRequestException('v1 (baseline jobId) is required');
+    if (!v2 || v2.trim().length === 0) throw new BadRequestException('v2 (current jobId) is required');
+    if (v1.trim() === v2.trim()) throw new BadRequestException('v1 and v2 must be different');
+
+    // TODO: once userId is on HolderProfileSnapshot, enforce req.user?.id match on both
+    // snapshots before diffing to prevent cross-user access.
+    const [snapshotsA, snapshotsB] = await Promise.all([
+      this.databaseService.getHolderProfileSnapshotsByJobId(mint, v1.trim()),
+      this.databaseService.getHolderProfileSnapshotsByJobId(mint, v2.trim()),
+    ]);
+    if (snapshotsA.length === 0) throw new BadRequestException(`No snapshot found for v1=${v1}`);
+    if (snapshotsB.length === 0) throw new BadRequestException(`No snapshot found for v2=${v2}`);
+
+    type Row = { walletAddress: string; rank: number; behaviorType: string | null; supplyPercent: number };
+    const toRow = (s: any): Row => {
+      const p = s.profile as any;
+      return {
+        walletAddress: s.walletAddress,
+        rank: s.holderRank ?? p?.rank ?? 0,
+        behaviorType: p?.behaviorType ?? null,
+        supplyPercent: s.supplyPercent ?? p?.supplyPercent ?? 0,
+      };
+    };
+
+    const rowsA = snapshotsA.map(toRow);
+    const rowsB = snapshotsB.map(toRow);
+    const setA = new Map(rowsA.map((r) => [r.walletAddress, r]));
+    const setB = new Map(rowsB.map((r) => [r.walletAddress, r]));
+
+    const newHolders = rowsB.filter((r) => !setA.has(r.walletAddress));
+    const departedHolders = rowsA.filter((r) => !setB.has(r.walletAddress));
+    const tierMigrations: Array<{ walletAddress: string; rank: number; from: string | null; to: string | null }> = [];
+    for (const [addr, rowB] of setB) {
+      const rowA = setA.get(addr);
+      if (rowA && rowA.behaviorType !== rowB.behaviorType) {
+        tierMigrations.push({ walletAddress: addr, rank: rowB.rank, from: rowA.behaviorType, to: rowB.behaviorType });
+      }
+    }
+    const supplyA = rowsA.reduce((sum, r) => sum + r.supplyPercent, 0);
+    const supplyB = rowsB.reduce((sum, r) => sum + r.supplyPercent, 0);
+
+    return {
+      status: 'ok' as const,
+      tokenMint: mint,
+      v1: v1.trim(),
+      v2: v2.trim(),
+      newHolders,
+      departedHolders,
+      tierMigrations,
+      supplyConcentrationDelta: Math.round((supplyB - supplyA) * 1000) / 1000,
+      holderCountDelta: rowsB.length - rowsA.length,
+    };
+  }
+  */
 
   /**
    * POST /intel/wallets/batch-hud

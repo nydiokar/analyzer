@@ -24,6 +24,12 @@ import { JobPriority } from '../../queues/config/queue.config';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import Redis from 'ioredis';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+import {
+  buildAgentHolderProfilesResult,
+  buildAgentSimilarityResult,
+} from '../shared/intel-agent-transforms';
+import type { HolderProfilesResult } from '../../queues/jobs/types';
+import type { CombinedSimilarityResult } from '../../types/similarity';
 
 
 @Injectable()
@@ -563,16 +569,27 @@ export class JobsService {
    *
    * Allowed key prefixes (validated server-side to prevent arbitrary Redis reads):
    *   - similarity:result:{requestId}
+   *   - similarity:agent:result:{requestId}
    *   - holder-profiles:result:{jobId}
+   *   - holder-profiles:agent:result:{jobId}
    */
   async getResultByKey(key: string): Promise<unknown> {
-    const allowedPrefixes = ['similarity:result:', 'holder-profiles:result:', 'sig-buyers:result:'];
+    const allowedPrefixes = [
+      'similarity:result:',
+      'similarity:agent:result:',
+      'holder-profiles:result:',
+      'holder-profiles:agent:result:',
+      'sig-buyers:result:',
+    ];
     const isAllowed = allowedPrefixes.some((prefix) => key.startsWith(prefix));
     if (!isAllowed) {
       throw new BadRequestException(`Invalid result key prefix`);
     }
 
-    const raw = await this.redisClient.get(key);
+    let raw = await this.redisClient.get(key);
+    if (!raw) {
+      raw = await this.materializeAgentResultIfNeeded(key);
+    }
     if (!raw) {
       throw new NotFoundException(`Result not found or expired for key: ${key}`);
     }
@@ -582,6 +599,48 @@ export class JobsService {
     } catch {
       throw new NotFoundException(`Malformed result for key: ${key}`);
     }
+  }
+
+  private async materializeAgentResultIfNeeded(key: string): Promise<string | null> {
+    if (key.startsWith('holder-profiles:agent:result:')) {
+      const fullKey = key.replace('holder-profiles:agent:result:', 'holder-profiles:result:');
+      return this.materializeDerivedResultKey(
+        key,
+        fullKey,
+        (result) => buildAgentHolderProfilesResult(result as HolderProfilesResult),
+      );
+    }
+
+    if (key.startsWith('similarity:agent:result:')) {
+      const fullKey = key.replace('similarity:agent:result:', 'similarity:result:');
+      return this.materializeDerivedResultKey(
+        key,
+        fullKey,
+        (result) => buildAgentSimilarityResult(result as CombinedSimilarityResult),
+      );
+    }
+
+    return null;
+  }
+
+  private async materializeDerivedResultKey(
+    derivedKey: string,
+    fullKey: string,
+    buildResult: (result: unknown) => unknown,
+  ): Promise<string | null> {
+    const fullRaw = await this.redisClient.get(fullKey);
+    if (!fullRaw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(fullRaw) as unknown;
+    const derivedResult = buildResult(parsed);
+    const ttlSeconds = await this.redisClient.ttl(fullKey);
+    const effectiveTtlSeconds = ttlSeconds > 0 ? ttlSeconds : 900;
+
+    const derivedRaw = JSON.stringify(derivedResult);
+    await this.redisClient.set(derivedKey, derivedRaw, 'EX', effectiveTtlSeconds);
+    return derivedRaw;
   }
 
   private getQueueByName(queueName: string) {

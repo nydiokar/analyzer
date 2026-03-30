@@ -622,6 +622,55 @@ export class DatabaseService {
         });
     }
 
+    async getHolderProfileRunsForToken(
+        tokenMint: string,
+        topN?: number | null,
+        limit = 10,
+    ): Promise<Array<{ jobId: string; runAt: Date; profileCount: number; topN: number | null }>> {
+        const cap = Math.min(limit, 20);
+        type RawRow = { jobId: string; runAt: Date; profileCount: bigint; topN: number | null };
+        const rows = topN != null
+            ? await this.prismaClient.$queryRaw<RawRow[]>`
+                SELECT "jobId", MIN("computedAt") AS "runAt", COUNT(*)::int AS "profileCount", MAX("topN") AS "topN"
+                FROM "HolderProfileSnapshot"
+                WHERE "tokenMint" = ${tokenMint}
+                  AND "analysisMode" = 'token'
+                  AND "jobId" IS NOT NULL
+                  AND "topN" = ${topN}
+                GROUP BY "jobId"
+                ORDER BY "runAt" DESC
+                LIMIT ${cap}
+              `
+            : await this.prismaClient.$queryRaw<RawRow[]>`
+                SELECT "jobId", MIN("computedAt") AS "runAt", COUNT(*)::int AS "profileCount", MAX("topN") AS "topN"
+                FROM "HolderProfileSnapshot"
+                WHERE "tokenMint" = ${tokenMint}
+                  AND "analysisMode" = 'token'
+                  AND "jobId" IS NOT NULL
+                GROUP BY "jobId"
+                ORDER BY "runAt" DESC
+                LIMIT ${cap}
+              `;
+        return rows.map((r) => ({
+            jobId: r.jobId,
+            runAt: r.runAt,
+            profileCount: Number(r.profileCount),
+            topN: r.topN,
+        }));
+    }
+
+    async getHolderProfileSnapshotsByJobId(
+        tokenMint: string,
+        jobId: string,
+    ): Promise<HolderProfileSnapshot[]> {
+        return this.executeWithRetry('holderProfileSnapshot.findMany.byJobId', async () => {
+            return this.prismaClient.holderProfileSnapshot.findMany({
+                where: { tokenMint, jobId, analysisMode: 'token' },
+                orderBy: { holderRank: 'asc' },
+            });
+        });
+    }
+
     // --- AnalysisResult Methods ---
 
     /**

@@ -40,8 +40,6 @@ export class TokenInfoController {
       throw new ForbiddenException('User could not be identified.');
     }
 
-    // This is a fire-and-forget operation.
-    // It triggers enrichment for any new or stale tokens in the background.
     this.tokenInfoService.triggerTokenInfoEnrichment(validTokenAddresses, userId);
     
     // Immediately return whatever data we have in the database right now.

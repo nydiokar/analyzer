@@ -1,12 +1,12 @@
 #!/usr/bin/env ts-node
 
-import { HeliusApiClient } from '../../../src/core/services/helius-api-client';
-import { DatabaseService } from '../../../src/api/services/database.service';
-import { mapHeliusTransactionsToIntermediateRecords } from '../../../src/core/services/helius-transaction-mapper';
-import { HELIUS_CONFIG } from '../../../src/config/constants';
-import { HeliusTransaction } from '../../../src/types/helius-api';
-import { getErrorMessage, getErrorDetails } from '../../../src/core/utils/error-utils';
-import logger from '../../../src/core/utils/logger';
+import { HeliusApiClient } from '../../../../src/core/services/helius-api-client';
+import { DatabaseService } from '../../../../src/api/services/database.service';
+import { mapHeliusTransactionsToIntermediateRecords } from '../../../../src/core/services/helius-transaction-mapper';
+import { HELIUS_CONFIG } from '../../../../src/config/constants';
+import { HeliusTransaction } from '../../../../src/types/helius-api';
+import { getErrorMessage, getErrorDetails } from '../../../../src/core/utils/error-utils';
+import logger from '../../../../src/core/utils/logger';
 import * as path from 'path';
 import * as fs from 'fs';
 

@@ -148,47 +148,57 @@ async function main() {
   // ── Addresses ──────────────────────────────────────────────────────────────
   let wallet = process.env.TEST_WALLET ?? '';
   let mint   = process.env.TEST_MINT ?? '';
-  if (!wallet) wallet = await prompt('\nWallet address (for GET /intel/wallet tests): ');
-  if (!mint)   mint   = await prompt('Token mint    (for POST /intel/token/:mint/holders, Enter to skip): ');
+  if (!wallet) wallet = await prompt('\nWallet address (for GET /intel/wallet tests, Enter to skip): ');
+  if (!mint)   mint   = await prompt('Token mint    (for holder-profiles tests, Enter to skip): ');
 
   // ── Balance before ─────────────────────────────────────────────────────────
   section('0. Credit balance before');
   const b0 = await req('GET', '/users/me/credits', token);
-  show(b0.status, b0.data);
-  const balBefore: number = b0.data?.balance ?? 0;  // field is "balance", not "credits"
-  console.log(`\n  → Balance: ${balBefore} cr`);
+  const balBefore: number = b0.data?.balance ?? 0;
+  console.log(`✅  HTTP ${b0.status}  →  Balance: ${balBefore} cr`);
 
   // ── Test 1: GET /intel/wallet/:addr ───────────────────────────────────────
-  // If 202, poll job to completion, then call again to get 200 with data.
-  section(`1. GET /intel/wallet/:addr  (5cr)  →  ${wallet}`);
-  let r1 = await req('GET', `/intel/wallet/${wallet}`, token);
-  show(r1.status, r1.data);
+  if (wallet) {
+    section(`1. GET /intel/wallet/:addr  (5cr)  →  ${wallet}`);
+    let r1 = await req('GET', `/intel/wallet/${wallet}`, token);
+    show(r1.status, r1.data);
 
-  if (r1.status === 202 && r1.data?.jobId) {
-    console.log('\n  → Data was stale/missing — job queued. Polling until complete...');
-    const outcome = await pollJob(r1.data.jobId, token);
-    if (outcome === 'completed') {
-      console.log('\n  → Job complete. Calling GET /intel/wallet/:addr again to get data...');
-      r1 = await req('GET', `/intel/wallet/${wallet}`, token);
-      show(r1.status, r1.data);
-    } else {
-      console.log('  ❌ Job failed or timed out — skipping data fetch');
+    if (r1.status === 202 && r1.data?.jobId) {
+      console.log('\n  → Data was stale/missing — job queued. Polling until complete...');
+      const outcome = await pollJob(r1.data.jobId, token);
+      if (outcome === 'completed') {
+        console.log('\n  → Job complete. Calling GET /intel/wallet/:addr again to get data...');
+        r1 = await req('GET', `/intel/wallet/${wallet}`, token);
+        show(r1.status, r1.data);
+      } else {
+        console.log('  ❌ Job failed or timed out — skipping data fetch');
+      }
     }
+  } else {
+    console.log('\n⊘  Test 1 skipped — no wallet provided');
   }
 
   // ── Test 2: GET /intel/wallet/:addr/tokens ────────────────────────────────
-  section(`2. GET /intel/wallet/:addr/tokens  (3cr)  →  ${wallet}`);
-  const r2 = await req('GET', `/intel/wallet/${wallet}/tokens`, token);
-  show(r2.status, r2.data);
+  if (wallet) {
+    section(`2. GET /intel/wallet/:addr/tokens  (3cr)  →  ${wallet}`);
+    const r2 = await req('GET', `/intel/wallet/${wallet}/tokens`, token);
+    show(r2.status, r2.data);
+  } else {
+    console.log('\n⊘  Test 2 skipped — no wallet provided');
+  }
 
   // ── Test 3: GET /intel/wallet/:addr/hud ──────────────────────────────────
-  section(`3. GET /intel/wallet/:addr/hud  (1cr)  →  ${wallet}`);
-  const r3 = await req('GET', `/intel/wallet/${wallet}/hud`, token);
-  show(r3.status, r3.data);
+  if (wallet) {
+    section(`3. GET /intel/wallet/:addr/hud  (1cr)  →  ${wallet}`);
+    const r3 = await req('GET', `/intel/wallet/${wallet}/hud`, token);
+    show(r3.status, r3.data);
+  } else {
+    console.log('\n⊘  Test 3 skipped — no wallet provided');
+  }
 
   // ── Test 4: POST /intel/token/:mint/holders ───────────────────────────────
   if (mint) {
-    section(`4. POST /intel/token/:mint/holders  (35cr)  →  mint: ${mint}  topN: 5`);
+    section(`4. POST /intel/token/:mint/holders  (20cr)  →  mint: ${mint}  topN: 5`);
     const r4 = await req('POST', `/intel/token/${mint}/holders`, token, { topN: 5 });
     show(r4.status, r4.data);
 
@@ -196,9 +206,10 @@ async function main() {
       console.log('\n  → Holder-profiles job queued. Polling until complete...');
       const outcome = await pollJob(r4.data.jobId, token);
       if (outcome === 'completed') {
-        console.log('\n  → Fetching result via GET /jobs/:id/result ...');
-        const resultRes = await req('GET', `/jobs/${r4.data.jobId}/result`, token);
-        show(resultRes.status, resultRes.data);
+        console.log('\n  → Fetching result via by-key ...');
+        const resultRes = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(r4.data.resultKey)}`, token);
+        const fullBytes = Buffer.byteLength(JSON.stringify(resultRes.data), 'utf8');
+        console.log(`✅  HTTP ${resultRes.status}  →  ${fullBytes} bytes (${(fullBytes / 1024).toFixed(1)} KB)  profiles: ${resultRes.data?.profiles?.length ?? '?'}`);
       }
     }
   } else {
@@ -206,20 +217,139 @@ async function main() {
   }
 
   // ── Test 5: POST /intel/wallets/batch-hud ────────────────────────────────
-  // Use the wallet from test 1 (should be analyzed by now) + optionally more
-  const batchWallets = [wallet];
-  section(`5. POST /intel/wallets/batch-hud  (5cr)  →  ${batchWallets.length} wallet(s)`);
-  const r5 = await req('POST', `/intel/wallets/batch-hud`, token, { wallets: batchWallets });
-  show(r5.status, r5.data);
+  if (wallet) {
+    const batchWallets = [wallet];
+    section(`5. POST /intel/wallets/batch-hud  (5cr)  →  ${batchWallets.length} wallet(s)`);
+    const r5 = await req('POST', `/intel/wallets/batch-hud`, token, { wallets: batchWallets });
+    show(r5.status, r5.data);
+  } else {
+    console.log('\n⊘  Test 5 skipped — no wallet provided');
+  }
+
+  // ── Test 6: POST /intel/token/:mint/holders/agent ─────────────────────────
+  if (!mint) mint = (await prompt('\nToken mint for agent test (Enter to skip): ')).trim();
+  if (mint) {
+    section(`6. POST /intel/token/:mint/holders/agent  (20cr)  →  mint: ${mint}  topN: 5`);
+    const r6 = await req('POST', `/intel/token/${mint}/holders/agent`, token, { topN: 5 });
+    show(r6.status, r6.data);
+
+    if (r6.status === 202 && r6.data?.jobId) {
+      console.log('\n  → Holder-profiles/agent job queued. Polling until complete...');
+      const outcome = await pollJob(r6.data.jobId, token);
+      if (outcome === 'completed') {
+        const jobId = r6.data.jobId as string;
+
+        console.log('\n  → Fetching agent result via GET /intel/jobs/result/agent/holder-profiles/:jobId ...');
+        const agentRes = await req('GET', `/intel/jobs/result/agent/holder-profiles/${jobId}`, token);
+        const agentBytes = Buffer.byteLength(JSON.stringify(agentRes.data), 'utf8');
+        show(agentRes.status, agentRes.data);
+        if (agentRes.status === 200) {
+          const agg = agentRes.data?.aggregate;
+          console.log(`\n  ── Aggregate summary ──`);
+          console.log(`     totalHolders      : ${agg?.totalHolders}  (analyzed: ${agg?.analyzedHolders})`);
+          console.log(`     top1SupplyPct     : ${agg?.top1SupplyPct}%  top5: ${agg?.top5SupplyPct}%  (excl. LP/system)`);
+          console.log(`     avgWalletPnlSol   : ${agg?.avgWalletPnlSol}`);
+          if (Array.isArray(agg?.behaviorDistribution)) {
+            console.log(`     behaviorDistrib   : ${agg.behaviorDistribution.map((b: any) => `${b.behaviorType}×${b.count}(${b.supplyPct}%)`).join(', ')}`);
+          }
+          console.log(`\n  ── Payload size ──`);
+          console.log(`     agent result      : ${agentBytes} bytes  (${(agentBytes / 1024).toFixed(1)} KB)`);
+
+          // Also fetch via generic by-key to confirm whitelist works
+          const agentKey = r6.data.agentResultKey as string;
+          if (agentKey) {
+            console.log(`\n  → Also fetching via GET /jobs/result/by-key?key=${agentKey} (whitelist check)...`);
+            const byKey = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(agentKey)}`, token);
+            console.log(`  ${byKey.status === 200 ? '✅' : '❌'}  HTTP ${byKey.status} — by-key path ${byKey.status === 200 ? 'OK' : 'FAILED'}`);
+          }
+
+          // Compare size against full result
+          const fullResultKey = r6.data.resultKey as string;
+          if (fullResultKey) {
+            console.log(`\n  → Fetching full result via by-key for size comparison...`);
+            const fullRes = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(fullResultKey)}`, token);
+            if (fullRes.status === 200) {
+              const fullBytes = Buffer.byteLength(JSON.stringify(fullRes.data), 'utf8');
+              const reduction = Math.round((1 - agentBytes / fullBytes) * 100);
+              console.log(`     full result       : ${fullBytes} bytes  (${(fullBytes / 1024).toFixed(1)} KB)`);
+              console.log(`     size reduction    : ${reduction}%`);
+            }
+          }
+        }
+      }
+    }
+  } else {
+    console.log('\n⊘  Test 6 skipped — no mint provided');
+  }
+
+  // ── Test 7: POST /intel/wallets/similarity/agent ──────────────────────────
+  // Requires at least 2 wallets — use the provided wallet + prompt for a second
+  let wallet2 = process.env.TEST_WALLET2 ?? '';
+  if (!wallet2) wallet2 = (await prompt('\nWallet(s) for similarity/agent — paste 1 or 2 addresses space-separated (Enter to skip): ')).trim();
+
+  // Support "addr1 addr2" or "addr1, addr2" or just a second address alongside wallet
+  const extraWallets = wallet2.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  const similarityWallets = [...new Set([...(wallet ? [wallet] : []), ...extraWallets])];
+
+  if (similarityWallets.length >= 2) {
+    section(`7. POST /intel/wallets/similarity/agent  (20cr)  →  ${similarityWallets.length} wallets`);
+    const r7 = await req('POST', `/intel/wallets/similarity/agent`, token, {
+      wallets: similarityWallets,
+    });
+    show(r7.status, r7.data);
+
+    if (r7.status === 202 && r7.data?.jobId) {
+      console.log('\n  → Similarity/agent job queued. Polling until complete...');
+      const outcome = await pollJob(r7.data.jobId, token);
+      if (outcome === 'completed') {
+        const requestId = r7.data.requestId as string;
+
+        console.log('\n  → Fetching agent result via GET /intel/jobs/result/agent/similarity/:requestId ...');
+        const agentRes = await req('GET', `/intel/jobs/result/agent/similarity/${requestId}`, token);
+        const agentBytes = Buffer.byteLength(JSON.stringify(agentRes.data), 'utf8');
+        show(agentRes.status, agentRes.data);
+        if (agentRes.status === 200) {
+          const meta = agentRes.data?.metadata;
+          console.log(`\n  ── Payload size ──`);
+          console.log(`     agent result      : ${agentBytes} bytes  (${(agentBytes / 1024).toFixed(1)} KB)`);
+          console.log(`     coordinationScore : ${agentRes.data?.coordinationScore}  wallets: ${meta?.walletsAnalyzed}  pairs: ${meta?.totalPairs}  flagged: ${meta?.flaggedPairs}`);
+
+          // Also verify by-key whitelist
+          const agentKey = r7.data.agentResultKey as string;
+          if (agentKey) {
+            console.log(`\n  → Also fetching via GET /jobs/result/by-key?key=${agentKey} (whitelist check)...`);
+            const byKey = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(agentKey)}`, token);
+            console.log(`  ${byKey.status === 200 ? '✅' : '❌'}  HTTP ${byKey.status} — by-key path ${byKey.status === 200 ? 'OK' : 'FAILED'}`);
+          }
+
+          // Size comparison against full result
+          const fullResultKey = r7.data.resultKey as string;
+          if (fullResultKey) {
+            console.log(`\n  → Fetching full result via by-key for size comparison...`);
+            const fullRes = await req('GET', `/jobs/result/by-key?key=${encodeURIComponent(fullResultKey)}`, token);
+            if (fullRes.status === 200) {
+              const fullBytes = Buffer.byteLength(JSON.stringify(fullRes.data), 'utf8');
+              const reduction = Math.round((1 - agentBytes / fullBytes) * 100);
+              console.log(`     full result       : ${fullBytes} bytes  (${(fullBytes / 1024).toFixed(1)} KB)`);
+              console.log(`     size reduction    : ${reduction}%`);
+            }
+          }
+        }
+      }
+    }
+  } else {
+    console.log('\n⊘  Test 7 skipped — need at least 2 wallet addresses (paste space-separated or set TEST_WALLET + TEST_WALLET2)');
+  }
 
   // ── Balance after ──────────────────────────────────────────────────────────
-  section('6. Credit balance after');
+  section('8. Credit balance after');
   const b1 = await req('GET', '/users/me/credits', token);
-  show(b1.status, b1.data);
   const balAfter: number = b1.data?.balance ?? 0;
+  console.log(`✅  HTTP ${b1.status}  →  Balance: ${balAfter} cr`);
   console.log(`\n  → Balance before : ${balBefore} cr`);
   console.log(`  → Balance after  : ${balAfter} cr`);
   console.log(`  → Credits spent  : ${balBefore - balAfter} cr`);
+  console.log(`  (Tests 1+2+3+5 = 14cr baseline; Test 4 = 20cr; Test 6 = 20cr; Test 7 = 20cr)`);
   console.log('\nDone.\n');
 }
 

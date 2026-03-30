@@ -128,7 +128,14 @@ export class CompositeAuthGuard implements CanActivate {
       }
     }
 
-    // No valid authentication method found - throw without logging (already logged above)
+    // No valid authentication method found.
+    // If this is a credit-gated endpoint, pass through with no user so CreditGuard can
+    // issue the 402 payment-required response. This handles x402 agents that send a
+    // stale/invalid Authorization header alongside their payment-signature.
+    if (requiresCredits !== undefined) {
+      return true;
+    }
+
     throw new UnauthorizedException('Authentication required. Log in or verify your account to perform analysis.');
   }
 

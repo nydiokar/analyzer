@@ -39,9 +39,6 @@ npx ts-node -r tsconfig-paths/register scripts/backfill-market-context.ts
 ```
 
 **Immediate verification gates before calling this production-ready:**
-- Resolve drift from the removed holder-profile-share feature without reset:
-  - restore `20260324115336_add_holder_profile_share`
-  - add/mark applied `20260326000000_remove_holder_profile_share`
 - Apply current market-context schema to contaminated dev DB with `npx prisma db push`
 - Run `npx prisma generate` and `pnpm verify`
 - Run historical backfill
@@ -82,8 +79,9 @@ npx ts-node -r tsconfig-paths/register scripts/backfill-market-context.ts
 
 | Status | Task | Scope | Notes |
 |:------:|:-----|:-----:|:------|
-| ⚪ | **[SHARE-1]** Shareable holder profiles — Prisma model + public GET endpoint + Next.js `/share/hp/[shareId]` server component (SSR, no auth) | 🟡 M | See [SHAREABLE_ANALYSIS_PLAN.md](.ai/context/SHAREABLE_ANALYSIS_PLAN.md) |
-| ⚪ | **[SHARE-2]** OG image generation — `app/api/og/hp/[shareId]/route.ts` using `next/og` ImageResponse + Share button UI in holder profiles results | 🟡 M | Depends on SHARE-1. Design spec in same plan doc. |
+| ✅ | **[SHARE-3]** Holder profile share page parity rebuild — shared holder profile links now use holder-profiles v2 presentation and persist trimmed similarity sidebar data in the share snapshot. | 🟡 M | DONE. |
+| ✅ | **[SHARE-1+2]** Shareable holder profiles — fully built, code-reviewed, committed on `feature/holder-profile-sharing`. Ready for smoke test + merge. | 🟡 M | DONE. |
+| ✅ | **[INTEL-SLIM]** Agent-optimised endpoints complete — backend, SDK v0.2.0, docs, SKILL.md. Deploy SDK to npm + backend to server. | 🟡 M | `intel.controller.ts`, `intel-agent-transforms.ts`, `packages/sdk/`, `documentation/agent-skill/SKILL.md` |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
@@ -114,20 +112,34 @@ npx ts-node -r tsconfig-paths/register scripts/backfill-market-context.ts
 
 ##  Recent Activity
 
+### March 27, 2026 — Holder Profile Share Page Parity Rebuild
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 27.1 | 🎯 FEAT | **[SHARE-3]** Rebuild `/share/hp/[shareId]` on top of the holder-profiles v2 UI instead of the bespoke summary page. Shared pages now use the canonical presentation path, token metadata snapshot, and a trimmed persisted similarity snapshot (`walletA`, `walletB`, scores, shared/unique counts only) so the public sidebar renders without storing the full raw similarity payload. | 🟡 M | `src/api/services/holder-profile-share.service.ts`, `src/api/controllers/dto/create-holder-profile-share.dto.ts`, `src/api/controllers/share.controller.ts`, `dashboard/src/app/share/hp/[shareId]/page.tsx`, `dashboard/src/app/tools/holder-profiles/page.tsx`, `dashboard/src/components/holder-profiles/v2/`, `dashboard/src/lib/` |
+
+---
+
+### March 24, 2026 — Shareable Holder Profiles
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 24.1 | 🎯 FEAT | **[SHARE-1+2]** Shareable holder profiles — `HolderProfileShare` Prisma model + migration, `POST /share/hp` + `GET /share/hp/:id` NestJS endpoints, `/share/hp/[shareId]` SSR page with `generateMetadata` OG tags, `/api/og/hp/[shareId]` edge ImageResponse (1200×630), Share button in holder profiles UI (clipboard + toast). Zero TS errors both backend and frontend. **Not yet committed.** | 🟡 M | `prisma/schema.prisma`, `src/api/services/holder-profile-share.service.ts`, `src/api/controllers/share.controller.ts`, `src/api/modules/share.module.ts`, `dashboard/src/app/share/hp/[shareId]/page.tsx`, `dashboard/src/app/api/og/hp/[shareId]/route.tsx`, `dashboard/src/app/tools/holder-profiles/page.tsx`, `dashboard/src/middleware.ts` |
+
+---
+
 ### March 26, 2026 — Market Context hardening + migration-history repair
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
-| 26.1 | 🐛 FIX | **[MCE-VERIFY]** Verified branch against actual code and dev DB state. Found: live DB missing market-context columns/table, one historical migration missing locally (`20260324115336_add_holder_profile_share`), wallet sync path only processed one 500-row batch, and rows missing SOL cache were being stamped complete. | 🔴 L | `.ai/CONTEXT.md`, `prisma/migrations/`, `src/api/services/market-context.service.ts`, `src/core/services/market-context-standalone.ts`, `src/queues/processors/enrichment-operations.processor.ts` |
+| 26.1 | 🐛 FIX | **[MCE-VERIFY]** Verified branch against actual code and dev DB state. Found: live DB missing market-context columns/table, wallet sync path only processed one 500-row batch, and rows missing SOL cache were being stamped complete. | 🔴 L | `.ai/CONTEXT.md`, `prisma/migrations/`, `src/api/services/market-context.service.ts`, `src/core/services/market-context-standalone.ts`, `src/queues/processors/enrichment-operations.processor.ts` |
 | 26.2 | 🐛 FIX | **[MCE-DRAIN]** `process-market-context` now drains a wallet fully via `MarketContextService.enrichWallet()` instead of stopping after one batch. This closes the >500-swap wallet backlog risk discovered during review. | 🟡 M | `src/api/services/market-context.service.ts`, `src/queues/processors/enrichment-operations.processor.ts` |
 | 26.3 | 🐛 FIX | **[MCE-RETRY]** Enrichment now distinguishes permanent skips from deferred retries. Rows missing prerequisite SOL price cache are left pending, not falsely marked `enrichedAt`. SOL price coverage auto-backfills to the oldest needed timestamp before classification; fallback remains bounded to ±3 days. | 🟡 M | `src/core/services/market-context-standalone.ts`, `src/api/services/market-context.service.ts` |
 | 26.4 | ♻️ REFACTOR | **[MCE-SCRIPTS]** `scripts/backfill-market-context.ts` and `scripts/test-enrichment-manual.ts` now bootstrap Nest context and use `MarketContextService`, so verification uses the same supply-resolution path as production (Redis → DB → Helius RPC) instead of standalone DB-only supply reads. Manual script is now wallet-scoped. | 🟡 M | `scripts/backfill-market-context.ts`, `scripts/test-enrichment-manual.ts` |
-| 26.5 | 🔧 INFRA | **[MCE-MIGRATIONS]** Restored missing migration `20260324115336_add_holder_profile_share` from git history and added compensating migration `20260326000000_remove_holder_profile_share` to keep migration history consistent with the current schema without reset. `npx prisma migrate status` no longer reports the missing-migration reset condition after restore. | 🟡 M | `prisma/migrations/20260324115336_add_holder_profile_share/`, `prisma/migrations/20260326000000_remove_holder_profile_share/` |
-| 26.6 | ♻️ REFACTOR | **[MCE-BUCKETS]** Reworked market-cap banding from coarse 5-band labels to `nano`, `ultra-micro`, `micro`, `small`, `mid`, `large`, `mega` so sub-$100K tokens are not misclassified. Existing enriched rows will need reclassification/backfill if buckets were already written. | 🟢 S | `src/core/services/market-context-standalone.ts`, `prisma/schema.prisma` |
+| 26.5 | ♻️ REFACTOR | **[MCE-BUCKETS]** Reworked market-cap banding from coarse 5-band labels to `nano`, `ultra-micro`, `micro`, `small`, `mid`, `large`, `mega` so sub-$100K tokens are not misclassified. Existing enriched rows will need reclassification/backfill if buckets were already written. | 🟢 S | `src/core/services/market-context-standalone.ts`, `prisma/schema.prisma` |
 
 **Current technical state:**
 - `pnpm verify` passes after regenerating Prisma client.
-- Dev DB migration history issue around holder-profile-share is repaired locally; branch-safe next step is to mark `20260326000000_remove_holder_profile_share` applied on contaminated dev DB.
 - Market-context schema itself still needs a real committed Prisma migration before merge/production. For contaminated dev DB, use `npx prisma db push` first to enable testing without reset.
 - Remaining work before production claim is verification, not more structural coding.
 
@@ -380,6 +392,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-26  **Branch:** `feat/market-context-enrichment`
+**Last Updated:** 2026-03-30  **Branch:** `feat/market-context-enrichment`
 
 ---

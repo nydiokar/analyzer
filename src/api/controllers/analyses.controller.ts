@@ -1,4 +1,4 @@
-import { Controller, Post, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, HttpException, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Query, Logger, Body, HttpCode, BadRequestException, InternalServerErrorException, HttpException, Req, ForbiddenException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { DatabaseService } from '../services/database.service';
@@ -812,6 +812,218 @@ export class AnalysesController {
         throw error;
       }
       throw new InternalServerErrorException('Failed to queue wallet holder profile job');
+    }
+  }
+
+  @Get('/holder-profiles/history')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'List past holder profile snapshot runs for a token',
+    description: 'Returns a list of distinct analysis runs for the given token, newest first. Each entry can be loaded as a historical snapshot.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of past runs',
+    schema: {
+      type: 'object',
+      properties: {
+        runs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              jobId: { type: 'string' },
+              runAt: { type: 'string', format: 'date-time' },
+              profileCount: { type: 'number' },
+              topN: { type: 'number', nullable: true },
+            },
+          },
+        },
+      },
+    },
+  })
+  async getHolderProfileHistory(
+    @Query('tokenMint') tokenMint: string,
+    @Query('topN') topNRaw?: string,
+    @Query('limit') limitRaw?: string,
+  ): Promise<{ runs: Array<{ jobId: string; runAt: Date; profileCount: number; topN: number | null }> }> {
+    if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
+      throw new BadRequestException(`Invalid token mint address: ${tokenMint}`);
+    }
+    const topN = topNRaw != null ? Number(topNRaw) : undefined;
+    const limit = limitRaw != null ? Math.min(Math.max(1, Number(limitRaw)), 20) : 10;
+    try {
+      const runs = await this.databaseService.getHolderProfileRunsForToken(
+        tokenMint,
+        topN != null && Number.isFinite(topN) ? topN : undefined,
+        limit,
+      );
+      return { runs };
+    } catch (error) {
+      this.logger.error(`Failed to fetch holder profile history for ${tokenMint}: ${getErrorMessage(error)}`);
+      throw new InternalServerErrorException('Failed to fetch holder profile history');
+    }
+  }
+
+  @Get('/holder-profiles/diff')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Diff two holder profile snapshots',
+    description: 'Compares two snapshot runs (by jobId) and returns structured changes: new/departed holders, tier migrations, and supply concentration delta.',
+  })
+  @ApiResponse({ status: 200, description: 'Structured diff between two snapshots' })
+  @ApiResponse({ status: 400, description: 'Missing or invalid parameters' })
+  async diffHolderProfileSnapshots(
+    @Query('tokenMint') tokenMint: string,
+    @Query('jobIdA') jobIdA: string,
+    @Query('jobIdB') jobIdB: string,
+  ): Promise<{
+    tokenMint: string;
+    jobIdA: string;
+    jobIdB: string;
+    newHolders: Array<{ walletAddress: string; rank: number; behaviorType: string | null; supplyPercent: number }>;
+    departedHolders: Array<{ walletAddress: string; rank: number; behaviorType: string | null; supplyPercent: number }>;
+    tierMigrations: Array<{ walletAddress: string; rank: number; from: string | null; to: string | null }>;
+    supplyConcentrationDelta: number;
+    holderCountDelta: number;
+  }> {
+    if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
+      throw new BadRequestException(`Invalid token mint address: ${tokenMint}`);
+    }
+    if (!jobIdA || typeof jobIdA !== 'string' || jobIdA.trim().length === 0) {
+      throw new BadRequestException('jobIdA is required');
+    }
+    if (!jobIdB || typeof jobIdB !== 'string' || jobIdB.trim().length === 0) {
+      throw new BadRequestException('jobIdB is required');
+    }
+    if (jobIdA.trim() === jobIdB.trim()) {
+      throw new BadRequestException('jobIdA and jobIdB must be different');
+    }
+
+    try {
+      const [snapshotsA, snapshotsB] = await Promise.all([
+        this.databaseService.getHolderProfileSnapshotsByJobId(tokenMint, jobIdA.trim()),
+        this.databaseService.getHolderProfileSnapshotsByJobId(tokenMint, jobIdB.trim()),
+      ]);
+
+      if (snapshotsA.length === 0) {
+        throw new BadRequestException(`No snapshot found for jobIdA=${jobIdA}`);
+      }
+      if (snapshotsB.length === 0) {
+        throw new BadRequestException(`No snapshot found for jobIdB=${jobIdB}`);
+      }
+
+      type ProfileRow = { walletAddress: string; rank: number; behaviorType: string | null; supplyPercent: number };
+
+      const toRow = (s: any): ProfileRow => {
+        const p = s.profile as any;
+        return {
+          walletAddress: s.walletAddress,
+          rank: s.holderRank ?? p?.rank ?? 0,
+          behaviorType: p?.behaviorType ?? null,
+          supplyPercent: s.supplyPercent ?? p?.supplyPercent ?? 0,
+        };
+      };
+
+      const rowsA = snapshotsA.map(toRow);
+      const rowsB = snapshotsB.map(toRow);
+
+      const setA = new Map(rowsA.map((r) => [r.walletAddress, r]));
+      const setB = new Map(rowsB.map((r) => [r.walletAddress, r]));
+
+      const newHolders = rowsB.filter((r) => !setA.has(r.walletAddress));
+      const departedHolders = rowsA.filter((r) => !setB.has(r.walletAddress));
+
+      const tierMigrations: Array<{ walletAddress: string; rank: number; from: string | null; to: string | null }> = [];
+      for (const [addr, rowB] of setB) {
+        const rowA = setA.get(addr);
+        if (rowA && rowA.behaviorType !== rowB.behaviorType) {
+          tierMigrations.push({ walletAddress: addr, rank: rowB.rank, from: rowA.behaviorType, to: rowB.behaviorType });
+        }
+      }
+
+      const supplyA = rowsA.reduce((sum, r) => sum + r.supplyPercent, 0);
+      const supplyB = rowsB.reduce((sum, r) => sum + r.supplyPercent, 0);
+
+      return {
+        tokenMint,
+        jobIdA: jobIdA.trim(),
+        jobIdB: jobIdB.trim(),
+        newHolders,
+        departedHolders,
+        tierMigrations,
+        supplyConcentrationDelta: Math.round((supplyB - supplyA) * 1000) / 1000,
+        holderCountDelta: rowsB.length - rowsA.length,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`Failed to diff holder profile snapshots ${jobIdA} vs ${jobIdB}: ${getErrorMessage(error)}`);
+      throw new InternalServerErrorException('Failed to diff holder profile snapshots');
+    }
+  }
+
+  @Get('/holder-profiles/snapshot')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Load a specific historical holder profile snapshot',
+    description: 'Returns the full HolderProfilesResult reconstructed from a past snapshot run, identified by tokenMint + jobId.',
+  })
+  @ApiResponse({ status: 200, description: 'Historical snapshot result' })
+  @ApiResponse({ status: 400, description: 'Missing or invalid parameters' })
+  async getHolderProfileSnapshot(
+    @Query('tokenMint') tokenMint: string,
+    @Query('jobId') jobId: string,
+  ): Promise<{
+    mode: 'token';
+    tokenMint: string;
+    profiles: any[];
+    tokenSnapshot: { marketCapUsd?: number | null; priceUsd?: string | number | null; name?: string | null; symbol?: string | null } | null;
+    metadata: {
+      totalHoldersRequested: number;
+      totalHoldersAnalyzed: number;
+      totalProcessingTimeMs: number;
+      avgProcessingTimePerWalletMs: number;
+      snapshotJobId: string;
+      snapshotRunAt: string | null;
+    };
+  }> {
+    if (!tokenMint || !isValidSolanaAddress(tokenMint)) {
+      throw new BadRequestException(`Invalid token mint address: ${tokenMint}`);
+    }
+    if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
+      throw new BadRequestException('jobId is required');
+    }
+    try {
+      const snapshots = await this.databaseService.getHolderProfileSnapshotsByJobId(tokenMint, jobId.trim());
+      if (snapshots.length === 0) {
+        throw new BadRequestException(`No snapshot found for tokenMint=${tokenMint} jobId=${jobId}`);
+      }
+      const firstMeta = snapshots[0]?.metadata as Record<string, any> | null;
+      const knownWalletStubs: any[] = Array.isArray(firstMeta?.knownWalletStubs) ? firstMeta.knownWalletStubs : [];
+      const tokenSnapshot = firstMeta?.tokenSnapshot ?? null;
+      const analyzedProfiles = snapshots.map((s) => s.profile);
+      const allProfiles = [...analyzedProfiles, ...knownWalletStubs].sort(
+        (a: any, b: any) => (a.rank ?? 0) - (b.rank ?? 0),
+      );
+      const runAt = snapshots[0]?.computedAt?.toISOString() ?? null;
+      return {
+        mode: 'token',
+        tokenMint,
+        profiles: allProfiles,
+        tokenSnapshot,
+        metadata: {
+          totalHoldersRequested: allProfiles.length,
+          totalHoldersAnalyzed: analyzedProfiles.length,
+          totalProcessingTimeMs: 0,
+          avgProcessingTimePerWalletMs: 0,
+          snapshotJobId: jobId,
+          snapshotRunAt: runAt,
+        },
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`Failed to fetch holder profile snapshot ${jobId}: ${getErrorMessage(error)}`);
+      throw new InternalServerErrorException('Failed to fetch holder profile snapshot');
     }
   }
 }

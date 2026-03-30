@@ -1,69 +1,23 @@
 ---
 name: sova-intel
-description: On-chain intelligence API for Solana. Use when asked to analyze a wallet, score a trader, find token holders, measure wallet similarity, or get PnL and behavioral data. Returns digested intelligence — not raw transactions. Pay per call via X402 (Solana wallet) or API key.
+description: On-chain intelligence API for Solana. Use when asked to analyze a wallet, score a trader, find token holders, detect coordinated wallets, or get PnL and behavioral data. Returns digested intelligence — not raw transactions. Pay per call via X402 (Solana wallet) or API key.
 metadata:
-  version: "1.1"
+  version: "1.2"
 ---
 
 # Sova Intel
 
 **Base:** `https://api.sova-intel.com/api/v1` | **Live pricing:** `GET /pricing` (free, no auth)
 
-Raw Solana transaction data tells you what happened. Sova tells you what it means — trader profiles, behavioral patterns, realized/unrealized PnL, holder maps, and wallet similarity scores, all derived from full transaction history. Use this instead of parsing raw Helius data yourself.
+Raw Solana transaction history → actionable trader intelligence. Behavior type, win rate, hold times, PnL, holder maps, coordination detection — derived from full on-chain history. Use this instead of parsing raw transactions yourself.
 
 ---
 
-## What data you can get
+## Wallet intelligence
 
-### Wallet intelligence
+Score a single wallet or batch-score up to 30.
 
-```bash
-curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS \
-  -H "X-Api-Key: ak_your_key"
-```
-
-Full profile — summary, behavior, PnL, HUD. Response:
-
-```json
-{
-  "status": "ok",
-  "walletAddress": "7xKXtg...",
-  "summary": {
-    "lastAnalyzedAt": "2026-03-03T11:30:00.000Z",
-    "realizedPnl": 142.87,
-    "profitableTradesCount": 34,
-    "totalTradesCount": 51,
-    "currentSolBalance": 4.21
-  },
-  "hud": {
-    "behaviorCode": "SWING_TRADER",
-    "winRate": 0.67,
-    "trimmedMeanPnl": 12.4,
-    "dataQualityTier": "GOLD",
-    "isBot": false,
-    "isWhale": false,
-    "medianHoldTimeHours": 12.1
-  },
-  "behavior": {
-    "tradingStyle": "swing",
-    "speedCategory": "medium",
-    "avgHoldTimeHours": 18.4,
-    "medianHoldTimeHours": 12.1,
-    "buySellRatio": 0.98,
-    "exitPattern": "partial_exit"
-  },
-  "pnl": {
-    "allTime": {
-      "realizedPnlSol": 142.87,
-      "unrealizedPnlSol": 9.3,
-      "netPnlSol": 152.17,
-      "winRate": 0.67
-    }
-  }
-}
-```
-
-**HUD only** (1cr — use when you just need the signal):
+**HUD signal** (1cr — sync, fastest):
 
 ```bash
 curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/hud \
@@ -72,250 +26,267 @@ curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/hud \
 
 Returns: `{ behaviorCode, winRate, trimmedMeanPnl, medianHoldTimeHours, avgTxValueSol, avgTradesPerDay, uniqueTokensPerDay, currentHoldingsSol, dataQualityTier, isBot, isWhale, calculatedAt }`
 
-**Per-token PnL table** (3cr — paginated, sortable):
+`behaviorCode` values: `SNIPER` `SCALPER` `MOMENTUM` `INTRADAY` `DAY_TRADER` `SWING_TRADER` `POSITION_TRADER` `HODLER`
 
-```bash
-curl "https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/tokens?pageSize=50&sortBy=realizedPnlSol&sortOrder=DESC" \
-  -H "X-Api-Key: ak_your_key"
-```
+The API holds the request up to 30s for a live result. If it times out it returns HTTP 202 — see [Async jobs](#async-jobs).
 
-Query params: `page` (default 1), `pageSize` (default 20, max 100), `sortBy` (`netSolProfitLoss` | `realizedPnlSol` | `roi` | `totalSolSpent`), `sortOrder` (`ASC` | `DESC`)
+**Full profile** (5cr — sync): `GET /intel/wallet/:addr`
 
-Returns:
+Returns all of the above plus `summary` (realizedPnl, tradeCount, solBalance), `behavior` (speedCategory, exitPattern, buySellRatio), `pnl.allTime` (realizedPnlSol, unrealizedPnlSol, netPnlSol), and `kol` identity if the wallet belongs to a known trader.
 
-```json
-{
-  "data": [
-    {
-      "tokenAddress": "EPjFWdd5...",
-      "realizedPnlSol": 28.4,
-      "unrealizedPnlSol": 2.1,
-      "roi": 1.85,
-      "totalSolSpent": 40.2,
-      "winRate": 0.72
-    }
-  ],
-  "total": 84,
-  "page": 1,
-  "pageSize": 20
-}
-```
+**Per-token PnL table** (3cr — paginated):
 
----
+`GET /intel/wallet/:addr/tokens?sortBy=realizedPnlSol&sortOrder=DESC&pageSize=50`
 
-### Batch & token intelligence
+Returns `{ data: [{ tokenAddress, realizedPnlSol, unrealizedPnlSol, roi, totalSolSpent, winRate }], total, page, pageSize }`
 
-**HUD for up to 30 wallets** (5cr flat):
+**Batch HUD — up to 30 wallets** (5cr flat):
 
 ```bash
 curl -X POST https://api.sova-intel.com/api/v1/intel/wallets/batch-hud \
-  -H "X-Api-Key: ak_your_key" \
-  -H "Content-Type: application/json" \
+  -H "X-Api-Key: ak_your_key" -H "Content-Type: application/json" \
   -d '{"wallets": ["ADDR_1", "ADDR_2", "ADDR_3"]}'
 ```
 
-Returns: `{ huds: { "ADDR_1": { behaviorCode, winRate, trimmedMeanPnl, dataQualityTier, isBot, isWhale, calculatedAt } }, queued: [{ walletAddress, jobId, monitoringUrl }], skipped: [...] }`
-Wallets without fresh data appear in `queued` as objects with `walletAddress`, `jobId`, and `monitoringUrl` — poll those jobs then call again.
+Returns: `{ huds: { "ADDR_1": { behaviorCode, winRate, ... } }, queued: [{ walletAddress, jobId, monitoringUrl }], skipped: [] }`
 
-**Top N holders of a token** (20cr — async):
+`queued` contains wallets without fresh data that have been kicked off in the background — informational only, the ready HUDs are already in `huds`.
+
+---
+
+## Token holder profiles — agent ★
+
+**Use this endpoint.** Same analysis as `/holders` but the result is purpose-built for agent consumption: aggregate-first, ~10× smaller payload, no debug fields.
+
+**20cr — async** — POST, returns HTTP 202:
 
 ```bash
-curl -X POST https://api.sova-intel.com/api/v1/intel/token/TOKEN_MINT/holders \
-  -H "X-Api-Key: ak_your_key" \
-  -H "Content-Type: application/json" \
+curl -X POST https://api.sova-intel.com/api/v1/intel/token/TOKEN_MINT/holders/agent \
+  -H "X-Api-Key: ak_your_key" -H "Content-Type: application/json" \
   -d '{"topN": 20}'
 ```
 
-Returns: `{ jobId, requestId, monitoringUrl }` → poll → fetch `holder-profiles:result:<jobId>`
+202 response: `{ jobId, requestId, monitoringUrl, resultKey, agentResultKey }`
 
-**Similarity analysis for 2–30 wallets** (20cr — async):
+Poll `GET /jobs/:jobId` → on `completed` fetch:
 
 ```bash
-curl -X POST https://api.sova-intel.com/api/v1/intel/wallets/similarity \
-  -H "X-Api-Key: ak_your_key" \
-  -H "Content-Type: application/json" \
+curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=holder-profiles:agent:result:JOB_ID" \
+  -H "X-Api-Key: ak_your_key"
+```
+
+Result shape:
+
+```json
+{
+  "aggregate": {
+    "totalHolders": 20,
+    "analyzedHolders": 18,
+    "top1SupplyPct": 3.2,
+    "top5SupplyPct": 12.8,
+    "behaviorDistribution": [
+      { "behaviorType": "SWING_TRADER", "count": 7, "supplyPct": 22.4 },
+      { "behaviorType": "HODLER", "count": 4, "supplyPct": 14.1 },
+      { "behaviorType": "FRESH", "count": 3, "supplyPct": 8.7 }
+    ],
+    "avgWalletPnlSol": 34.2
+  },
+  "profiles": [
+    {
+      "walletAddress": "ADDR_1", "rank": 1, "supplyPercent": 3.2,
+      "behaviorType": "SWING_TRADER", "exitPattern": "partial_exit",
+      "medianHoldTimeHours": 18.0, "dataQualityTier": "GOLD",
+      "confidence": 0.91, "walletPnlSol": 91.5, "solBalance": 12.1,
+      "holdingsSummary": {
+        "totalPositions": 14, "totalCurrentHoldingsValueSol": 28.4,
+        "topHoldings": [{ "tokenAddress": "TOKEN_A", "valueSol": 12.1 }]
+      }
+    }
+  ],
+  "metadata": { "tokenMint": "...", "totalHoldersRequested": 20, "totalHoldersAnalyzed": 18 }
+}
+```
+
+`FRESH` in `behaviorDistribution` = analyzed wallets with too few exits to classify. `analysisSkipped: true` on a profile = known system wallet (LP, burn) — `knownLabel` explains why.
+
+---
+
+## Wallet similarity — agent ★
+
+**Use this endpoint.** Same analysis as `/similarity` but returns a single `coordinationScore`, filtered pairs only, and coordination flags. Purpose-built for agent decisions.
+
+**20cr — async** — POST, returns HTTP 202:
+
+```bash
+curl -X POST https://api.sova-intel.com/api/v1/intel/wallets/similarity/agent \
+  -H "X-Api-Key: ak_your_key" -H "Content-Type: application/json" \
   -d '{"wallets": ["ADDR_1", "ADDR_2", "ADDR_3"]}'
 ```
 
-Returns: `{ jobId, requestId, monitoringUrl }` → poll → fetch `similarity:result:<requestId>`
+202 response: `{ jobId, requestId, monitoringUrl, resultKey, agentResultKey }`
 
-**Holders + similarity bundled** — `POST /intel/token/:mint/holders/deep` — **coming soon (temporarily unavailable)**
+Poll `GET /jobs/:jobId` → on `completed` fetch:
 
-This endpoint returns `501`. Use the two-step alternative:
+```bash
+curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=similarity:agent:result:REQUEST_ID" \
+  -H "X-Api-Key: ak_your_key"
+```
 
-1. `POST /intel/token/:mint/holders` — get holder addresses from the job result
-2. `POST /intel/wallets/similarity` — run similarity on those addresses
+Result shape:
+
+```json
+{
+  "coordinationScore": 0.74,
+  "pairs": [
+    {
+      "walletA": "ADDR_1", "walletB": "ADDR_2",
+      "similarityScore": 0.83, "sharedTokenCount": 22,
+      "portfolioSizeA": 28, "portfolioSizeB": 31,
+      "overlapPctA": 0.786, "overlapPctB": 0.710,
+      "flag": "HIGH_SIMILARITY_AND_OVERLAP"
+    }
+  ],
+  "globalMetrics": { "averageSimilarity": 0.74 },
+  "metadata": { "walletsAnalyzed": 3, "totalPairs": 3, "meaningfulPairs": 2, "flaggedPairs": 1 }
+}
+```
+
+`coordinationScore` 0–1 — single number for a buy/skip/flag decision. `pairs` only includes pairs with meaningful signal (combinedScore ≥ 0.15 or ≥20 shared tokens); noise pairs are dropped.
+
+`flag` values: `HIGH_SIMILARITY` (score > 0.7) | `HIGH_OVERLAP` (>50% portfolio overlap or >20 shared tokens) | `HIGH_SIMILARITY_AND_OVERLAP`
+
+`similarityScore` = binaryScore × 0.6 + capitalScore × 0.4.
+
+---
+
+## Bundled deep analysis (35cr)
+
+Holder profiles + similarity in one call, server discovers holders itself. 35cr vs 40cr for the two-step manual flow.
+
+```bash
+curl -X POST https://api.sova-intel.com/api/v1/intel/token/TOKEN_MINT/holders/deep \
+  -H "X-Api-Key: ak_your_key" -H "Content-Type: application/json" \
+  -d '{"topN": 20}'
+```
+
+Returns two job descriptors immediately. `similarity.jobId` is `null` — the processor queues it after holder-profiles completes.
+
+```json
+{
+  "holderProfiles": { "jobId": "hp-abc", "requestId": "...", "monitoringUrl": "...", "resultKey": "holder-profiles:result:hp-abc" },
+  "similarity": { "jobId": null, "requestId": "sim-xyz", "resultKey": "similarity:result:sim-xyz" }
+}
+```
+
+Polling: wait for `holderProfiles.jobId` to complete, then poll `similarity.resultKey` directly (it appears when the processor chains it). Both return the full developer shapes — not agent-optimised. Use `/holders/agent` + `/similarity/agent` separately if you need compact results.
+
+---
+
+## Standard holder profiles and similarity (full shape)
+
+Available but verbose — use the `/agent` variants above for agent workflows.
+
+`POST /intel/token/:mint/holders` (20cr) → `{ jobId, requestId, monitoringUrl }` → poll → `GET /jobs/result/by-key?key=holder-profiles:result:JOB_ID`
+
+`POST /intel/wallets/similarity` (20cr) → `{ jobId, requestId, monitoringUrl }` → poll → `GET /jobs/result/by-key?key=similarity:result:REQUEST_ID`
+
+Full result shapes are documented at https://docs.sova-intel.com/endpoints/batch-token.
 
 ---
 
 ## Pricing
 
-| Endpoint                               | Credits |    USD |
-| :------------------------------------- | ------: | -----: |
-| `GET /intel/pricing`                   |       0 |  free  |
-| `GET /intel/wallet/:addr`              |       5 | $0.075 |
-| `GET /intel/wallet/:addr/hud`          |       1 | $0.015 |
-| `GET /intel/wallet/:addr/tokens`       |       3 | $0.045 |
-| `POST /intel/wallets/batch-hud`        |       5 | $0.075 |
-| `POST /intel/token/:mint/holders`      |      20 |  $0.30 |
-| `POST /intel/wallets/similarity`       |      20 |  $0.30 |
-| `POST /intel/token/:mint/holders/deep` |      35 | $0.525 | _(coming soon — returns 501)_ |
+| Endpoint | Credits | USD |
+|:---------|--------:|----:|
+| `GET /intel/wallet/:addr/hud` | 1 | $0.015 |
+| `GET /intel/wallet/:addr` | 5 | $0.075 |
+| `GET /intel/wallet/:addr/tokens` | 3 | $0.045 |
+| `POST /intel/wallets/batch-hud` | 5 | $0.075 |
+| `POST /intel/token/:mint/holders/agent` ★ | 20 | $0.30 |
+| `POST /intel/wallets/similarity/agent` ★ | 20 | $0.30 |
+| `POST /intel/token/:mint/holders/deep` | 35 | $0.525 |
+| `POST /intel/token/:mint/holders` | 20 | $0.30 |
+| `POST /intel/wallets/similarity` | 20 | $0.30 |
 
-1 credit = $0.015 USDC.
-
-Charging model:
-- GET Intel endpoints (`/intel/wallet/:addr`, `/hud`, `/tokens`) charge on successful `200`.
-- GET fallback `202` (timeout path) does not charge immediately; re-call uses prepaid marker flow.
-- Async POST endpoints charge on accepted `202` job acceptance.
+1 credit = $0.015 USDC. Async POST endpoints charge on 202 job acceptance. GET endpoints charge on 200.
 
 ---
 
 ## How to pay
 
-### Option A — API key (simplest)
+### Option A — API key
 
 ```bash
-curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS \
+curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/hud \
   -H "X-Api-Key: ak_your_key"
 ```
 
-No transaction building. Credits come from the key owner's account. Done.
+### Option B — X402 (autonomous, no account needed)
 
-### Option B — X402 (autonomous, self-funded Solana wallet)
+Every endpoint returns HTTP 402 when called without auth.
 
-Every endpoint returns HTTP 402 when called without auth. The payment contract is x402 v2.
-
-**Step 1 — probe (no auth):**
+**Step 1 — probe:**
 
 ```bash
-curl -i https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS
-# → HTTP 402
+curl -i https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/hud
+# → HTTP 402, header: PAYMENT-REQUIRED: <base64-json>
 ```
 
-**402 response contract:**
-
-- Header: `PAYMENT-REQUIRED: <base64-json>`
-- Body: `{"error":"Payment required","required":<credits>}`
-
-Decoded `PAYMENT-REQUIRED` JSON example:
-
-```json
-{
-  "x402Version": 2,
-  "accepts": [{
-    "scheme": "exact",
-    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    "amount": "75000",
-    "payTo": "<TREASURY_PUBKEY>",
-    "maxTimeoutSeconds": 60
-  }]
-}
-```
-
-Cache `accepts[0].payTo` — it never changes per deployment.
+Decode `PAYMENT-REQUIRED` header — contains `accepts[0].payTo` and `accepts[0].amount`. Cache `payTo` — it never changes per deployment.
 
 **Step 2 — build payment + resend:**
 
 ```
 payment-signature: base64( JSON.stringify({
-  x402Version: 2,
-  scheme: "exact",
+  x402Version: 2, scheme: "exact",
   network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
   payload: { transaction: base64(signedTxBytes) }
 }) )
 ```
 
-`x-payment` is still accepted as a legacy fallback header.
-
-Transaction: `transferChecked` from your USDC ATA → treasury USDC ATA (derive with `getAssociatedTokenAddress(USDC_MINT, new PublicKey(payTo))`). Do not use the raw `payTo` pubkey as destination.
-
-**Constants:**
+Transaction: `transferChecked` from your USDC ATA → treasury USDC ATA. Derive destination with `getAssociatedTokenAddress(USDC_MINT, new PublicKey(payTo))` — do not use raw `payTo` as destination.
 
 ```
-USDC mint : EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
-Decimals  : 6
-Amount    : read amount from PAYMENT-REQUIRED header payload (string → BigInt)
+USDC mint : EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v  (decimals: 6)
+Amount    : BigInt(accepts[0].amount) — read from header, don't hardcode
 ```
 
-**TypeScript:**
-
-```typescript
-import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, createTransferCheckedInstruction, getAssociatedTokenAddress } from "@solana/spl-token";
-
-const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-
-async function buildXPayment(
-  connection: Connection,
-  keypair: Keypair,
-  payTo: string,           // accepts[0].payTo from 402 body
-  amountBaseUnits: bigint, // BigInt(accepts[0].amount)
-): Promise<string> {
-  const agentAta    = await getAssociatedTokenAddress(USDC_MINT, keypair.publicKey);
-  const treasuryAta = await getAssociatedTokenAddress(USDC_MINT, new PublicKey(payTo));
-  const { blockhash } = await connection.getLatestBlockhash("confirmed");
-  const tx = new Transaction({ recentBlockhash: blockhash, feePayer: keypair.publicKey });
-  tx.add(createTransferCheckedInstruction(
-    agentAta, USDC_MINT, treasuryAta, keypair.publicKey, amountBaseUnits, 6, [], TOKEN_PROGRAM_ID,
-  ));
-  tx.sign(keypair);
-  return Buffer.from(JSON.stringify({
-    x402Version: 2, scheme: "exact",
-    network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-    payload: { transaction: tx.serialize().toString("base64") },
-  })).toString("base64");
-}
-```
-
-On success: response header `X-Payment-Response: <txSignature>`. Each signature is single-use (24h replay protection).
+On success: `X-Payment-Response` header contains tx signature. Signatures are single-use (24h replay protection). `x-payment` header accepted as legacy fallback.
 
 **X402 errors:**
 
 | Message | Fix |
 |:--------|:----|
-| `transfer destination does not match treasury ATA` | Derive ATA, don't use raw `payTo` pubkey |
-| `USDC amount N < required M` | Use `amount` from PAYMENT-REQUIRED payload |
-| `transaction already used (replay attack)` | Fresh tx + fresh blockhash per request |
+| `transfer destination does not match treasury ATA` | Derive ATA, don't use raw `payTo` |
+| `USDC amount N < required M` | Use `amount` from PAYMENT-REQUIRED, don't hardcode |
+| `transaction already used` | Fresh tx + fresh blockhash per request |
 | `transaction confirmation failed` | Expired blockhash or RPC error — retry |
 
 ---
 
 ## Async jobs
 
-POST endpoints return **HTTP 202** (async accepted).
-`GET /intel/wallet/:addr` and `GET /intel/wallet/:addr/hud` use synchronous hold and only return **HTTP 202** on timeout/failure fallback.
+POST endpoints return HTTP 202 immediately. GET wallet endpoints hold up to 30s then return 202 on timeout.
 
-```json
-{ "status": "queued", "jobId": "123", "requestId": "intel-holders-123-abc", "monitoringUrl": "/api/v1/jobs/123" }
-```
-
-**Poll** every 5s — free:
-
+**Poll status** (free, no auth):
 ```bash
 curl https://api.sova-intel.com/api/v1/jobs/JOB_ID
-# → { "status": "active" | "completed" | "failed", "progress": 80 }
+# → { "status": "waiting" | "active" | "completed" | "failed", "progress": 80 }
 ```
 
-`GET /jobs/:jobId` is public for status polling. Unauthenticated callers get status/progress metadata; authenticated callers may receive full payload.
-
-**Retrieve result** once `completed` (results expire after 15 minutes):
-
+**Fetch result** once `completed` (expires 15 minutes after completion):
 ```bash
-curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=holder-profiles:result:REQUEST_ID" \
-  -H "X-Api-Key: ak_your_key"
-
-curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=similarity:result:REQUEST_ID" \
+curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=KEY" \
   -H "X-Api-Key: ak_your_key"
 ```
 
-`GET /intel/wallet/:addr` cold/stale flow (PAY-8) — always 5cr total:
+Result keys are in the 202 response: `resultKey` for full shape, `agentResultKey` for agent shape (agent endpoints only).
 
+**GET wallet timeout fallback** — always 5cr total:
 ```
-→ hold up to 30s
-→ if completed: 200 (5cr) in same call
-→ if timeout: 202 (0cr) + prepaidJobId
-→ poll jobId → call again with X-Prepaid-Job-Id → 200 (total still 5cr)
+→ hold up to 30s → 200 (5cr charged) if ready
+→ timeout → 202 (0cr) + prepaidJobId
+→ poll jobId → re-call with X-Prepaid-Job-Id header → 200 (total: 5cr)
 ```
 
 ---
@@ -323,25 +294,21 @@ curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=similarity:result
 ## Agent loop
 
 ```
-1. Do I have an API key?
-   YES → attach X-Api-Key header on every request, skip to step 3
-   NO  → proceed with X402
+1. Auth?
+   API key → X-Api-Key header on every request
+   X402    → probe without auth → 402 → build payment-signature → resend
 
-2. Call target endpoint without auth → 402
-   Read PAYMENT-REQUIRED header payload (`accepts[0].payTo`, `accepts[0].amount`)
-   Build payment header (`payment-signature`) → resend request
-
-3. Handle response:
-   200 → data ready, credits charged — done
-   202 from GET /intel/wallet* timeout fallback → poll GET /jobs/:jobId every 5s
-         on completed → re-call same Intel GET with X-Prepaid-Job-Id header
-   202 from async POST endpoints → poll GET /jobs/:jobId every 5s
-         on completed → GET /jobs/result/by-key?key=<type>:result:<requestId or jobId>
-         on failed    → retry once, then surface error
-   402 → payment failed — check X402 errors above
-   404 → verify base URL/route or result key
-   422 → system/program wallet — skip this address
-   500 → retry with exponential backoff, max 3 attempts
+2. Handle response:
+   200  → done, credits charged
+   202 from GET /intel/wallet* → poll GET /jobs/:jobId every 5s
+          completed → re-call with X-Prepaid-Job-Id header
+   202 from POST → poll GET /jobs/:jobId every 5s
+          completed → GET /jobs/result/by-key?key=<agentResultKey or resultKey>
+          failed    → retry once, then surface error
+   402  → payment failed — see X402 errors
+   404  → bad route or result key expired (15-min TTL)
+   422  → system/program wallet — skip this address
+   500  → retry with exponential backoff, max 3 attempts
 ```
 
 ---
@@ -352,9 +319,8 @@ curl "https://api.sova-intel.com/api/v1/jobs/result/by-key?key=similarity:result
 |:----:|:--------|:-------|
 | 400 | Invalid address or bad body | Fix input |
 | 401 | Unauthorized | API key missing or malformed |
-| 402 | Payment required | See "How to pay" above |
+| 402 | Payment required | See How to pay |
 | 403 | Wallet/key blocked | Contact operator |
-| 404 | Route or result key not found | Verify base URL/route/key |
+| 404 | Route or result key not found | Verify URL/key; result TTL is 15 min |
 | 422 | System/program wallet | Not analyzable — skip |
-| 206 | Bundled job partial failure | 0cr charged; retry or split calls |
 | 500 | Server error | Retry with backoff |

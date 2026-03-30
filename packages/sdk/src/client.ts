@@ -14,6 +14,10 @@ import type {
   BatchHudResponse,
   JobAcceptedResponse,
   DeepJobAcceptedResponse,
+  HolderProfilesAgentJobAcceptedResponse,
+  SimilarityAgentJobAcceptedResponse,
+  AgentHolderProfilesResult,
+  AgentSimilarityResult,
 } from "./types.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -215,6 +219,80 @@ export class SovaIntelClient {
     );
 
     return { holderProfiles, similarity };
+  }
+
+  // -------------------------------------------------------------------------
+  // POST /intel/token/:mint/holders/agent — 20cr (async, agent-optimised)
+  // Same job as /holders but result is transformed to a compact shape with an
+  // aggregate block and slim per-holder profiles.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Queue an agent-optimised holder-profiles analysis (20cr).
+   * Returns the raw 202 response including `agentResultKey` for polling.
+   * Use `pollTokenHoldersAgent()` for a blocking variant.
+   */
+  async queueTokenHoldersAgent(
+    tokenMint: string,
+    topN = 20,
+  ): Promise<HolderProfilesAgentJobAcceptedResponse> {
+    return this.http.request<HolderProfilesAgentJobAcceptedResponse>({
+      method: "POST",
+      path: `/intel/token/${tokenMint}/holders/agent`,
+      body: { topN },
+    });
+  }
+
+  /**
+   * Convenience: queue agent holder-profiles and poll until the slim result is ready.
+   * Fetches from `agentResultKey` (not the full result key).
+   */
+  async pollTokenHoldersAgent(
+    tokenMint: string,
+    topN = 20,
+  ): Promise<AgentHolderProfilesResult> {
+    const job = await this.queueTokenHoldersAgent(tokenMint, topN);
+    return pollAndFetch<AgentHolderProfilesResult>(
+      this.http,
+      job.jobId,
+      job.agentResultKey,
+      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // POST /intel/wallets/similarity/agent — 20cr (async, agent-optimised)
+  // Same job as /similarity but result is transformed to a compact shape with
+  // a coordinationScore, filtered pairs, and flags.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Queue an agent-optimised similarity analysis (20cr).
+   * Returns the raw 202 response including `agentResultKey` for polling.
+   * Use `pollWalletSimilarityAgent()` for a blocking variant.
+   */
+  async queueWalletSimilarityAgent(
+    wallets: string[],
+  ): Promise<SimilarityAgentJobAcceptedResponse> {
+    return this.http.request<SimilarityAgentJobAcceptedResponse>({
+      method: "POST",
+      path: `/intel/wallets/similarity/agent`,
+      body: { wallets },
+    });
+  }
+
+  /**
+   * Convenience: queue agent similarity and poll until the slim result is ready.
+   * Fetches from `agentResultKey` (not the full result key).
+   */
+  async pollWalletSimilarityAgent(wallets: string[]): Promise<AgentSimilarityResult> {
+    const job = await this.queueWalletSimilarityAgent(wallets);
+    return pollAndFetch<AgentSimilarityResult>(
+      this.http,
+      job.jobId,
+      job.agentResultKey,
+      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
+    );
   }
 
   // -------------------------------------------------------------------------
