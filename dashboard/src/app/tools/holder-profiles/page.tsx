@@ -636,7 +636,7 @@ function HolderProfilesContent() {
   return (
     <AppShell>
       <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8 pb-8">
-        <div className="max-w-6xl mx-auto space-y-1">
+        <div className="max-w-[88rem] mx-auto space-y-1">
           <PageTitle
             title="Holder Profiles"
             subtitle="Scan holder behavior patterns and conviction signals across top wallets."
@@ -644,7 +644,7 @@ function HolderProfilesContent() {
             titleExtra={<FeatureHelpLink slug="holder-profiles" />}
           />
         </div>
-        <Card className="max-w-6xl mx-auto p-3">
+        <Card className="max-w-[88rem] mx-auto p-3">
           <div className="flex flex-wrap items-center gap-2">
             {analysisMode === 'token' && historyRuns.length > 0 && (
               <SnapshotHistoryModal runs={historyRuns} tokenMint={tokenMint} />
@@ -749,7 +749,7 @@ function HolderProfilesContent() {
         )}
 
         {analysisMode === 'token' && tokenStatus === 'failed' && !displayedTokenResult && (
-          <Alert variant="destructive" className="max-w-6xl mx-auto">
+          <Alert variant="destructive" className="max-w-[88rem] mx-auto">
             <AlertTitle>Holder profile analysis failed</AlertTitle>
             <AlertDescription>
               {tokenFailureError || 'No results available. Please check the token mint and try again.'}

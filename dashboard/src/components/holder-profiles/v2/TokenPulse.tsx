@@ -2,6 +2,7 @@ import type { HolderProfilesResult } from '../types';
 import { getSpeedPrimitive, getConsistencyPrimitive } from './utils/cognitive-primitives';
 import { getMeanBehaviorSimilarity } from './utils/behavior-similarity';
 import { TraderDistributionBar } from './TraderDistributionBar';
+import { TokensPerDayCohortBar } from './TokensPerDayCohortBar';
 import { MinimalHoldersTable } from './MinimalHoldersTable';
 import { getTokenOutcome as getTokenStats } from './utils/outcome-logic';
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
@@ -11,6 +12,7 @@ import { SimilaritySidebar, type SimilarityGraphAnalysis, type SimilarityStatus 
 import { CognitiveMetricCard } from './CognitiveMetricCard';
 import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useWalletHudCache } from '@/hooks/useWalletHudCache';
 
 interface Props {
   result: HolderProfilesResult;
@@ -59,14 +61,20 @@ export function TokenPulse({
   const [selectedPair, setSelectedPair] = useState<[string, string] | null>(null);
   const [selectedClusterId, setSelectedClusterId] = useState<number | null>(null);
   const [clusterWallets, setClusterWallets] = useState<string[]>([]);
+  const [selectedBreadthCohortId, setSelectedBreadthCohortId] = useState<string | null>(null);
+  const [breadthCohortWallets, setBreadthCohortWallets] = useState<string[]>([]);
   const [graphAnalysis, setGraphAnalysis] = useState<SimilarityGraphAnalysis | null>(null);
 
   // Highlighted wallets - from pair selection OR cluster selection
   const highlightedWallets = useMemo(() => {
-    if (clusterWallets.length > 0) return new Set(clusterWallets);
-    if (selectedPair) return new Set(selectedPair);
-    return new Set<string>();
-  }, [selectedPair, clusterWallets]);
+    const addresses = new Set<string>();
+    clusterWallets.forEach((wallet) => addresses.add(wallet));
+    if (selectedPair) {
+      selectedPair.forEach((wallet) => addresses.add(wallet));
+    }
+    breadthCohortWallets.forEach((wallet) => addresses.add(wallet));
+    return addresses;
+  }, [selectedPair, clusterWallets, breadthCohortWallets]);
 
   // Build wallet address to rank map for the sidebar
   const walletRanks = useMemo(() => {
@@ -76,6 +84,13 @@ export function TokenPulse({
     });
     return map;
   }, [result.profiles]);
+
+  const walletAddresses = useMemo(
+    () => result.profiles.map((profile) => profile.walletAddress).sort(),
+    [result.profiles]
+  );
+
+  const { data: hudData } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
 
   // Handle pair selection - persistently highlight wallets in table until clicked again
   const handlePairSelect = useCallback((wallets: [string, string] | null) => {
@@ -97,6 +112,11 @@ export function TokenPulse({
     }
   }, []);
 
+  const handleBreadthCohortSelect = useCallback((cohortId: string | null, wallets: string[]) => {
+    setSelectedBreadthCohortId(cohortId);
+    setBreadthCohortWallets(wallets);
+  }, []);
+
   // Handle graph analysis updates from sidebar
   const handleGraphAnalysisChange = useCallback((analysis: SimilarityGraphAnalysis | null) => {
     setGraphAnalysis(analysis);
@@ -112,6 +132,8 @@ export function TokenPulse({
       setSelectedPair(null);
       setSelectedClusterId(null);
       setClusterWallets([]);
+      setSelectedBreadthCohortId(null);
+      setBreadthCohortWallets([]);
       setGraphAnalysis(null);
     }
   }, [result.tokenMint]);
@@ -133,7 +155,7 @@ export function TokenPulse({
   if (!result?.profiles?.length) return null;
 
   return (
-    <section className="relative space-y-4 max-w-7xl mx-auto">
+    <section className="relative space-y-4 max-w-[88rem] mx-auto">
       {notice && (
         <Alert
           variant={notice.variant}
@@ -203,9 +225,17 @@ export function TokenPulse({
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-4">
         <div className="space-y-4">
-          <div className="grid grid-cols-1">
-            <div className="w-full max-w-2xl">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.9fr)] gap-4 items-start">
+            <div className="w-full">
               <TraderDistributionBar profiles={result.profiles} />
+            </div>
+            <div className="w-full">
+              <TokensPerDayCohortBar
+                profiles={result.profiles}
+                hudData={hudData}
+                selectedCohortId={selectedBreadthCohortId}
+                onCohortSelect={handleBreadthCohortSelect}
+              />
             </div>
           </div>
           <div>
@@ -215,6 +245,7 @@ export function TokenPulse({
               mode="token"
               tokenMint={result.tokenMint}
               onSelect={(profile) => setSelectedProfile(profile)}
+              hudData={hudData}
               highlightedWallets={highlightedWallets}
               connectionCounts={graphAnalysis?.connectionCounts}
             />

@@ -1,5 +1,5 @@
 import type { HolderProfile } from '../types';
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import { formatHoldTime, formatPercentage, formatSol } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -7,13 +7,14 @@ import { WalletBadge } from '@/components/shared/WalletBadge';
 import { InfoIcon, Link2 } from 'lucide-react';
 import { CONNECTION_THRESHOLD } from './SimilaritySidebar';
 import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
-import { useWalletHudCache } from '@/hooks/useWalletHudCache';
+import type { WalletHudDto } from '@/types/api';
 
 interface Props {
   profiles: HolderProfile[];
   mode: 'token' | 'wallet';
   tokenMint?: string;
   onSelect?: (profile: HolderProfile) => void;
+  hudData?: Record<string, WalletHudDto>;
   /** Set of wallet addresses to highlight (e.g., from similarity pair hover) */
   highlightedWallets?: Set<string>;
   /** Map of wallet address to number of connections above threshold */
@@ -86,17 +87,16 @@ function hasSignificantHoldings(profile: HolderProfile) {
   return (profile.currentHoldings ?? []).some((holding) => (holding.valueSol ?? 0) >= SIGNIFICANT_HOLD_THRESHOLD_SOL);
 }
 
-export function MinimalHoldersTable({ profiles, mode, tokenMint, onSelect, highlightedWallets, connectionCounts }: Props) {
+export function MinimalHoldersTable({
+  profiles,
+  mode,
+  tokenMint,
+  onSelect,
+  hudData,
+  highlightedWallets,
+  connectionCounts,
+}: Props) {
   const { isFavorite, openFavoriteDialog } = useFavoriteActions();
-
-  // Sort wallet addresses for stable SWR cache key
-  // Even if profiles order changes, same wallets = same sorted array
-  const walletAddresses = useMemo(
-    () => profiles.map((profile) => profile.walletAddress).sort(),
-    [profiles]
-  );
-
-  const { data: hudData } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
 
   return (
     <TooltipProvider delayDuration={150}>

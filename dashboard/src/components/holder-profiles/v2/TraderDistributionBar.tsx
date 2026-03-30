@@ -113,8 +113,8 @@ export function TraderDistributionBar({ profiles }: Props) {
           No completed hold history yet.
         </p>
       ) : (
-        <div className="grid grid-cols-[28px_1fr] gap-3">
-          <div className="flex flex-col justify-between text-[10px] text-muted-foreground h-32 leading-none">
+        <div className="grid grid-cols-[34px_1fr] gap-3">
+          <div className="flex flex-col justify-between text-[11px] text-muted-foreground h-32 leading-none">
             {axisSteps.map((value, index) => (
               <span key={`${value}-${index}`}>{value.toFixed(1)}%</span>
             ))}
@@ -148,7 +148,7 @@ export function TraderDistributionBar({ profiles }: Props) {
                           style={{ height: `${height}%`, backgroundColor: bucket.color }}
                         />
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <span className="text-[10px] font-semibold text-white drop-shadow-lg">
+                          <span className="text-[11px] font-semibold text-white drop-shadow-lg">
                             {supplyPercentFormatted}%
                           </span>
                         </div>
@@ -164,10 +164,10 @@ export function TraderDistributionBar({ profiles }: Props) {
             >
               {displayBuckets.map((bucket) => (
                 <div key={`${bucket.id}-label`} className="min-w-0">
-                  <div className="text-[10px] text-white font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+                  <div className="text-[11px] text-white font-semibold drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
                     {bucket.label}
                   </div>
-                  <div className="text-[9px] text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+                  <div className="text-[10px] text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
                     {bucket.id === 'HODLER' || bucket.timeframe === 'Holds until it is not'
                       ? ''
                       : bucket.timeframe || '-'}

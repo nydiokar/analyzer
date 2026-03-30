@@ -38,7 +38,7 @@ export function SharedHolderProfilesView({
   return (
     <AppShell>
       <div className="w-full mx-auto px-4 md:px-6 lg:px-10 space-y-8 pb-8">
-        <div className="max-w-6xl mx-auto space-y-1 pt-8">
+        <div className="max-w-[88rem] mx-auto space-y-1 pt-8">
           <PageTitle
             title="Holder Profiles"
             subtitle="Shared public snapshot rendered with the same holder-profiles surface as Sova Intel."
@@ -51,7 +51,7 @@ export function SharedHolderProfilesView({
           />
         </div>
 
-        <Card className="max-w-6xl mx-auto p-4">
+        <Card className="max-w-[88rem] mx-auto p-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-1">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
