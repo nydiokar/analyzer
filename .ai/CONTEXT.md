@@ -8,6 +8,16 @@
 
 ##  Active Work
 
+BEFORE DEPLOY: 
+
+do we have automatic SOL price fetcher per day 
+
+How and where do we surface the new data for market cap in frontend?
+
+Do we update the SDK/DOCS somehow ?? 
+
+fund me and anime to be done as posts; 
+
 Finish the wallet intelligence guide
 
 Finish Sova-X - wallets and open for tokens.
