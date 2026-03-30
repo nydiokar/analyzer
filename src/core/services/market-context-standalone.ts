@@ -199,7 +199,11 @@ export async function buildSupplyMap(
 // Enrichment engine — for standalone scripts
 // ---------------------------------------------------------------------------
 
-const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const SKIP_MINTS = [
+  'So11111111111111111111111111111111111111112', // native SOL
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+];
 
 export async function enrichSwapBatch(
   prisma: PrismaClient,
@@ -207,12 +211,12 @@ export async function enrichSwapBatch(
   walletAddress?: string,
 ): Promise<number> {
   await prisma.swapAnalysisInput.updateMany({
-    where: { enrichedAt: null, mint: SOL_MINT, ...(walletAddress ? { walletAddress } : {}) },
+    where: { enrichedAt: null, mint: { in: SKIP_MINTS }, ...(walletAddress ? { walletAddress } : {}) },
     data: { enrichedAt: new Date() },
   });
 
   const rows = await prisma.swapAnalysisInput.findMany({
-    where: { enrichedAt: null, NOT: { mint: SOL_MINT }, ...(walletAddress ? { walletAddress } : {}) },
+    where: { enrichedAt: null, NOT: { mint: { in: SKIP_MINTS } }, ...(walletAddress ? { walletAddress } : {}) },
     orderBy: { timestamp: 'desc' },
     take: batchSize,
   });

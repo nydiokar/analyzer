@@ -88,17 +88,21 @@ export class MarketContextService {
    * not retried forever. Rows missing prerequisite cache data stay pending.
    */
   async enrichSwapBatch(batchSize = 500, walletAddress?: string): Promise<number> {
-    const SOL_MINT = 'So11111111111111111111111111111111111111112';
+    const SKIP_MINTS = [
+      'So11111111111111111111111111111111111111112', // native SOL
+      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+    ];
     const walletFilter = walletAddress ? { walletAddress } : {};
 
-    // Stamp SOL-mint rows complete first — no mcap derivable from native SOL
+    // Stamp SOL/stable-mint rows complete — no meaningful mcap derivable from these
     await prisma.swapAnalysisInput.updateMany({
-      where: { enrichedAt: null, mint: SOL_MINT, ...walletFilter },
+      where: { enrichedAt: null, mint: { in: SKIP_MINTS }, ...walletFilter },
       data: { enrichedAt: new Date() },
     });
 
     const rows = await prisma.swapAnalysisInput.findMany({
-      where: { enrichedAt: null, NOT: { mint: SOL_MINT }, ...walletFilter },
+      where: { enrichedAt: null, NOT: { mint: { in: SKIP_MINTS } }, ...walletFilter },
       orderBy: { timestamp: 'desc' },
       take: batchSize,
     });
