@@ -7,6 +7,7 @@ import { IPriceProvider } from '../../types/price-provider.interface';
 import { ITokenInfoService, TokenEnrichmentPlan } from '../../types/token-info-service.interface';
 import { OnchainMetadataService, BasicTokenMetadata, SocialLinks } from '../../core/services/onchain-metadata.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { HELIUS_SUPPLY_CLIENT } from '../integrations/helius.module';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import { TOKEN_INFO_REFRESH_CONFIG } from '../../config/constants';
 import { getErrorMessage } from 'core/utils/error-utils';
@@ -34,7 +35,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     private readonly dexscreenerService: DexscreenerService, // Legacy, for backwards compatibility
     @Inject('IPriceProvider') private readonly priceProvider: IPriceProvider,
     private readonly onchainMetadataService: OnchainMetadataService, // NEW: Onchain metadata enrichment
-    private readonly heliusApiClient: HeliusApiClient, // For fetching token supply
+    @Inject(HELIUS_SUPPLY_CLIENT) private readonly heliusApiClient: HeliusApiClient, // For fetching token supply — uses metadata key if available
     @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
     this.redis = redisClient;

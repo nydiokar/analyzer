@@ -199,13 +199,20 @@ export async function buildSupplyMap(
 // Enrichment engine — for standalone scripts
 // ---------------------------------------------------------------------------
 
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
 export async function enrichSwapBatch(
   prisma: PrismaClient,
   batchSize = 500,
   walletAddress?: string,
 ): Promise<number> {
+  await prisma.swapAnalysisInput.updateMany({
+    where: { enrichedAt: null, mint: SOL_MINT, ...(walletAddress ? { walletAddress } : {}) },
+    data: { enrichedAt: new Date() },
+  });
+
   const rows = await prisma.swapAnalysisInput.findMany({
-    where: { enrichedAt: null, ...(walletAddress ? { walletAddress } : {}) },
+    where: { enrichedAt: null, NOT: { mint: SOL_MINT }, ...(walletAddress ? { walletAddress } : {}) },
     orderBy: { timestamp: 'desc' },
     take: batchSize,
   });
@@ -228,54 +235,63 @@ export async function enrichSwapBatch(
   let skipped = 0;
   let deferred = 0;
 
+  const now = new Date();
+  type UpdatePayload = { solPriceUsd: number | null; usdValue: number; tokenPriceUsd: number; marketCapUsd: number | null; mcapBucket: string | null };
+  const enrichUpdates = new Map<number, UpdatePayload>();
+  const skipIds: number[] = [];
+
   for (const row of rows) {
-    try {
-      const dateKey = timestampToDateKey(row.timestamp);
-      const solPriceUsd = solPriceMap.get(dateKey) ?? null;
+    const dateKey = timestampToDateKey(row.timestamp);
+    const solPriceUsd = solPriceMap.get(dateKey) ?? null;
 
-      if (row.amount <= 0) {
-        await prisma.swapAnalysisInput.update({
-          where: { id: row.id },
-          data: { enrichedAt: new Date() },
-        });
-        skipped++;
+    if (row.amount <= 0) {
+      skipIds.push(row.id);
+      skipped++;
+      continue;
+    }
+
+    let usdValue: number | null = null;
+    if (row.associatedSolValue > 0 && solPriceUsd) {
+      usdValue = row.associatedSolValue * solPriceUsd;
+    } else if (row.associatedUsdcValue && row.associatedUsdcValue > 0) {
+      usdValue = row.associatedUsdcValue;
+    }
+
+    if (usdValue === null) {
+      if (row.associatedSolValue > 0 && solPriceUsd === null) {
+        deferred++;
         continue;
       }
+      skipIds.push(row.id);
+      skipped++;
+      continue;
+    }
 
-      let usdValue: number | null = null;
-      if (row.associatedSolValue > 0 && solPriceUsd) {
-        usdValue = row.associatedSolValue * solPriceUsd;
-      } else if (row.associatedUsdcValue && row.associatedUsdcValue > 0) {
-        usdValue = row.associatedUsdcValue;
-      }
+    const tokenPriceUsd = usdValue / row.amount;
+    const totalSupply = supplyMap.get(row.mint) ?? null;
+    const marketCapUsd = totalSupply !== null ? tokenPriceUsd * totalSupply : null;
+    const mcapBucket = marketCapUsd !== null ? classifyMcap(marketCapUsd) : null;
+    enrichUpdates.set(row.id, { solPriceUsd, usdValue, tokenPriceUsd, marketCapUsd, mcapBucket });
+    enriched++;
+  }
 
-      if (usdValue === null) {
-        if (row.associatedSolValue > 0 && solPriceUsd === null) {
-          deferred++;
-          continue;
-        }
+  // Batch writes: skips (updateMany by ids), enriched (individual but in parallel chunks)
+  if (skipIds.length > 0) {
+    await prisma.swapAnalysisInput.updateMany({
+      where: { id: { in: skipIds } },
+      data: { enrichedAt: now },
+    });
+  }
 
-        await prisma.swapAnalysisInput.update({
-          where: { id: row.id },
-          data: { enrichedAt: new Date() },
-        });
-        skipped++;
-        continue;
-      }
-
-      const tokenPriceUsd = usdValue / row.amount;
-      const totalSupply = supplyMap.get(row.mint) ?? null;
-      const marketCapUsd = totalSupply !== null ? tokenPriceUsd * totalSupply : null;
-      const mcapBucket = marketCapUsd !== null ? classifyMcap(marketCapUsd) : null;
-
-      await prisma.swapAnalysisInput.update({
-        where: { id: row.id },
-        data: { solPriceUsd, usdValue, tokenPriceUsd, marketCapUsd, mcapBucket, enrichedAt: new Date() },
-      });
-
-      enriched++;
-    } catch (err: any) {
-      console.warn(`Error enriching row ${row.id}: ${err.message}`);
+  if (enrichUpdates.size > 0) {
+    const CHUNK = 50;
+    const entries = [...enrichUpdates.entries()];
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      await Promise.all(
+        entries.slice(i, i + CHUNK).map(([id, data]) =>
+          prisma.swapAnalysisInput.update({ where: { id }, data: { ...data, enrichedAt: now } }),
+        ),
+      );
     }
   }
 

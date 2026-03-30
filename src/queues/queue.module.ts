@@ -196,10 +196,15 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
     await this.marketContextService.appendTodaySolPrice();
 
     const count = await this.marketContextService.getSolPriceDayCount();
-    if (count < 30) {
-      this.logger.log(`SOL price cache has only ${count} days — backfilling 90 days from DeFiLlama...`);
-      await this.marketContextService.backfillSolPrices(90);
-      this.logger.log('SOL price cache backfill complete.');
+    const TARGET_DAYS = 730; // 2 years — covers any historical wallet we'll ever analyze
+    if (count < TARGET_DAYS) {
+      this.logger.log(`SOL price cache has ${count} days — backfilling ${TARGET_DAYS} days in background...`);
+      // Fire-and-forget: ~2.5 min at 200ms/day, must not block startup
+      this.marketContextService.backfillSolPrices(TARGET_DAYS).then(() => {
+        this.logger.log('SOL price cache backfill complete.');
+      }).catch((err) => {
+        this.logger.warn(`SOL price backfill failed (non-critical): ${err?.message}`);
+      });
     }
   }
 

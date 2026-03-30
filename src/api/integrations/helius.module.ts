@@ -8,6 +8,8 @@ import { WalletClassificationService } from '../../core/services/wallet-classifi
 import { OnchainMetadataService } from '../../core/services/onchain-metadata.service';
 import { DatabaseModule } from '../modules/database.module';
 
+export const HELIUS_SUPPLY_CLIENT = 'HELIUS_SUPPLY_CLIENT';
+
 @Global()
 @Module({
   imports: [
@@ -45,6 +47,17 @@ import { DatabaseModule } from '../modules/database.module';
       inject: [DatabaseService, HeliusApiClient, SmartFetchService],
     },
     {
+      provide: HELIUS_SUPPLY_CLIENT,
+      useFactory: (configService: ConfigService, dbService: DatabaseService, heliusClient: HeliusApiClient) => {
+        const metadataApiKey = configService.get<string>('HELIUS_METADATA_API_KEY');
+        if (metadataApiKey) {
+          return new HeliusApiClient({ apiKey: metadataApiKey, network: 'mainnet' }, dbService);
+        }
+        return heliusClient;
+      },
+      inject: [ConfigService, DatabaseService, HeliusApiClient],
+    },
+    {
       provide: OnchainMetadataService,
       useFactory: (configService: ConfigService, dbService: DatabaseService, heliusClient: HeliusApiClient) => {
         const logger = new Logger('OnchainMetadataServiceFactory');
@@ -69,6 +82,6 @@ import { DatabaseModule } from '../modules/database.module';
       inject: [ConfigService, DatabaseService, HeliusApiClient],
     },
   ],
-  exports: [HeliusApiClient, HeliusSyncService, SmartFetchService, WalletClassificationService, OnchainMetadataService],
+  exports: [HeliusApiClient, HELIUS_SUPPLY_CLIENT, HeliusSyncService, SmartFetchService, WalletClassificationService, OnchainMetadataService],
 })
 export class HeliusModule {}
