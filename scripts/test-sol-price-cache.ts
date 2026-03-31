@@ -5,7 +5,7 @@ async function test() {
   try {
     // 1. Backfill
     console.log('Backfilling SOL prices...');
-    await backfillSolPrices(prisma, 90);
+    await backfillSolPrices(prisma, 730);
 
     // 2. Verify: look up a known date
     const threeDaysAgo = Math.floor(Date.now() / 1000) - 3 * 86400;
