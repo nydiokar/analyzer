@@ -62,7 +62,7 @@ export class MarketContextService {
 
     if (missing.length > 0) {
       this.logger.log(`[Supply] Fetching ${missing.length} mints from RPC (not yet cached)`);
-      const CONCURRENCY = 10;
+      const CONCURRENCY = 3;
       for (let i = 0; i < missing.length; i += CONCURRENCY) {
         const chunk = missing.slice(i, i + CONCURRENCY);
         await Promise.all(
@@ -71,6 +71,9 @@ export class MarketContextService {
             if (supply !== undefined) result.set(mint, supply);
           }),
         );
+        if (i + CONCURRENCY < missing.length) {
+          await new Promise(r => setTimeout(r, 300));
+        }
       }
     }
 
