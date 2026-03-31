@@ -1,9 +1,10 @@
 import { BehaviorAnalyzer } from 'core/analysis/behavior/analyzer';
-import { DatabaseService, WalletBehaviorProfileUpsertData } from 'core/services/database-service'; // Assuming export will be fixed
+import { DatabaseService, WalletBehaviorProfileUpsertData, prisma } from 'core/services/database-service'; // Assuming export will be fixed
 import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { BehavioralMetrics, ActiveTradingPeriods } from '@/types/behavior';
 import { createLogger } from 'core/utils/logger';
 import { Prisma, SwapAnalysisInput } from '@prisma/client'; // Import Prisma
+import { classifyMcap } from 'core/services/market-context-standalone';
 
 const logger = createLogger('BehaviorService');
 
@@ -125,6 +126,91 @@ export class BehaviorService {
             return value;
           };
 
+          // Compute wallet-wide mcap profile from enriched buy rows
+          const walletBuyRows = await prisma.swapAnalysisInput.findMany({
+            where: {
+              walletAddress,
+              direction: 'in',
+              mcapBucket: { not: null },
+              usdValue: { not: null },
+              marketCapUsd: { not: null },
+            },
+            select: { mint: true, mcapBucket: true, marketCapUsd: true, usdValue: true },
+          });
+
+          let preferredMcapBucket: string | null = null;
+          let avgEntryMcap: number | null = null;
+          let mcapDistribution: Prisma.InputJsonValue | null = null;
+          let mcapBucketPnl: Prisma.InputJsonValue | null = null;
+
+          if (walletBuyRows.length >= 3) {
+            let totalUsd = 0;
+            let sumMcapWeighted = 0;
+            const bucketVolume = new Map<string, number>();
+
+            for (const row of walletBuyRows) {
+              totalUsd += row.usdValue!;
+              sumMcapWeighted += row.marketCapUsd! * row.usdValue!;
+              bucketVolume.set(row.mcapBucket!, (bucketVolume.get(row.mcapBucket!) ?? 0) + row.usdValue!);
+            }
+
+            if (totalUsd > 0) {
+              avgEntryMcap = sumMcapWeighted / totalUsd;
+
+              const dist: Record<string, number> = {};
+              for (const [bucket, vol] of bucketVolume) {
+                dist[bucket] = Math.round((vol / totalUsd) * 1000) / 1000;
+              }
+              mcapDistribution = dist;
+
+              let maxVol = 0;
+              for (const [bucket, vol] of bucketVolume) {
+                if (vol > maxVol) { maxVol = vol; preferredMcapBucket = bucket; }
+              }
+            }
+
+            // per-bucket PnL: join dominant buy bucket per mint with AnalysisResult
+            const mintToBucket = new Map<string, string>();
+            const mintBucketVolume = new Map<string, Map<string, number>>();
+            for (const row of walletBuyRows) {
+              const bv = mintBucketVolume.get(row.mint) ?? new Map<string, number>();
+              bv.set(row.mcapBucket!, (bv.get(row.mcapBucket!) ?? 0) + row.usdValue!);
+              mintBucketVolume.set(row.mint, bv);
+            }
+            for (const [mint, bv] of mintBucketVolume) {
+              let best = ''; let bestVol = 0;
+              for (const [b, v] of bv) { if (v > bestVol) { bestVol = v; best = b; } }
+              mintToBucket.set(mint, best);
+            }
+
+            const analysisResults = await prisma.analysisResult.findMany({
+              where: { walletAddress, tokenAddress: { in: [...mintToBucket.keys()] } },
+              select: { tokenAddress: true, realizedPnlSol: true },
+            });
+
+            const pnlAcc = new Map<string, { realizedPnlSol: number; count: number; profitable: number }>();
+            for (const ar of analysisResults) {
+              const bucket = mintToBucket.get(ar.tokenAddress);
+              if (!bucket) continue;
+              const acc = pnlAcc.get(bucket) ?? { realizedPnlSol: 0, count: 0, profitable: 0 };
+              const pnl = ar.realizedPnlSol ?? 0;
+              acc.realizedPnlSol += pnl;
+              acc.count += 1;
+              if (pnl > 0) acc.profitable += 1;
+              pnlAcc.set(bucket, acc);
+            }
+
+            const pnlResult: Record<string, { realizedPnlSol: number; tradeCount: number; winRate: number }> = {};
+            for (const [bucket, acc] of pnlAcc) {
+              pnlResult[bucket] = {
+                realizedPnlSol: Math.round(acc.realizedPnlSol * 1000) / 1000,
+                tradeCount: acc.count,
+                winRate: acc.count > 0 ? Math.round((acc.profitable / acc.count) * 1000) / 1000 : 0,
+              };
+            }
+            mcapBucketPnl = pnlResult;
+          }
+
           const profileDataToSave: WalletBehaviorProfileUpsertData = {
             walletAddress,
             buySellRatio: sanitizeNumber(buySellRatio),
@@ -172,6 +258,10 @@ export class BehaviorService {
             firstTransactionTimestamp,
             lastTransactionTimestamp,
             activeTradingDays: activeTradingDays ?? null,
+            preferredMcapBucket,
+            avgEntryMcap,
+            mcapDistribution: mcapDistribution as Prisma.InputJsonValue | null,
+            mcapBucketPnl: mcapBucketPnl as Prisma.InputJsonValue | null,
           };
 
           // Use the new DatabaseService method

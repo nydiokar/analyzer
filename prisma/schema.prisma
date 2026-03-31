@@ -93,12 +93,13 @@ model SwapAnalysisInput {
   interactionType     String
   feeAmount           Float?
   feePercentage       Float?
-  solPriceUsd         Float?
-  usdValue            Float?
-  tokenPriceUsd       Float?
-  marketCapUsd        Float?
-  mcapBucket          String?
-  enrichedAt          DateTime?
+  // --- Market Context (enrichment) ---
+  solPriceUsd    Float?     // SOL/USD price at time of trade
+  usdValue       Float?     // total USD value of the trade (associatedSolValue × solPriceUsd)
+  tokenPriceUsd  Float?     // per-token USD price: usdValue / amount
+  marketCapUsd   Float?     // fully diluted: tokenPriceUsd × totalSupply
+  mcapBucket     String?    // "nano" | "ultra-micro" | "micro" | "small" | "mid" | "large" | "mega"
+  enrichedAt     DateTime?  // when this row was enriched (null = not yet)
 
   @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")
   @@index([walletAddress, timestamp])
@@ -136,6 +137,10 @@ model AnalysisResult {
   realizedPnlSol              Float?
   totalPnlSol                 Float?
   unrealizedPnlSol            Float?
+  avgEntryMcap                Float?    // volume-weighted avg marketCapUsd across buy trades for this token
+  avgEntryMcapBucket          String?   // classified bucket of avgEntryMcap
+  avgExitMcap                 Float?    // volume-weighted avg marketCapUsd across sell trades for this token
+  avgExitMcapBucket           String?   // classified bucket of avgExitMcap
   wallet                      Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@unique([walletAddress, tokenAddress])
@@ -157,6 +162,10 @@ model TokenLot {
   sourceSignature   String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  entryPriceUsd     Float?   // per-token USD price at time of buy (tokenPriceUsd from enriched row)
+  entryMcapUsd      Float?   // market cap at time of buy (marketCapUsd from enriched row)
+  entryMcapBucket   String?  // classified bucket of entryMcapUsd
+  costBasisUsd      Float?   // costBasisSol × solPriceUsd at time of buy
   wallet            Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@index([walletAddress, tokenAddress, purchaseTimestamp])
@@ -185,6 +194,10 @@ model WalletPnlSummary {
   solBalanceFetchedAt               DateTime?
   profitableTradesCount             Int                 @default(0)
   totalIndividualTradesCount        Int                 @default(0)
+  totalVolumeUsd                    Float?              // Σ usdValue across all enriched swap rows for wallet
+  realizedPnlUsd                    Float?              // per-mint: Σ out usdValue − Σ in usdValue, summed across all mints
+  unrealizedPnlUsd                  Float?              // open lots costBasisUsd vs current holdings USD value
+  netPnlUsd                         Float?              // realizedPnlUsd + unrealizedPnlUsd
   advancedStats                     AdvancedTradeStats?
   wallet                            Wallet              @relation(fields: [walletAddress], references: [address])
 
@@ -255,6 +268,10 @@ model WalletBehaviorProfile {
   medianCurrentHoldingDurationHours  Float?
   percentOfValueInCurrentHoldings    Float?
   medianCompletedHoldTimeHours       Float?
+  preferredMcapBucket                String?  // bucket where most buy-side usdValue was deployed
+  avgEntryMcap                       Float?   // volume-weighted avg marketCapUsd across all buy trades
+  mcapDistribution                   Json?    // { nano: 0.4, micro: 0.3, ... } fraction of buy volume per bucket
+  mcapBucketPnl                      Json?    // { nano: { realizedPnlSol: 1.2, tradeCount: 12, winRate: 0.67 }, ... }
   wallet                             Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
@@ -517,7 +534,7 @@ model TokenInfo {
   onchainDiscordUrl       String?
   onchainSocialsFetchedAt DateTime?
   metadataSource          String?
-  totalSupply             Float?
+  totalSupply             Float?         // SPL token total supply (uiAmount); immutable for most memecoins
   TokenTag                TokenTag[]
   WatchedToken            WatchedToken[]
   userWatchedTokens       UserWatchedToken[]
@@ -528,12 +545,6 @@ model TokenInfo {
   @@index([marketCapUsd])
   @@index([liquidityUsd])
   @@index([pairCreatedAt])
-}
-
-model SolDailyPrice {
-  date      String   @id
-  priceUsd  Float
-  fetchedAt DateTime @default(now())
 }
 
 model Message {
@@ -863,4 +874,14 @@ model AlertNotification {
 
   @@index([userId, isRead])
   @@index([triggeredAt])
+}
+
+// ---------------------------------------------------------------------------
+// Market Context — SOL/USD daily price cache (source: DeFiLlama, free)
+// Stores one row per calendar day. Populated on startup, appended daily.
+// ---------------------------------------------------------------------------
+model SolDailyPrice {
+  date      String   @id          // format: "YYYY-MM-DD" (UTC)
+  priceUsd  Float                 // SOL/USD closing price for that day
+  fetchedAt DateTime @default(now())
 }

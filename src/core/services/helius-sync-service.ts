@@ -472,7 +472,7 @@ export class HeliusSyncService {
       // ✅ SILENT SAVING: Save without logging each batch
       if (analysisInputsToSave.length > 0) {
         await this.databaseService.saveSwapAnalysisInputs(analysisInputsToSave);
-        
+
         // ✅ UPDATE COUNTER: Track total processed for this wallet
         const currentCount = walletTransactionCounters.get(walletAddress) || 0;
         walletTransactionCounters.set(walletAddress, currentCount + analysisInputsToSave.length);

@@ -9,6 +9,7 @@ export interface JobIdGenerator {
   enrichMetadata: (tokenAddress: string, requestId?: string) => string;
   enrichParallel: (requestId: string) => string;
   dashboardWalletAnalysis: (walletAddress: string, requestId: string) => string;
+  processMarketContext: (walletAddress: string) => string;
 }
 
 export const generateJobId: JobIdGenerator = {
@@ -49,6 +50,11 @@ export const generateJobId: JobIdGenerator = {
   dashboardWalletAnalysis: (walletAddress: string, requestId: string) => {
     const hashInput = `dashboard-${walletAddress}-${requestId}`;
     return `dashboard-${crypto.createHash('md5').update(hashInput).digest('hex').slice(0, 8)}`;
+  },
+
+  processMarketContext: (walletAddress: string) => {
+    const hashInput = `mcx-${walletAddress}`;
+    return `mcx-${crypto.createHash('md5').update(hashInput).digest('hex').slice(0, 8)}`;
   },
 };
 

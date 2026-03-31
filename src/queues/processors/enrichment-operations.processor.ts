@@ -1,8 +1,9 @@
 import { Inject, Logger, Injectable } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
 import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
-import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult, ParallelEnrichmentJobData } from '../jobs/types';
+import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult, ParallelEnrichmentJobData, ProcessMarketContextJobData } from '../jobs/types';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
+import { MarketContextService } from '../../api/services/market-context.service';
 import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
@@ -21,6 +22,7 @@ export class EnrichmentOperationsProcessor {
     private readonly tokenInfoService: TokenInfoService,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly jobPayloadCache: JobPayloadCacheService,
+    private readonly marketContextService: MarketContextService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis, // For result caching
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
@@ -56,6 +58,8 @@ export class EnrichmentOperationsProcessor {
         return await this.processEnrichTokenBalances(job as Job<EnrichTokenBalancesJobData>);
       case 'parallel-enrichment':
         return await this.processParallelEnrichment(job);
+      case 'process-market-context':
+        return await this.processMarketContext(job as Job<ProcessMarketContextJobData>);
 
       default:
         throw new Error(`Unknown job type: ${jobName}`);
@@ -539,10 +543,26 @@ export class EnrichmentOperationsProcessor {
   }
 
   /**
+   * Process market context for a wallet's un-processed swaps.
+   * Fills solPriceUsd, tokenPriceUsd, marketCapUsd, mcapBucket on SwapAnalysisInput rows.
+   */
+  private async processMarketContext(job: Job<ProcessMarketContextJobData>): Promise<{ processed: number }> {
+    const { walletAddress } = job.data;
+    const startTime = Date.now();
+
+    this.logger.log(`Processing market context for wallet ${walletAddress}`);
+
+    const processed = await this.marketContextService.enrichWallet(walletAddress, 500);
+
+    this.logger.log(`Market context processed ${processed} swaps for ${walletAddress} in ${Date.now() - startTime}ms`);
+    return { processed };
+  }
+
+  /**
    * Shutdown the worker gracefully
    */
   async shutdown(): Promise<void> {
     this.logger.debug('Shutting down EnrichmentOperationsProcessor worker...');
     await this.worker.close();
   }
-} 
+}

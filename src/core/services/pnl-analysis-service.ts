@@ -13,6 +13,7 @@ import { TokenInfoService } from '../../api/services/token-info.service';
 import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 import { getKnownWallet, SKIP_PNL_CALCULATION, type KnownWalletType } from '../../config/known-wallets';
 import { getErrorMessage } from 'core/utils/error-utils';
+import { classifyMcap } from 'core/services/market-context-standalone';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -616,6 +617,181 @@ export class PnlAnalysisService {
                         `[PnlAnalysis] Historical/time-range analysis detected for ${walletAddress}; skipping persistence of FIFO lots, AnalysisResult, and WalletPnlSummary.`,
                     );
                 } else {
+                    // Single consolidated fetch for all enriched-row computations:
+                    // USD summary (Task C), avg entry/exit mcap (Task A), lot enrichment (Task B).
+                    // Filters excluded mints to stay consistent with the SOL-denominated path.
+                    const allEnrichedRows = await prisma.swapAnalysisInput.findMany({
+                        where: {
+                            walletAddress,
+                            usdValue: { not: null },
+                            mint: { notIn: DEFAULT_EXCLUDED_MINTS },
+                        },
+                        select: {
+                            signature: true,
+                            mint: true,
+                            direction: true,
+                            amount: true,
+                            timestamp: true,
+                            usdValue: true,
+                            marketCapUsd: true,
+                            mcapBucket: true,
+                            tokenPriceUsd: true,
+                            solPriceUsd: true,
+                            enrichedAt: true,
+                        },
+                    });
+
+                    // --- Task C: USD summary figures ---
+                    // realizedPnlUsd uses the same FIFO algorithm as the SOL path (buildFifoLotsForToken):
+                    // lots are consumed in chronological order, unit cost = costBasisUsd / amountBought,
+                    // unit proceeds = usdValue / amount. This gives correct results for partial exits,
+                    // unlike a simple aggregate-flow approach which subtracts the full buy cost even when
+                    // only a fraction of the position was sold.
+                    // Rows not yet enriched (no usdValue) are treated as non-economic transfers
+                    // (zero USD cost/proceeds), consistent with how the SOL FIFO handles zero-value rows.
+                    let totalVolumeUsd: number | null = null;
+                    let realizedPnlUsd: number | null = null;
+                    let unrealizedPnlUsd: number | null = null;
+                    let netPnlUsd: number | null = null;
+                    if (allEnrichedRows.length > 0) {
+                        totalVolumeUsd = allEnrichedRows.reduce((s, r) => s + (r.usdValue ?? 0), 0);
+
+                        // Group enriched rows by mint, preserving timestamp order (same sort as FIFO SOL)
+                        const rowsByMint = new Map<string, typeof allEnrichedRows>();
+                        for (const row of allEnrichedRows) {
+                            const bucket = rowsByMint.get(row.mint) ?? [];
+                            bucket.push(row);
+                            rowsByMint.set(row.mint, bucket);
+                        }
+
+                        // FIFO replay in USD per mint — exact mirror of buildFifoLotsForToken
+                        const PERCENTAGE_TOLERANCE = 0.001;
+                        const MIN_TOLERANCE = 0.001;
+                        const MAX_TOLERANCE = 100;
+                        const LOT_FINDING_TOLERANCE = 0.001;
+
+                        realizedPnlUsd = 0;
+                        for (const rows of rowsByMint.values()) {
+                            // Sort: timestamp asc → signature asc → buys before sells
+                            // Matches the exact sort in buildFifoLotsForToken (sortSwapInputs)
+                            const ordered = [...rows].sort((a, b) => {
+                                if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+                                if (a.signature !== b.signature) return a.signature.localeCompare(b.signature);
+                                if (a.direction !== b.direction) return a.direction === 'in' ? -1 : 1;
+                                return 0;
+                            });
+
+                            // In-memory lots for this mint (USD-denominated)
+                            const usdLots: Array<{ amountBought: number; costBasisUsd: number; amountRemaining: number }> = [];
+                            let mintRealizedCostUsd = 0;
+                            let mintRealizedProceedsUsd = 0;
+
+                            for (const row of ordered) {
+                                const tokenAmount = Math.abs(row.amount);
+                                if (tokenAmount <= 0) continue;
+                                const usdVal = row.usdValue ?? 0;
+
+                                if (row.direction === 'in') {
+                                    usdLots.push({
+                                        amountBought: tokenAmount,
+                                        costBasisUsd: usdVal,
+                                        amountRemaining: tokenAmount,
+                                    });
+                                    continue;
+                                }
+
+                                // Sell: consume lots FIFO
+                                let remainingToSell = tokenAmount;
+                                const unitProceeds = tokenAmount > 0 ? usdVal / tokenAmount : 0;
+                                const completionTolerance = Math.min(
+                                    Math.max(tokenAmount * PERCENTAGE_TOLERANCE, MIN_TOLERANCE),
+                                    MAX_TOLERANCE,
+                                );
+
+                                while (remainingToSell > completionTolerance) {
+                                    const nextLot = usdLots.find(l => l.amountRemaining > LOT_FINDING_TOLERANCE);
+                                    if (!nextLot) break; // incomplete history — stop consuming, don't mark proceeds
+
+                                    const unitCost = nextLot.amountBought > 0 ? nextLot.costBasisUsd / nextLot.amountBought : 0;
+                                    const consumed = Math.min(remainingToSell, nextLot.amountRemaining);
+                                    mintRealizedProceedsUsd += consumed * unitProceeds;
+                                    mintRealizedCostUsd += consumed * unitCost;
+                                    nextLot.amountRemaining -= consumed;
+                                    remainingToSell -= consumed;
+                                }
+                            }
+
+                            realizedPnlUsd += mintRealizedProceedsUsd - mintRealizedCostUsd;
+                        }
+
+                        // unrealizedPnlUsd: remaining open lot cost basis (already fraction-correct
+                        // since fifoLotsToPersist.costBasisUsd is the full lot cost and amountRemaining
+                        // tracks exactly what's left) vs current market value of holdings.
+                        const openLotCostUsd = fifoLotsToPersist
+                            .filter(l => l.status !== 'CLOSED' && l.costBasisUsd != null && Number(l.amountBought) > 0)
+                            .reduce((s, l) => {
+                                const fraction = Number(l.amountRemaining) / Number(l.amountBought);
+                                return s + (l.costBasisUsd ?? 0) * fraction;
+                            }, 0);
+                        const currentHoldingsUsd = Array.from(holdingValueByMint.values())
+                            .reduce((s, v) => s + v.valueUsd, 0);
+                        unrealizedPnlUsd = currentHoldingsUsd - openLotCostUsd;
+                        netPnlUsd = realizedPnlUsd + unrealizedPnlUsd;
+                    }
+
+                    // --- Task A: per-token avg entry/exit mcap (derived from allEnrichedRows) ---
+                    const entryMcapAccum = new Map<string, { sumMcapWeighted: number; sumUsd: number }>();
+                    const exitMcapAccum = new Map<string, { sumMcapWeighted: number; sumUsd: number }>();
+                    for (const row of allEnrichedRows) {
+                        if (row.marketCapUsd == null || row.usdValue == null) continue;
+                        const accMap = row.direction === 'in' ? entryMcapAccum : exitMcapAccum;
+                        const acc = accMap.get(row.mint) ?? { sumMcapWeighted: 0, sumUsd: 0 };
+                        acc.sumMcapWeighted += row.marketCapUsd * row.usdValue;
+                        acc.sumUsd += row.usdValue;
+                        accMap.set(row.mint, acc);
+                    }
+                    const avgEntryMcapByMint = new Map<string, { avgEntryMcap: number; avgEntryMcapBucket: string }>();
+                    for (const [mint, acc] of entryMcapAccum) {
+                        if (acc.sumUsd > 0) {
+                            const avg = acc.sumMcapWeighted / acc.sumUsd;
+                            avgEntryMcapByMint.set(mint, { avgEntryMcap: avg, avgEntryMcapBucket: classifyMcap(avg) });
+                        }
+                    }
+                    const avgExitMcapByMint = new Map<string, { avgExitMcap: number; avgExitMcapBucket: string }>();
+                    for (const [mint, acc] of exitMcapAccum) {
+                        if (acc.sumUsd > 0) {
+                            const avg = acc.sumMcapWeighted / acc.sumUsd;
+                            avgExitMcapByMint.set(mint, { avgExitMcap: avg, avgExitMcapBucket: classifyMcap(avg) });
+                        }
+                    }
+
+                    // --- Task B: lot enrichment keyed by (signature:mint) to avoid collision
+                    // when a single tx produces multiple direction='in' rows for different tokens ---
+                    const enrichedBuyRowsByKey = new Map<string, { tokenPriceUsd: number | null; marketCapUsd: number | null; mcapBucket: string | null; solPriceUsd: number | null }>();
+                    for (const row of allEnrichedRows) {
+                        if (row.direction === 'in' && row.enrichedAt != null) {
+                            enrichedBuyRowsByKey.set(`${row.signature}:${row.mint}`, {
+                                tokenPriceUsd: row.tokenPriceUsd,
+                                marketCapUsd: row.marketCapUsd,
+                                mcapBucket: row.mcapBucket,
+                                solPriceUsd: row.solPriceUsd,
+                            });
+                        }
+                    }
+                    // Backfill lot enrichment fields now that we have the lookup map
+                    for (const lot of fifoLotsToPersist) {
+                        if (!lot.sourceSignature) continue;
+                        const enriched = enrichedBuyRowsByKey.get(`${lot.sourceSignature}:${lot.tokenAddress}`);
+                        if (!enriched) continue;
+                        lot.entryPriceUsd = enriched.tokenPriceUsd ?? null;
+                        lot.entryMcapUsd = enriched.marketCapUsd ?? null;
+                        lot.entryMcapBucket = enriched.mcapBucket ?? null;
+                        if (enriched.solPriceUsd && enriched.solPriceUsd > 0) {
+                            const costBasisSolNum = typeof lot.costBasisSol === 'number' ? lot.costBasisSol : Number(lot.costBasisSol);
+                            lot.costBasisUsd = costBasisSolNum * enriched.solPriceUsd;
+                        }
+                    }
+
                     const pnlSummaryDataForDb: any = {
                         walletAddress: walletAddress,
                         totalVolume: summary.totalVolume,
@@ -635,6 +811,10 @@ export class PnlAnalysisService {
                         totalSignaturesProcessed: summary.totalSignaturesProcessed,
                         overallFirstTimestamp: summary.overallFirstTimestamp,
                         overallLastTimestamp: summary.overallLastTimestamp,
+                        totalVolumeUsd,
+                        realizedPnlUsd,
+                        unrealizedPnlUsd,
+                        netPnlUsd,
                         updatedAt: new Date(),
                     };
 
@@ -730,6 +910,10 @@ export class PnlAnalysisService {
                         currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
                         currentHoldingsCostBasisSol: r.currentHoldingsCostBasisSol ?? null,
                         balanceFetchedAt: r.balanceFetchedAt,
+                        avgEntryMcap: avgEntryMcapByMint.get(r.tokenAddress)?.avgEntryMcap ?? null,
+                        avgEntryMcapBucket: avgEntryMcapByMint.get(r.tokenAddress)?.avgEntryMcapBucket ?? null,
+                        avgExitMcap: avgExitMcapByMint.get(r.tokenAddress)?.avgExitMcap ?? null,
+                        avgExitMcapBucket: avgExitMcapByMint.get(r.tokenAddress)?.avgExitMcapBucket ?? null,
                     }));
 
                     await this.databaseService.replaceTokenLotsForWallet(walletAddress, fifoLotsToPersist);

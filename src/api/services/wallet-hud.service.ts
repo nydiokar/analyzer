@@ -445,6 +445,8 @@ export class WalletHudService {
       uniqueTokensPerDay,
       currentHoldingsSol: portfolioValueSol, // Total portfolio value in SOL (sum of all holdings)
       currentHoldingsUsd: portfolioUsd, // Total portfolio value in USD (sum of all holdings)
+      preferredMcapBucket: behaviorProfile?.preferredMcapBucket ?? undefined,
+      avgEntryMcap: behaviorProfile?.avgEntryMcap ?? undefined,
       calculatedAt,
       provenance: {
         provider: 'alpha-node',

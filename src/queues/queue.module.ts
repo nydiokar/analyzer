@@ -46,6 +46,8 @@ import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
 import { SigBuyersModule } from '../api/modules/sig-buyers.module';
 import { PaymentConfirmationService } from '../api/services/payment-confirmation.service';
 import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import { MarketContextModule } from '../api/modules/market-context.module';
+import { MarketContextService } from '../api/services/market-context.service';
 
 
 @Global()
@@ -84,6 +86,7 @@ import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
     HolderProfilesCacheModule, // Provides HolderProfilesCacheService
     WalletHudModule,   // Provides WalletHudService
     SigBuyersModule,   // Provides SigBuyersService for the sig-buyers-run processor
+    MarketContextModule, // Provides MarketContextService
   ],
   
   providers: [
@@ -157,6 +160,7 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
     private readonly analysisOperationsProcessor: AnalysisOperationsProcessor,
     private readonly similarityOperationsProcessor: SimilarityOperationsProcessor,
     private readonly enrichmentOperationsProcessor: EnrichmentOperationsProcessor,
+    private readonly marketContextService: MarketContextService,
   ) {}
 
   async onModuleInit() {
@@ -181,6 +185,27 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
     this.queueHealthService.registerQueue(QueueNames.ENRICHMENT_OPERATIONS, this.enrichmentOperationsQueue.getQueue());
 
     this.logger.log('Queue module initialized - all queues registered for health monitoring');
+
+    // Ensure SOL daily price time-series is current (needed for market context processing)
+    this.initSolPriceCache().catch((err) => {
+      this.logger.warn(`SOL price cache init failed (non-critical): ${getErrorMessage(err)}`);
+    });
+  }
+
+  private async initSolPriceCache(): Promise<void> {
+    await this.marketContextService.appendTodaySolPrice();
+
+    const count = await this.marketContextService.getSolPriceDayCount();
+    const TARGET_DAYS = 730; // 2 years — covers any historical wallet we'll ever analyze
+    if (count < TARGET_DAYS) {
+      this.logger.log(`SOL price cache has ${count} days — backfilling ${TARGET_DAYS} days in background...`);
+      // Fire-and-forget: ~2.5 min at 200ms/day, must not block startup
+      this.marketContextService.backfillSolPrices(TARGET_DAYS).then(() => {
+        this.logger.log('SOL price cache backfill complete.');
+      }).catch((err) => {
+        this.logger.warn(`SOL price backfill failed (non-critical): ${err?.message}`);
+      });
+    }
   }
 
   async onModuleDestroy() {

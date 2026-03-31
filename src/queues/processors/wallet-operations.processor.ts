@@ -10,6 +10,7 @@ import { DatabaseService } from '../../api/services/database.service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { ANALYSIS_EXECUTION_CONFIG } from '../../config/constants';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
+import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
 
 
@@ -24,6 +25,7 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
     private readonly databaseService: DatabaseService,
     private readonly heliusApiClient: HeliusApiClient,
     private readonly holderProfilesCacheService: HolderProfilesCacheService,
+    private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
   ) {
     const config = QueueConfigs[QueueNames.WALLET_OPERATIONS];
     
@@ -156,6 +158,14 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
 
       // 🔄 Invalidate holder profiles cache for this wallet (prevents stale data)
       await this.holderProfilesCacheService.invalidateForWallet(walletAddress);
+
+      // 📊 Queue market context processing for newly synced swaps (fire-and-forget)
+      this.enrichmentOperationsQueue.addProcessMarketContext({
+        walletAddress,
+        requestId: job.id ?? walletAddress,
+      }).catch((err) => {
+        this.logger.warn(`Failed to queue market context processing for ${walletAddress}: ${getErrorMessage(err)}`);
+      });
 
       this.logger.log(`Wallet sync completed for ${walletAddress}.`);
       return result;

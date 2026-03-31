@@ -120,6 +120,35 @@ If context feels off:
 
 ---
 
+## 4a. Project Structure — Non-Negotiable
+
+**Before creating any new service, check where existing services live and mirror that pattern exactly.**
+
+### Established structure
+
+| Layer | Location | Pattern |
+|:------|:---------|:--------|
+| NestJS services | `src/api/services/*.service.ts` | `@Injectable()` class, receives deps via constructor DI |
+| NestJS modules | `src/api/modules/*.module.ts` | `@Module({ imports, providers, exports })` |
+| Core/standalone logic | `src/core/services/*.ts` | Plain classes/functions, no NestJS decorators, used by scripts + services |
+| Queue processors | `src/queues/processors/*.processor.ts` | `@Injectable()`, injects NestJS services |
+| Queue job types | `src/queues/jobs/types/index.ts` | Interface + result type per job name |
+| Queue dispatch | `src/queues/queues/*.queue.ts` | One `add*()` method per job type |
+
+### Rules
+
+1. **Never create a new top-level directory under `src/`** (`src/services/`, `src/helpers/new-thing/`, etc.). Place the code in the correct existing layer.
+2. **Never import the raw `prisma` singleton into a NestJS processor or module** unless the pattern already exists in that file. Use `DatabaseService` injection instead.
+3. **New services must be `@Injectable()`**, registered in a module, and imported by the modules that use them — not called as plain functions with a passed-in `PrismaClient`.
+4. **Before writing a new service**, check if `TokenInfoService`, `DatabaseService`, `HeliusApiClient`, or another existing service already provides what you need. Reuse — do not duplicate.
+5. **Standalone scripts** (`scripts/*.ts`) may use the exported `prisma` singleton from `database-service.ts` directly. This is the only acceptable place for it outside `core/`.
+
+### Reference implementation
+
+`src/api/services/token-info.service.ts` + `src/api/integrations/token-info.module.ts` is the canonical example of how a new service should be structured. When in doubt, open that file and follow it.
+
+---
+
 ## 5. Error Handling
 
 ### When Stuck

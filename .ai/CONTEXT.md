@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-03-28  **Status:** Agent-optimised endpoints complete. SDK v0.2.0 ready to publish. SKILL.md updated.
+**Branch:** `main`  **Last Updated:** 2026-03-31  **Status:** Market context enrichment branch complete. Ready to merge to main.
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,19 +8,84 @@
 
 ##  Active Work
 
-Finish market context branch before everything! 
+BEFORE DEPLOY: 
 
-Do the GIF as well 
+do we have automatic SOL price fetcher per day 
 
-Colosseum Hackathon Angle - share the hackaton + the GIF of claude calling agents and tokens;
+How and where do we surface the new data for market cap in frontend?
+
+Do we update the SDK/DOCS somehow ?? 
+
+fund me and anime to be done as posts; 
 
 Finish the wallet intelligence guide
 
-Finish Sova-X - wallets and open for tokens. 
+Finish Sova-X - wallets and open for tokens.
+
+---
+
+### [MCE-7] Phase 7 — Market Context Downstream ✅ COMPLETE (2026-03-31)
+
+**Branch:** `feat/market-context-enrichment` — **ready to merge + deploy**
+
+#### What shipped
+
+**A — `AnalysisResult`: `avgExitMcap` + `avgExitMcapBucket`** ✅
+- Volume-weighted avg market cap at time of sells, per token
+- Computed from `direction='out'` enriched rows alongside existing entry mcap
+
+**B — `TokenLot`: `entryPriceUsd`, `entryMcapUsd`, `entryMcapBucket`, `costBasisUsd`** ✅
+- Lookup keyed by `${signature}:${mint}` (not signature alone — avoids multi-token swap collision)
+- `costBasisUsd = costBasisSol × solPriceUsd` from the enriched buy row
+
+**C — `WalletPnlSummary`: `totalVolumeUsd`, `realizedPnlUsd`, `unrealizedPnlUsd`, `netPnlUsd`** ✅
+- `realizedPnlUsd` uses **true FIFO replay in USD** — same algorithm as SOL path (`buildFifoLotsForToken`): same sort, same tolerances, per-unit cost consumption. Correct for partial exits.
+- `unrealizedPnlUsd` = current holdings USD − remaining open lot cost basis (fraction-scaled for partial lots)
+- All computed from a single `SwapAnalysisInput` query (1 round-trip, not 5)
+
+#### Key implementation details
+- All new fields nullable — zero risk to existing queries or API responses
+- Single consolidated `allEnrichedRows` query feeds Tasks A, B, C — replaces 4 separate queries that existed before code review
+- `DEFAULT_EXCLUDED_MINTS` filtered from USD path, consistent with SOL path
+- Entire new block inside `!isViewOnlyMode && !isHistoricalView` guard — no wasted I/O on dashboard loads
+- `pnm verify` clean, `prisma db push` applied to dev DB
+
+**D — HUD DTO: `preferredMcapBucket` + `avgEntryMcap`** ✅
+- Added to `WalletHudDto` as optional fields, passed through from `behaviorProfile` in `calculateHud()`
+- Files: `wallet-hud.dto.ts`, `wallet-hud.service.ts`
+
+#### Deploy sequence
+1. `npx prisma migrate dev --name mce7-downstream` (or `db push` on prod if no migration history)
+2. Deploy backend
+3. Run `scripts/queue-market-context-backfill.ts` — populates `usdValue` + mcap fields on all historical `SwapAnalysisInput` rows
+4. New USD fields on `AnalysisResult`, `TokenLot`, `WalletPnlSummary` self-heal on next wallet analysis — no bulk re-analysis script needed
+5. Optionally queue re-analysis for recently-active wallets (`lastSuccessfulFetchTimestamp > 30d`) for immediate population
+
+---
 
 ### March 28, 2026 — INTEL-SLIM Agent Endpoints + SDK v0.2.0 ✅ COMPLETE
 
 All SLIM steps done. Backend shipped earlier; SDK and docs completed this session.
+
+### March 31, 2026 — MCE-7: Market Context Downstream ✅
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 31.1 | 🎯 FEAT | **[MCE-7A]** `AnalysisResult`: `avgExitMcap` + `avgExitMcapBucket` — volume-weighted avg mcap at sell time, per token | 🟢 S | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.2 | 🎯 FEAT | **[MCE-7B]** `TokenLot`: `entryPriceUsd`, `entryMcapUsd`, `entryMcapBucket`, `costBasisUsd` — per-lot USD cost basis and entry mcap, keyed by `signature:mint` to avoid multi-token swap collisions | 🟢 S | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.3 | 🎯 FEAT | **[MCE-7C]** `WalletPnlSummary`: `totalVolumeUsd`, `realizedPnlUsd`, `unrealizedPnlUsd`, `netPnlUsd` — true FIFO USD replay matching SOL algorithm exactly (same sort, tolerances, per-unit cost consumption) | 🟡 M | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.4 | 🐛 FIX | **[MCE-7 review]** 6 bugs found and fixed before ship: signature collision on lot map, `realizedPnlUsd` including open positions, partial lot fraction on unrealized, 5→1 DB round-trips, excluded mints missing from USD path, lot enrichment query firing on view-only calls | 🟡 M | `pnl-analysis-service.ts` |
+| 31.5 | 🎯 FEAT | **[MCE-7D]** HUD DTO: `preferredMcapBucket` + `avgEntryMcap` surfaced from behavior profile. Proper migration file created (`20260331000000_mce7_downstream`) covering all 16 new columns across 4 tables. | 🟢 S | `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `prisma/migrations/` |
+
+**Key decisions:**
+- `realizedPnlUsd` uses full FIFO replay in USD — not aggregate flow. Partial exits are correct.
+- Single `allEnrichedRows` query per analysis feeds all three downstream computations (A, B, C)
+- All new fields nullable, no existing API surface changed — pure additive
+- Self-healing: USD fields populate on next wallet analysis after `SwapAnalysisInput` rows are enriched by backfill script
+
+---
+
+### March 28, 2026 — INTEL-SLIM Agent Endpoints + SDK v0.2.0 ✅ COMPLETE
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
