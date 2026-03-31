@@ -1280,7 +1280,8 @@ export class HeliusApiClient {
         }
         
         const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries - 1); // Exponential backoff
-        logger.warn(
+        const retryLogLevel = this.isRetryableError(error) ? 'debug' : 'warn';
+        logger[retryLogLevel](
           `Attempt ${retries}/${MAX_RETRIES} failed for RPC method ${method}. Retrying in ${backoffTime}ms...`,
           { params, error: sanitizedError }
         );
