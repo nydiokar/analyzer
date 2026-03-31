@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Info, Users, ArrowRight, Wallet, Sigma, TrendingUp, User } from 'lucide-react';
 import EChartComponent from '@/components/charts/EChartComponent';
 import { formatToMillion } from '@/lib/utils';
-import { WalletBadge } from "@/components/shared/WalletBadge";
+import { SimilarityWalletBadge } from "@/components/similarity-lab/SimilarityWalletBadge";
 import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
 import type { KnownWalletType } from '@/types/api';
 
@@ -351,7 +351,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                           return (
                               <div key={index} className="flex items-center justify-between gap-2 p-1.5 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
                                   <div className="flex items-center gap-1.5 min-w-0">
-                                      <WalletBadge
+                                      <SimilarityWalletBadge
                                           address={pair.walletA}
                                           variant="compact"
                                           knownType={labelA?.knownType}
@@ -363,7 +363,7 @@ const GlobalMetricsCardComponent = ({ metrics, pairwiseSimilarities, walletBalan
                                           hudData={hudData?.[pair.walletA]}
                                       />
                                       <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                                      <WalletBadge
+                                      <SimilarityWalletBadge
                                           address={pair.walletB}
                                           variant="compact"
                                           knownType={labelB?.knownType}

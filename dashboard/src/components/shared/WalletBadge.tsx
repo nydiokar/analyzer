@@ -52,6 +52,7 @@ interface WalletBadgeProps {
     solscan?: boolean;
     profile?: boolean;
   };
+  addressClickAction?: "copy-address" | "copy-profile-link";
   isFavorite?: boolean;
   onFavoriteToggle?: () => void;
   onEdit?: () => void;
@@ -248,6 +249,7 @@ const WalletBadge = memo(({
   hudData = null,
   hudDelayMs = 800,
   visibleActions = { copy: true, solscan: true, profile: true },
+  addressClickAction = "copy-profile-link",
   isFavorite = false,
   onFavoriteToggle,
   onEdit,
@@ -338,6 +340,13 @@ const WalletBadge = memo(({
       onFavoriteToggle();
     }
   };
+
+  const handleAddressClick =
+    addressClickAction === "copy-address" ? handleCopyAddress : handleCopyProfileLink;
+  const addressClickHint =
+    addressClickAction === "copy-address"
+      ? "Click to copy address"
+      : "Click to copy profile link";
 
   const [isHudOpen, setIsHudOpen] = useState(false);
   const [isHudPinned, setIsHudPinned] = useState(false);
@@ -491,12 +500,12 @@ const WalletBadge = memo(({
               <Wallet className="h-3 w-3 text-muted-foreground" />
             </div>
 
-            {/* Name/Address - clickable to copy profile link */}
+            {/* Name/Address - clickable to copy configured target */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={handleCopyProfileLink}
+                  onClick={handleAddressClick}
                   className={cn(
                     "flex flex-col items-start text-sm transition-colors",
                     isKnownWallet ? "text-muted-foreground" : "text-foreground hover:text-primary"
@@ -520,7 +529,7 @@ const WalletBadge = memo(({
               </TooltipTrigger>
               <TooltipContent>
                 <p className="font-mono text-xs">{address}</p>
-                <p className="text-muted-foreground text-xs mt-1">Click to copy profile link</p>
+                <p className="text-muted-foreground text-xs mt-1">{addressClickHint}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -579,12 +588,12 @@ const WalletBadge = memo(({
     return renderWithHud(
       <TooltipProvider>
         <div className={cn("inline-flex flex-col items-center gap-0.5 p-1 rounded border border-border/40 hover:border-border transition-colors", className)}>
-          {/* Address on top - clickable to copy profile link */}
+          {/* Address on top - clickable to copy configured target */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={handleCopyProfileLink}
+                onClick={handleAddressClick}
                 className={cn(
                   "text-xs font-mono cursor-pointer transition-colors hover:text-primary",
                   isKnownWallet && "text-muted-foreground"
@@ -596,7 +605,7 @@ const WalletBadge = memo(({
             <TooltipContent>
               <p className="font-mono text-xs">{address}</p>
               {secondaryLabel && <p className="text-muted-foreground text-xs">{secondaryLabel}</p>}
-              <p className="text-muted-foreground text-xs mt-1">Click to copy profile link</p>
+              <p className="text-muted-foreground text-xs mt-1">{addressClickHint}</p>
             </TooltipContent>
           </Tooltip>
 
@@ -689,12 +698,12 @@ const WalletBadge = memo(({
     return renderWithHud(
       <TooltipProvider>
         <div className={cn("inline-flex flex-col rounded border border-border/40 hover:border-border transition-colors overflow-hidden", className)}>
-          {/* Address section - clickable to copy profile link */}
+          {/* Address section - clickable to copy configured target */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={handleCopyProfileLink}
+                onClick={handleAddressClick}
                 className={cn(
                   "px-2 py-1.5 bg-card text-xs font-mono cursor-pointer text-center transition-colors hover:bg-muted/20",
                   isKnownWallet && "text-muted-foreground"
@@ -706,7 +715,7 @@ const WalletBadge = memo(({
             <TooltipContent>
               <p className="font-mono text-xs">{address}</p>
               {secondaryLabel && <p className="text-muted-foreground text-xs">{secondaryLabel}</p>}
-              <p className="text-muted-foreground text-xs mt-1">Click to copy profile link</p>
+              <p className="text-muted-foreground text-xs mt-1">{addressClickHint}</p>
             </TooltipContent>
           </Tooltip>
 
@@ -747,12 +756,12 @@ const WalletBadge = memo(({
                 </AvatarFallback>
               </Avatar>
 
-              {/* Name + Address (clickable to copy profile link) */}
+              {/* Name + Address (clickable to copy configured target) */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={handleCopyProfileLink}
+                    onClick={handleAddressClick}
                     className={cn(
                       "flex flex-col items-start min-w-0 transition-colors",
                       isKnownWallet ? "" : "hover:text-primary",
@@ -777,34 +786,36 @@ const WalletBadge = memo(({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Click to copy profile link</p>
+                  <p>{addressClickHint}</p>
                 </TooltipContent>
               </Tooltip>
 
               {/* Favorite toggle button */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleFavoriteToggle}
-                    className={cn(
-                      "inline-flex items-center rounded-md px-1 py-0.5 transition-colors flex-shrink-0",
-                      isFavorite
-                        ? "text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20"
-                        : "text-muted-foreground hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20"
-                    )}
-                  >
-                    {isFavorite ? (
-                      <Bookmark className={cn("fill-purple-500 flex-shrink-0", resolvedSize.icon)} />
-                    ) : (
-                      <Bookmark className={cn("flex-shrink-0", resolvedSize.icon)} />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{isFavorite ? "Remove from tracked" : "Add to tracked"}</p>
-                </TooltipContent>
-              </Tooltip>
+              {onFavoriteToggle && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleFavoriteToggle}
+                      className={cn(
+                        "inline-flex items-center rounded-md px-1 py-0.5 transition-colors flex-shrink-0",
+                        isFavorite
+                          ? "text-purple-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                          : "text-muted-foreground hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-950/20"
+                      )}
+                    >
+                      {isFavorite ? (
+                        <Bookmark className={cn("fill-purple-500 flex-shrink-0", resolvedSize.icon)} />
+                      ) : (
+                        <Bookmark className={cn("flex-shrink-0", resolvedSize.icon)} />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{isFavorite ? "Remove from tracked" : "Add to tracked"}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
 
               {/* Edit button (only shown when favorite and onEdit provided) */}
               {isFavorite && onEdit && (

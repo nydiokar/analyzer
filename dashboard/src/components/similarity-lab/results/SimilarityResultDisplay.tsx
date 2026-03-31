@@ -2,6 +2,7 @@ import { MostCommonTokens } from './MostCommonTokens';
 import { EnhancedKeyInsights } from './EnhancedKeyInsights';
 import { CombinedSimilarityResult } from './types';
 import { GlobalMetricsCard } from './GlobalMetricsCard';
+import { SimilarityClustersCard } from './SimilarityClustersCard';
 // import { ContextualHoldingsCard } from './ContextualHoldingsCard'; // 🔧 REMOVED: Caused whale wallet issues
 import { HistoricalVsLiveComparison } from './HistoricalVsLiveComparison';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -31,6 +32,8 @@ export function SimilarityResultDisplay({ results, onRefreshPrices, isRefreshing
           summary={results.summary}
         />
       )}
+
+      <SimilarityClustersCard results={results} />
       
       {/* Key Insights - Full Width */}
       <EnhancedKeyInsights results={results} />

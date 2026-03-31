@@ -54,6 +54,10 @@ export class WalletHudService {
     this.redis = redisClient;
   }
 
+  private getCacheKey(walletAddress: string): string {
+    return `${this.CACHE_PREFIX}:${walletAddress}`;
+  }
+
   /**
    * Get HUD data for a single wallet with Redis caching
    *
@@ -63,7 +67,7 @@ export class WalletHudService {
    * - Data is static until next analysis or 24h expiry
    */
   async getHud(walletAddress: string): Promise<WalletHudDto | null> {
-    const cacheKey = `${this.CACHE_PREFIX}:${walletAddress}`;
+    const cacheKey = this.getCacheKey(walletAddress);
 
     try {
       // Try cache first
@@ -157,7 +161,7 @@ export class WalletHudService {
    * Call this after wallet analysis completes
    */
   async invalidateCache(walletAddress: string): Promise<void> {
-    const cacheKey = `${this.CACHE_PREFIX}:${walletAddress}`;
+    const cacheKey = this.getCacheKey(walletAddress);
     try {
       await this.redis.del(cacheKey);
       this.logger.debug(`Invalidated HUD cache for ${walletAddress}`);
@@ -178,11 +182,46 @@ export class WalletHudService {
     const notFound: string[] = [];
 
     try {
-      // Fetch all wallets, current holdings balances, and SOL price in parallel
+      const uniqueAddresses = [...new Set(walletAddresses.filter(Boolean))];
+      if (uniqueAddresses.length === 0) {
+        return {
+          huds,
+          notFound,
+          calculatedAt,
+        };
+      }
+
+      const cacheKeys = uniqueAddresses.map((address) => this.getCacheKey(address));
+      const cachedValues = await this.redis.mget(...cacheKeys);
+      const missAddresses: string[] = [];
+
+      uniqueAddresses.forEach((address, index) => {
+        const cached = cachedValues[index];
+        if (!cached) {
+          missAddresses.push(address);
+          return;
+        }
+
+        try {
+          huds[address] = JSON.parse(cached) as WalletHudDto;
+        } catch {
+          missAddresses.push(address);
+        }
+      });
+
+      if (missAddresses.length === 0) {
+        return {
+          huds,
+          notFound,
+          calculatedAt,
+        };
+      }
+
+      // Fetch only cache misses from the database
       const [wallets, allHoldings, solPriceUsd] = await Promise.all([
         prisma.wallet.findMany({
           where: {
-            address: { in: walletAddresses },
+            address: { in: missAddresses },
           },
           include: {
             pnlSummary: {
@@ -196,7 +235,7 @@ export class WalletHudService {
         // Fetch current holdings balances for all wallets (not stale values)
         prisma.analysisResult.findMany({
           where: {
-            walletAddress: { in: walletAddresses },
+            walletAddress: { in: missAddresses },
             currentUiBalance: { not: null, gt: 0 },
           },
           select: {
@@ -259,8 +298,10 @@ export class WalletHudService {
         }
       }
 
-      // Process each requested address
-      for (const address of walletAddresses) {
+      const redisWrites = this.redis.pipeline();
+
+      // Process only cache misses
+      for (const address of missAddresses) {
         const wallet = walletMap.get(address);
 
         if (!wallet) {
@@ -279,6 +320,7 @@ export class WalletHudService {
           );
           if (hud) {
             huds[address] = hud;
+            redisWrites.set(this.getCacheKey(address), JSON.stringify(hud), 'EX', this.CACHE_TTL);
           } else {
             notFound.push(address);
           }
@@ -286,6 +328,10 @@ export class WalletHudService {
           this.logger.warn(`Failed to calculate HUD for wallet ${address}: ${getErrorMessage(error)}`);
           notFound.push(address);
         }
+      }
+
+      if (missAddresses.length > 0) {
+        await redisWrites.exec();
       }
 
       return {

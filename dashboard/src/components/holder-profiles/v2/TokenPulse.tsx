@@ -90,7 +90,13 @@ export function TokenPulse({
     [result.profiles]
   );
 
-  const { data: hudData } = useWalletHudCache(walletAddresses, { proactiveFetch: true });
+  const shouldHydrateHud = isSnapshot
+    || result.metadata.totalHoldersAnalyzed >= result.metadata.totalHoldersRequested;
+
+  const { data: hudData } = useWalletHudCache(walletAddresses, {
+    enabled: shouldHydrateHud,
+    proactiveFetch: true,
+  });
 
   // Handle pair selection - persistently highlight wallets in table until clicked again
   const handlePairSelect = useCallback((wallets: [string, string] | null) => {

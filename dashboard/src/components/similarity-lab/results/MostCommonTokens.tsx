@@ -4,7 +4,7 @@ import { useMemo, memo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { WalletBadge } from "@/components/shared/WalletBadge";
+import { SimilarityWalletBadge } from "@/components/similarity-lab/SimilarityWalletBadge";
 import { CombinedSimilarityResult } from "./types";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { TokenBadge } from "@/components/shared/TokenBadge";
@@ -179,7 +179,7 @@ export const MostCommonTokens = memo(({ results, enrichedBalances }: MostCommonT
                                                 {token.wallets.map(w => {
                                                     const walletLabel = getWalletLabel(w);
                                                     return (
-                                                        <WalletBadge
+                                                        <SimilarityWalletBadge
                                                             key={w}
                                                             address={w}
                                                             size="s"

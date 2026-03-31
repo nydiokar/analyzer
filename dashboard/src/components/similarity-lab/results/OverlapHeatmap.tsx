@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { CombinedSimilarityResult } from './types';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Info, Users, TrendingUp } from 'lucide-react';
-import { WalletBadge } from '@/components/shared/WalletBadge';
+import { SimilarityWalletBadge } from '@/components/similarity-lab/SimilarityWalletBadge';
 import { Badge } from '@/components/ui/badge';
 import { useBatchWalletHud } from '@/hooks/useBatchWalletHud';
 
@@ -154,7 +154,7 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
               <div className="flex items-center gap-3">
                 <span className="text-xs text-muted-foreground font-mono w-6">#{index + 1}</span>
                 <div className="flex items-center gap-2">
-                  <WalletBadge
+                  <SimilarityWalletBadge
                     address={connection.walletA}
                     size="s"
                     knownType={getWalletLabel(connection.walletA)?.knownType}
@@ -165,7 +165,7 @@ export function OverlapHeatmap({ results }: OverlapHeatmapProps) {
                     hudData={hudData?.[connection.walletA]}
                   />
                   <span className="text-muted-foreground text-sm">shares with</span>
-                  <WalletBadge
+                  <SimilarityWalletBadge
                     address={connection.walletB}
                     size="s"
                     knownType={getWalletLabel(connection.walletB)?.knownType}

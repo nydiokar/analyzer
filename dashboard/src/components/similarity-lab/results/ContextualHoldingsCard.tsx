@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCallback } from 'react';
-import { WalletBadge } from '@/components/shared/WalletBadge';
+import { SimilarityWalletBadge } from '@/components/similarity-lab/SimilarityWalletBadge';
 import { TokenHoldingRow } from './TokenHoldingRow'; // Import the new component
 
 // Performance configuration
@@ -144,7 +144,7 @@ export const ContextualHoldingsCard = memo(({ results, enrichedBalances, onRefre
                     return (
                         <div key={walletAddress} className="border rounded-lg p-3 space-y-2 flex flex-col">
                             <div className="flex justify-between items-center">
-                                <WalletBadge address={walletAddress} size="s" knownType={getWalletLabel(walletAddress)?.knownType} knownLabel={getWalletLabel(walletAddress)?.knownLabel} />
+                                <SimilarityWalletBadge address={walletAddress} size="s" knownType={getWalletLabel(walletAddress)?.knownType} knownLabel={getWalletLabel(walletAddress)?.knownLabel} />
                                 <div className="flex items-center gap-2">
                                   <Badge variant="outline">
                                       {uniqueCounts.capital} Tokens
