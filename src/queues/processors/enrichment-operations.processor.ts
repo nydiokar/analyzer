@@ -4,6 +4,9 @@ import { QueueNames, QueueConfigs, JobTimeouts } from '../config/queue.config';
 import { EnrichTokenBalancesJobData, EnrichTokenBalancesResult, ParallelEnrichmentJobData, ProcessMarketContextJobData } from '../jobs/types';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { MarketContextService } from '../../api/services/market-context.service';
+import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
+import { BehaviorService } from '../../api/services/behavior.service';
+import { WalletHudService } from '../../api/services/wallet-hud.service';
 import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
 import { generateJobId } from '../utils/job-id-generator';
 import { RedisLockService } from '../services/redis-lock.service';
@@ -23,6 +26,9 @@ export class EnrichmentOperationsProcessor {
     private readonly balanceCacheService: BalanceCacheService,
     private readonly jobPayloadCache: JobPayloadCacheService,
     private readonly marketContextService: MarketContextService,
+    private readonly pnlAnalysisService: PnlAnalysisService,
+    private readonly behaviorService: BehaviorService,
+    private readonly walletHudService: WalletHudService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis, // For result caching
   ) {
     const config = QueueConfigs[QueueNames.ENRICHMENT_OPERATIONS];
@@ -547,15 +553,52 @@ export class EnrichmentOperationsProcessor {
    * Fills solPriceUsd, tokenPriceUsd, marketCapUsd, mcapBucket on SwapAnalysisInput rows.
    */
   private async processMarketContext(job: Job<ProcessMarketContextJobData>): Promise<{ processed: number }> {
-    const { walletAddress } = job.data;
+    const { walletAddress, rebuildDownstream = false } = job.data;
     const startTime = Date.now();
 
     this.logger.log(`Processing market context for wallet ${walletAddress}`);
 
     const processed = await this.marketContextService.enrichWallet(walletAddress, 500);
 
+    if (rebuildDownstream && processed > 0) {
+      await this.rebuildWalletDownstreamState(walletAddress);
+    }
+
     this.logger.log(`Market context processed ${processed} swaps for ${walletAddress} in ${Date.now() - startTime}ms`);
     return { processed };
+  }
+
+  private async rebuildWalletDownstreamState(walletAddress: string): Promise<void> {
+    let solPriceUsd: number | undefined;
+
+    try {
+      solPriceUsd = await this.tokenInfoService.getSolPrice();
+    } catch (error) {
+      this.logger.warn(`Failed to fetch SOL price during downstream rebuild for ${walletAddress}: ${getErrorMessage(error)}`);
+    }
+
+    if (!solPriceUsd || solPriceUsd <= 0) {
+      try {
+        const cachedSolPrice = await this.tokenInfoService.getCachedSolPrice();
+        if (cachedSolPrice && cachedSolPrice > 0) {
+          solPriceUsd = cachedSolPrice;
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to read cached SOL price during downstream rebuild for ${walletAddress}: ${getErrorMessage(error)}`);
+      }
+    }
+
+    await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, {
+      skipBalanceFetch: true,
+      solPriceUsd,
+    });
+
+    await this.behaviorService.getWalletBehavior(
+      walletAddress,
+      this.behaviorService.getDefaultBehaviorAnalysisConfig(),
+    );
+
+    await this.walletHudService.invalidateCache(walletAddress);
   }
 
   /**

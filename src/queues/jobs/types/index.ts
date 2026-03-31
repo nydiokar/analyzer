@@ -125,6 +125,7 @@ export interface SigBuyersJobData {
 export interface ProcessMarketContextJobData {
   walletAddress: string;
   requestId: string;
+  rebuildDownstream?: boolean;
 }
 
 // Enrichment Operations Job Data

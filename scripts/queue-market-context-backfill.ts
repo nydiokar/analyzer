@@ -139,7 +139,7 @@ async function addAndWait(
 
   await queue.add(
     'process-market-context',
-    { walletAddress, requestId: jobId },
+    { walletAddress, requestId: jobId, rebuildDownstream: false },
     {
       jobId,
       priority: 9,

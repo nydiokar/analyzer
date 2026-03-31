@@ -11,6 +11,7 @@ import { TokenInfoService } from '../../api/services/token-info.service';
 import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
 import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
 import { BehaviorService } from '../../api/services/behavior.service';
+import { MarketContextService } from '../../api/services/market-context.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
@@ -43,6 +44,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly heliusSyncService: HeliusSyncService,
     private readonly pnlAnalysisService: PnlAnalysisService,
     private readonly behaviorService: BehaviorService,
+    private readonly marketContextService: MarketContextService,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly jobPayloadCache: JobPayloadCacheService,
@@ -394,6 +396,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
             fetchOlder: true,
           };
           await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
+          await this.marketContextService.enrichWallet(walletAddress, 500);
 
           const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
           // These can also run in parallel as they depend only on the sync having completed.

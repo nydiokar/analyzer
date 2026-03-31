@@ -163,6 +163,7 @@ export class WalletOperationsProcessor implements OnModuleDestroy {
       this.enrichmentOperationsQueue.addProcessMarketContext({
         walletAddress,
         requestId: job.id ?? walletAddress,
+        rebuildDownstream: true,
       }).catch((err) => {
         this.logger.warn(`Failed to queue market context processing for ${walletAddress}: ${getErrorMessage(err)}`);
       });

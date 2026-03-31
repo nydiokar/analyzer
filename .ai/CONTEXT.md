@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-03-31  **Status:** Market context enrichment branch complete. Ready to merge to main.
+**Branch:** `main`  **Last Updated:** 2026-03-31  **Status:** Market context downstream shipped; live orchestration gap patched. Unified preparation layer still pending.
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -15,6 +15,8 @@ do we have automatic SOL price fetcher per day
 How and where do we surface the new data for market cap in frontend?
 
 Do we update the SDK/DOCS somehow ?? 
+
+Implement shared `WalletPreparationService` / unified `sync -> enrich -> analyze` layer so orchestration is not duplicated across processors
 
 fund me and anime to be done as posts; 
 
@@ -58,8 +60,10 @@ Finish Sova-X - wallets and open for tokens.
 1. `npx prisma migrate dev --name mce7-downstream` (or `db push` on prod if no migration history)
 2. Deploy backend
 3. Run `scripts/queue-market-context-backfill.ts` — populates `usdValue` + mcap fields on all historical `SwapAnalysisInput` rows
-4. New USD fields on `AnalysisResult`, `TokenLot`, `WalletPnlSummary` self-heal on next wallet analysis — no bulk re-analysis script needed
-5. Optionally queue re-analysis for recently-active wallets (`lastSuccessfulFetchTimestamp > 30d`) for immediate population
+4. Important production note discovered after deploy prep: raw backfill only populates `SwapAnalysisInput`; downstream canonical fields require an analysis path that enforces `sync -> enrich -> analyze`
+5. Live orchestrators patched on 2026-03-31: dashboard wallet analysis, similarity deep sync, holder-profile wallet mode, and standalone wallet-sync self-heal path
+6. Bulk `scripts/queue-market-context-backfill.ts` intentionally remains enrichment-only (`rebuildDownstream: false`) so long-running tmux backfills do not unexpectedly trigger full wallet re-analysis
+7. Remaining follow-up: extract shared `WalletPreparationService` so all canonical wallet-analysis callers use one preparation layer instead of processor-local orchestration
 
 ---
 
@@ -76,12 +80,14 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 | 31.3 | 🎯 FEAT | **[MCE-7C]** `WalletPnlSummary`: `totalVolumeUsd`, `realizedPnlUsd`, `unrealizedPnlUsd`, `netPnlUsd` — true FIFO USD replay matching SOL algorithm exactly (same sort, tolerances, per-unit cost consumption) | 🟡 M | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
 | 31.4 | 🐛 FIX | **[MCE-7 review]** 6 bugs found and fixed before ship: signature collision on lot map, `realizedPnlUsd` including open positions, partial lot fraction on unrealized, 5→1 DB round-trips, excluded mints missing from USD path, lot enrichment query firing on view-only calls | 🟡 M | `pnl-analysis-service.ts` |
 | 31.5 | 🎯 FEAT | **[MCE-7D]** HUD DTO: `preferredMcapBucket` + `avgEntryMcap` surfaced from behavior profile. Proper migration file created (`20260331000000_mce7_downstream`) covering all 16 new columns across 4 tables. | 🟢 S | `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `prisma/migrations/` |
+| 31.6 | 🐛 FIX | **[MCE-7 orchestration]** Live wallet-analysis paths were consuming raw `SwapAnalysisInput` before market-context enrichment. Patched live orchestrators to enforce enrichment before canonical analysis: dashboard wallet analysis, similarity deep sync, holder-profile wallet mode. Standalone wallet sync now rebuilds downstream state after async market-context processing. Bulk backfill script left enrichment-only on purpose. Verified on prod wallet `3dcd4qeoY4ETxczLMR54f5p2c9RrFEpqqMuLjZfMPx1k` — enriched swaps + downstream mcap/USD fields populated end-to-end. | 🟡 M | `analysis-operations.processor.ts`, `similarity-operations.processor.ts`, `enrichment-operations.processor.ts`, `wallet-operations.processor.ts`, `scripts/queue-market-context-backfill.ts` |
 
 **Key decisions:**
 - `realizedPnlUsd` uses full FIFO replay in USD — not aggregate flow. Partial exits are correct.
 - Single `allEnrichedRows` query per analysis feeds all three downstream computations (A, B, C)
 - All new fields nullable, no existing API surface changed — pure additive
-- Self-healing: USD fields populate on next wallet analysis after `SwapAnalysisInput` rows are enriched by backfill script
+- Self-healing only works if the caller enforces `sync -> enrich -> analyze`; this orchestration gap was patched for live flows on 2026-03-31
+- Do not move market-context enrichment into raw `SwapAnalysisInput` insert path; ingestion should stay fast. Proper long-term fix is a shared preparation layer before canonical analysis.
 
 ---
 
@@ -168,6 +174,7 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 | ✅ | **[SHARE-3]** Holder profile share page parity rebuild — shared holder profile links now use holder-profiles v2 presentation and persist trimmed similarity sidebar data in the share snapshot. | 🟡 M | DONE. |
 | ✅ | **[SHARE-1+2]** Shareable holder profiles — fully built, code-reviewed, committed on `feature/holder-profile-sharing`. Ready for smoke test + merge. | 🟡 M | DONE. |
 | ✅ | **[INTEL-SLIM]** Agent-optimised endpoints complete — backend, SDK v0.2.0, docs, SKILL.md. Deploy SDK to npm + backend to server. | 🟡 M | `intel.controller.ts`, `intel-agent-transforms.ts`, `packages/sdk/`, `documentation/agent-skill/SKILL.md` |
+| ⚪ | **[MCE-7 follow-up]** Extract shared `WalletPreparationService` so canonical wallet-analysis callers use one `sync -> enrich -> analyze` preparation layer. Current live processors are patched, but orchestration is still duplicated. | 🟡 M | new shared service + processor call sites |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |

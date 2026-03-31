@@ -33,6 +33,7 @@ import { DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '../../sh
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
 import { MetricsService } from '../../api/services/metrics.service';
+import { MarketContextService } from '../../api/services/market-context.service';
 import { getErrorMessage } from 'core/utils/error-utils';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import Redis from 'ioredis';
@@ -61,6 +62,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly systemWalletDetection: SystemWalletDetectionService,
     private readonly creditsService: CreditsService,
     private readonly metricsService: MetricsService,
+    private readonly marketContextService: MarketContextService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
     private readonly sigBuyersService: SigBuyersService,
   ) {
@@ -543,6 +545,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
       await job.updateProgress(45);
 
+      this.logger.debug(`Enriching market context for ${walletAddress} before downstream analysis...`);
+      await this.marketContextService.enrichWallet(walletAddress, 500);
+      await job.updateProgress(50);
+
       this.logger.debug(`Fetching balances for ${walletAddress}...`);
       
       // Try to get cached balances first (cache set by previous scope in this chain)
@@ -569,7 +575,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           this.logger.debug(`Cached balances for ${walletAddress} for follow-up scopes`);
         }
       }
-      await job.updateProgress(50);
+      await job.updateProgress(55);
 
       // Fetch SOL price for unrealized PNL calculations (cached in Redis with 30s TTL)
       let solPriceUsd: number | undefined;
@@ -592,14 +598,14 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           this.logger.warn(`Failed to read cached SOL price fallback: ${fallbackError}`);
         }
       }
-      await job.updateProgress(55);
+      await job.updateProgress(60);
 
       this.logger.debug(`Running PNL analysis for ${walletAddress} [scope=${scope}]`);
       const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, timeRange, {
         preFetchedBalances: balanceData,
         solPriceUsd,
       });
-      await job.updateProgress(75);
+      await job.updateProgress(78);
 
       this.logger.debug(`Running behavior analysis for ${walletAddress} [scope=${scope}]`);
       const behaviorConfig: BehaviorAnalysisConfig = {
@@ -607,7 +613,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         ...(timeRange ? { timeRange } : {}),
       };
       const behaviorResult = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig, timeRange);
-      await job.updateProgress(85);
+      await job.updateProgress(88);
 
       let enrichmentJobId: string | undefined;
       // Enrichment should run for ALL scopes - it's about data quality, not analysis depth
@@ -1901,6 +1907,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     } else {
       this.logger.debug(`Wallet ${walletAddress} is up-to-date, skipping sync`);
     }
+
+    await this.marketContextService.enrichWallet(walletAddress, 500);
 
     await job.updateProgress(30);
     this.checkTimeout(startTime, timeoutMs, 'Wallet sync completed');
