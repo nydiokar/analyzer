@@ -1227,7 +1227,6 @@ export class HeliusApiClient {
   }
 
   private async makeRpcRequest<T>(method: string, params: any[]): Promise<T> {
-    await this.rateLimit(); // Apply rate limiting before each RPC call
     const payload = {
       jsonrpc: '2.0',
       id: `helius-rpc-${method}-${Date.now()}`,
@@ -1238,6 +1237,7 @@ export class HeliusApiClient {
     let retries = 0;
     while (retries < MAX_RETRIES) {
       try {
+        await this.rateLimit(); // Apply rate limiting before every attempt, including retries
         // Use the stored rpcUrl which already includes the API key
         const response = await this.api.post<{
           jsonrpc: string;

@@ -5,18 +5,22 @@ import { Queue } from 'bullmq';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS } from '../config/constants';
 import { QueueConfigs, QueueNames, JobPriority } from '../queues/config/queue.config';
 import type { DashboardWalletAnalysisJobData } from '../queues/jobs/types';
+import { generateJobId } from '../queues/utils/job-id-generator';
 
 type PriorityName = 'low' | 'normal' | 'high' | 'critical';
 
 interface CliOptions {
   search?: string;
+  userId?: string;
   limit?: number;
   offset: number;
   batchSize: number;
   pauseMs: number;
+  pollMs: number;
   priority: PriorityName;
   forceRefresh: boolean;
   dryRun: boolean;
+  continueOnFailure: boolean;
   requestPrefix: string;
 }
 
@@ -28,9 +32,11 @@ function parseArgs(argv: string[]): CliOptions {
     offset: 0,
     batchSize: 50,
     pauseMs: 1000,
+    pollMs: 5000,
     priority: 'low',
     forceRefresh: false,
     dryRun: false,
+    continueOnFailure: false,
     requestPrefix: 'kol-flash',
   };
 
@@ -47,6 +53,10 @@ function parseArgs(argv: string[]): CliOptions {
         options.limit = Number(next);
         i += 1;
         break;
+      case '--user-id':
+        options.userId = next?.trim() || undefined;
+        i += 1;
+        break;
       case '--offset':
         options.offset = Number(next);
         i += 1;
@@ -57,6 +67,10 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case '--pause-ms':
         options.pauseMs = Number(next);
+        i += 1;
+        break;
+      case '--poll-ms':
+        options.pollMs = Number(next);
         i += 1;
         break;
       case '--priority':
@@ -70,6 +84,9 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case '--dry-run':
         options.dryRun = true;
+        break;
+      case '--continue-on-failure':
+        options.continueOnFailure = true;
         break;
       case '--request-prefix':
         options.requestPrefix = next?.trim() || options.requestPrefix;
@@ -93,6 +110,9 @@ function validateOptions(options: CliOptions): void {
   if (!Number.isInteger(options.pauseMs) || options.pauseMs < 0) {
     throw new Error(`Invalid --pause-ms: ${options.pauseMs}`);
   }
+  if (!Number.isInteger(options.pollMs) || options.pollMs < 250) {
+    throw new Error(`Invalid --poll-ms: ${options.pollMs}`);
+  }
   if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 1)) {
     throw new Error(`Invalid --limit: ${options.limit}`);
   }
@@ -114,6 +134,41 @@ function mapPriority(priority: PriorityName): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function waitForBatch(jobIds: string[], pollMs: number): Promise<{ completed: string[]; failed: string[] }> {
+  const pending = new Set(jobIds);
+  const completed: string[] = [];
+  const failed: string[] = [];
+
+  while (pending.size > 0) {
+    for (const jobId of Array.from(pending)) {
+      const job = await queue.getJob(jobId);
+
+      if (!job) {
+        failed.push(jobId);
+        pending.delete(jobId);
+        continue;
+      }
+
+      if (await job.isCompleted()) {
+        completed.push(jobId);
+        pending.delete(jobId);
+        continue;
+      }
+
+      if (await job.isFailed()) {
+        failed.push(jobId);
+        pending.delete(jobId);
+      }
+    }
+
+    if (pending.size > 0) {
+      await sleep(pollMs);
+    }
+  }
+
+  return { completed, failed };
 }
 
 function buildKolWhere(search?: string): Prisma.WalletWhereInput {
@@ -170,7 +225,8 @@ async function main(): Promise<void> {
   console.log(`KOL matches: ${total}`);
   console.log(`Queued subset: ${wallets.length} (offset=${options.offset}${options.limit ? `, limit=${options.limit}` : ''})`);
   console.log(`Flash scope: targetSignatures=${flashDefaults.targetSignatureCount}, freshness=${flashDefaults.freshnessMinutes}m`);
-  console.log(`Queue options: priority=${options.priority}, batchSize=${options.batchSize}, pauseMs=${options.pauseMs}, forceRefresh=${options.forceRefresh}`);
+  console.log(`Queue options: priority=${options.priority}, batchSize=${options.batchSize}, pauseMs=${options.pauseMs}, pollMs=${options.pollMs}, forceRefresh=${options.forceRefresh}`);
+  console.log(`User routing: ${options.userId ?? 'none'}`);
   console.log(`Request ID: ${requestId}`);
 
   if (wallets.length === 0) {
@@ -190,12 +246,14 @@ async function main(): Promise<void> {
     const batch = wallets.slice(start, start + options.batchSize);
     const batchNumber = Math.floor(start / options.batchSize) + 1;
     const batchTotal = Math.ceil(wallets.length / options.batchSize);
+    const batchRequestId = `${requestId}-b${batchNumber}`;
 
-    await Promise.all(
+    const jobs = await Promise.all(
       batch.map(wallet => {
         const jobData: DashboardWalletAnalysisJobData = {
           walletAddress: wallet.address,
-          requestId,
+          userId: options.userId,
+          requestId: batchRequestId,
           analysisScope: 'flash',
           triggerSource: 'manual',
           targetSignatureCount: flashDefaults.targetSignatureCount,
@@ -205,15 +263,29 @@ async function main(): Promise<void> {
           timeoutMinutes: flashDefaults.timeoutMinutes,
         };
 
+        const jobId = generateJobId.dashboardWalletAnalysis(wallet.address, batchRequestId);
         return queue.add('dashboard-wallet-analysis', jobData, {
-          jobId: `dashboard-kol-flash-${wallet.address}-${requestId}`,
+          jobId,
           priority,
           delay: 0,
         });
       }),
     );
 
+    const jobIds = jobs.map(job => String(job.id));
     console.log(`Queued batch ${batchNumber}/${batchTotal} (${batch.length} wallets)`);
+
+    const batchResult = await waitForBatch(jobIds, options.pollMs);
+    console.log(
+      `Batch ${batchNumber}/${batchTotal} settled: ${batchResult.completed.length} completed, ${batchResult.failed.length} failed`,
+    );
+
+    if (batchResult.failed.length > 0 && !options.continueOnFailure) {
+      throw new Error(
+        `Stopping after batch ${batchNumber}: ${batchResult.failed.length} job(s) failed. ` +
+        `Re-run with --continue-on-failure if you want to keep queueing.`,
+      );
+    }
 
     if (start + options.batchSize < wallets.length && options.pauseMs > 0) {
       await sleep(options.pauseMs);

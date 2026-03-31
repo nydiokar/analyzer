@@ -29,6 +29,9 @@ import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
   private readonly logger = new Logger(TokenInfoService.name);
   private redis: Redis;
+  private readonly TOKEN_SUPPLY_IN_FLIGHT_TTL_SECONDS = 30;
+  private readonly TOKEN_SUPPLY_WAIT_POLL_MS = 100;
+  private readonly TOKEN_SUPPLY_WAIT_MAX_RETRIES = 50;
 
   constructor(
     private readonly db: DatabaseService,
@@ -93,6 +96,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
    */
   async getTokenSupply(tokenMint: string): Promise<number | undefined> {
     const cacheKey = `token_supply:${tokenMint}`;
+    const inFlightKey = this.getTokenSupplyInFlightKey(tokenMint);
 
     // Layer 1: Redis (hot, no TTL — supply is immutable)
     const cached = await this.redis.get(cacheKey);
@@ -107,6 +111,20 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       // Warm Redis so next call is free
       await this.redis.set(cacheKey, supply.toString());
       return supply;
+    }
+
+    const lockAcquired = await this.acquireTokenSupplyInFlight(inFlightKey);
+    if (!lockAcquired) {
+      const waitedSupply = await this.waitForTokenSupply(tokenMint, cacheKey, inFlightKey);
+      if (waitedSupply !== undefined) {
+        return waitedSupply;
+      }
+
+      const retryLock = await this.acquireTokenSupplyInFlight(inFlightKey);
+      if (!retryLock) {
+        this.logger.warn(`[Token Supply] Timed out waiting for in-flight fetch for ${tokenMint}`);
+        return undefined;
+      }
     }
 
     // Layer 3: Helius RPC — one call per mint, ever
@@ -129,6 +147,8 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     } catch (error) {
       this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}: ${getErrorMessage(error)}`);
       return undefined;
+    } finally {
+      await this.clearTokenSupplyInFlight(inFlightKey);
     }
   }
 
@@ -610,6 +630,58 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       // Non-critical error - markers will auto-expire via TTL anyway
       this.logger.warn(`Failed to clear in-flight markers: ${getErrorMessage(error)}`);
     }
+  }
+
+  private getTokenSupplyInFlightKey(tokenMint: string): string {
+    return `token:supply-in-flight:${tokenMint}`;
+  }
+
+  private async acquireTokenSupplyInFlight(inFlightKey: string): Promise<boolean> {
+    const result = await this.redis.set(
+      inFlightKey,
+      Date.now().toString(),
+      'EX',
+      this.TOKEN_SUPPLY_IN_FLIGHT_TTL_SECONDS,
+      'NX',
+    );
+    return result === 'OK';
+  }
+
+  private async clearTokenSupplyInFlight(inFlightKey: string): Promise<void> {
+    try {
+      await this.redis.del(inFlightKey);
+    } catch (error) {
+      this.logger.warn(`Failed to clear token supply in-flight marker: ${getErrorMessage(error)}`);
+    }
+  }
+
+  private async waitForTokenSupply(
+    tokenMint: string,
+    cacheKey: string,
+    inFlightKey: string,
+  ): Promise<number | undefined> {
+    for (let attempt = 0; attempt < this.TOKEN_SUPPLY_WAIT_MAX_RETRIES; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, this.TOKEN_SUPPLY_WAIT_POLL_MS));
+
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        return parseFloat(cached);
+      }
+
+      const dbRow = await this.db.findManyTokenInfo([tokenMint]);
+      if (dbRow.length > 0 && dbRow[0].totalSupply != null) {
+        const supply = dbRow[0].totalSupply;
+        await this.redis.set(cacheKey, supply.toString());
+        return supply;
+      }
+
+      const inFlight = await this.redis.get(inFlightKey);
+      if (!inFlight) {
+        return undefined;
+      }
+    }
+
+    return undefined;
   }
 
   async onModuleDestroy(): Promise<void> {

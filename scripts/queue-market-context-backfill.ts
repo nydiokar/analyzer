@@ -22,10 +22,77 @@ const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379', 10);
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
 const redisConnection = { host: REDIS_HOST, port: REDIS_PORT, password: REDIS_PASSWORD };
 
-const JOB_TIMEOUT_MS = 5 * 60 * 1000; // 5 min max per wallet before we move on
+const DEFAULT_JOB_TIMEOUT_MS = 30 * 60 * 1000; // 30 min default keeps "one at a time" behavior for heavy wallets
+const MAX_JOB_TIMEOUT_MS = 90 * 60 * 1000;
 
 function makeJobId(walletAddress: string): string {
   return `mcx-${crypto.createHash('md5').update(`mcx-${walletAddress}`).digest('hex').slice(0, 8)}`;
+}
+
+function parseSkippedWallets(argv: string[]): Set<string> {
+  const skippedWallets = new Set<string>();
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--skip-wallet') {
+      const wallet = argv[i + 1];
+      if (!wallet) {
+        throw new Error('Missing wallet address after --skip-wallet');
+      }
+      skippedWallets.add(wallet);
+      i++;
+      continue;
+    }
+
+    if (arg.startsWith('--skip-wallet=')) {
+      const wallet = arg.slice('--skip-wallet='.length);
+      if (!wallet) {
+        throw new Error('Missing wallet address after --skip-wallet=');
+      }
+      skippedWallets.add(wallet);
+    }
+  }
+
+  return skippedWallets;
+}
+
+function parseTimeoutOverrideMs(argv: string[]): number | null {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--timeout-minutes') {
+      const raw = argv[i + 1];
+      if (!raw) {
+        throw new Error('Missing number after --timeout-minutes');
+      }
+      const minutes = Number(raw);
+      if (!Number.isFinite(minutes) || minutes <= 0) {
+        throw new Error(`Invalid --timeout-minutes value: ${raw}`);
+      }
+      return Math.min(MAX_JOB_TIMEOUT_MS, Math.round(minutes * 60 * 1000));
+    }
+
+    if (arg.startsWith('--timeout-minutes=')) {
+      const raw = arg.slice('--timeout-minutes='.length);
+      const minutes = Number(raw);
+      if (!Number.isFinite(minutes) || minutes <= 0) {
+        throw new Error(`Invalid --timeout-minutes value: ${raw}`);
+      }
+      return Math.min(MAX_JOB_TIMEOUT_MS, Math.round(minutes * 60 * 1000));
+    }
+  }
+
+  return null;
+}
+
+function getJobTimeoutMs(swapCount: number, timeoutOverrideMs: number | null): number {
+  if (timeoutOverrideMs != null) {
+    return timeoutOverrideMs;
+  }
+
+  // Heavier wallets need longer than the old fixed 5m wait.
+  // Scale gently by swap count while keeping an upper bound.
+  const scaledMinutes = Math.max(30, Math.ceil(swapCount / 5000) * 10);
+  return Math.min(MAX_JOB_TIMEOUT_MS, scaledMinutes * 60 * 1000);
 }
 
 async function addAndWait(
@@ -35,6 +102,7 @@ async function addAndWait(
   swapCount: number,
   index: number,
   total: number,
+  timeoutMs: number,
 ): Promise<'completed' | 'failed' | 'timeout'> {
   const jobId = makeJobId(walletAddress);
 
@@ -47,7 +115,7 @@ async function addAndWait(
       queueEvents.off('completed', onCompleted);
       queueEvents.off('failed', onFailed);
       resolve('timeout');
-    }, JOB_TIMEOUT_MS);
+    }, timeoutMs);
 
     const onCompleted = ({ jobId: id }: { jobId: string }) => {
       if (id !== jobId) return;
@@ -87,6 +155,8 @@ async function addAndWait(
 }
 
 async function main() {
+  const skippedWallets = parseSkippedWallets(process.argv.slice(2));
+  const timeoutOverrideMs = parseTimeoutOverrideMs(process.argv.slice(2));
   const queue = new Queue('enrichment-operations', { connection: redisConnection });
   const queueEvents = new QueueEvents('enrichment-operations', { connection: redisConnection });
   await queueEvents.waitUntilReady();
@@ -108,6 +178,10 @@ async function main() {
     return;
   }
 
+  if (skippedWallets.size > 0) {
+    console.log(`Skipping ${skippedWallets.size} wallet(s): ${[...skippedWallets].join(', ')}`);
+  }
+
   console.log(`${wallets.length} wallets to backfill, one at a time.\n`);
 
   let done = 0;
@@ -117,15 +191,27 @@ async function main() {
     const w = wallets[i];
     const jobId = makeJobId(w.walletAddress);
 
+    if (skippedWallets.has(w.walletAddress)) {
+      console.log(`  [${i + 1}/${wallets.length}] ${w.walletAddress} skipped via --skip-wallet`);
+      continue;
+    }
+
     // If already active/waiting (e.g. triggered by a live sync), wait for it
     const existing = await queue.getJob(jobId);
     if (existing) {
       const state = await existing.getState();
       if (state === 'waiting' || state === 'active' || state === 'delayed') {
-        process.stdout.write(`  [${i + 1}/${wallets.length}] ${w.walletAddress.slice(0, 16)}... already running, waiting... `);
+        const timeoutMs = getJobTimeoutMs(w._count.id, timeoutOverrideMs);
+        process.stdout.write(
+          `  [${i + 1}/${wallets.length}] ${w.walletAddress} already running as ${jobId} (${state}), waiting up to ${Math.round(timeoutMs / 60000)}m... `,
+        );
         // Still attach listeners before awaiting — job might finish while we're checking
         const result = await new Promise<'completed' | 'failed' | 'timeout'>((resolve) => {
-          const timer = setTimeout(() => resolve('timeout'), JOB_TIMEOUT_MS);
+          const timer = setTimeout(() => {
+            queueEvents.off('completed', onCompleted);
+            queueEvents.off('failed', onFailed);
+            resolve('timeout');
+          }, timeoutMs);
           const onCompleted = ({ jobId: id }: { jobId: string }) => {
             if (id !== jobId) return;
             clearTimeout(timer);
@@ -149,7 +235,8 @@ async function main() {
       }
     }
 
-    const result = await addAndWait(queue, queueEvents, w.walletAddress, w._count.id, i + 1, wallets.length);
+    const timeoutMs = getJobTimeoutMs(w._count.id, timeoutOverrideMs);
+    const result = await addAndWait(queue, queueEvents, w.walletAddress, w._count.id, i + 1, wallets.length, timeoutMs);
     result === 'completed' ? done++ : failed++;
   }
 
