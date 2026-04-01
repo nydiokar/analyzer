@@ -242,6 +242,12 @@ export interface BehavioralMetrics {
   firstTransactionTimestamp?: number;
   lastTransactionTimestamp?: number;
   activeTradingDays?: number; // Count of distinct calendar days (UTC) with at least one trade
+  avgEntryMcap?: number;
+  typicalEntryMcapUsd?: number;
+  entryMcapP25Usd?: number;
+  entryMcapP75Usd?: number;
+  dominantEntryMcapBucket?: string;
+  dominantEntryMcapBucketShare?: number;
 
   // New: Historical pattern (optional, non-breaking addition)
   historicalPattern?: WalletHistoricalPattern;

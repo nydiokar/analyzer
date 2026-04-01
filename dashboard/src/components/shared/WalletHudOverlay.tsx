@@ -4,6 +4,10 @@ import { memo } from 'react';
 import { useWalletHud } from '@/hooks/useWalletHud';
 import { DataQualityTier, BEHAVIOR_CODES } from '@/types/api';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  formatMcapCompact,
+  getMcapBucketDisplayLabel,
+} from '@/lib/mcap';
 
 /**
  * Wallet HUD (Heads-Up Display) Overlay Component
@@ -134,27 +138,21 @@ function formatPercent(decimal: number): string {
   return `${Math.round(decimal * 100)}%`;
 }
 
-/**
- * Format market cap USD to compact display
- */
-function formatMcap(usd: number): string {
-  if (usd >= 1_000_000_000) return `$${(usd / 1_000_000_000).toFixed(1)}B`;
-  if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(1)}M`;
-  if (usd >= 1_000) return `$${(usd / 1_000).toFixed(0)}K`;
-  return `$${usd.toFixed(0)}`;
-}
+function getMarketCapSignal(data: ReturnType<typeof useWalletHud>['data']) {
+  if (!data) return null;
 
-const MCAP_BUCKET_LABELS: Record<string, string> = {
-  '0-10k':    'Seed',
-  '10-20k':   'Early Seed',
-  '20-30k':   'Late Seed',
-  '30-50k':   'Pre-Growth',
-  '50-100k':  'Early Growth',
-  '100-200k': 'Growth',
-  '200-500k': 'Late Growth',
-  '500k-1m':  'Expansion',
-  '1m+':      'Established',
-};
+  const hasTypicalSignal = data.typicalEntryMcapUsd !== undefined;
+
+  if (!hasTypicalSignal && data.dominantEntryMcapBucket === undefined) {
+    return null;
+  }
+
+  return {
+    typicalEntryMcapUsd: data.typicalEntryMcapUsd,
+    dominantBucket: data.dominantEntryMcapBucket,
+    hasTypicalSignal,
+  };
+}
 
 /**
  * Format ISO date to compact display (e.g., "Oct 01, 2025")
@@ -256,6 +254,7 @@ const InlineDisplay = memo(function InlineDisplay({
   const qualityConfig = DATA_QUALITY_DISPLAY[data.dataQualityTier];
   const behaviorColor = BEHAVIOR_COLORS[data.behaviorCode] || BEHAVIOR_COLORS['?'];
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
+  const marketCapSignal = getMarketCapSignal(data);
 
   return (
     <TooltipProvider>
@@ -360,6 +359,7 @@ const TooltipDisplay = memo(function TooltipDisplay({
   const qualityConfig = DATA_QUALITY_DISPLAY[data.dataQualityTier];
   const behaviorColor = BEHAVIOR_COLORS[data.behaviorCode] || BEHAVIOR_COLORS['?'];
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
+  const marketCapSignal = getMarketCapSignal(data);
 
   return (
     <div className="text-xs space-y-1.5 min-w-[200px]">
@@ -406,18 +406,21 @@ const TooltipDisplay = memo(function TooltipDisplay({
           <span className="text-muted-foreground">Tokens/Day:</span>
           <span className="font-medium">{data.uniqueTokensPerDay.toFixed(1)}</span>
         </div>
-        {data.avgEntryMcap !== undefined && (
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Avg Entry Mcap:</span>
-            <span className="font-medium">
-              {formatMcap(data.avgEntryMcap)}
-              {data.preferredMcapBucket && (
-                <span className="text-muted-foreground ml-1">
-                  ({MCAP_BUCKET_LABELS[data.preferredMcapBucket] ?? data.preferredMcapBucket})
+        {marketCapSignal && marketCapSignal.hasTypicalSignal && marketCapSignal.typicalEntryMcapUsd !== undefined && (
+          <>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Typical Entry Mcap:</span>
+              <span className="font-medium">{formatMcapCompact(marketCapSignal.typicalEntryMcapUsd)}</span>
+            </div>
+            {marketCapSignal.dominantBucket && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Main Mcap Bucket:</span>
+                <span className="font-medium">
+                  {getMcapBucketDisplayLabel(marketCapSignal.dominantBucket)}
                 </span>
-              )}
-            </span>
-          </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -456,6 +459,7 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
   const qualityConfig = DATA_QUALITY_DISPLAY[data.dataQualityTier];
   const behaviorColor = BEHAVIOR_COLORS[data.behaviorCode] || BEHAVIOR_COLORS['?'];
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
+  const marketCapSignal = getMarketCapSignal(data);
 
   return (
     <div className={`grid grid-cols-2 md:grid-cols-3 gap-4 p-4 border rounded-xl bg-card ${className || ''}`}>
@@ -506,21 +510,20 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
         <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Tokens/Day</div>
       </div>
 
-      {/* Avg Entry Mcap */}
-      {data.avgEntryMcap !== undefined && (
+      {/* Market Cap Profile */}
+      {marketCapSignal && marketCapSignal.hasTypicalSignal && marketCapSignal.typicalEntryMcapUsd !== undefined && (
         <div className="text-center">
-          <div className="text-2xl font-bold">{formatMcap(data.avgEntryMcap)}</div>
+          <div className="text-2xl font-bold">{formatMcapCompact(marketCapSignal.typicalEntryMcapUsd)}</div>
           <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">
-            Avg Entry Mcap
-            {data.preferredMcapBucket && (
+            Typical Entry Mcap
+            {marketCapSignal.dominantBucket && (
               <span className="ml-1 normal-case">
-                ({MCAP_BUCKET_LABELS[data.preferredMcapBucket] ?? data.preferredMcapBucket})
+                ({getMcapBucketDisplayLabel(marketCapSignal.dominantBucket)})
               </span>
             )}
           </div>
         </div>
       )}
-
       {/* Conditional Badges */}
       {data.isBot && (
         <div className="text-center">

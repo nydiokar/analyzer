@@ -139,8 +139,14 @@ model AnalysisResult {
   unrealizedPnlSol            Float?
   avgEntryMcap                Float?    // volume-weighted avg marketCapUsd across buy trades for this token
   avgEntryMcapBucket          String?   // classified bucket of avgEntryMcap
+  typicalEntryMcapUsd         Float?    // weighted median marketCapUsd across buy trades for this token
+  entryMcapP25Usd             Float?    // weighted 25th percentile marketCapUsd across buy trades for this token
+  entryMcapP75Usd             Float?    // weighted 75th percentile marketCapUsd across buy trades for this token
   avgExitMcap                 Float?    // volume-weighted avg marketCapUsd across sell trades for this token
   avgExitMcapBucket           String?   // classified bucket of avgExitMcap
+  typicalExitMcapUsd          Float?    // weighted median marketCapUsd across sell trades for this token
+  exitMcapP25Usd              Float?    // weighted 25th percentile marketCapUsd across sell trades for this token
+  exitMcapP75Usd              Float?    // weighted 75th percentile marketCapUsd across sell trades for this token
   wallet                      Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@unique([walletAddress, tokenAddress])
@@ -272,6 +278,14 @@ model WalletBehaviorProfile {
   avgEntryMcap                       Float?   // volume-weighted avg marketCapUsd across all buy trades
   mcapDistribution                   Json?    // { nano: 0.4, micro: 0.3, ... } fraction of buy volume per bucket
   mcapBucketPnl                      Json?    // { nano: { realizedPnlSol: 1.2, tradeCount: 12, winRate: 0.67 }, ... }
+  typicalEntryMcapUsd                Float?   // weighted median marketCapUsd across all buy trades
+  entryMcapP25Usd                    Float?   // weighted 25th percentile marketCapUsd across all buy trades
+  entryMcapP75Usd                    Float?   // weighted 75th percentile marketCapUsd across all buy trades
+  dominantEntryMcapBucket            String?  // bucket with highest buy-side usdValue share
+  dominantEntryMcapBucketShare       Float?   // share of buy-side usdValue in dominantEntryMcapBucket
+  entryMcapDistributionByCount       Json?    // { '10-20k': 0.42, ... } fraction of buy trade count per bucket
+  entryMcapSampleSizeBuys            Int?     // number of eligible buy-side rows contributing to mcap profile
+  entryMcapSampleSizeTokens          Int?     // number of distinct mints contributing to mcap profile
   wallet                             Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])

@@ -34,6 +34,128 @@ export function classifyMcap(mcapUsd: number): McapBucketLabel {
   return '1m+';
 }
 
+export interface WeightedMcapPoint {
+  mcapUsd: number;
+  weightUsd: number;
+}
+
+export interface WeightedMcapSummary {
+  capitalWeightedAvgMcapUsd: number;
+  typicalMcapUsd: number;
+  p25McapUsd: number;
+  p75McapUsd: number;
+}
+
+export interface McapBucketDistributionSummary {
+  dominantBucket: string | null;
+  dominantBucketShare: number | null;
+  distributionByVolume: Record<string, number>;
+  distributionByCount: Record<string, number>;
+}
+
+function roundMcapShare(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function getWeightedQuantile(points: WeightedMcapPoint[], quantile: number): number | null {
+  if (points.length === 0) return null;
+
+  const eligible = points
+    .filter((point) => point.mcapUsd > 0 && point.weightUsd > 0)
+    .sort((a, b) => a.mcapUsd - b.mcapUsd);
+
+  if (eligible.length === 0) return null;
+
+  const totalWeight = eligible.reduce((sum, point) => sum + point.weightUsd, 0);
+  if (totalWeight <= 0) return null;
+
+  const targetWeight = totalWeight * quantile;
+  let cumulativeWeight = 0;
+
+  for (const point of eligible) {
+    cumulativeWeight += point.weightUsd;
+    if (cumulativeWeight >= targetWeight) {
+      return point.mcapUsd;
+    }
+  }
+
+  return eligible[eligible.length - 1]?.mcapUsd ?? null;
+}
+
+export function summarizeWeightedMcap(points: WeightedMcapPoint[]): WeightedMcapSummary | null {
+  const eligible = points.filter((point) => point.mcapUsd > 0 && point.weightUsd > 0);
+  if (eligible.length === 0) return null;
+
+  const totalWeightUsd = eligible.reduce((sum, point) => sum + point.weightUsd, 0);
+  if (totalWeightUsd <= 0) return null;
+
+  const weightedSum = eligible.reduce((sum, point) => sum + point.mcapUsd * point.weightUsd, 0);
+  const p25 = getWeightedQuantile(eligible, 0.25);
+  const median = getWeightedQuantile(eligible, 0.5);
+  const p75 = getWeightedQuantile(eligible, 0.75);
+
+  if (p25 == null || median == null || p75 == null) return null;
+
+  return {
+    capitalWeightedAvgMcapUsd: weightedSum / totalWeightUsd,
+    typicalMcapUsd: median,
+    p25McapUsd: p25,
+    p75McapUsd: p75,
+  };
+}
+
+export function summarizeMcapBucketDistributions(
+  mcapsUsd: number[],
+  weightsUsd: number[],
+): McapBucketDistributionSummary | null {
+  if (mcapsUsd.length === 0 || mcapsUsd.length !== weightsUsd.length) return null;
+
+  const byVolume = new Map<string, number>();
+  const byCount = new Map<string, number>();
+  let totalWeightUsd = 0;
+
+  for (let index = 0; index < mcapsUsd.length; index += 1) {
+    const mcapUsd = mcapsUsd[index];
+    const weightUsd = weightsUsd[index];
+    if (mcapUsd == null || weightUsd == null || mcapUsd <= 0 || weightUsd <= 0) continue;
+
+    const bucket = classifyMcap(mcapUsd);
+    byVolume.set(bucket, (byVolume.get(bucket) ?? 0) + weightUsd);
+    byCount.set(bucket, (byCount.get(bucket) ?? 0) + 1);
+    totalWeightUsd += weightUsd;
+  }
+
+  if (totalWeightUsd <= 0 || byVolume.size === 0) return null;
+
+  let dominantBucket: string | null = null;
+  let dominantVolume = 0;
+  for (const [bucket, volume] of byVolume) {
+    if (volume > dominantVolume) {
+      dominantBucket = bucket;
+      dominantVolume = volume;
+    }
+  }
+
+  const totalCount = Array.from(byCount.values()).reduce((sum, count) => sum + count, 0);
+  const distributionByVolume: Record<string, number> = {};
+  const distributionByCount: Record<string, number> = {};
+
+  for (const [bucket, volume] of byVolume) {
+    distributionByVolume[bucket] = roundMcapShare(volume / totalWeightUsd);
+  }
+
+  for (const [bucket, count] of byCount) {
+    distributionByCount[bucket] = roundMcapShare(count / totalCount);
+  }
+
+  return {
+    dominantBucket,
+    dominantBucketShare: dominantBucket != null ? roundMcapShare(dominantVolume / totalWeightUsd) : null,
+    distributionByVolume,
+    distributionByCount,
+  };
+}
+
 export function timestampToDateKey(unixTimestamp: number): string {
   return new Date(unixTimestamp * 1000).toISOString().split('T')[0];
 }

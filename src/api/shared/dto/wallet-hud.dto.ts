@@ -146,16 +146,16 @@ export class WalletHudDto {
   currentHoldingsUsd?: number;
 
   @ApiPropertyOptional({
-    description: 'Market cap bucket where most buy-side volume was deployed (from behavior profile)',
-    example: 'micro',
+    description: 'Weighted median market cap at entry across eligible buy trades in USD',
+    example: 28000,
   })
-  preferredMcapBucket?: string;
+  typicalEntryMcapUsd?: number;
 
   @ApiPropertyOptional({
-    description: 'Volume-weighted average market cap at entry across all buy trades in USD',
-    example: 4200000,
+    description: 'Bucket with the highest share of buy-side USD deployment',
+    example: '10-20k',
   })
-  avgEntryMcap?: number;
+  dominantEntryMcapBucket?: string;
 
   // ===== METADATA =====
 

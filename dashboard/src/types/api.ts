@@ -559,8 +559,8 @@ export interface WalletHudDto {
   uniqueTokensPerDay: number;    // Average unique tokens traded per day (for bot detection)
   currentHoldingsSol: number;    // Total portfolio value in SOL (sum of all current token holdings)
   currentHoldingsUsd?: number;   // Total portfolio value in USD (sum of all current token holdings)
-  preferredMcapBucket?: string;  // Market cap bucket where most buy-side volume was deployed
-  avgEntryMcap?: number;         // Volume-weighted avg market cap at entry across all buy trades (USD)
+  typicalEntryMcapUsd?: number;  // Weighted median market cap at entry across eligible buy trades (USD)
+  dominantEntryMcapBucket?: string; // Bucket with highest buy-side USD share
 
   // ===== METADATA =====
   calculatedAt: string;          // ISO timestamp when HUD data was calculated
