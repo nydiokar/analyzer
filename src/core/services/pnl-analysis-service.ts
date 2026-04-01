@@ -14,6 +14,7 @@ import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 import { getKnownWallet, SKIP_PNL_CALCULATION, type KnownWalletType } from '../../config/known-wallets';
 import { getErrorMessage } from 'core/utils/error-utils';
 import { classifyMcap } from 'core/services/market-context-standalone';
+import { summarizeWeightedMcap } from 'core/services/market-context-standalone';
 
 const logger = createLogger('PnlAnalysisService');
 
@@ -740,28 +741,51 @@ export class PnlAnalysisService {
                     }
 
                     // --- Task A: per-token avg entry/exit mcap (derived from allEnrichedRows) ---
-                    const entryMcapAccum = new Map<string, { sumMcapWeighted: number; sumUsd: number }>();
-                    const exitMcapAccum = new Map<string, { sumMcapWeighted: number; sumUsd: number }>();
+                    const entryMcapPoints = new Map<string, Array<{ mcapUsd: number; weightUsd: number }>>();
+                    const exitMcapPoints = new Map<string, Array<{ mcapUsd: number; weightUsd: number }>>();
                     for (const row of allEnrichedRows) {
                         if (row.marketCapUsd == null || row.usdValue == null) continue;
-                        const accMap = row.direction === 'in' ? entryMcapAccum : exitMcapAccum;
-                        const acc = accMap.get(row.mint) ?? { sumMcapWeighted: 0, sumUsd: 0 };
-                        acc.sumMcapWeighted += row.marketCapUsd * row.usdValue;
-                        acc.sumUsd += row.usdValue;
-                        accMap.set(row.mint, acc);
+                        const pointMap = row.direction === 'in' ? entryMcapPoints : exitMcapPoints;
+                        const points = pointMap.get(row.mint) ?? [];
+                        points.push({ mcapUsd: row.marketCapUsd, weightUsd: row.usdValue });
+                        pointMap.set(row.mint, points);
                     }
-                    const avgEntryMcapByMint = new Map<string, { avgEntryMcap: number; avgEntryMcapBucket: string }>();
-                    for (const [mint, acc] of entryMcapAccum) {
-                        if (acc.sumUsd > 0) {
-                            const avg = acc.sumMcapWeighted / acc.sumUsd;
-                            avgEntryMcapByMint.set(mint, { avgEntryMcap: avg, avgEntryMcapBucket: classifyMcap(avg) });
+                    const entryMcapByMint = new Map<string, {
+                        avgEntryMcap: number;
+                        avgEntryMcapBucket: string;
+                        typicalEntryMcapUsd: number;
+                        entryMcapP25Usd: number;
+                        entryMcapP75Usd: number;
+                    }>();
+                    for (const [mint, points] of entryMcapPoints) {
+                        const summary = summarizeWeightedMcap(points);
+                        if (summary) {
+                            entryMcapByMint.set(mint, {
+                                avgEntryMcap: summary.capitalWeightedAvgMcapUsd,
+                                avgEntryMcapBucket: classifyMcap(summary.capitalWeightedAvgMcapUsd),
+                                typicalEntryMcapUsd: summary.typicalMcapUsd,
+                                entryMcapP25Usd: summary.p25McapUsd,
+                                entryMcapP75Usd: summary.p75McapUsd,
+                            });
                         }
                     }
-                    const avgExitMcapByMint = new Map<string, { avgExitMcap: number; avgExitMcapBucket: string }>();
-                    for (const [mint, acc] of exitMcapAccum) {
-                        if (acc.sumUsd > 0) {
-                            const avg = acc.sumMcapWeighted / acc.sumUsd;
-                            avgExitMcapByMint.set(mint, { avgExitMcap: avg, avgExitMcapBucket: classifyMcap(avg) });
+                    const exitMcapByMint = new Map<string, {
+                        avgExitMcap: number;
+                        avgExitMcapBucket: string;
+                        typicalExitMcapUsd: number;
+                        exitMcapP25Usd: number;
+                        exitMcapP75Usd: number;
+                    }>();
+                    for (const [mint, points] of exitMcapPoints) {
+                        const summary = summarizeWeightedMcap(points);
+                        if (summary) {
+                            exitMcapByMint.set(mint, {
+                                avgExitMcap: summary.capitalWeightedAvgMcapUsd,
+                                avgExitMcapBucket: classifyMcap(summary.capitalWeightedAvgMcapUsd),
+                                typicalExitMcapUsd: summary.typicalMcapUsd,
+                                exitMcapP25Usd: summary.p25McapUsd,
+                                exitMcapP75Usd: summary.p75McapUsd,
+                            });
                         }
                     }
 
@@ -910,10 +934,16 @@ export class PnlAnalysisService {
                         currentHoldingsValueUsd: holdingValueByMint.get(r.tokenAddress)?.valueUsd ?? null,
                         currentHoldingsCostBasisSol: r.currentHoldingsCostBasisSol ?? null,
                         balanceFetchedAt: r.balanceFetchedAt,
-                        avgEntryMcap: avgEntryMcapByMint.get(r.tokenAddress)?.avgEntryMcap ?? null,
-                        avgEntryMcapBucket: avgEntryMcapByMint.get(r.tokenAddress)?.avgEntryMcapBucket ?? null,
-                        avgExitMcap: avgExitMcapByMint.get(r.tokenAddress)?.avgExitMcap ?? null,
-                        avgExitMcapBucket: avgExitMcapByMint.get(r.tokenAddress)?.avgExitMcapBucket ?? null,
+                        avgEntryMcap: entryMcapByMint.get(r.tokenAddress)?.avgEntryMcap ?? null,
+                        avgEntryMcapBucket: entryMcapByMint.get(r.tokenAddress)?.avgEntryMcapBucket ?? null,
+                        typicalEntryMcapUsd: entryMcapByMint.get(r.tokenAddress)?.typicalEntryMcapUsd ?? null,
+                        entryMcapP25Usd: entryMcapByMint.get(r.tokenAddress)?.entryMcapP25Usd ?? null,
+                        entryMcapP75Usd: entryMcapByMint.get(r.tokenAddress)?.entryMcapP75Usd ?? null,
+                        avgExitMcap: exitMcapByMint.get(r.tokenAddress)?.avgExitMcap ?? null,
+                        avgExitMcapBucket: exitMcapByMint.get(r.tokenAddress)?.avgExitMcapBucket ?? null,
+                        typicalExitMcapUsd: exitMcapByMint.get(r.tokenAddress)?.typicalExitMcapUsd ?? null,
+                        exitMcapP25Usd: exitMcapByMint.get(r.tokenAddress)?.exitMcapP25Usd ?? null,
+                        exitMcapP75Usd: exitMcapByMint.get(r.tokenAddress)?.exitMcapP75Usd ?? null,
                     }));
 
                     await this.databaseService.replaceTokenLotsForWallet(walletAddress, fifoLotsToPersist);

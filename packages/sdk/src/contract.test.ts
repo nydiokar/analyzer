@@ -76,6 +76,12 @@ function assertWalletHud(hud: WalletHud, label = "hud") {
   if (hud.currentHoldingsUsd !== undefined) {
     expect(typeof hud.currentHoldingsUsd, `${label}.currentHoldingsUsd`).toBe("number");
   }
+  if (hud.typicalEntryMcapUsd !== undefined) {
+    expect(typeof hud.typicalEntryMcapUsd, `${label}.typicalEntryMcapUsd`).toBe("number");
+  }
+  if (hud.dominantEntryMcapBucket !== undefined) {
+    expect(typeof hud.dominantEntryMcapBucket, `${label}.dominantEntryMcapBucket`).toBe("string");
+  }
   if (hud.provenance !== undefined) {
     expect(typeof hud.provenance.provider,       `${label}.provenance.provider`).toBe("string");
     expect(typeof hud.provenance.schemaVersion,  `${label}.provenance.schemaVersion`).toBe("string");
@@ -101,6 +107,12 @@ function assertWalletBehavior(b: WalletBehavior, label = "behavior") {
   expect(b.avgHoldTimeHours    === null || typeof b.avgHoldTimeHours    === "number", `${label}.avgHoldTimeHours`).toBe(true);
   expect(b.medianHoldTimeHours === null || typeof b.medianHoldTimeHours === "number", `${label}.medianHoldTimeHours`).toBe(true);
   expect(b.buySellRatio        === null || typeof b.buySellRatio        === "number", `${label}.buySellRatio`).toBe(true);
+  expect(b.avgEntryMcapUsd === null || typeof b.avgEntryMcapUsd === "number", `${label}.avgEntryMcapUsd`).toBe(true);
+  expect(b.typicalEntryMcapUsd === null || typeof b.typicalEntryMcapUsd === "number", `${label}.typicalEntryMcapUsd`).toBe(true);
+  expect(b.entryMcapP25Usd === null || typeof b.entryMcapP25Usd === "number", `${label}.entryMcapP25Usd`).toBe(true);
+  expect(b.entryMcapP75Usd === null || typeof b.entryMcapP75Usd === "number", `${label}.entryMcapP75Usd`).toBe(true);
+  expect(b.dominantEntryMcapBucket === null || typeof b.dominantEntryMcapBucket === "string", `${label}.dominantEntryMcapBucket`).toBe(true);
+  expect(b.dominantEntryMcapBucketShare === null || typeof b.dominantEntryMcapBucketShare === "number", `${label}.dominantEntryMcapBucketShare`).toBe(true);
 }
 
 function assertHolderProfile(p: HolderProfile, label = "profile") {

@@ -4,6 +4,12 @@ import { memo } from 'react';
 import { useWalletHud } from '@/hooks/useWalletHud';
 import { DataQualityTier, BEHAVIOR_CODES } from '@/types/api';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  classifyMcapBucket,
+  compareMcapBuckets,
+  formatMcapCompact,
+  getMcapBucketDisplayLabel,
+} from '@/lib/mcap';
 
 /**
  * Wallet HUD (Heads-Up Display) Overlay Component
@@ -134,6 +140,37 @@ function formatPercent(decimal: number): string {
   return `${Math.round(decimal * 100)}%`;
 }
 
+function getMarketCapSignal(data: ReturnType<typeof useWalletHud>['data']) {
+  if (!data) return null;
+
+  const hasTypicalSignal = data.typicalEntryMcapUsd !== undefined;
+
+  if (!hasTypicalSignal && data.dominantEntryMcapBucket === undefined) {
+    return null;
+  }
+
+  const typicalBucket = classifyMcapBucket(data.typicalEntryMcapUsd);
+  const dominantBucket = data.dominantEntryMcapBucket;
+  const bucketDelta = compareMcapBuckets(dominantBucket, typicalBucket);
+  const deviationBucket =
+    dominantBucket && typicalBucket && dominantBucket !== typicalBucket
+      ? dominantBucket
+      : null;
+
+  return {
+    typicalEntryMcapUsd: data.typicalEntryMcapUsd,
+    dominantBucket,
+    deviationBucket,
+    deviationDirection:
+      bucketDelta == null || bucketDelta === 0
+        ? null
+        : bucketDelta > 0
+          ? 'higher'
+          : 'lower',
+    hasTypicalSignal,
+  };
+}
+
 /**
  * Format ISO date to compact display (e.g., "Oct 01, 2025")
  */
@@ -234,6 +271,7 @@ const InlineDisplay = memo(function InlineDisplay({
   const qualityConfig = DATA_QUALITY_DISPLAY[data.dataQualityTier];
   const behaviorColor = BEHAVIOR_COLORS[data.behaviorCode] || BEHAVIOR_COLORS['?'];
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
+  const marketCapSignal = getMarketCapSignal(data);
 
   return (
     <TooltipProvider>
@@ -338,6 +376,7 @@ const TooltipDisplay = memo(function TooltipDisplay({
   const qualityConfig = DATA_QUALITY_DISPLAY[data.dataQualityTier];
   const behaviorColor = BEHAVIOR_COLORS[data.behaviorCode] || BEHAVIOR_COLORS['?'];
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
+  const marketCapSignal = getMarketCapSignal(data);
 
   return (
     <div className="text-xs space-y-1.5 min-w-[200px]">
@@ -384,6 +423,22 @@ const TooltipDisplay = memo(function TooltipDisplay({
           <span className="text-muted-foreground">Tokens/Day:</span>
           <span className="font-medium">{data.uniqueTokensPerDay.toFixed(1)}</span>
         </div>
+        {marketCapSignal && marketCapSignal.hasTypicalSignal && marketCapSignal.typicalEntryMcapUsd !== undefined && (
+          <>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Typical Entry Mcap:</span>
+              <span className="font-medium">{formatMcapCompact(marketCapSignal.typicalEntryMcapUsd)}</span>
+            </div>
+            {marketCapSignal.deviationBucket && marketCapSignal.deviationDirection && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Capital Skews {marketCapSignal.deviationDirection}:</span>
+                <span className="font-medium">
+                  {getMcapBucketDisplayLabel(marketCapSignal.deviationBucket)}
+                </span>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Conditional Alerts */}
@@ -421,6 +476,7 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
   const qualityConfig = DATA_QUALITY_DISPLAY[data.dataQualityTier];
   const behaviorColor = BEHAVIOR_COLORS[data.behaviorCode] || BEHAVIOR_COLORS['?'];
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
+  const marketCapSignal = getMarketCapSignal(data);
 
   return (
     <div className={`grid grid-cols-2 md:grid-cols-3 gap-4 p-4 border rounded-xl bg-card ${className || ''}`}>
@@ -471,6 +527,23 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
         <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Tokens/Day</div>
       </div>
 
+      {/* Market Cap Profile */}
+      {marketCapSignal && marketCapSignal.hasTypicalSignal && marketCapSignal.typicalEntryMcapUsd !== undefined && (
+        <div className="text-center">
+          <div className="text-2xl font-bold">{formatMcapCompact(marketCapSignal.typicalEntryMcapUsd)}</div>
+          <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">
+            Typical Entry Mcap
+          </div>
+          {marketCapSignal.deviationBucket && marketCapSignal.deviationDirection && (
+            <div className="text-xs text-muted-foreground mt-1">
+              Capital skews {marketCapSignal.deviationDirection}:
+              <span className="ml-1 font-medium text-foreground">
+                {getMcapBucketDisplayLabel(marketCapSignal.deviationBucket)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
       {/* Conditional Badges */}
       {data.isBot && (
         <div className="text-center">

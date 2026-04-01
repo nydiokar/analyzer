@@ -11,21 +11,149 @@ const DEFILLAMA_BASE = 'https://coins.llama.fi';
 const ONE_DAY = 86400;
 const MAX_SOL_PRICE_FALLBACK_DAYS = 3;
 
+// Dual-layer naming: numeric range (truth) + semantic tier (quick cognition)
+// Format: "0-10k" (stored label) — maps to display "0–10K — Seed" in the frontend
 export const MCAP_BUCKETS = [
-  { label: 'nano', max: 3000 },
-  { label: 'ultra-micro', max: 30_000 },
-  { label: 'micro', max: 100_000 },
-  { label: 'small', max: 1_000_000 },
-  { label: 'mid', max: 10_000_000 },
-  { label: 'large', max: 100_000_000 },
-  { label: 'mega', max: Infinity },
+  { label: '0-10k',    semantic: 'Seed',         max: 10_000 },
+  { label: '10-20k',   semantic: 'Early Seed',   max: 20_000 },
+  { label: '20-30k',   semantic: 'Late Seed',    max: 30_000 },
+  { label: '30-50k',   semantic: 'Pre-Growth',   max: 50_000 },
+  { label: '50-100k',  semantic: 'Early Growth', max: 100_000 },
+  { label: '100-200k', semantic: 'Growth',       max: 200_000 },
+  { label: '200-500k', semantic: 'Late Growth',  max: 500_000 },
+  { label: '500k-1m',  semantic: 'Expansion',    max: 1_000_000 },
+  { label: '1m+',      semantic: 'Established',  max: Infinity },
 ] as const;
 
-export function classifyMcap(mcapUsd: number): string {
+export type McapBucketLabel = typeof MCAP_BUCKETS[number]['label'];
+
+export function classifyMcap(mcapUsd: number): McapBucketLabel {
   for (const bucket of MCAP_BUCKETS) {
     if (mcapUsd < bucket.max) return bucket.label;
   }
-  return 'mega';
+  return '1m+';
+}
+
+export interface WeightedMcapPoint {
+  mcapUsd: number;
+  weightUsd: number;
+}
+
+export interface WeightedMcapSummary {
+  capitalWeightedAvgMcapUsd: number;
+  typicalMcapUsd: number;
+  p25McapUsd: number;
+  p75McapUsd: number;
+}
+
+export interface McapBucketDistributionSummary {
+  dominantBucket: string | null;
+  dominantBucketShare: number | null;
+  distributionByVolume: Record<string, number>;
+  distributionByCount: Record<string, number>;
+}
+
+function roundMcapShare(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function getWeightedQuantile(points: WeightedMcapPoint[], quantile: number): number | null {
+  if (points.length === 0) return null;
+
+  const eligible = points
+    .filter((point) => point.mcapUsd > 0 && point.weightUsd > 0)
+    .sort((a, b) => a.mcapUsd - b.mcapUsd);
+
+  if (eligible.length === 0) return null;
+
+  const totalWeight = eligible.reduce((sum, point) => sum + point.weightUsd, 0);
+  if (totalWeight <= 0) return null;
+
+  const targetWeight = totalWeight * quantile;
+  let cumulativeWeight = 0;
+
+  for (const point of eligible) {
+    cumulativeWeight += point.weightUsd;
+    if (cumulativeWeight >= targetWeight) {
+      return point.mcapUsd;
+    }
+  }
+
+  return eligible[eligible.length - 1]?.mcapUsd ?? null;
+}
+
+export function summarizeWeightedMcap(points: WeightedMcapPoint[]): WeightedMcapSummary | null {
+  const eligible = points.filter((point) => point.mcapUsd > 0 && point.weightUsd > 0);
+  if (eligible.length === 0) return null;
+
+  const totalWeightUsd = eligible.reduce((sum, point) => sum + point.weightUsd, 0);
+  if (totalWeightUsd <= 0) return null;
+
+  const weightedSum = eligible.reduce((sum, point) => sum + point.mcapUsd * point.weightUsd, 0);
+  const p25 = getWeightedQuantile(eligible, 0.25);
+  const median = getWeightedQuantile(eligible, 0.5);
+  const p75 = getWeightedQuantile(eligible, 0.75);
+
+  if (p25 == null || median == null || p75 == null) return null;
+
+  return {
+    capitalWeightedAvgMcapUsd: weightedSum / totalWeightUsd,
+    typicalMcapUsd: median,
+    p25McapUsd: p25,
+    p75McapUsd: p75,
+  };
+}
+
+export function summarizeMcapBucketDistributions(
+  mcapsUsd: number[],
+  weightsUsd: number[],
+): McapBucketDistributionSummary | null {
+  if (mcapsUsd.length === 0 || mcapsUsd.length !== weightsUsd.length) return null;
+
+  const byVolume = new Map<string, number>();
+  const byCount = new Map<string, number>();
+  let totalWeightUsd = 0;
+
+  for (let index = 0; index < mcapsUsd.length; index += 1) {
+    const mcapUsd = mcapsUsd[index];
+    const weightUsd = weightsUsd[index];
+    if (mcapUsd == null || weightUsd == null || mcapUsd <= 0 || weightUsd <= 0) continue;
+
+    const bucket = classifyMcap(mcapUsd);
+    byVolume.set(bucket, (byVolume.get(bucket) ?? 0) + weightUsd);
+    byCount.set(bucket, (byCount.get(bucket) ?? 0) + 1);
+    totalWeightUsd += weightUsd;
+  }
+
+  if (totalWeightUsd <= 0 || byVolume.size === 0) return null;
+
+  let dominantBucket: string | null = null;
+  let dominantVolume = 0;
+  for (const [bucket, volume] of byVolume) {
+    if (volume > dominantVolume) {
+      dominantBucket = bucket;
+      dominantVolume = volume;
+    }
+  }
+
+  const totalCount = Array.from(byCount.values()).reduce((sum, count) => sum + count, 0);
+  const distributionByVolume: Record<string, number> = {};
+  const distributionByCount: Record<string, number> = {};
+
+  for (const [bucket, volume] of byVolume) {
+    distributionByVolume[bucket] = roundMcapShare(volume / totalWeightUsd);
+  }
+
+  for (const [bucket, count] of byCount) {
+    distributionByCount[bucket] = roundMcapShare(count / totalCount);
+  }
+
+  return {
+    dominantBucket,
+    dominantBucketShare: dominantBucket != null ? roundMcapShare(dominantVolume / totalWeightUsd) : null,
+    distributionByVolume,
+    distributionByCount,
+  };
 }
 
 export function timestampToDateKey(unixTimestamp: number): string {
@@ -199,10 +327,22 @@ export async function buildSupplyMap(
 // Enrichment engine — for standalone scripts
 // ---------------------------------------------------------------------------
 
+// Keep in sync with DEFAULT_EXCLUDED_MINTS in config/constants.ts
+// These mints get their enrichedAt stamped immediately without fetching a price,
+// so they never accumulate a marketCapUsd and can't skew mcap-based signals.
 const SKIP_MINTS = [
-  'So11111111111111111111111111111111111111112', // native SOL
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  'So11111111111111111111111111111111111111112',     // Wrapped SOL
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',  // USDC
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',  // USDT
+  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',  // mSOL
+  '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj',  // stSOL
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB',   // USD1 stablecoin
+  '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',  // Wrapped BTC (Wormhole)
+  'cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij',   // Coinbase Wrapped BTC
+  '7vfCXTUXX5WJV5JADk17DUJ4ksgau7utNKj4b963voxs',  // Wrapped Ether (Wormhole)
+  'BQcdHdAQW1hczDbBi9hiegXAR7A98Q9jx3X3iBBBDiq4',  // Wrapped USDT (Sollet)
+  '2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk',  // Wrapped Ethereum (Sollet)
+  '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E',  // Wrapped Bitcoin (Sollet)
 ];
 
 export async function enrichSwapBatch(

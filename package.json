@@ -43,6 +43,7 @@
     "reset": "npm run build && pm2 restart all",
     "top-holders": "ts-node -r tsconfig-paths/register src/scripts/topTokenHolders.ts",
     "kol:import": "npx ts-node -r tsconfig-paths/register src/scripts/import-kols.ts",
+    "remap:mcap-buckets": "npx ts-node -r tsconfig-paths/register src/scripts/remap-mcap-buckets.ts",
     "db:size": "npx ts-node -r tsconfig-paths/register scripts/scaling/check-db-size.ts",
     "db:perf-report": "npx ts-node -r tsconfig-paths/register scripts/scaling/db-performance-report.ts",
     "db:prune-so111": "npx ts-node -r tsconfig-paths/register scripts/maintenance/prune-redundant-so111.ts",

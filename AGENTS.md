@@ -46,6 +46,8 @@ STEP 7 — VERIFY
 STEP 8 — DB / ARCH INTEGRATION CHECK
 - Ensure new work fits existing project architecture/patterns (e.g., existing WebSocket/Socket.IO, Bull queues, useJobProgress).
 - Do not introduce generic patterns that conflict with the repo.
+- Before implementing, ask: can this be served from an existing projection layer, or am I accidentally introducing a second serving model?
+- Before coding and before finalizing, explicitly re-evaluate: minimality, layer ownership, and migration/backfill cost.
 
 ## 2) CODE CHANGE RULES (ALL LANGUAGES)
 - DO NOT create a class unless necessary. Prefer functional programming (FP). OOP allowed only in rare cases.
@@ -131,3 +133,13 @@ STEP 8 — DB / ARCH INTEGRATION CHECK
   - Prefer batched operations (Prisma createMany/updateMany/transactions/bulk ops).
   - Tailor implementations to existing architecture patterns (WebSocket/Socket.IO, Bull, useJobProgress).
   - Investigate existing patterns before proposing changes.
+
+## 8) ARCHITECTURE & SIGNAL DISCIPLINE
+- **Re-check constraints before and after implementation.** Before coding and before finalizing, explicitly re-evaluate:
+  - minimality — is this the smallest change that satisfies the requirement?
+  - layer ownership — does this data/logic belong in this layer?
+  - migration/backfill cost — what does adding this field/path require to maintain?
+- **Keep signal surfaces lean.** HUD is a high-signal surface — it must stay lean. Richer analytics belong in persisted projections or fuller profile/behavior surfaces, not in the HUD.
+- **Prefer existing projections over new paths.** When a new requirement appears, first ask:
+  - can this be served from the repo's existing projection layer?
+  - or am I accidentally introducing a second serving model?

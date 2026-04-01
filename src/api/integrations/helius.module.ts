@@ -48,11 +48,8 @@ export const HELIUS_SUPPLY_CLIENT = 'HELIUS_SUPPLY_CLIENT';
     },
     {
       provide: HELIUS_SUPPLY_CLIENT,
-      useFactory: (configService: ConfigService, dbService: DatabaseService, heliusClient: HeliusApiClient) => {
-        const metadataApiKey = configService.get<string>('HELIUS_METADATA_API_KEY');
-        if (metadataApiKey) {
-          return new HeliusApiClient({ apiKey: metadataApiKey, network: 'mainnet' }, dbService);
-        }
+      useFactory: (_configService: ConfigService, _dbService: DatabaseService, heliusClient: HeliusApiClient) => {
+        // Token supply should use the main RPC client/key, not the metadata key.
         return heliusClient;
       },
       inject: [ConfigService, DatabaseService, HeliusApiClient],

@@ -172,6 +172,12 @@ export class BehaviorService {
       firstTransactionTimestamp: profile.firstTransactionTimestamp,
       lastTransactionTimestamp: profile.lastTransactionTimestamp,
       activeTradingDays: profile.activeTradingDays ?? undefined,
+      avgEntryMcap: profile.avgEntryMcap ?? undefined,
+      typicalEntryMcapUsd: profile.typicalEntryMcapUsd ?? undefined,
+      entryMcapP25Usd: profile.entryMcapP25Usd ?? undefined,
+      entryMcapP75Usd: profile.entryMcapP75Usd ?? undefined,
+      dominantEntryMcapBucket: profile.dominantEntryMcapBucket ?? profile.preferredMcapBucket ?? undefined,
+      dominantEntryMcapBucketShare: profile.dominantEntryMcapBucketShare ?? undefined,
       historicalPattern, // Reconstructed from cached pieces
     };
   }

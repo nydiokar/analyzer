@@ -35,6 +35,7 @@ import { WalletBalance } from '../../types/wallet';
 import { MetricsService } from '../../api/services/metrics.service';
 import { MarketContextService } from '../../api/services/market-context.service';
 import { getErrorMessage } from 'core/utils/error-utils';
+import { classifyMcap } from '../../core/services/market-context-standalone';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import Redis from 'ioredis';
 
@@ -1618,6 +1619,57 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         (a, b) => a.rank - b.rank,
       );
       const hydratedFinalProfiles = await this.hydrateHoldingsValues(allProfiles);
+
+      // Inject per-wallet entry mcap for this specific token from AnalysisResult
+      const realWalletAddresses = hydratedFinalProfiles
+        .filter(p => !p.analysisSkipped)
+        .map(p => p.walletAddress);
+      if (realWalletAddresses.length > 0) {
+        try {
+          const tokenLots = await this.databaseService.getTokenLotsForWalletsAndToken(realWalletAddresses, tokenMint);
+          const mcapRows = await this.databaseService.getAnalysisResults({
+            where: { walletAddress: { in: realWalletAddresses }, tokenAddress: tokenMint },
+          });
+          const lotsByWallet = new Map<string, Array<{ amountRemaining: number; entryMcapUsd: number }>>();
+          for (const lot of tokenLots) {
+            const amountRemaining = Number(lot.amountRemaining);
+            const entryMcapUsd = lot.entryMcapUsd;
+            if (lot.status === 'CLOSED' || amountRemaining <= 0 || entryMcapUsd == null || entryMcapUsd <= 0) {
+              continue;
+            }
+
+            const existing = lotsByWallet.get(lot.walletAddress) ?? [];
+            existing.push({ amountRemaining, entryMcapUsd });
+            lotsByWallet.set(lot.walletAddress, existing);
+          }
+
+          const mcapByWallet = new Map(
+            mcapRows.map(r => {
+              const openLots = lotsByWallet.get(r.walletAddress) ?? [];
+              const totalRemaining = openLots.reduce((sum, lot) => sum + lot.amountRemaining, 0);
+              const openPositionEntryMcapUsd = totalRemaining > 0
+                ? openLots.reduce((sum, lot) => sum + lot.entryMcapUsd * lot.amountRemaining, 0) / totalRemaining
+                : null;
+              const entryMcapUsd = openPositionEntryMcapUsd ?? r.avgEntryMcap ?? null;
+              const entryMcapBucket =
+                entryMcapUsd != null
+                  ? classifyMcap(entryMcapUsd)
+                  : (r.avgEntryMcapBucket ?? null);
+              return [r.walletAddress, { entryMcapUsd, entryMcapBucket }] as const;
+            })
+          );
+          for (const profile of hydratedFinalProfiles) {
+            const mcap = mcapByWallet.get(profile.walletAddress);
+            if (mcap) {
+              profile.entryMcapUsd = mcap.entryMcapUsd;
+              profile.entryMcapBucket = mcap.entryMcapBucket;
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to inject entry mcap for token ${tokenMint}: ${getErrorMessage(error)}`);
+        }
+      }
+
       const analyzedCount = aggregatedProfiles.size;
       const skippedCount = knownWalletProfiles.length;
       const failedCount = Math.max(failedWallets.size, walletAddresses.length - analyzedCount);

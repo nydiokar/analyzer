@@ -625,3 +625,10 @@ Without this layer, products may incorrectly rank:
 as "best traders".
 
 That is analytically wrong even if their gross sold and apparent ROI look impressive in naive summaries.
+
+
+EXAMPLES: 
+
+4v6XhZ5ANoDwmsNWdSoUQXxwa5DVdpg8Ht7x5AGtm3vRwBfB688JwwMzRewwEwAMaALvnf7f5MDQHAvDNtgCxKey - routing 
+
+2oF2m6aTur1hsNBYoE87hfBwnJPUVoTTiTUzVp8zh6pT261TNXq93dAZDM2rUHKuE4MfUMiUhSBYSwTSpic4ez7M SPL for USDC routing through WSOL 

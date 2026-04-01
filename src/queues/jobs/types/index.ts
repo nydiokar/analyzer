@@ -288,6 +288,9 @@ export interface HolderProfile {
   solBalance?: number | null;
   oldestTransactionTimestamp?: number;
   newestTransactionTimestamp?: number;
+  // Entry market cap for the specific token being analyzed (token-mode only)
+  entryMcapUsd?: number | null;
+  entryMcapBucket?: string | null;
 }
 
 export interface HolderProfilesResult extends JobResult {

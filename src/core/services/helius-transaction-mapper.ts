@@ -861,6 +861,10 @@ export function mapHeliusTransactionsToIntermediateRecords(
       let largestWsolTransfer = 0;
       let largestWsolTransferForSplDetection = 0; // Count ALL WSOL transfers for SPL-to-SPL detection
       let totalWsolForSplValue = 0; // Sum of ALL WSOL transfers for SPL-to-SPL value calculation
+      // Track WSOL in/out separately so we can use the dominant side rather than summing both.
+      // When WSOL is a relay (user receives then re-sends same amount), the gross sum double-counts.
+      let totalWsolIn = 0;
+      let totalWsolOut = 0;
       const stableFlows = new Map<string, { in: number; out: number }>();
       for (const transfer of tx.tokenTransfers || []) {
           if (transfer.mint === SOL_MINT) {
@@ -900,7 +904,8 @@ export function mapHeliusTransactionsToIntermediateRecords(
               if (!fromUser && !toUser) continue;
               if (fromUser && toUser) continue;
 
-              totalWsolMovement += wsolAmount;
+              if (toUser) totalWsolIn += wsolAmount;
+              else totalWsolOut += wsolAmount;
               if (wsolAmount > largestWsolTransfer) largestWsolTransfer = wsolAmount;
           }
           if (isStableMint(transfer.mint)) {
@@ -921,6 +926,10 @@ export function mapHeliusTransactionsToIntermediateRecords(
               stableFlows.set(transfer.mint, flow);
           }
       }
+      // Use the dominant WSOL side (max of in/out) rather than the gross sum.
+      // When WSOL is a relay (received then immediately re-sent for the same amount),
+      // summing both directions double-counts the economic movement.
+      totalWsolMovement = Math.max(totalWsolIn, totalWsolOut);
       const stableMovementByMint = new Map<string, number>();
       const stableMovementByMintDominant = new Map<string, number>();
       for (const [mint, flow] of stableFlows.entries()) {
@@ -1421,19 +1430,32 @@ export function mapHeliusTransactionsToIntermediateRecords(
                                 const wsolIsSignificant = actualWsolMovement >= SOL_SIGNIFICANCE_THRESHOLD;
                                 const stableIsSignificant = totalStableMovement >= STABLE_SIGNIFICANCE_THRESHOLD;
                                 const netSolIsSignificant = absSolChange >= SOL_SIGNIFICANCE_THRESHOLD;
+                                // Guard: stable must be a real economic input/output, not just a protocol fee.
+                                // Protocol fees on WSOL swaps are typically <$5 USDC.
+                                // Real USDC swap amounts are typically >$10.
+                                // Using a $10 minimum for stableIsPrimary safely separates fees from trades
+                                // without encoding any price assumptions (it's a USD threshold, not a SOL ratio).
+                                const absStableNetChange = Math.abs(finalNetUserStableChange);
+                                const STABLE_PRIMARY_MIN_USD = 10;
+                                const stableIsPrimary = stableIsSignificant &&
+                                    absStableNetChange >= STABLE_PRIMARY_MIN_USD;
 
                                 // Priority 1: Actual WSOL movement (clear economic value from WSOL token transfers)
-                                if (wsolIsSignificant && preferNetSettlementForRoutedWsolSwap && netSolIsSignificant) {
+                                // Skip if stable is the primary value — when a stablecoin is the real input/output
+                                // (USDC→WSOL→token or token→WSOL→USDC), WSOL is just a routing relay.
+                                if (wsolIsSignificant && !stableIsPrimary && preferNetSettlementForRoutedWsolSwap && netSolIsSignificant) {
                                     associatedSolValue = absSolChange;
                                     associatedSolValueSource = 'net-change';
                                     mappingStats.associatedValueFromNetChange++;
                                 }
-                                else if (wsolIsSignificant) {
+                                else if (wsolIsSignificant && !stableIsPrimary) {
                                     associatedSolValue = actualWsolMovement;
                                     associatedSolValueSource = 'total-movement';
                                     mappingStats.associatedValueFromTotalMovement++;
                                 }
                                 // Priority 2: Stable movement (USDC/USDT/USD1 - clear economic value)
+                                // Also fires when stableIsPrimary — stable is the true settled denomination
+                                // and WSOL was just routing infrastructure.
                                 else if (stableIsSignificant) {
                                     associatedUsdcValue = totalStableMovement;
                                     associatedUsdcValueSource = 'total-movement';

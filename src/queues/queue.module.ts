@@ -5,7 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 // Configuration
 import { QueueNames } from './config/queue.config';
 import { redisConnection } from './config/redis.config';
-import { RedisModule } from './config/redis.module'; // Import RedisModule
+import { RedisModule } from './config/redis.module';
 
 // Queues
 import { WalletOperationsQueue } from './queues/wallet-operations.queue';
@@ -29,9 +29,8 @@ import { JobEventsBridgeService } from './services/job-events-bridge.service';
 import { JobPayloadCacheService } from '../api/services/job-payload-cache.service';
 import { SystemWalletDetectionService } from '../api/services/system-wallet-detection.service';
 
-// External dependencies - Import modules that provide the services we need
+// External dependencies
 import { DatabaseModule } from '../api/modules/database.module';
-// HeliusModule is global from AppModule, no need to import
 import { SimilarityModule } from '../api/modules/similarity.module';
 import { BehaviorModule } from '../api/modules/behavior.module';
 import { PnlAnalysisModule } from '../api/modules/pnl-analysis.module';
@@ -45,69 +44,55 @@ import { MintParticipantsJobsQueue } from './queues/mint-participants.queue';
 import { TelegramAlertsService } from '../api/services/telegram-alerts.service';
 import { SigBuyersModule } from '../api/modules/sig-buyers.module';
 import { PaymentConfirmationService } from '../api/services/payment-confirmation.service';
-import { getErrorMessage, getErrorDetails } from '../core/utils/error-utils';
+import { getErrorMessage } from '../core/utils/error-utils';
 import { MarketContextModule } from '../api/modules/market-context.module';
 import { MarketContextService } from '../api/services/market-context.service';
-
 
 @Global()
 @Module({
   imports: [
     ConfigModule,
-    RedisModule, // Add RedisModule here
-    
-    // Register BullMQ queues with NestJS
+    RedisModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
+      useFactory: async (_configService: ConfigService) => ({
         connection: redisConnection,
       }),
       inject: [ConfigService],
     }),
-
-    // Register individual queues
     BullModule.registerQueue(
       { name: QueueNames.WALLET_OPERATIONS },
       { name: QueueNames.ANALYSIS_OPERATIONS },
       { name: QueueNames.SIMILARITY_OPERATIONS },
-      { name: QueueNames.ENRICHMENT_OPERATIONS }
+      { name: QueueNames.ENRICHMENT_OPERATIONS },
     ),
-
-    // Import modules that provide the services we need
-    DatabaseModule,    // Provides DatabaseService
-    // HeliusModule is global from AppModule, no need to import
-    SimilarityModule,  // Provides SimilarityApiService
-    BehaviorModule,    // Provides BehaviorService
-    PnlAnalysisModule, // Provides PnlAnalysisService
-    TokenInfoModule,   // Provides TokenInfoService
-    DexscreenerModule, // Provides DexscreenerService
-    WebSocketModule,   // Provides JobProgressGateway
-    BalanceCacheModule, // Provides BalanceCacheService
-    HolderProfilesCacheModule, // Provides HolderProfilesCacheService
-    WalletHudModule,   // Provides WalletHudService
-    SigBuyersModule,   // Provides SigBuyersService for the sig-buyers-run processor
-    MarketContextModule, // Provides MarketContextService
+    DatabaseModule,
+    SimilarityModule,
+    BehaviorModule,
+    PnlAnalysisModule,
+    TokenInfoModule,
+    DexscreenerModule,
+    WebSocketModule,
+    BalanceCacheModule,
+    HolderProfilesCacheModule,
+    WalletHudModule,
+    SigBuyersModule,
+    MarketContextModule,
   ],
-  
   providers: [
-    // Core Services
     RedisLockService,
     AlertingService,
     DeadLetterQueueService,
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
-    JobPayloadCacheService, // Cache service for storing large job payloads
-    SystemWalletDetectionService, // System wallet detection and filtering
-
-    // Queue Services
+    JobPayloadCacheService,
+    SystemWalletDetectionService,
     WalletOperationsQueue,
     AnalysisOperationsQueue,
     SimilarityOperationsQueue,
     EnrichmentOperationsQueue,
     MintParticipantsJobsQueue,
-
-    // Processors (services will be injected from imported modules)
     WalletOperationsProcessor,
     AnalysisOperationsProcessor,
     SimilarityOperationsProcessor,
@@ -115,29 +100,21 @@ import { MarketContextService } from '../api/services/market-context.service';
     PaymentReconciliationProcessor,
     PaymentConfirmationService,
   ],
-  
   exports: [
-    // Export RedisModule to make REDIS_CLIENT globally available
     RedisModule,
-
-    // Export queue services for use in other modules
     WalletOperationsQueue,
     AnalysisOperationsQueue,
     SimilarityOperationsQueue,
     EnrichmentOperationsQueue,
     MintParticipantsJobsQueue,
-
-    // Export core services for use in other modules
     RedisLockService,
     AlertingService,
     DeadLetterQueueService,
     QueueHealthService,
     JobEventsBridgeService,
     TelegramAlertsService,
-    JobPayloadCacheService, // Export for controllers/services that need to cache job payloads
-    SystemWalletDetectionService, // Export for system wallet filtering
-
-    // Export processors if needed by other modules
+    JobPayloadCacheService,
+    SystemWalletDetectionService,
     WalletOperationsProcessor,
     AnalysisOperationsProcessor,
     SimilarityOperationsProcessor,
@@ -164,21 +141,18 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
-    // 🧹 CRITICAL: Clean up orphaned locks from previous server crashes/restarts
-    // This prevents jobs from being permanently stuck due to locks held by dead processes
     this.logger.log('Starting orphaned lock cleanup on startup...');
     try {
       const cleanedCount = await this.redisLockService.cleanupOrphanedLocksOnStartup();
       if (cleanedCount > 0) {
-        this.logger.warn(`🧹 Cleaned up ${cleanedCount} orphaned lock(s) from previous session`);
+        this.logger.warn(`Cleaned up ${cleanedCount} orphaned lock(s) from previous session`);
       } else {
-        this.logger.log('✅ No orphaned locks found - system is clean');
+        this.logger.log('No orphaned locks found - system is clean');
       }
     } catch (error) {
-      this.logger.error('❌ Failed to clean up orphaned locks (non-critical, continuing):', error);
+      this.logger.error('Failed to clean up orphaned locks (non-critical, continuing):', error);
     }
 
-    // Register all queues with the health service for monitoring
     this.queueHealthService.registerQueue(QueueNames.WALLET_OPERATIONS, this.walletOperationsQueue.getQueue());
     this.queueHealthService.registerQueue(QueueNames.ANALYSIS_OPERATIONS, this.analysisOperationsQueue.getQueue());
     this.queueHealthService.registerQueue(QueueNames.SIMILARITY_OPERATIONS, this.similarityOperationsQueue.getQueue());
@@ -186,7 +160,6 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log('Queue module initialized - all queues registered for health monitoring');
 
-    // Ensure SOL daily price time-series is current (needed for market context processing)
     this.initSolPriceCache().catch((err) => {
       this.logger.warn(`SOL price cache init failed (non-critical): ${getErrorMessage(err)}`);
     });
@@ -194,24 +167,11 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
 
   private async initSolPriceCache(): Promise<void> {
     await this.marketContextService.appendTodaySolPrice();
-
-    const count = await this.marketContextService.getSolPriceDayCount();
-    const TARGET_DAYS = 730; // 2 years — covers any historical wallet we'll ever analyze
-    if (count < TARGET_DAYS) {
-      this.logger.log(`SOL price cache has ${count} days — backfilling ${TARGET_DAYS} days in background...`);
-      // Fire-and-forget: ~2.5 min at 200ms/day, must not block startup
-      this.marketContextService.backfillSolPrices(TARGET_DAYS).then(() => {
-        this.logger.log('SOL price cache backfill complete.');
-      }).catch((err) => {
-        this.logger.warn(`SOL price backfill failed (non-critical): ${err?.message}`);
-      });
-    }
   }
 
   async onModuleDestroy() {
     this.logger.log('Initiating graceful shutdown of queue module...');
 
-    // Graceful shutdown: Stop accepting new jobs, finish current jobs, then close
     const shutdownPromises = [
       this.walletOperationsProcessor.shutdown(),
       this.analysisOperationsProcessor.shutdown(),
@@ -220,18 +180,16 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
     ];
 
     try {
-      // Wait for all workers to finish current jobs and close (max 30 seconds)
       await Promise.race([
         Promise.all(shutdownPromises),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Shutdown timeout')), 30000)
+          setTimeout(() => reject(new Error('Shutdown timeout')), 30000),
         ),
       ]);
 
-      this.logger.log('✅ Queue module shutdown completed successfully');
+      this.logger.log('Queue module shutdown completed successfully');
     } catch (error) {
-      this.logger.error('⚠️ Queue module shutdown encountered errors:', getErrorMessage(error));
-      // Force close queues to prevent hanging
+      this.logger.error('Queue module shutdown encountered errors:', getErrorMessage(error));
       await Promise.allSettled([
         this.walletOperationsQueue.getQueue().close(),
         this.analysisOperationsQueue.getQueue().close(),
@@ -241,4 +199,4 @@ export class QueueModule implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('Force closed all queues after shutdown timeout');
     }
   }
-} 
+}

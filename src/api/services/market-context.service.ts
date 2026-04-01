@@ -6,7 +6,6 @@ import {
   classifyMcap,
   timestampToDateKey,
   buildSolPriceMap,
-  backfillSolPrices,
   appendTodaySolPrice,
 } from '../../core/services/market-context-standalone';
 
@@ -25,14 +24,6 @@ export class MarketContextService {
 
   async appendTodaySolPrice(): Promise<void> {
     await appendTodaySolPrice(prisma);
-  }
-
-  async backfillSolPrices(lookbackDays = 730): Promise<number> {
-    return backfillSolPrices(prisma, lookbackDays);
-  }
-
-  async getSolPriceDayCount(): Promise<number> {
-    return prisma.solDailyPrice.count();
   }
 
   // ---------------------------------------------------------------------------

@@ -2,6 +2,26 @@ import type { HolderProfile } from '../types';
 import { memo } from 'react';
 import { formatHoldTime, formatPercentage, formatSol } from './utils/formatters';
 import { getBehaviorColor, getBehaviorDescription, getBehaviorMeta } from './utils/behavior';
+
+const MCAP_BUCKET_LABELS: Record<string, string> = {
+  '0-10k':    'Seed',
+  '10-20k':   'Early Seed',
+  '20-30k':   'Late Seed',
+  '30-50k':   'Pre-Growth',
+  '50-100k':  'Early Growth',
+  '100-200k': 'Growth',
+  '200-500k': 'Late Growth',
+  '500k-1m':  'Expansion',
+  '1m+':      'Established',
+};
+
+function formatMcapCompact(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined) return '–';
+  if (usd >= 1_000_000_000) return `$${(usd / 1_000_000_000).toFixed(1)}B`;
+  if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(1)}M`;
+  if (usd >= 1_000) return `$${(usd / 1_000).toFixed(0)}K`;
+  return `$${usd.toFixed(0)}`;
+}
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { InfoIcon, Link2 } from 'lucide-react';
@@ -232,6 +252,36 @@ const HolderTableRow = memo(function HolderTableRow({
           </Tooltip>
         </TooltipProvider>
       </td>
+      {mode === 'token' && (
+        <td className="px-4 py-2 whitespace-nowrap select-text" data-interactive>
+          {profile.entryMcapUsd != null ? (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex flex-col gap-0.5 cursor-help">
+                    <span className="text-[13px] tabular-nums font-medium">
+                      {formatMcapCompact(profile.entryMcapUsd)}
+                    </span>
+                    {profile.entryMcapBucket && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {MCAP_BUCKET_LABELS[profile.entryMcapBucket] ?? profile.entryMcapBucket}
+                      </span>
+                    )}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="text-xs">
+                  <p className="font-medium">Position Entry Mcap</p>
+                  <p className="text-muted-foreground mt-0.5">
+                    Average entry market cap of the wallet's current open position in this token, weighted by remaining token amount.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <span className="text-[13px] text-muted-foreground">–</span>
+          )}
+        </td>
+      )}
       <td className="px-4 py-2 whitespace-nowrap select-text" data-interactive>
         <div className="flex flex-col gap-0.5">
           <span className="text-[13px] tabular-nums whitespace-nowrap">
@@ -285,7 +335,8 @@ const HolderTableRow = memo(function HolderTableRow({
     prev.tokenMint === next.tokenMint &&
     prev.hud === next.hud &&
     prev.isHighlighted === next.isHighlighted &&
-    prev.connectionCount === next.connectionCount
+    prev.connectionCount === next.connectionCount &&
+    prev.onSelect === next.onSelect
   );
 });
 
@@ -324,6 +375,22 @@ export function MinimalHoldersTable({
               <th className="text-left px-4 py-2 w-[140px]">Current Holdings</th>
               <th className="text-left px-4 py-2 w-[120px]">Realized PnL</th>
               <th className="text-left px-4 py-2 w-[140px]">Behavior</th>
+              {mode === 'token' && (
+                <th className="text-left px-4 py-2 whitespace-nowrap w-[120px]">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-1 cursor-help">
+                        Entry Mcap <InfoIcon className="h-3 w-3 text-muted-foreground" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs">
+                      <p className="text-muted-foreground">
+                        Volume-weighted avg market cap when this wallet entered this token.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </th>
+              )}
               <th className="text-left px-4 py-2 whitespace-nowrap w-[140px]">Exit timings</th>
               <th className="text-left px-4 py-2">
                 <Tooltip>

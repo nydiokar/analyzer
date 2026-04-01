@@ -4,7 +4,11 @@ import { BehaviorAnalysisConfig } from '@/types/analysis';
 import { BehavioralMetrics, ActiveTradingPeriods } from '@/types/behavior';
 import { createLogger } from 'core/utils/logger';
 import { Prisma, SwapAnalysisInput } from '@prisma/client'; // Import Prisma
-import { classifyMcap } from 'core/services/market-context-standalone';
+import {
+  summarizeWeightedMcap,
+  summarizeMcapBucketDistributions,
+} from 'core/services/market-context-standalone';
+import { DEFAULT_EXCLUDED_MINTS } from 'config/constants';
 
 const logger = createLogger('BehaviorService');
 
@@ -134,6 +138,7 @@ export class BehaviorService {
               mcapBucket: { not: null },
               usdValue: { not: null },
               marketCapUsd: { not: null },
+              mint: { notIn: DEFAULT_EXCLUDED_MINTS },
             },
             select: { mint: true, mcapBucket: true, marketCapUsd: true, usdValue: true },
           });
@@ -142,37 +147,52 @@ export class BehaviorService {
           let avgEntryMcap: number | null = null;
           let mcapDistribution: Prisma.InputJsonValue | null = null;
           let mcapBucketPnl: Prisma.InputJsonValue | null = null;
+          let typicalEntryMcapUsd: number | null = null;
+          let entryMcapP25Usd: number | null = null;
+          let entryMcapP75Usd: number | null = null;
+          let dominantEntryMcapBucket: string | null = null;
+          let dominantEntryMcapBucketShare: number | null = null;
+          let entryMcapDistributionByCount: Prisma.InputJsonValue | null = null;
+          let entryMcapSampleSizeBuys: number | null = null;
+          let entryMcapSampleSizeTokens: number | null = null;
 
-          if (walletBuyRows.length >= 3) {
-            let totalUsd = 0;
-            let sumMcapWeighted = 0;
-            const bucketVolume = new Map<string, number>();
+          const eligibleWalletBuyRows = walletBuyRows.filter(
+            (row) => row.marketCapUsd != null && row.usdValue != null && row.mcapBucket != null,
+          );
+          entryMcapSampleSizeBuys = eligibleWalletBuyRows.length;
+          entryMcapSampleSizeTokens = new Set(eligibleWalletBuyRows.map((row) => row.mint)).size;
 
-            for (const row of walletBuyRows) {
-              totalUsd += row.usdValue!;
-              sumMcapWeighted += row.marketCapUsd! * row.usdValue!;
-              bucketVolume.set(row.mcapBucket!, (bucketVolume.get(row.mcapBucket!) ?? 0) + row.usdValue!);
+          if (eligibleWalletBuyRows.length >= 3) {
+            const weightedProfile = summarizeWeightedMcap(
+              eligibleWalletBuyRows.map((row) => ({
+                mcapUsd: row.marketCapUsd!,
+                weightUsd: row.usdValue!,
+              })),
+            );
+            const bucketSummary = summarizeMcapBucketDistributions(
+              eligibleWalletBuyRows.map((row) => row.marketCapUsd!),
+              eligibleWalletBuyRows.map((row) => row.usdValue!),
+            );
+
+            if (weightedProfile) {
+              avgEntryMcap = weightedProfile.capitalWeightedAvgMcapUsd;
+              typicalEntryMcapUsd = weightedProfile.typicalMcapUsd;
+              entryMcapP25Usd = weightedProfile.p25McapUsd;
+              entryMcapP75Usd = weightedProfile.p75McapUsd;
             }
 
-            if (totalUsd > 0) {
-              avgEntryMcap = sumMcapWeighted / totalUsd;
-
-              const dist: Record<string, number> = {};
-              for (const [bucket, vol] of bucketVolume) {
-                dist[bucket] = Math.round((vol / totalUsd) * 1000) / 1000;
-              }
-              mcapDistribution = dist;
-
-              let maxVol = 0;
-              for (const [bucket, vol] of bucketVolume) {
-                if (vol > maxVol) { maxVol = vol; preferredMcapBucket = bucket; }
-              }
+            if (bucketSummary) {
+              preferredMcapBucket = bucketSummary.dominantBucket;
+              dominantEntryMcapBucket = bucketSummary.dominantBucket;
+              dominantEntryMcapBucketShare = bucketSummary.dominantBucketShare;
+              mcapDistribution = bucketSummary.distributionByVolume;
+              entryMcapDistributionByCount = bucketSummary.distributionByCount;
             }
 
             // per-bucket PnL: join dominant buy bucket per mint with AnalysisResult
             const mintToBucket = new Map<string, string>();
             const mintBucketVolume = new Map<string, Map<string, number>>();
-            for (const row of walletBuyRows) {
+            for (const row of eligibleWalletBuyRows) {
               const bv = mintBucketVolume.get(row.mint) ?? new Map<string, number>();
               bv.set(row.mcapBucket!, (bv.get(row.mcapBucket!) ?? 0) + row.usdValue!);
               mintBucketVolume.set(row.mint, bv);
@@ -262,6 +282,14 @@ export class BehaviorService {
             avgEntryMcap,
             mcapDistribution: mcapDistribution as Prisma.InputJsonValue | null,
             mcapBucketPnl: mcapBucketPnl as Prisma.InputJsonValue | null,
+            typicalEntryMcapUsd,
+            entryMcapP25Usd,
+            entryMcapP75Usd,
+            dominantEntryMcapBucket,
+            dominantEntryMcapBucketShare,
+            entryMcapDistributionByCount: entryMcapDistributionByCount as Prisma.InputJsonValue | null,
+            entryMcapSampleSizeBuys,
+            entryMcapSampleSizeTokens,
           };
 
           // Use the new DatabaseService method

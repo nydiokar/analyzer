@@ -173,6 +173,12 @@ export class IntelController {
             medianHoldTimeHours: behavior.medianHoldTime ?? null,
             buySellRatio: behavior.buySellRatio ?? null,
             exitPattern: behavior.historicalPattern?.exitPattern ?? null,
+            avgEntryMcapUsd: behavior.avgEntryMcap ?? null,
+            typicalEntryMcapUsd: behavior.typicalEntryMcapUsd ?? null,
+            entryMcapP25Usd: behavior.entryMcapP25Usd ?? null,
+            entryMcapP75Usd: behavior.entryMcapP75Usd ?? null,
+            dominantEntryMcapBucket: behavior.dominantEntryMcapBucket ?? null,
+            dominantEntryMcapBucketShare: behavior.dominantEntryMcapBucketShare ?? null,
           }
         : null,
       pnl: pnlOverview

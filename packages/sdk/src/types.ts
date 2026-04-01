@@ -58,6 +58,8 @@ export interface WalletHud {
   uniqueTokensPerDay: number;
   currentHoldingsSol: number;
   currentHoldingsUsd?: number;
+  typicalEntryMcapUsd?: number;
+  dominantEntryMcapBucket?: string;
 
   // Metadata
   calculatedAt: string;
@@ -94,6 +96,12 @@ export interface WalletBehavior {
   medianHoldTimeHours: number | null;
   buySellRatio: number | null;
   exitPattern: string | null;
+  avgEntryMcapUsd: number | null;
+  typicalEntryMcapUsd: number | null;
+  entryMcapP25Usd: number | null;
+  entryMcapP75Usd: number | null;
+  dominantEntryMcapBucket: string | null;
+  dominantEntryMcapBucketShare: number | null;
 }
 
 export interface PnlAllTime {
