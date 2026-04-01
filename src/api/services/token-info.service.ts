@@ -38,7 +38,7 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
     private readonly dexscreenerService: DexscreenerService, // Legacy, for backwards compatibility
     @Inject('IPriceProvider') private readonly priceProvider: IPriceProvider,
     private readonly onchainMetadataService: OnchainMetadataService, // NEW: Onchain metadata enrichment
-    @Inject(HELIUS_SUPPLY_CLIENT) private readonly heliusApiClient: HeliusApiClient, // For fetching token supply — uses metadata key if available
+    @Inject(HELIUS_SUPPLY_CLIENT) private readonly heliusApiClient: HeliusApiClient, // For fetching token supply via the main Helius RPC client
     @Inject(REDIS_CLIENT) redisClient: Redis,
   ) {
     this.redis = redisClient;

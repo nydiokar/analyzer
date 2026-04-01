@@ -272,7 +272,7 @@ const HolderTableRow = memo(function HolderTableRow({
                 <TooltipContent className="text-xs">
                   <p className="font-medium">Position Entry Mcap</p>
                   <p className="text-muted-foreground mt-0.5">
-                    Typical market cap level across the buys that built this wallet's position in this token.
+                    Capital-weighted average market cap across the buys that built this wallet's position in this token.
                   </p>
                 </TooltipContent>
               </Tooltip>

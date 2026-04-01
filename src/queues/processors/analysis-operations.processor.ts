@@ -1631,11 +1631,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           });
           const mcapByWallet = new Map(
             mcapRows.map(r => {
-              const rowWithTypical = r as typeof r & { typicalEntryMcapUsd?: number | null };
-              const entryMcapUsd = rowWithTypical.typicalEntryMcapUsd ?? r.avgEntryMcap ?? null;
+              const entryMcapUsd = r.avgEntryMcap ?? null;
               const entryMcapBucket =
-                rowWithTypical.typicalEntryMcapUsd != null
-                  ? classifyMcap(rowWithTypical.typicalEntryMcapUsd)
+                r.avgEntryMcap != null
+                  ? classifyMcap(r.avgEntryMcap)
                   : (r.avgEntryMcapBucket ?? null);
               return [r.walletAddress, { entryMcapUsd, entryMcapBucket }] as const;
             })
