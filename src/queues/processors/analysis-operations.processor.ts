@@ -34,6 +34,7 @@ import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { WalletBalance } from '../../types/wallet';
 import { MetricsService } from '../../api/services/metrics.service';
 import { MarketContextService } from '../../api/services/market-context.service';
+import { WalletPreparationService } from '../../api/services/wallet-preparation.service';
 import { getErrorMessage } from 'core/utils/error-utils';
 import { classifyMcap } from '../../core/services/market-context-standalone';
 import { REDIS_CLIENT } from '../config/redis.provider';
@@ -64,6 +65,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly creditsService: CreditsService,
     private readonly metricsService: MetricsService,
     private readonly marketContextService: MarketContextService,
+    private readonly walletPreparationService: WalletPreparationService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
     private readonly sigBuyersService: SigBuyersService,
   ) {
@@ -543,11 +545,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       this.logger.debug(
         `Syncing wallet data for ${walletAddress} [scope=${scope}, fetchOlder=${syncOptions.fetchOlder}, maxSignatures=${syncOptions.maxSignatures}]`,
       );
-      await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-      await job.updateProgress(45);
-
-      this.logger.debug(`Enriching market context for ${walletAddress} before downstream analysis...`);
-      await this.marketContextService.enrichWallet(walletAddress, 500);
+      await this.walletPreparationService.prepareWallet(walletAddress, syncOptions);
       await job.updateProgress(50);
 
       this.logger.debug(`Fetching balances for ${walletAddress}...`);
@@ -1943,24 +1941,18 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
     await job.updateProgress(10);
 
-    // Sync wallet if needed
-    if (needsSync) {
-      this.logger.debug(`Syncing wallet ${walletAddress} for holder profile analysis (status: ${walletStatus})`);
-      const syncOptions: SyncOptions = {
-        limit: 100,
-        fetchAll: true,
-        skipApi: false,
-        fetchOlder: true,
-        maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES, // Reasonable default for holder analysis
-        smartFetch: true,
-      };
-      await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-      this.logger.debug(`Wallet sync completed for ${walletAddress}`);
-    } else {
-      this.logger.debug(`Wallet ${walletAddress} is up-to-date, skipping sync`);
-    }
-
-    await this.marketContextService.enrichWallet(walletAddress, 500);
+    // Sync wallet if needed, then enrich pending swap rows — always via WalletPreparationService
+    const holderProfileSyncOptions: SyncOptions | undefined = needsSync
+      ? {
+          limit: 100,
+          fetchAll: true,
+          skipApi: false,
+          fetchOlder: true,
+          maxSignatures: ANALYSIS_EXECUTION_CONFIG.HOLDER_PROFILES_MAX_SIGNATURES,
+          smartFetch: true,
+        }
+      : undefined;
+    await this.walletPreparationService.prepareWallet(walletAddress, holderProfileSyncOptions);
 
     await job.updateProgress(30);
     this.checkTimeout(startTime, timeoutMs, 'Wallet sync completed');

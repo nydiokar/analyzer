@@ -12,6 +12,7 @@ import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-
 import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
 import { BehaviorService } from '../../api/services/behavior.service';
 import { MarketContextService } from '../../api/services/market-context.service';
+import { WalletPreparationService } from '../../api/services/wallet-preparation.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
 import { JobPayloadCacheService } from '../../api/services/job-payload-cache.service';
@@ -49,6 +50,7 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly balanceCacheService: BalanceCacheService,
     private readonly jobPayloadCache: JobPayloadCacheService,
     private readonly systemWalletDetection: SystemWalletDetectionService,
+    private readonly walletPreparationService: WalletPreparationService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis, // For locks, result caching, etc.
   ) {
     // Note: In a proper NestJS setup, WalletBalanceService would be injected via constructor
@@ -387,16 +389,15 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
       walletAddresses,
       async (walletAddress: string, index: number) => {
         try {
-          const syncOptions: SyncOptions = { 
-            fetchAll: true, 
-            smartFetch: true, 
+          const syncOptions: SyncOptions = {
+            fetchAll: true,
+            smartFetch: true,
             maxSignatures: ANALYSIS_EXECUTION_CONFIG.SIMILARITY_LAB_MAX_SIGNATURES,
-            limit: 100, // Respect Helius API's 100 transaction limit per request
+            limit: 100,
             skipApi: false,
             fetchOlder: true,
           };
-          await this.heliusSyncService.syncWalletData(walletAddress, syncOptions);
-          await this.marketContextService.enrichWallet(walletAddress, 500);
+          await this.walletPreparationService.prepareWallet(walletAddress, syncOptions);
 
           const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
           // These can also run in parallel as they depend only on the sync having completed.
