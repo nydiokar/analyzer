@@ -135,6 +135,28 @@ function formatPercent(decimal: number): string {
 }
 
 /**
+ * Format market cap USD to compact display
+ */
+function formatMcap(usd: number): string {
+  if (usd >= 1_000_000_000) return `$${(usd / 1_000_000_000).toFixed(1)}B`;
+  if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(1)}M`;
+  if (usd >= 1_000) return `$${(usd / 1_000).toFixed(0)}K`;
+  return `$${usd.toFixed(0)}`;
+}
+
+const MCAP_BUCKET_LABELS: Record<string, string> = {
+  '0-10k':    'Seed',
+  '10-20k':   'Early Seed',
+  '20-30k':   'Late Seed',
+  '30-50k':   'Pre-Growth',
+  '50-100k':  'Early Growth',
+  '100-200k': 'Growth',
+  '200-500k': 'Late Growth',
+  '500k-1m':  'Expansion',
+  '1m+':      'Established',
+};
+
+/**
  * Format ISO date to compact display (e.g., "Oct 01, 2025")
  */
 function formatDateShort(isoDate: string): string {
@@ -384,6 +406,19 @@ const TooltipDisplay = memo(function TooltipDisplay({
           <span className="text-muted-foreground">Tokens/Day:</span>
           <span className="font-medium">{data.uniqueTokensPerDay.toFixed(1)}</span>
         </div>
+        {data.avgEntryMcap !== undefined && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Avg Entry Mcap:</span>
+            <span className="font-medium">
+              {formatMcap(data.avgEntryMcap)}
+              {data.preferredMcapBucket && (
+                <span className="text-muted-foreground ml-1">
+                  ({MCAP_BUCKET_LABELS[data.preferredMcapBucket] ?? data.preferredMcapBucket})
+                </span>
+              )}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Conditional Alerts */}
@@ -470,6 +505,21 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
         <div className="text-2xl font-bold">{data.uniqueTokensPerDay.toFixed(1)}</div>
         <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Tokens/Day</div>
       </div>
+
+      {/* Avg Entry Mcap */}
+      {data.avgEntryMcap !== undefined && (
+        <div className="text-center">
+          <div className="text-2xl font-bold">{formatMcap(data.avgEntryMcap)}</div>
+          <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">
+            Avg Entry Mcap
+            {data.preferredMcapBucket && (
+              <span className="ml-1 normal-case">
+                ({MCAP_BUCKET_LABELS[data.preferredMcapBucket] ?? data.preferredMcapBucket})
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Conditional Badges */}
       {data.isBot && (

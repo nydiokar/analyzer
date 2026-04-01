@@ -5,6 +5,7 @@ import { BehavioralMetrics, ActiveTradingPeriods } from '@/types/behavior';
 import { createLogger } from 'core/utils/logger';
 import { Prisma, SwapAnalysisInput } from '@prisma/client'; // Import Prisma
 import { classifyMcap } from 'core/services/market-context-standalone';
+import { DEFAULT_EXCLUDED_MINTS } from 'config/constants';
 
 const logger = createLogger('BehaviorService');
 
@@ -134,6 +135,7 @@ export class BehaviorService {
               mcapBucket: { not: null },
               usdValue: { not: null },
               marketCapUsd: { not: null },
+              mint: { notIn: DEFAULT_EXCLUDED_MINTS },
             },
             select: { mint: true, mcapBucket: true, marketCapUsd: true, usdValue: true },
           });

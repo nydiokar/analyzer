@@ -1618,6 +1618,31 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         (a, b) => a.rank - b.rank,
       );
       const hydratedFinalProfiles = await this.hydrateHoldingsValues(allProfiles);
+
+      // Inject per-wallet entry mcap for this specific token from AnalysisResult
+      const realWalletAddresses = hydratedFinalProfiles
+        .filter(p => !p.analysisSkipped)
+        .map(p => p.walletAddress);
+      if (realWalletAddresses.length > 0) {
+        try {
+          const mcapRows = await this.databaseService.getAnalysisResults({
+            where: { walletAddress: { in: realWalletAddresses }, tokenAddress: tokenMint },
+          });
+          const mcapByWallet = new Map(
+            mcapRows.map(r => [r.walletAddress, { entryMcapUsd: r.avgEntryMcap ?? null, entryMcapBucket: r.avgEntryMcapBucket ?? null }])
+          );
+          for (const profile of hydratedFinalProfiles) {
+            const mcap = mcapByWallet.get(profile.walletAddress);
+            if (mcap) {
+              profile.entryMcapUsd = mcap.entryMcapUsd;
+              profile.entryMcapBucket = mcap.entryMcapBucket;
+            }
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to inject entry mcap for token ${tokenMint}: ${getErrorMessage(error)}`);
+        }
+      }
+
       const analyzedCount = aggregatedProfiles.size;
       const skippedCount = knownWalletProfiles.length;
       const failedCount = Math.max(failedWallets.size, walletAddresses.length - analyzedCount);
