@@ -8,10 +8,9 @@ import { DatabaseService } from '../../api/services/database.service';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { TokenInfoService } from '../../api/services/token-info.service';
-import { HeliusSyncService, SyncOptions } from '../../core/services/helius-sync-service';
+import { SyncOptions } from '../../core/services/helius-sync-service';
 import { PnlAnalysisService } from '../../api/services/pnl-analysis.service';
 import { BehaviorService } from '../../api/services/behavior.service';
-import { MarketContextService } from '../../api/services/market-context.service';
 import { WalletPreparationService } from '../../api/services/wallet-preparation.service';
 import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue';
 import { BalanceCacheService } from '../../api/services/balance-cache.service';
@@ -42,10 +41,8 @@ export class SimilarityOperationsProcessor implements OnModuleDestroy {
     private readonly databaseService: DatabaseService,
     private readonly heliusApiClient: HeliusApiClient,
     private readonly tokenInfoService: TokenInfoService,
-    private readonly heliusSyncService: HeliusSyncService,
     private readonly pnlAnalysisService: PnlAnalysisService,
     private readonly behaviorService: BehaviorService,
-    private readonly marketContextService: MarketContextService,
     private readonly enrichmentOperationsQueue: EnrichmentOperationsQueue,
     private readonly balanceCacheService: BalanceCacheService,
     private readonly jobPayloadCache: JobPayloadCacheService,
