@@ -35,6 +35,7 @@ import { WalletBalance } from '../../types/wallet';
 import { MetricsService } from '../../api/services/metrics.service';
 import { MarketContextService } from '../../api/services/market-context.service';
 import { getErrorMessage } from 'core/utils/error-utils';
+import { classifyMcap } from '../../core/services/market-context-standalone';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import Redis from 'ioredis';
 
@@ -1629,7 +1630,15 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
             where: { walletAddress: { in: realWalletAddresses }, tokenAddress: tokenMint },
           });
           const mcapByWallet = new Map(
-            mcapRows.map(r => [r.walletAddress, { entryMcapUsd: r.avgEntryMcap ?? null, entryMcapBucket: r.avgEntryMcapBucket ?? null }])
+            mcapRows.map(r => {
+              const rowWithTypical = r as typeof r & { typicalEntryMcapUsd?: number | null };
+              const entryMcapUsd = rowWithTypical.typicalEntryMcapUsd ?? r.avgEntryMcap ?? null;
+              const entryMcapBucket =
+                rowWithTypical.typicalEntryMcapUsd != null
+                  ? classifyMcap(rowWithTypical.typicalEntryMcapUsd)
+                  : (r.avgEntryMcapBucket ?? null);
+              return [r.walletAddress, { entryMcapUsd, entryMcapBucket }] as const;
+            })
           );
           for (const profile of hydratedFinalProfiles) {
             const mcap = mcapByWallet.get(profile.walletAddress);

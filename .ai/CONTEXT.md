@@ -9,10 +9,14 @@
 ##  Active Work
 
 BEFORE DEPLOY: 
+ 
+WE slow down the holder profiles by a lot becau se we see too many 429 this is weird what needs to change so we don't see so many errors it must be some unbounded or idiotic orchestration must VERIFY! 
 
-do we have automatic SOL price fetcher per day 
+d getTokenSupply: Request failed with status code 429
+ [HeliusApiClient] RPC method getTokenSupply failed after retries. {"lastError":{"message":"Request failed with status code 429","code":"ERR_BAD_REQUEST","name":"AxiosError","isAxiosError":true,"url":"https://mainnet.helius-rpc.com/?api-key=REDACTED","response":"[Object]"}}
+ [HeliusApiClient] Failed to fetch token supply for mint 3PCw6gnqBorDuqta8vqUinYPEqr5xmLEKHXhDAjNpump {"error":{"message":"Failed to execute RPC method getTokenSupply: Request failed with status code 429","name":"Error"},"mintPubkey":"3PCw6gnqBorDuqta8vqUinYPEqr5xmLEKHXhDAjNpump","options":{}}
+0|sova-backend-api  | [Nest] 27668  - 04/01/2026, 9:01:20 PM   ERROR [TokenInfoService] [Token Supply] Failed to fetch for 3PCw6gnqBorDuqta8vqUinYPEqr5xmLEKHXhDAjNpump: Failed to execute RPC method getTokenSupply: Request failed with status code 429
 
-How and where do we surface the new data for market cap in frontend?
 
 Do we update the SDK/DOCS somehow ?? 
 

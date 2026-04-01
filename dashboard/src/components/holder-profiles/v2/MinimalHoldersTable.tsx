@@ -270,9 +270,9 @@ const HolderTableRow = memo(function HolderTableRow({
                   </div>
                 </TooltipTrigger>
                 <TooltipContent className="text-xs">
-                  <p className="font-medium">Avg Entry Market Cap</p>
+                  <p className="font-medium">Position Entry Mcap</p>
                   <p className="text-muted-foreground mt-0.5">
-                    Volume-weighted avg market cap when this wallet bought this token.
+                    Typical market cap level across the buys that built this wallet's position in this token.
                   </p>
                 </TooltipContent>
               </Tooltip>
