@@ -5,6 +5,8 @@ import { useWalletHud } from '@/hooks/useWalletHud';
 import { DataQualityTier, BEHAVIOR_CODES } from '@/types/api';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
+  classifyMcapBucket,
+  compareMcapBuckets,
   formatMcapCompact,
   getMcapBucketDisplayLabel,
 } from '@/lib/mcap';
@@ -147,9 +149,24 @@ function getMarketCapSignal(data: ReturnType<typeof useWalletHud>['data']) {
     return null;
   }
 
+  const typicalBucket = classifyMcapBucket(data.typicalEntryMcapUsd);
+  const dominantBucket = data.dominantEntryMcapBucket;
+  const bucketDelta = compareMcapBuckets(dominantBucket, typicalBucket);
+  const deviationBucket =
+    dominantBucket && typicalBucket && dominantBucket !== typicalBucket
+      ? dominantBucket
+      : null;
+
   return {
     typicalEntryMcapUsd: data.typicalEntryMcapUsd,
-    dominantBucket: data.dominantEntryMcapBucket,
+    dominantBucket,
+    deviationBucket,
+    deviationDirection:
+      bucketDelta == null || bucketDelta === 0
+        ? null
+        : bucketDelta > 0
+          ? 'higher'
+          : 'lower',
     hasTypicalSignal,
   };
 }
@@ -412,11 +429,11 @@ const TooltipDisplay = memo(function TooltipDisplay({
               <span className="text-muted-foreground">Typical Entry Mcap:</span>
               <span className="font-medium">{formatMcapCompact(marketCapSignal.typicalEntryMcapUsd)}</span>
             </div>
-            {marketCapSignal.dominantBucket && (
+            {marketCapSignal.deviationBucket && marketCapSignal.deviationDirection && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Main Mcap Bucket:</span>
+                <span className="text-muted-foreground">Capital Skews {marketCapSignal.deviationDirection}:</span>
                 <span className="font-medium">
-                  {getMcapBucketDisplayLabel(marketCapSignal.dominantBucket)}
+                  {getMcapBucketDisplayLabel(marketCapSignal.deviationBucket)}
                 </span>
               </div>
             )}
@@ -516,12 +533,15 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
           <div className="text-2xl font-bold">{formatMcapCompact(marketCapSignal.typicalEntryMcapUsd)}</div>
           <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">
             Typical Entry Mcap
-            {marketCapSignal.dominantBucket && (
-              <span className="ml-1 normal-case">
-                ({getMcapBucketDisplayLabel(marketCapSignal.dominantBucket)})
-              </span>
-            )}
           </div>
+          {marketCapSignal.deviationBucket && marketCapSignal.deviationDirection && (
+            <div className="text-xs text-muted-foreground mt-1">
+              Capital skews {marketCapSignal.deviationDirection}:
+              <span className="ml-1 font-medium text-foreground">
+                {getMcapBucketDisplayLabel(marketCapSignal.deviationBucket)}
+              </span>
+            </div>
+          )}
         </div>
       )}
       {/* Conditional Badges */}
