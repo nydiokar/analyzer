@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { HeliusApiClient } from '../../core/services/helius-api-client';
+import { TokenInfoService } from './token-info.service';
 import type { GetTokenLargestAccountsResult, TokenLargestAccount, GetMultipleAccountsResult, RpcAccountInfo } from '../../types/helius-api';
 import { getKnownWallet, type KnownWalletType } from '../../config/known-wallets';
 import { getErrorMessage } from 'core/utils/error-utils';
@@ -35,7 +36,10 @@ export interface TopHoldersResponse {
 export class TokenHoldersService {
   private readonly logger = new Logger(TokenHoldersService.name);
 
-  constructor(private readonly heliusClient: HeliusApiClient) {}
+  constructor(
+    private readonly heliusClient: HeliusApiClient,
+    private readonly tokenInfoService: TokenInfoService,
+  ) {}
 
   async getTopHolders(mint: string, commitment?: string): Promise<TopHoldersResponse> {
     let rpcResult: GetTokenLargestAccountsResult;
@@ -48,17 +52,19 @@ export class TokenHoldersService {
       throw error;
     }
 
-    // Fetch token supply for percentage calculations
+    // Fetch token supply for percentage calculations — route through TokenInfoService
+    // so Redis → DB → RPC caching applies and we never hit RPC twice for the same mint.
     let supply: { amount: string; decimals: number; uiAmount: number | null; uiAmountString: string } | undefined;
     try {
-      const supplyResult = await this.heliusClient.getTokenSupply(mint, commitment);
-      supply = supplyResult.value;
-    } catch (error) {
-      if ((error as Error)?.name === 'InvalidRpcInputError') {
-        supply = undefined;
-      } else {
-      this.logger.warn(`Failed to fetch token supply for ${mint}, percentages will not be available: ${getErrorMessage(error)}`);
+      const uiAmount = await this.tokenInfoService.getTokenSupply(mint);
+      if (uiAmount !== undefined) {
+        // TokenInfoService returns uiAmount only; reconstruct a minimal supply object
+        // that callers expect. raw `amount` is not available from the cache layer, so
+        // we leave it empty — callers only use uiAmount for percentage math.
+        supply = { amount: '', decimals: 0, uiAmount, uiAmountString: String(uiAmount) };
       }
+    } catch (error) {
+      this.logger.warn(`Failed to fetch token supply for ${mint}, percentages will not be available: ${getErrorMessage(error)}`);
     }
 
     const tokenAccountPubkeys = rpcResult.value.map((v) => v.address);
