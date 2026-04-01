@@ -1626,15 +1626,34 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         .map(p => p.walletAddress);
       if (realWalletAddresses.length > 0) {
         try {
+          const tokenLots = await this.databaseService.getTokenLotsForWalletsAndToken(realWalletAddresses, tokenMint);
           const mcapRows = await this.databaseService.getAnalysisResults({
             where: { walletAddress: { in: realWalletAddresses }, tokenAddress: tokenMint },
           });
+          const lotsByWallet = new Map<string, Array<{ amountRemaining: number; entryMcapUsd: number }>>();
+          for (const lot of tokenLots) {
+            const amountRemaining = Number(lot.amountRemaining);
+            const entryMcapUsd = lot.entryMcapUsd;
+            if (lot.status === 'CLOSED' || amountRemaining <= 0 || entryMcapUsd == null || entryMcapUsd <= 0) {
+              continue;
+            }
+
+            const existing = lotsByWallet.get(lot.walletAddress) ?? [];
+            existing.push({ amountRemaining, entryMcapUsd });
+            lotsByWallet.set(lot.walletAddress, existing);
+          }
+
           const mcapByWallet = new Map(
             mcapRows.map(r => {
-              const entryMcapUsd = r.avgEntryMcap ?? null;
+              const openLots = lotsByWallet.get(r.walletAddress) ?? [];
+              const totalRemaining = openLots.reduce((sum, lot) => sum + lot.amountRemaining, 0);
+              const openPositionEntryMcapUsd = totalRemaining > 0
+                ? openLots.reduce((sum, lot) => sum + lot.entryMcapUsd * lot.amountRemaining, 0) / totalRemaining
+                : null;
+              const entryMcapUsd = openPositionEntryMcapUsd ?? r.avgEntryMcap ?? null;
               const entryMcapBucket =
-                r.avgEntryMcap != null
-                  ? classifyMcap(r.avgEntryMcap)
+                entryMcapUsd != null
+                  ? classifyMcap(entryMcapUsd)
                   : (r.avgEntryMcapBucket ?? null);
               return [r.walletAddress, { entryMcapUsd, entryMcapBucket }] as const;
             })

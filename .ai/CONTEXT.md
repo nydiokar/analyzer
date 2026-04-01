@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-03-31  **Status:** Market context downstream shipped; live orchestration gap patched. Unified preparation layer still pending.
+**Branch:** `main`  **Last Updated:** 2026-04-01  **Status:** Market-cap behavior/profile rework shipped in code; holder-profile token entry signal corrected; startup SOL cache backfill removed. Unified preparation layer still pending.
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,25 +8,11 @@
 
 ##  Active Work
 
-BEFORE DEPLOY: 
- 
-WE slow down the holder profiles by a lot becau se we see too many 429 this is weird what needs to change so we don't see so many errors it must be some unbounded or idiotic orchestration must VERIFY! 
-
-d getTokenSupply: Request failed with status code 429
- [HeliusApiClient] RPC method getTokenSupply failed after retries. {"lastError":{"message":"Request failed with status code 429","code":"ERR_BAD_REQUEST","name":"AxiosError","isAxiosError":true,"url":"https://mainnet.helius-rpc.com/?api-key=REDACTED","response":"[Object]"}}
- [HeliusApiClient] Failed to fetch token supply for mint 3PCw6gnqBorDuqta8vqUinYPEqr5xmLEKHXhDAjNpump {"error":{"message":"Failed to execute RPC method getTokenSupply: Request failed with status code 429","name":"Error"},"mintPubkey":"3PCw6gnqBorDuqta8vqUinYPEqr5xmLEKHXhDAjNpump","options":{}}
-0|sova-backend-api  | [Nest] 27668  - 04/01/2026, 9:01:20 PM   ERROR [TokenInfoService] [Token Supply] Failed to fetch for 3PCw6gnqBorDuqta8vqUinYPEqr5xmLEKHXhDAjNpump: Failed to execute RPC method getTokenSupply: Request failed with status code 429
-
-
-Do we update the SDK/DOCS somehow ?? 
-
-Implement shared `WalletPreparationService` / unified `sync -> enrich -> analyze` layer so orchestration is not duplicated across processors
-
-fund me and anime to be done as posts; 
-
-Finish the wallet intelligence guide
-
-Finish Sova-X - wallets and open for tokens.
+- Investigate holder-profile slowness / Helius `getTokenSupply` 429s. Need to verify whether token supply fetches are unbounded or duplicated during holder-profile generation.
+- Implement shared `WalletPreparationService` / unified `sync -> enrich -> analyze` layer so orchestration is not duplicated across processors.
+- Sanity-check market-cap metrics on real wallets/tokens after mapper fix and re-analysis, especially holder-profile token entry mcap and wallet HUD typical mcap.
+- Finish the wallet intelligence guide.
+- Finish Sova-X wallets/tokens opening work.
 
 ---
 
@@ -56,18 +42,11 @@ Finish Sova-X - wallets and open for tokens.
 - Entire new block inside `!isViewOnlyMode && !isHistoricalView` guard — no wasted I/O on dashboard loads
 - `pnm verify` clean, `prisma db push` applied to dev DB
 
-**D — HUD DTO: `preferredMcapBucket` + `avgEntryMcap`** ✅
-- Added to `WalletHudDto` as optional fields, passed through from `behaviorProfile` in `calculateHud()`
-- Files: `wallet-hud.dto.ts`, `wallet-hud.service.ts`
+**D — HUD DTO: lean mcap signal only** ✅
+- Legacy HUD mcap fields (`preferredMcapBucket`, `avgEntryMcap`) were removed again.
+- HUD now surfaces `typicalEntryMcapUsd` + `dominantEntryMcapBucket` only; richer mcap context lives under full wallet behavior/profile.
+- Files: `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `WalletHudOverlay.tsx`
 
-#### Deploy sequence
-1. `npx prisma migrate dev --name mce7-downstream` (or `db push` on prod if no migration history)
-2. Deploy backend
-3. Run `scripts/queue-market-context-backfill.ts` — populates `usdValue` + mcap fields on all historical `SwapAnalysisInput` rows
-4. Important production note discovered after deploy prep: raw backfill only populates `SwapAnalysisInput`; downstream canonical fields require an analysis path that enforces `sync -> enrich -> analyze`
-5. Live orchestrators patched on 2026-03-31: dashboard wallet analysis, similarity deep sync, holder-profile wallet mode, and standalone wallet-sync self-heal path
-6. Bulk `scripts/queue-market-context-backfill.ts` intentionally remains enrichment-only (`rebuildDownstream: false`) so long-running tmux backfills do not unexpectedly trigger full wallet re-analysis
-7. Remaining follow-up: extract shared `WalletPreparationService` so all canonical wallet-analysis callers use one preparation layer instead of processor-local orchestration
 
 ---
 
@@ -208,6 +187,18 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 ---
 
 ##  Recent Activity
+
+### April 1, 2026 — Market Cap Behavior/Profile Rework + Holder Profile Entry Mcap Fix
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 1.1 | 🎯 FEAT | Wallet market-cap behavior reworked to use robust persisted summaries: `typicalEntryMcapUsd`, `entryMcapP25Usd`, `entryMcapP75Usd`, `dominantEntryMcapBucket`, `dominantEntryMcapBucketShare`, plus token-level robust entry/exit mcap fields on `AnalysisResult`. Shared weighted-mcap math was embedded into existing `market-context-standalone.ts` rather than a new subsystem. | 🟡 M | `prisma/schema.prisma`, `prisma/migrations/20260401000000_market_cap_behavior_profile_rework/`, `behavior-service.ts`, `pnl-analysis-service.ts`, `market-context-standalone.ts` |
+| 1.2 | 🔧 REFACTOR | HUD mcap layering corrected. HUD now stays signal-only and shows `Typical Entry Mcap` as the primary signal; bracketed bucket presentation was removed because it falsely combined two different signals. Full behavior/profile API carries the richer mcap context. | 🟡 M | `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `behavior.service.ts`, `intel.controller.ts`, `dashboard/src/components/shared/WalletHudOverlay.tsx`, `dashboard/src/lib/mcap.ts`, `packages/sdk/src/types.ts` |
+| 1.3 | 🐛 FIX | Holder-profile token-mode `entryMcapUsd` was corrected twice: first away from token-level weighted median, then to the actual product metric. The final implementation now prefers open `TokenLot` position entry mcap weighted by `amountRemaining`, with `AnalysisResult.avgEntryMcap` fallback. This answers “where is this holder positioned in this token?” better than historical USD deployment or wallet-level typical metrics. Tooltip/copy updated accordingly. | 🟡 M | `analysis-operations.processor.ts`, `database-service.ts`, `dashboard/src/components/holder-profiles/v2/MinimalHoldersTable.tsx` |
+| 1.4 | 🐛 FIX | Startup SOL daily price cache behavior simplified. `QueueModule` no longer count-checks `solDailyPrice` and fire-and-forgets a 730-day backfill on startup. Startup now only calls `appendTodaySolPrice()`. Historical SOL fetches can still occur on-demand via `ensureSolPriceCoverage()` during enrichment when old timestamps require it. | 🟢 S | `src/queues/queue.module.ts`, `src/api/services/market-context.service.ts`, `src/core/services/market-context-standalone.ts` |
+| 1.5 | 📌 DECISION | Product semantics clarified: wallet HUD should answer “what caps does this wallet usually trade?”; holder-profile token rows should answer “around what mcap is this current holder position built?” These are different questions and intentionally use different mcap summaries. | 🟢 S | `.ai/context/MARKET_CAP_BEHAVIOR_PROFILE_REWORK_PLAN_2026-04-01.md` |
+
+---
 
 ### March 27, 2026 — Holder Profile Share Page Parity Rebuild
 
