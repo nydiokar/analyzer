@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-04-01  **Status:** Market-cap behavior/profile rework shipped in code; holder-profile token entry signal corrected; startup SOL cache backfill removed. Unified preparation layer still pending.
+**Branch:** `main`  **Last Updated:** 2026-04-02  **Status:** Token supply cache bypass fixed; buildSupplyMap concurrency raised; WalletPreparationService shipped and merged.
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -8,9 +8,6 @@
 
 ##  Active Work
 
-- Investigate holder-profile slowness / Helius `getTokenSupply` 429s. Need to verify whether token supply fetches are unbounded or duplicated during holder-profile generation.
-- Implement shared `WalletPreparationService` / unified `sync -> enrich -> analyze` layer so orchestration is not duplicated across processors.
-- Sanity-check market-cap metrics on real wallets/tokens after mapper fix and re-analysis, especially holder-profile token entry mcap and wallet HUD typical mcap.
 - Finish the wallet intelligence guide.
 - Finish Sova-X wallets/tokens opening work.
 
@@ -157,7 +154,7 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 | ✅ | **[SHARE-3]** Holder profile share page parity rebuild — shared holder profile links now use holder-profiles v2 presentation and persist trimmed similarity sidebar data in the share snapshot. | 🟡 M | DONE. |
 | ✅ | **[SHARE-1+2]** Shareable holder profiles — fully built, code-reviewed, committed on `feature/holder-profile-sharing`. Ready for smoke test + merge. | 🟡 M | DONE. |
 | ✅ | **[INTEL-SLIM]** Agent-optimised endpoints complete — backend, SDK v0.2.0, docs, SKILL.md. Deploy SDK to npm + backend to server. | 🟡 M | `intel.controller.ts`, `intel-agent-transforms.ts`, `packages/sdk/`, `documentation/agent-skill/SKILL.md` |
-| ⚪ | **[MCE-7 follow-up]** Extract shared `WalletPreparationService` so canonical wallet-analysis callers use one `sync -> enrich -> analyze` preparation layer. Current live processors are patched, but orchestration is still duplicated. | 🟡 M | new shared service + processor call sites |
+| ✅ | **[MCE-7 follow-up]** `WalletPreparationService` shipped — canonical `sync -> enrich` layer, all analysis processors unified. Merged to main 2026-04-02. | 🟢 S | `wallet-preparation.service.ts`, `market-context.module.ts`, processor call sites |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
 | ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
@@ -187,6 +184,22 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 ---
 
 ##  Recent Activity
+
+### April 2, 2026 — Token Supply Optimization + WalletPreparationService
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 2.1 | 🐛 FIX | `TokenHoldersService.getTopHolders` was calling `heliusClient.getTokenSupply` directly, bypassing the Redis → DB → RPC cache in `TokenInfoService`. Now routes through `TokenInfoService.getTokenSupply` — every mint is cache-first and never fetched from RPC more than once across callers. | 🟢 S | `src/api/services/token-holders.service.ts` |
+| 2.2 | 🔧 REFACTOR | `buildSupplyMap` concurrency raised 3→10, inter-chunk delay lowered 300ms→100ms. For 200 cold mints: ~20s artificial delay cut to ~2s. Safe now that the main Helius API key is in use. | 🟢 S | `src/api/services/market-context.service.ts` |
+| 2.3 | 🎯 FEAT | `WalletPreparationService` — shared `sync → enrich` orchestration layer. All full-wallet analysis paths now call `prepareWallet(address, syncOptions?)` instead of inlining the sequence. Pass `undefined` for sync-options to enrich-only. Prevents the null-mcap orchestration gap (see `MARKET_CONTEXT_ORCHESTRATION_GAP_2026-03-31.md`) from recurring on new processor paths. | 🟢 S | `src/api/services/wallet-preparation.service.ts`, `src/api/modules/market-context.module.ts`, `src/queues/processors/analysis-operations.processor.ts`, `src/queues/processors/similarity-operations.processor.ts` |
+| 2.4 | 🔧 REFACTOR | Removed now-unused `HeliusSyncService` and `MarketContextService` constructor injections from `SimilarityOperationsProcessor` — both superseded by `WalletPreparationService`. | 🟢 S | `src/queues/processors/similarity-operations.processor.ts` |
+
+**Key decisions:**
+- `wallet-operations` processor intentionally excluded from `WalletPreparationService` — it queues enrichment async via `process-market-context`, which is correct for that flow.
+- Staleness check (`needsSync`) stays in each processor — they decide whether to pass real sync options or `undefined`. The service only enforces ordering, not staleness logic.
+- `TokenHoldersService.supply` object returned to REST callers still has `uiAmount` populated correctly; `amount`/`decimals` are blank (display-only fields, no internal math uses them).
+
+---
 
 ### April 1, 2026 — Market Cap Behavior/Profile Rework + Holder Profile Entry Mcap Fix
 
