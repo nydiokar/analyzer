@@ -33,7 +33,8 @@ import { isValid, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
-import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse, DashboardAnalysisScope, DashboardAnalysisTriggerSource } from '@/types/api';
+import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse, DashboardAnalysisScope, DashboardAnalysisTriggerSource, BehaviorAnalysisResponseDto } from '@/types/api';
+import { McapDistributionBar } from '@/components/shared/McapDistributionBar';
 import { createCacheKey } from '@/lib/swr-config';
 import { useCredits } from '@/hooks/useCredits';
 import { useFavorites } from '@/hooks/useFavorites';
@@ -623,6 +624,26 @@ export default function WalletProfileLayout({
     }
   );
 
+  // Behavior data — fetched at layout level so McapDistributionBar renders above the tabs.
+  // Key must exactly match BehavioralPatternsTab (array form + same date params) so SWR deduplicates.
+  let behaviorKey: [string] | null = null;
+  if (walletAddress) {
+    const behaviorParams = new URLSearchParams();
+    if (startDate && endDate) {
+      behaviorParams.append('startDate', startDate.toISOString());
+      behaviorParams.append('endDate', endDate.toISOString());
+    }
+    const behaviorUrl = behaviorParams.toString()
+      ? `/wallets/${walletAddress}/behavior-analysis?${behaviorParams.toString()}`
+      : `/wallets/${walletAddress}/behavior-analysis`;
+    behaviorKey = [behaviorUrl];
+  }
+  const { data: behaviorData } = useSWR<BehaviorAnalysisResponseDto>(
+    behaviorKey,
+    ([url]) => fetcher(url),
+    { revalidateOnFocus: false, revalidateOnReconnect: false, refreshInterval: 0 }
+  );
+
   // Each component will handle its own data loading
   // No detailed data loading at layout level
   const tabParam = searchParams.get('tab');
@@ -687,6 +708,9 @@ export default function WalletProfileLayout({
   }, [walletSummary]);
 
 
+  // Must be declared before the cleanup useEffect below that references the setter
+  const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);
+
   // Cleanup tracked jobs only when the page truly unmounts.
   // Using scopeStates/enrichmentJobId as effect deps caused React to unsubscribe
   // active jobs during normal staged scope transitions (flash -> working -> deep).
@@ -712,9 +736,6 @@ export default function WalletProfileLayout({
       setSubscribedEnrichmentJobId(null);
     };
   }, []);
-
-  // Subscribe to enrichment job when it's set (with duplicate prevention)
-  const [subscribedEnrichmentJobId, setSubscribedEnrichmentJobId] = useState<string | null>(null);
   
   useEffect(() => {
     if (enrichmentJobId && isConnected && enrichmentJobId !== subscribedEnrichmentJobId) {
@@ -1255,21 +1276,35 @@ export default function WalletProfileLayout({
             </div>
           )}
 
-          {/* Row 2: Summary Card + Performance HUD */}
+          {/* Row 2: Summary | HUD | Mcap Distribution */}
           {walletAddress && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <AccountSummaryCard
-                walletAddress={walletAddress}
-                triggerAnalysis={handleTriggerAnalysis}
-                isAnalyzingGlobal={isAnalyzing}
-                walletSummary={walletSummary}
-                summaryError={summaryError}
-                summaryIsLoading={!walletSummary && !summaryError}
-              />
+            <div className="flex gap-3 items-stretch">
+              {/* Summary — fixed narrow */}
+              <div className="w-[180px] shrink-0">
+                <AccountSummaryCard
+                  walletAddress={walletAddress}
+                  triggerAnalysis={handleTriggerAnalysis}
+                  isAnalyzingGlobal={isAnalyzing}
+                  walletSummary={walletSummary}
+                  summaryError={summaryError}
+                  summaryIsLoading={!walletSummary && !summaryError}
+                />
+              </div>
+              {/* HUD — natural size, not stretched */}
               <WalletHudOverlay
                 walletAddress={walletAddress}
                 display="expanded"
               />
+              {/* Mcap bar — fixed width, pushes to right */}
+              {behaviorData?.mcapDistribution && Object.keys(behaviorData.mcapDistribution).length > 0 && (
+                <div className="w-[220px] shrink-0 rounded-xl border bg-card p-3">
+                  <McapDistributionBar
+                    mcapDistribution={behaviorData.mcapDistribution}
+                    mcapBucketPnl={behaviorData.mcapBucketPnl}
+                    dominantEntryMcapBucket={behaviorData.dominantEntryMcapBucket}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>

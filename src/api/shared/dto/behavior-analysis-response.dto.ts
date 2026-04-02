@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 // Assuming BehavioralMetrics, IdentifiedTradingWindow, TokenMetrics, ActiveTradingPeriods are correctly exported from a path like below
 // and that this path is resolvable from the new DTO file's location.
 // The exact path might need adjustment based on the project structure.
@@ -238,4 +238,16 @@ export class BehaviorAnalysisResponseDto implements BehavioralMetrics {
 
   @ApiProperty({ type: HistoricalPatternDto, required: false, description: 'Historical pattern from completed positions only' })
   historicalPattern?: HistoricalPatternDto;
+
+  @ApiPropertyOptional({
+    description: 'Fraction of buy-side USD volume per mcap bucket, e.g. { "10-20k": 0.42 }',
+    example: { '0-10k': 0.08, '10-20k': 0.42, '20-30k': 0.14 },
+  })
+  mcapDistribution?: Record<string, number>;
+
+  @ApiPropertyOptional({
+    description: 'Per-bucket realized PnL, trade count, and win rate keyed by mcap bucket',
+    example: { '10-20k': { realizedPnlSol: 12.4, tradeCount: 21, winRate: 0.67 } },
+  })
+  mcapBucketPnl?: Record<string, { realizedPnlSol: number; tradeCount: number; winRate: number }>;
 } 

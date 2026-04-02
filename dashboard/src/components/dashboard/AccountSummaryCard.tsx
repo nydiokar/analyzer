@@ -253,68 +253,49 @@ export default function AccountSummaryCard({
   const hasBalance = data.currentSolBalance !== undefined;
 
   return (
-    <Card
-      className={cn(
-        "p-4 rounded-xl border bg-card",
-        className
-      )}
-    >
-      <div className="grid grid-cols-3 gap-6">
-        {/* PNL */}
-        <div>
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1.5">
-            PNL
-          </p>
-          <div className="flex items-baseline gap-1.5 mb-1">
-            <span className={cn(
-              "text-2xl font-bold tabular-nums",
-              pnlVariant === "success" ? "text-green-600 dark:text-green-400" :
-              pnlVariant === "error" ? "text-red-600 dark:text-red-400" :
-              "text-foreground"
-            )}>
-              {formatPnl(data.latestPnl ?? null)}
-            </span>
-            <span className="text-sm text-muted-foreground">SOL</span>
-          </div>
-          {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
-            <p className="text-xs text-muted-foreground">
-              {formatUsdValue(data.latestPnlUsd)}
-            </p>
-          )}
+    <Card className={cn("px-4 py-3 rounded-xl border bg-card h-full flex flex-col divide-y divide-border", className)}>
+      {/* PNL */}
+      <div className="pb-3">
+        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-1">PNL</p>
+        <div className="flex items-baseline gap-1.5">
+          <span className={cn(
+            "text-2xl font-bold tabular-nums leading-none",
+            pnlVariant === "success" ? "text-green-500 dark:text-green-400" :
+            pnlVariant === "error" ? "text-red-500 dark:text-red-400" :
+            "text-foreground"
+          )}>
+            {formatPnl(data.latestPnl ?? null)}
+          </span>
+          <span className="text-xs text-muted-foreground">SOL</span>
         </div>
-
-        {/* Balance */}
-        {data.currentSolBalance !== undefined && (
-          <div>
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1.5">
-              Balance
-            </p>
-            <div className="flex items-baseline gap-1.5 mb-1">
-              <span className="text-2xl font-bold tabular-nums">
-                {data.currentSolBalance?.toFixed(1) ?? "N/A"}
-              </span>
-              <span className="text-sm text-muted-foreground">SOL</span>
-            </div>
-            {data.currentSolBalanceUsd !== null && (
-              <p className="text-xs text-muted-foreground">
-                {formatUsdValue(data.currentSolBalanceUsd)}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Last Active */}
-        {data.lastActiveTimestamp && (
-          <div>
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-1.5">
-              Last Active
-            </p>
-            <div className="text-base font-semibold">
-              {format(new Date(data.lastActiveTimestamp * 1000), "MMM d, yyyy")}
-            </div>
-          </div>
+        {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
+          <p className="text-xs text-muted-foreground mt-0.5">{formatUsdValue(data.latestPnlUsd)}</p>
         )}
       </div>
+
+      {/* Balance */}
+      {data.currentSolBalance !== undefined && (
+        <div className="py-3">
+          <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-1">Balance</p>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base font-semibold tabular-nums leading-none">{data.currentSolBalance?.toFixed(1) ?? "N/A"}</span>
+            <span className="text-xs text-muted-foreground">SOL</span>
+          </div>
+          {data.currentSolBalanceUsd !== null && (
+            <p className="text-xs text-muted-foreground mt-0.5">{formatUsdValue(data.currentSolBalanceUsd)}</p>
+          )}
+        </div>
+      )}
+
+      {/* Last Active */}
+      {data.lastActiveTimestamp && (
+        <div className="pt-3">
+          <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-1">Last Active</p>
+          <p className="text-sm font-semibold leading-tight">
+            {format(new Date(data.lastActiveTimestamp * 1000), "MMM d, yyyy")}
+          </p>
+        </div>
+      )}
     </Card>
   );
 }

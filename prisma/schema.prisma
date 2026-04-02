@@ -81,7 +81,7 @@ model SignificantBuyersCache {
 }
 
 model SwapAnalysisInput {
-  id                  Int    @id @default(autoincrement())
+  id                  Int       @id @default(autoincrement())
   walletAddress       String
   signature           String
   timestamp           Int
@@ -94,12 +94,12 @@ model SwapAnalysisInput {
   feeAmount           Float?
   feePercentage       Float?
   // --- Market Context (enrichment) ---
-  solPriceUsd    Float?     // SOL/USD price at time of trade
-  usdValue       Float?     // total USD value of the trade (associatedSolValue × solPriceUsd)
-  tokenPriceUsd  Float?     // per-token USD price: usdValue / amount
-  marketCapUsd   Float?     // fully diluted: tokenPriceUsd × totalSupply
-  mcapBucket     String?    // "nano" | "ultra-micro" | "micro" | "small" | "mid" | "large" | "mega"
-  enrichedAt     DateTime?  // when this row was enriched (null = not yet)
+  solPriceUsd         Float? // SOL/USD price at time of trade
+  usdValue            Float? // total USD value of the trade (associatedSolValue × solPriceUsd)
+  tokenPriceUsd       Float? // per-token USD price: usdValue / amount
+  marketCapUsd        Float? // fully diluted: tokenPriceUsd × totalSupply
+  mcapBucket          String? // "nano" | "ultra-micro" | "micro" | "small" | "mid" | "large" | "mega"
+  enrichedAt          DateTime? // when this row was enriched (null = not yet)
 
   @@unique([signature, mint, direction, amount], name: "signature_mint_direction_amount")
   @@index([walletAddress, timestamp])
@@ -137,16 +137,16 @@ model AnalysisResult {
   realizedPnlSol              Float?
   totalPnlSol                 Float?
   unrealizedPnlSol            Float?
-  avgEntryMcap                Float?    // volume-weighted avg marketCapUsd across buy trades for this token
-  avgEntryMcapBucket          String?   // classified bucket of avgEntryMcap
-  typicalEntryMcapUsd         Float?    // weighted median marketCapUsd across buy trades for this token
-  entryMcapP25Usd             Float?    // weighted 25th percentile marketCapUsd across buy trades for this token
-  entryMcapP75Usd             Float?    // weighted 75th percentile marketCapUsd across buy trades for this token
-  avgExitMcap                 Float?    // volume-weighted avg marketCapUsd across sell trades for this token
-  avgExitMcapBucket           String?   // classified bucket of avgExitMcap
-  typicalExitMcapUsd          Float?    // weighted median marketCapUsd across sell trades for this token
-  exitMcapP25Usd              Float?    // weighted 25th percentile marketCapUsd across sell trades for this token
-  exitMcapP75Usd              Float?    // weighted 75th percentile marketCapUsd across sell trades for this token
+  avgEntryMcap                Float? // volume-weighted avg marketCapUsd across buy trades for this token
+  avgEntryMcapBucket          String? // classified bucket of avgEntryMcap
+  typicalEntryMcapUsd         Float? // weighted median marketCapUsd across buy trades for this token
+  entryMcapP25Usd             Float? // weighted 25th percentile marketCapUsd across buy trades for this token
+  entryMcapP75Usd             Float? // weighted 75th percentile marketCapUsd across buy trades for this token
+  avgExitMcap                 Float? // volume-weighted avg marketCapUsd across sell trades for this token
+  avgExitMcapBucket           String? // classified bucket of avgExitMcap
+  typicalExitMcapUsd          Float? // weighted median marketCapUsd across sell trades for this token
+  exitMcapP25Usd              Float? // weighted 25th percentile marketCapUsd across sell trades for this token
+  exitMcapP75Usd              Float? // weighted 75th percentile marketCapUsd across sell trades for this token
   wallet                      Wallet    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@unique([walletAddress, tokenAddress])
@@ -168,10 +168,10 @@ model TokenLot {
   sourceSignature   String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-  entryPriceUsd     Float?   // per-token USD price at time of buy (tokenPriceUsd from enriched row)
-  entryMcapUsd      Float?   // market cap at time of buy (marketCapUsd from enriched row)
-  entryMcapBucket   String?  // classified bucket of entryMcapUsd
-  costBasisUsd      Float?   // costBasisSol × solPriceUsd at time of buy
+  entryPriceUsd     Float? // per-token USD price at time of buy (tokenPriceUsd from enriched row)
+  entryMcapUsd      Float? // market cap at time of buy (marketCapUsd from enriched row)
+  entryMcapBucket   String? // classified bucket of entryMcapUsd
+  costBasisUsd      Float? // costBasisSol × solPriceUsd at time of buy
   wallet            Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
   @@index([walletAddress, tokenAddress, purchaseTimestamp])
@@ -200,10 +200,10 @@ model WalletPnlSummary {
   solBalanceFetchedAt               DateTime?
   profitableTradesCount             Int                 @default(0)
   totalIndividualTradesCount        Int                 @default(0)
-  totalVolumeUsd                    Float?              // Σ usdValue across all enriched swap rows for wallet
-  realizedPnlUsd                    Float?              // per-mint: Σ out usdValue − Σ in usdValue, summed across all mints
-  unrealizedPnlUsd                  Float?              // open lots costBasisUsd vs current holdings USD value
-  netPnlUsd                         Float?              // realizedPnlUsd + unrealizedPnlUsd
+  totalVolumeUsd                    Float? // Σ usdValue across all enriched swap rows for wallet
+  realizedPnlUsd                    Float? // per-mint: Σ out usdValue − Σ in usdValue, summed across all mints
+  unrealizedPnlUsd                  Float? // open lots costBasisUsd vs current holdings USD value
+  netPnlUsd                         Float? // realizedPnlUsd + unrealizedPnlUsd
   advancedStats                     AdvancedTradeStats?
   wallet                            Wallet              @relation(fields: [walletAddress], references: [address])
 
@@ -274,18 +274,18 @@ model WalletBehaviorProfile {
   medianCurrentHoldingDurationHours  Float?
   percentOfValueInCurrentHoldings    Float?
   medianCompletedHoldTimeHours       Float?
-  preferredMcapBucket                String?  // bucket where most buy-side usdValue was deployed
-  avgEntryMcap                       Float?   // volume-weighted avg marketCapUsd across all buy trades
-  mcapDistribution                   Json?    // { nano: 0.4, micro: 0.3, ... } fraction of buy volume per bucket
-  mcapBucketPnl                      Json?    // { nano: { realizedPnlSol: 1.2, tradeCount: 12, winRate: 0.67 }, ... }
-  typicalEntryMcapUsd                Float?   // weighted median marketCapUsd across all buy trades
-  entryMcapP25Usd                    Float?   // weighted 25th percentile marketCapUsd across all buy trades
-  entryMcapP75Usd                    Float?   // weighted 75th percentile marketCapUsd across all buy trades
-  dominantEntryMcapBucket            String?  // bucket with highest buy-side usdValue share
-  dominantEntryMcapBucketShare       Float?   // share of buy-side usdValue in dominantEntryMcapBucket
-  entryMcapDistributionByCount       Json?    // { '10-20k': 0.42, ... } fraction of buy trade count per bucket
-  entryMcapSampleSizeBuys            Int?     // number of eligible buy-side rows contributing to mcap profile
-  entryMcapSampleSizeTokens          Int?     // number of distinct mints contributing to mcap profile
+  preferredMcapBucket                String? // bucket where most buy-side usdValue was deployed
+  avgEntryMcap                       Float? // volume-weighted avg marketCapUsd across all buy trades
+  mcapDistribution                   Json? // { nano: 0.4, micro: 0.3, ... } fraction of buy volume per bucket
+  mcapBucketPnl                      Json? // { nano: { realizedPnlSol: 1.2, tradeCount: 12, winRate: 0.67 }, ... }
+  typicalEntryMcapUsd                Float? // weighted median marketCapUsd across all buy trades
+  entryMcapP25Usd                    Float? // weighted 25th percentile marketCapUsd across all buy trades
+  entryMcapP75Usd                    Float? // weighted 75th percentile marketCapUsd across all buy trades
+  dominantEntryMcapBucket            String? // bucket with highest buy-side usdValue share
+  dominantEntryMcapBucketShare       Float? // share of buy-side usdValue in dominantEntryMcapBucket
+  entryMcapDistributionByCount       Json? // { '10-20k': 0.42, ... } fraction of buy trade count per bucket
+  entryMcapSampleSizeBuys            Int? // number of eligible buy-side rows contributing to mcap profile
+  entryMcapSampleSizeTokens          Int? // number of distinct mints contributing to mcap profile
   wallet                             Wallet   @relation(fields: [walletAddress], references: [address])
 
   @@index([walletAddress])
@@ -367,18 +367,18 @@ model User {
 }
 
 model RegistrationCode {
-  id          String    @id @default(cuid())
-  code        String    @unique
-  status      String    @default("active")
-  description String?
-  maxUses     Int       @default(1)
-  usedCount   Int       @default(0)
-  usedByUserId String?  @unique
-  usedAt      DateTime?
-  createdAt   DateTime  @default(now())
-  expiresAt   DateTime?
-  createdBy   String?
-  usedBy      User?     @relation(fields: [usedByUserId], references: [id], onDelete: SetNull)
+  id           String    @id @default(cuid())
+  code         String    @unique
+  status       String    @default("active")
+  description  String?
+  maxUses      Int       @default(1)
+  usedCount    Int       @default(0)
+  usedByUserId String?   @unique
+  usedAt       DateTime?
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime?
+  createdBy    String?
+  usedBy       User?     @relation(fields: [usedByUserId], references: [id], onDelete: SetNull)
 
   @@index([code])
   @@index([status])
@@ -519,7 +519,7 @@ model UserFavoriteWallet {
 }
 
 model TokenInfo {
-  tokenAddress            String         @id @unique
+  tokenAddress            String             @id @unique
   name                    String?
   symbol                  String?
   imageUrl                String?
@@ -533,8 +533,8 @@ model TokenInfo {
   volume24h               Float?
   priceUsd                String?
   dexscreenerUpdatedAt    DateTime?
-  fetchedAt               DateTime       @default(now())
-  updatedAt               DateTime       @updatedAt
+  fetchedAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
   onchainName             String?
   onchainSymbol           String?
   onchainDescription      String?
@@ -548,7 +548,7 @@ model TokenInfo {
   onchainDiscordUrl       String?
   onchainSocialsFetchedAt DateTime?
   metadataSource          String?
-  totalSupply             Float?         // SPL token total supply (uiAmount); immutable for most memecoins
+  totalSupply             Float? // SPL token total supply (uiAmount); immutable for most memecoins
   TokenTag                TokenTag[]
   WatchedToken            WatchedToken[]
   userWatchedTokens       UserWatchedToken[]
@@ -562,21 +562,21 @@ model TokenInfo {
 }
 
 model Message {
-  id              String            @id @default(cuid())
-  body            String
-  authorUserId    String?
-  source          String
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  deletedAt       DateTime?
-  isPinned        Boolean           @default(false)
-  parentId        String?
-  author          User?             @relation(fields: [authorUserId], references: [id])
-  parent          Message?          @relation("MessageThread", fields: [parentId], references: [id])
-  replies         Message[]         @relation("MessageThread")
-  mentions        MessageMention[]
-  reactions       MessageReaction[]
-  revisions       MessageRevision[]
+  id           String            @id @default(cuid())
+  body         String
+  authorUserId String?
+  source       String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  deletedAt    DateTime?
+  isPinned     Boolean           @default(false)
+  parentId     String?
+  author       User?             @relation(fields: [authorUserId], references: [id])
+  parent       Message?          @relation("MessageThread", fields: [parentId], references: [id])
+  replies      Message[]         @relation("MessageThread")
+  mentions     MessageMention[]
+  reactions    MessageReaction[]
+  revisions    MessageRevision[]
 
   @@index([createdAt, id])
 }
@@ -661,7 +661,7 @@ model UserWatchedToken {
 model TokenAccountWatermark {
   id          String   @id @default(cuid())
   ownerPubkey String
-  filterKey   String   // "program:spl-token", "program:token-2022", or "mint:{address}"
+  filterKey   String // "program:spl-token", "program:token-2022", or "mint:{address}"
   lastSlot    Int
   updatedAt   DateTime @updatedAt
   createdAt   DateTime @default(now())
@@ -678,8 +678,8 @@ model WalletHunt {
   createdAt     DateTime @default(now())
   lastVisitedAt DateTime @default(now())
 
-  snapshots     WalletHuntSnapshot[]
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snapshots WalletHuntSnapshot[]
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([lastVisitedAt])
@@ -694,7 +694,7 @@ model WalletHuntSnapshot {
   holders    String[]
   note       String?
 
-  hunt       WalletHunt @relation(fields: [huntId], references: [id], onDelete: Cascade)
+  hunt WalletHunt @relation(fields: [huntId], references: [id], onDelete: Cascade)
 
   @@unique([huntId, tokenMint, sourceType])
   @@index([huntId])
@@ -713,9 +713,9 @@ model WalletHuntSnapshot {
 
 model CreditPack {
   id        String  @id @default(cuid())
-  name      String  // "Starter" | "Builder" | "Pro"
-  credits   Int     // 1000 | 10000 | 100000
-  priceUsdc Float   // 15 | 120 | 900
+  name      String // "Starter" | "Builder" | "Pro"
+  credits   Int // 1000 | 10000 | 100000
+  priceUsdc Float // 15 | 120 | 900
   active    Boolean @default(true)
 }
 
@@ -768,11 +768,11 @@ model CreditTransaction {
 // ---------------------------------------------------------------------------
 
 model RadarWallet {
-  wallet    String    @id
-  label     String?
-  addedAt   DateTime  @default(now())
-  isActive  Boolean   @default(true)
-  addedBy   String?
+  wallet   String   @id
+  label    String?
+  addedAt  DateTime @default(now())
+  isActive Boolean  @default(true)
+  addedBy  String?
 }
 
 model RadarHolding {
@@ -824,8 +824,8 @@ model TelegramBotLog {
   id             String   @id @default(cuid())
   telegramUserId String
   username       String?
-  command        String   // 'hud' | 'holders' | 'profile'
-  address        String   // wallet addr or mint
+  command        String // 'hud' | 'holders' | 'profile'
+  address        String // wallet addr or mint
   creditCost     Int
   success        Boolean
   errorCode      String?
@@ -895,7 +895,7 @@ model AlertNotification {
 // Stores one row per calendar day. Populated on startup, appended daily.
 // ---------------------------------------------------------------------------
 model SolDailyPrice {
-  date      String   @id          // format: "YYYY-MM-DD" (UTC)
-  priceUsd  Float                 // SOL/USD closing price for that day
+  date      String   @id // format: "YYYY-MM-DD" (UTC)
+  priceUsd  Float // SOL/USD closing price for that day
   fetchedAt DateTime @default(now())
 }

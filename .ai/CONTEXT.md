@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-04-02  **Status:** Token supply cache bypass fixed; buildSupplyMap concurrency raised; WalletPreparationService shipped and merged.
+**Branch:** `main`  **Last Updated:** 2026-04-02  **Status:** Token supply cache bypass fixed; buildSupplyMap concurrency raised; WalletPreparationService shipped and merged. Entry Mcap Distribution feature shipped on wallet profile page.
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -156,7 +156,7 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 | ✅ | **[INTEL-SLIM]** Agent-optimised endpoints complete — backend, SDK v0.2.0, docs, SKILL.md. Deploy SDK to npm + backend to server. | 🟡 M | `intel.controller.ts`, `intel-agent-transforms.ts`, `packages/sdk/`, `documentation/agent-skill/SKILL.md` |
 | ✅ | **[MCE-7 follow-up]** `WalletPreparationService` shipped — canonical `sync -> enrich` layer, all analysis processors unified. Merged to main 2026-04-02. | 🟢 S | `wallet-preparation.service.ts`, `market-context.module.ts`, processor call sites |
 | ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
-| ⚪ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
+| ✅ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
 | ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
 | ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
 

@@ -98,7 +98,33 @@ export class BehaviorService {
     const originalService = new OriginalBehaviorService(this.nestDatabaseService, config);
 
     try {
-      return await originalService.analyzeWalletBehavior(walletAddress, timeRange || config.timeRange, pnlMap);
+      const result = await originalService.analyzeWalletBehavior(walletAddress, timeRange || config.timeRange, pnlMap);
+
+      // mcapDistribution and mcapBucketPnl are wallet-wide historical metrics — not time-range filtered.
+      // The live re-computation path never computes them, so merge from cached profile if available.
+      if (result && (result.mcapDistribution === undefined || result.mcapBucketPnl === undefined)) {
+        try {
+          const cachedProfile = await this.nestDatabaseService.getWalletBehaviorProfile(walletAddress);
+          if (cachedProfile) {
+            if (result.mcapDistribution === undefined && cachedProfile.mcapDistribution) {
+              result.mcapDistribution = cachedProfile.mcapDistribution as Record<string, number>;
+            }
+            if (result.mcapBucketPnl === undefined && cachedProfile.mcapBucketPnl) {
+              result.mcapBucketPnl = cachedProfile.mcapBucketPnl as Record<string, { realizedPnlSol: number; tradeCount: number; winRate: number }>;
+            }
+            if (result.dominantEntryMcapBucket === undefined) {
+              result.dominantEntryMcapBucket = cachedProfile.dominantEntryMcapBucket ?? cachedProfile.preferredMcapBucket ?? undefined;
+            }
+            if (result.typicalEntryMcapUsd === undefined) {
+              result.typicalEntryMcapUsd = cachedProfile.typicalEntryMcapUsd ?? undefined;
+            }
+          }
+        } catch {
+          // Non-critical — mcap fields are enhancement only, don't fail the request
+        }
+      }
+
+      return result;
     } catch (error) {
       this.logger.error(`Error in getWalletBehavior for ${walletAddress}: ${getErrorMessage(error)}`);
       throw error;
@@ -178,6 +204,8 @@ export class BehaviorService {
       entryMcapP75Usd: profile.entryMcapP75Usd ?? undefined,
       dominantEntryMcapBucket: profile.dominantEntryMcapBucket ?? profile.preferredMcapBucket ?? undefined,
       dominantEntryMcapBucketShare: profile.dominantEntryMcapBucketShare ?? undefined,
+      mcapDistribution: (profile.mcapDistribution as Record<string, number> | null) ?? undefined,
+      mcapBucketPnl: (profile.mcapBucketPnl as Record<string, { realizedPnlSol: number; tradeCount: number; winRate: number }> | null) ?? undefined,
       historicalPattern, // Reconstructed from cached pieces
     };
   }

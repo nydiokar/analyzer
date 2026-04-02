@@ -248,6 +248,8 @@ export interface BehavioralMetrics {
   entryMcapP75Usd?: number;
   dominantEntryMcapBucket?: string;
   dominantEntryMcapBucketShare?: number;
+  mcapDistribution?: Record<string, number>; // fraction of buy-side USD volume per bucket, e.g. { '10-20k': 0.42 }
+  mcapBucketPnl?: Record<string, { realizedPnlSol: number; tradeCount: number; winRate: number }>; // per-bucket PnL breakdown
 
   // New: Historical pattern (optional, non-breaking addition)
   historicalPattern?: WalletHistoricalPattern;

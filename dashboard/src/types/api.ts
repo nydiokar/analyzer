@@ -192,7 +192,7 @@ export interface HistoricalPattern {
 
 // More complete BehaviorAnalysisResponseDto
 export interface BehaviorAnalysisResponseDto {
-  walletAddress: string;
+  walletAddress?: string;
   tradingStyle?: string | null;
 
   // NEW: Classification system fields (2025-12-25)
@@ -254,6 +254,16 @@ export interface BehaviorAnalysisResponseDto {
 
   additionalMetrics?: Record<string, unknown>;
   rawMetrics?: Record<string, unknown>;
+
+  // Market cap profile
+  avgEntryMcap?: number;
+  typicalEntryMcapUsd?: number;
+  entryMcapP25Usd?: number;
+  entryMcapP75Usd?: number;
+  dominantEntryMcapBucket?: string;
+  dominantEntryMcapBucketShare?: number;
+  mcapDistribution?: Record<string, number>;
+  mcapBucketPnl?: Record<string, { realizedPnlSol: number; tradeCount: number; winRate: number }>;
 }
 
 // --- Token Performance Types ---

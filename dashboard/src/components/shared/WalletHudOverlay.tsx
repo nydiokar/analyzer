@@ -271,7 +271,6 @@ const InlineDisplay = memo(function InlineDisplay({
   const qualityConfig = DATA_QUALITY_DISPLAY[data.dataQualityTier];
   const behaviorColor = BEHAVIOR_COLORS[data.behaviorCode] || BEHAVIOR_COLORS['?'];
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
-  const marketCapSignal = getMarketCapSignal(data);
 
   return (
     <TooltipProvider>
@@ -476,10 +475,9 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
   const qualityConfig = DATA_QUALITY_DISPLAY[data.dataQualityTier];
   const behaviorColor = BEHAVIOR_COLORS[data.behaviorCode] || BEHAVIOR_COLORS['?'];
   const pnlColor = getPnlColor(data.trimmedMeanPnl);
-  const marketCapSignal = getMarketCapSignal(data);
 
   return (
-    <div className={`grid grid-cols-2 md:grid-cols-3 gap-4 p-4 border rounded-xl bg-card ${className || ''}`}>
+    <div className={`grid grid-cols-3 gap-x-6 gap-y-4 p-4 border rounded-xl bg-card w-fit ${className || ''}`}>
       {/* Data Quality */}
       <div className="text-center">
         <div className={`text-3xl ${qualityConfig.color}`}>{qualityConfig.emoji}</div>
@@ -527,23 +525,14 @@ const ExpandedDisplay = memo(function ExpandedDisplay({
         <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Tokens/Day</div>
       </div>
 
-      {/* Market Cap Profile */}
-      {marketCapSignal && marketCapSignal.hasTypicalSignal && marketCapSignal.typicalEntryMcapUsd !== undefined && (
+      {/* Typical Entry Mcap */}
+      {data.typicalEntryMcapUsd !== undefined && (
         <div className="text-center">
-          <div className="text-2xl font-bold">{formatMcapCompact(marketCapSignal.typicalEntryMcapUsd)}</div>
-          <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">
-            Typical Entry Mcap
-          </div>
-          {marketCapSignal.deviationBucket && marketCapSignal.deviationDirection && (
-            <div className="text-xs text-muted-foreground mt-1">
-              Capital skews {marketCapSignal.deviationDirection}:
-              <span className="ml-1 font-medium text-foreground">
-                {getMcapBucketDisplayLabel(marketCapSignal.deviationBucket)}
-              </span>
-            </div>
-          )}
+          <div className="text-2xl font-bold">{formatMcapCompact(data.typicalEntryMcapUsd)}</div>
+          <div className="text-xs text-muted-foreground mt-1.5 uppercase tracking-wide font-medium">Typical MC Entry</div>
         </div>
       )}
+
       {/* Conditional Badges */}
       {data.isBot && (
         <div className="text-center">
