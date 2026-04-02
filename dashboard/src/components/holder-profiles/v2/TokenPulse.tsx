@@ -90,8 +90,7 @@ export function TokenPulse({
     [result.profiles]
   );
 
-  const shouldHydrateHud = isSnapshot
-    || result.metadata.totalHoldersAnalyzed >= result.metadata.totalHoldersRequested;
+  const shouldHydrateHud = walletAddresses.length > 0;
 
   const { data: hudData } = useWalletHudCache(walletAddresses, {
     enabled: shouldHydrateHud,

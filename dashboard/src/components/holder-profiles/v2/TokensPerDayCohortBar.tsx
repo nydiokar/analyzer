@@ -117,6 +117,12 @@ export function TokensPerDayCohortBar({
   const distribution = buildDistribution(profiles, hudData);
   const totalWallets = distribution.reduce((sum, bucket) => sum + bucket.walletCount, 0);
   const totalSupply = distribution.reduce((sum, bucket) => sum + bucket.supplyPercent, 0);
+  const eligibleWallets = profiles.filter((profile) => {
+    if (profile.knownType && SYSTEM_WALLET_TYPES.has(profile.knownType as KnownWalletType)) {
+      return false;
+    }
+    return true;
+  }).length;
   const maxSupply = distribution.reduce((max, bucket) => Math.max(max, bucket.supplyPercent), 0);
   const axisSteps = (() => {
     if (maxSupply <= 0) return [0];
@@ -153,7 +159,9 @@ export function TokensPerDayCohortBar({
 
       {totalWallets === 0 || totalSupply === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Waiting for HUD activity data.
+          {eligibleWallets === 0
+            ? 'No eligible wallets for breadth distribution.'
+            : 'Waiting for wallet HUD activity data.'}
         </p>
       ) : (
         <>
