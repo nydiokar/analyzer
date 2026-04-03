@@ -108,13 +108,13 @@ export const BOT_DETECTION = {
  */
 export const DATA_QUALITY = {
   // Minimum completed cycles for reliable classification
-  MIN_CYCLES_FOR_HIGH_CONFIDENCE: 10,
-  MIN_CYCLES_FOR_MEDIUM_CONFIDENCE: 5,
-  MIN_CYCLES_FOR_LOW_CONFIDENCE: 3,
+  MIN_CYCLES_FOR_HIGH_CONFIDENCE: 20,
+  MIN_CYCLES_FOR_MEDIUM_CONFIDENCE: 10,
+  MIN_CYCLES_FOR_LOW_CONFIDENCE: 5,
 
   // Minimum trades for classification
-  MIN_TRADES_FOR_CLASSIFICATION: 5,
-  MIN_TOKENS_FOR_CLASSIFICATION: 2,
+  MIN_TRADES_FOR_CLASSIFICATION: 10,
+  MIN_TOKENS_FOR_CLASSIFICATION: 5,
 } as const;
 
 /**
@@ -314,8 +314,8 @@ export const FLOW_THRESHOLDS = {
  * Minimum Data Requirements (activity gate)
  */
 export const MINIMUM_DATA = {
-  trades: 5,                          // Minimum total trades
-  tokensWithCompletedCycles: 2,       // Minimum tokens with both buy+sell
+  trades: 10,                         // Minimum total trades
+  tokensWithCompletedCycles: 5,       // Minimum tokens with both buy+sell
 } as const;
 
 /**
@@ -382,8 +382,8 @@ export const BEHAVIOR_ANALYSIS_CONFIG = {
 
   // Trading analysis thresholds (UPDATED to match MINIMUM_DATA above)
   TRADING_ANALYSIS: {
-    MIN_TRADES_FOR_ANALYSIS: 5,         // Minimum trades for reliable analysis
-    MIN_TOKENS_WITH_TRADES: 2,          // Minimum tokens with both buys/sells
+    MIN_TRADES_FOR_ANALYSIS: 10,        // Minimum trades for reliable analysis
+    MIN_TOKENS_WITH_TRADES: 5,          // Minimum tokens with both buys/sells
   },
 
   // Time-based bucket boundaries (in hours) - shared between different analyses
