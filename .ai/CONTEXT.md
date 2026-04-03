@@ -1,243 +1,66 @@
-﻿# Sova Intel - Project Context
+# Sova Intel — Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-04-03  **Status:** Token supply cache bypass fixed; buildSupplyMap concurrency raised; WalletPreparationService shipped and merged. Entry Mcap Distribution feature shipped on wallet profile page. Intel contract pipeline layer is now in place: controller DTOs export an isolated OpenAPI artifact, SDK contract generation derives from that artifact, and strict audit verifies parity. Docs automation remains downstream work.
-
-**Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
+**Branch:** `main` | **Last Updated:** 2026-04-03 | **Status:** Intel contract pipeline complete; WalletPreparationService merged; Entry Mcap Distribution shipped on wallet profile page.
 
 ---
 
-##  Active Work
+## Active Work
 
-- Finish the wallet intelligence guide.
-- Finish Sova-X wallets/tokens opening work.
-- Intel public contract automation:
-  - Drift audit is working and useful.
-  - Intel-only OpenAPI artifact export is isolated from full app runtime.
-  - SDK accepted-response contract is generated from `artifacts/intel-openapi.json` and parity-checked against the explicit SDK public types.
-  - `pnpm run intel:verify` is the local end-to-end contract check (`intel:openapi` + `intel:sdk` + `intel:audit:strict`).
-  - `pnpm run hooks:install` installs a narrow local pre-commit hook that auto-runs the Intel contract pipeline only when staged Intel contract files changed.
-  - One-off generated SDK evaluation package exists in `C:/Users/solastic/prj/sova-intel/sdk-generated` and compiles, but it is still lower-quality than the handwritten SDK.
-  - `sdk-generated` is evaluation-only for now and should not be committed until the hybrid/generated SDK ownership decision is made.
-  - Next session: make one intentional Intel endpoint contract change and test the full path end-to-end (local hook -> `intel:verify` -> generated outputs -> SDK facade follow-up -> docs impact) before deciding on hybrid SDK adoption.
-  - Next required step: decide whether to keep the handwritten SDK as the main public facade and use generated SDK output only as a low-level baseline, or to promote a hybrid generated-core + handwritten-facade model.
-
----
-
-### [MCE-7] Phase 7 — Market Context Downstream ✅ COMPLETE (2026-03-31)
-
-**Branch:** `feat/market-context-enrichment` — **ready to merge + deploy**
-
-#### What shipped
-
-**A — `AnalysisResult`: `avgExitMcap` + `avgExitMcapBucket`** ✅
-- Volume-weighted avg market cap at time of sells, per token
-- Computed from `direction='out'` enriched rows alongside existing entry mcap
-
-**B — `TokenLot`: `entryPriceUsd`, `entryMcapUsd`, `entryMcapBucket`, `costBasisUsd`** ✅
-- Lookup keyed by `${signature}:${mint}` (not signature alone — avoids multi-token swap collision)
-- `costBasisUsd = costBasisSol × solPriceUsd` from the enriched buy row
-
-**C — `WalletPnlSummary`: `totalVolumeUsd`, `realizedPnlUsd`, `unrealizedPnlUsd`, `netPnlUsd`** ✅
-- `realizedPnlUsd` uses **true FIFO replay in USD** — same algorithm as SOL path (`buildFifoLotsForToken`): same sort, same tolerances, per-unit cost consumption. Correct for partial exits.
-- `unrealizedPnlUsd` = current holdings USD − remaining open lot cost basis (fraction-scaled for partial lots)
-- All computed from a single `SwapAnalysisInput` query (1 round-trip, not 5)
-
-#### Key implementation details
-- All new fields nullable — zero risk to existing queries or API responses
-- Single consolidated `allEnrichedRows` query feeds Tasks A, B, C — replaces 4 separate queries that existed before code review
-- `DEFAULT_EXCLUDED_MINTS` filtered from USD path, consistent with SOL path
-- Entire new block inside `!isViewOnlyMode && !isHistoricalView` guard — no wasted I/O on dashboard loads
-- `pnm verify` clean, `prisma db push` applied to dev DB
-
-**D — HUD DTO: lean mcap signal only** ✅
-- Legacy HUD mcap fields (`preferredMcapBucket`, `avgEntryMcap`) were removed again.
-- HUD now surfaces `typicalEntryMcapUsd` + `dominantEntryMcapBucket` only; richer mcap context lives under full wallet behavior/profile.
-- Files: `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `WalletHudOverlay.tsx`
-
+| ID | Task | Priority |
+|:--:|:-----|:--------:|
+| MCP-1 | **[sova-intel-mcp] Package scaffold** — `package.json`, `tsconfig.json`, `src/index.ts`, `src/server.ts` | 🔴 NOW |
+| MCP-2 | **[sova-intel-mcp] Config + auth layer** — `config.ts`, `auth/resolve-auth-mode.ts`, `auth/api-key-auth.ts`, `auth/x402-auth.ts` | 🔴 NOW |
+| MCP-3 | **[sova-intel-mcp] Core layer** — `core/result.ts`, `core/errors.ts`, `core/summary.ts`, `core/availability.ts` | 🔴 |
+| MCP-4 | **[sova-intel-mcp] Wallet tools** — `wallet-hud`, `wallet-profile`, `wallet-token-pnl`, `batch-wallet-hud` | 🔴 |
+| MCP-5 | **[sova-intel-mcp] Async tools** — `token-holder-profiles`, `wallet-similarity`, `deep-token-analysis`, `job-status`, `job-wait` | 🔴 |
+| MCP-6 | **[sova-intel-mcp] Resources** — `pricing` (live fetch), `skill` (live), `auth-help` | 🟡 |
+| MCP-7 | **[sova-intel-mcp] Build + install wiring** — `pnpm install`, `pnpm build`, smoke test via `npx` | 🟡 |
+| GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
+| GUIDE-1 | **Finish wallet intelligence guide** (`documentation/agent-wallet-intelligence-guide.md`) | ⚪ |
+| X-1 | **Finish sova-x wallets/tokens opening work** | ⚪ |
 
 ---
 
-### March 28, 2026 — INTEL-SLIM Agent Endpoints + SDK v0.2.0 ✅ COMPLETE
+## Pending (carry-over)
 
-All SLIM steps done. Backend shipped earlier; SDK and docs completed this session.
+| Status | Task | Notes |
+|:------:|:-----|:------|
+| ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | Manual DB flip + script |
+| ⚪ | **Production auth hardening** — cookie-mode readiness + CSP tightening | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until full flow complete |
+| ⚪ | **Implement feed feature** | Design and implement activity feed functionality |
+| ⚪ | **Intel contract — SDK ownership decision** | Decide: handwritten SDK as main facade + generated as low-level baseline, or hybrid generated-core + handwritten-facade. Then: move SDK ownership into `sova-intel` cleanly, revisit docs automation from stable artifact path |
+| ⚪ | **REMOVE AUTODOC from deps** | |
 
-### March 31, 2026 — MCE-7: Market Context Downstream ✅
+---
+
+## Recent Activity
+
+### April 3, 2026 — Intel Contract Pipeline Finished
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
-| 31.1 | 🎯 FEAT | **[MCE-7A]** `AnalysisResult`: `avgExitMcap` + `avgExitMcapBucket` — volume-weighted avg mcap at sell time, per token | 🟢 S | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
-| 31.2 | 🎯 FEAT | **[MCE-7B]** `TokenLot`: `entryPriceUsd`, `entryMcapUsd`, `entryMcapBucket`, `costBasisUsd` — per-lot USD cost basis and entry mcap, keyed by `signature:mint` to avoid multi-token swap collisions | 🟢 S | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
-| 31.3 | 🎯 FEAT | **[MCE-7C]** `WalletPnlSummary`: `totalVolumeUsd`, `realizedPnlUsd`, `unrealizedPnlUsd`, `netPnlUsd` — true FIFO USD replay matching SOL algorithm exactly (same sort, tolerances, per-unit cost consumption) | 🟡 M | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
-| 31.4 | 🐛 FIX | **[MCE-7 review]** 6 bugs found and fixed before ship: signature collision on lot map, `realizedPnlUsd` including open positions, partial lot fraction on unrealized, 5→1 DB round-trips, excluded mints missing from USD path, lot enrichment query firing on view-only calls | 🟡 M | `pnl-analysis-service.ts` |
-| 31.5 | 🎯 FEAT | **[MCE-7D]** HUD DTO: `preferredMcapBucket` + `avgEntryMcap` surfaced from behavior profile. Proper migration file created (`20260331000000_mce7_downstream`) covering all 16 new columns across 4 tables. | 🟢 S | `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `prisma/migrations/` |
-| 31.6 | 🐛 FIX | **[MCE-7 orchestration]** Live wallet-analysis paths were consuming raw `SwapAnalysisInput` before market-context enrichment. Patched live orchestrators to enforce enrichment before canonical analysis: dashboard wallet analysis, similarity deep sync, holder-profile wallet mode. Standalone wallet sync now rebuilds downstream state after async market-context processing. Bulk backfill script left enrichment-only on purpose. Verified on prod wallet `3dcd4qeoY4ETxczLMR54f5p2c9RrFEpqqMuLjZfMPx1k` — enriched swaps + downstream mcap/USD fields populated end-to-end. | 🟡 M | `analysis-operations.processor.ts`, `similarity-operations.processor.ts`, `enrichment-operations.processor.ts`, `wallet-operations.processor.ts`, `scripts/queue-market-context-backfill.ts` |
-
-**Key decisions:**
-- `realizedPnlUsd` uses full FIFO replay in USD — not aggregate flow. Partial exits are correct.
-- Single `allEnrichedRows` query per analysis feeds all three downstream computations (A, B, C)
-- All new fields nullable, no existing API surface changed — pure additive
-- Self-healing only works if the caller enforces `sync -> enrich -> analyze`; this orchestration gap was patched for live flows on 2026-03-31
-- Do not move market-context enrichment into raw `SwapAnalysisInput` insert path; ingestion should stay fast. Proper long-term fix is a shared preparation layer before canonical analysis.
+| 3.1 | 🎯 FEAT | **[INTEL-AUDIT-1]** Intel surface drift audit — controller endpoints vs SDK method coverage, accepted-response types, HUD fields, wallet behavior fields, docs surfaces. Strict mode catches real drift classes. | 🟡 M | `scripts/intel-surface-audit.ts`, `package.json`, `.github/workflows/intel-surface-audit.yml` |
+| 3.2 | 🔧 REFACTOR | **[INTEL-SYNC-BRIDGE-REMOVED]** Removed temporary patch-sync script from active workflow. Contract path no longer depends on regex surface patching. | 🟢 S | `package.json`, `scripts/intel-sync-surfaces.ts` |
+| 3.3 | 🔧 REFACTOR | **[INTEL-SDK-LAYERING]** SDK public accepted-response types now live explicitly in `packages/sdk/src/types.ts`; no longer re-exported from `generated-intel-contract.ts`. Strict audit checks parity. | 🟢 S | `packages/sdk/src/types.ts`, `packages/sdk/src/client.ts`, `packages/sdk/src/index.ts`, `scripts/intel-surface-audit.ts` |
+| 3.4 | 🎯 FEAT | **[INTEL-ARTIFACT-1]** Intel public DTO layer + OpenAPI exporter + SDK contract generator working end-to-end from `artifacts/intel-openapi.json`. `pnpm run build`, `intel:openapi`, `intel:sdk`, `intel:audit:strict` all pass. `pnpm run intel:verify` is the local end-to-end check. | 🟢 M | `src/api/shared/dto/intel-public.dto.ts`, `src/api/controllers/intel.controller.ts`, `scripts/export-intel-openapi.ts`, `scripts/generate-intel-sdk-contract.ts`, `packages/sdk/src/generated-intel-contract.ts`, `package.json` |
+| 3.5 | 🔧 REFACTOR | **[INTEL-ARTIFACT-ISOLATION]** OpenAPI export boots a dedicated Intel-only Nest module with stub providers instead of full `AppModule`, removing Redis/queue coupling from artifact generation. | 🟢 S | `scripts/export-intel-openapi.ts`, `src/api/modules/intel-openapi.module.ts` |
+| 3.6 | 🔧 EVAL | **[INTEL-GENERATED-SDK-EVAL]** One-off generator emits a fully artifact-driven SDK package to `C:/Users/solastic/prj/sova-intel/sdk-generated`. Compiles, but raw generated surface is materially worse than handwritten SDK ergonomics. Evaluation-only — not committed until ownership decision made. | 🟢 M | `scripts/export-generated-intel-sdk.ts`, `artifacts/generated-sdk-eval/` |
+| 3.7 | 🔧 INFRA | **[INTEL-HOOK-AUTOMATION]** `pnpm run hooks:install` installs `.git/hooks/pre-commit` — reruns Intel contract pipeline only for staged Intel contract changes, auto-stages generated contract outputs, reminds author of SDK facade/docs follow-up. CI remains hard backstop on PRs to `main`. | 🟢 S | `scripts/install-git-hooks.ps1`, `scripts/git-hooks/pre-commit-intel.ps1`, `.github/workflows/intel-surface-audit.yml`, `package.json` |
 
 ---
-
-### March 28, 2026 — INTEL-SLIM Agent Endpoints + SDK v0.2.0 ✅ COMPLETE
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 28.1 | 🎯 FEAT | SLIM-1/2/3: `intel-agent-transforms.ts` — transforms, 4 new routes in `intel.controller.ts`, `getResultByKey` whitelist updated. | 🟡 M | `intel-agent-transforms.ts`, `intel.controller.ts`, `jobs.service.ts` |
-| 28.2–28.9 | 🐛 FIX | Aggregate LP exclusion, holdingsSummary, pairs[] merge, similarity formula fix, FRESH label, walletVectorsUsed strip. | 🟢 S | `intel-agent-transforms.ts`, `similarity-operations.processor.ts` |
-| 28.10 | 🎯 FEAT | **SLIM-4:** SDK v0.2.0 — `BatchHudResponse` fixed (`notFound` → `queued`+`skipped`), agent types added (`AgentHolderProfilesResult`, `AgentSimilarityResult`, 202 response types), 4 new client methods (`queueTokenHoldersAgent`, `pollTokenHoldersAgent`, `queueWalletSimilarityAgent`, `pollWalletSimilarityAgent`). All exported from `index.ts`. | 🟡 M | `packages/sdk/src/types.ts`, `client.ts`, `index.ts` |
-| 28.11 | 🎯 FEAT | **SLIM-5:** Docusaurus docs — `/holders/agent` + `/similarity/agent` full sections in `batch-token.md`. SDK page updated: batch HUD example fixed, agent method examples + exported types + method reference table. | 🟡 M | `sova-intel/docs/endpoints/batch-token.md`, `sova-intel/docs/sdk.md` |
-| 28.12 | 🎯 FEAT | SKILL.md v1.2 — agent endpoints promoted with full result shapes, `/holders` + `/similarity` compressed to 2 lines, `/holders/deep` stale "501" note removed (it's live), pricing table reordered agent-first, x402 TypeScript implementation removed (contract + constants kept). | 🟡 M | `documentation/agent-skill/SKILL.md` |
-| 28.13 | 🐛 FIX | README — wrong `SovaClient` class name + constructor shape fixed. "Built for AI agents" section added above SDK section. | 🟢 S | `sova-intel/README.md` |
-
-**Key decisions:**
-- `BatchHudResponse.notFound` was a breaking SDK bug — bumped to 0.2.0
-- Agent result keys are lazy derivatives of full keys — derived at first fetch, cached with remaining TTL of full key, 404 if full key expired (correct, no patch needed)
-- SKILL.md serves from `dashboard/src/app/skill.md/route.ts` reading `documentation/agent-skill/SKILL.md` at build time — needs dashboard redeploy to pick up changes
-
----
-
-### March 27, 2026 — Holder Profile Share Page Parity Rebuild
-
-**Problem:** `/share/hp/[shareId]` shipped as a bespoke summary page that reuses the data but not the holder-profiles v2 product surface. Brand, ordering, colors, and layout diverged from the canonical page.
-
-**Plan (two passes):**
-
-| Pass | Goal | Scope | Notes |
-|:-----|:-----|:------|:------|
-| Pass 1 | Replace the bespoke shared page with a share-safe holder-profiles v2 renderer | `dashboard` + share snapshot normalization | Reuse `TokenPulse`/v2 presentation, keep page public/read-only, add `tokenSnapshot` to share payload for token hero parity |
-| Pass 2 | Persist and render similarity data on shared pages | backend share snapshot + frontend sidebar parity | Restore the similar-pairs sidebar and related highlighting so shared links feel like the real page, not a reduced clone. Persist only trimmed pairwise similarity fields, not the full raw similarity payload |
-
-**Success criteria:** Shared holder profile links should look and feel like Sova Intel holder profiles, not a separate microsite with ad hoc styling.
-
----
-
-### March 24, 2026 — Shareable Holder Profiles ✅ COMMITTED + CODE REVIEWED
-
-**Feature branch:** `feature/holder-profile-sharing` (2 commits: initial build + code review fixes)
-
-| File | What |
-|:-----|:-----|
-| `prisma/schema.prisma` | `HolderProfileShare` model added; `User.holderProfileShares` relation |
-| `prisma/migrations/20260324115336_add_holder_profile_share/` | Migration applied to DB ✅ |
-| `src/api/services/holder-profile-share.service.ts` | Uses `HolderProfilesCacheService` (not raw Redis), proper Prisma cast, `getShareRaw()` for no-count reads |
-| `src/api/controllers/share.controller.ts` | `POST /share/hp` (auth) + `GET /share/hp/:id` + `GET /share/hp/:id/raw` (no view count) |
-| `src/api/controllers/dto/create-holder-profile-share.dto.ts` | DTO extracted to its own file |
-| `src/api/modules/share.module.ts` | Imports `HolderProfilesCacheModule` (not raw RedisModule) |
-| `src/api.module.ts` | ShareModule imported |
-| `dashboard/src/middleware.ts` | `/share` added to publicRoutes |
-| `dashboard/src/app/share/hp/[shareId]/page.tsx` | SSR server component; metadata uses `/raw` (no view count), page uses view-counting endpoint |
-| `dashboard/src/app/api/og/hp/[shareId]/route.tsx` | Edge OG image; calls `/raw` to avoid inflating view count on crawler hits |
-| `dashboard/src/app/tools/holder-profiles/page.tsx` | Share button (idle→loading→copied, clipboard + sonner toast) |
-
-**Key fix:** OG image + `generateMetadata` both called the view-counting endpoint — every social crawler preview was inflating analytics. Fixed with dedicated `/raw` endpoint.
-
----
-
-### March 23, 2026 — GTM Week 1 Remaining Tasks (Day 5 of 7)
-
-**Posts: 4/7. 2 days left (Mar 24-25). Need 3 more posts.**
-
-| # | Task | Priority | Notes |
-|:--:|:-----|:--------:|:------|
-| GTM-1 | **Fix + post Colosseum draft** | 🔴 NOW | Replace fabricated "454 agents" number with a real stat. Draft is in `.claude/drafts/`. One edit, one publish → 5/7 posts. |
-| GTM-2 | **Post token holder breakdown** | 🔴 NOW | Pick a trending token, run `POST /intel/token/:mint/holders`, post the distribution. All 4 posts so far are wallet-focused — need token content. 20 min. |
-| GTM-3 | **Open Twitter bot for public use** | 🔴 NOW | Rate-limit it and open. This is the Week 1 organic flywheel — every public lookup is a shareable card impression. Announce on @Sova_intel. |
-
----
-
-### March 22, 2026 — GTM Playbook + sova-x Wallet Profile Card 
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 22.1 | 🎯 FEAT | GTM W1: published runner analysis + $DOWNALDTWUMP thread (2/7 posts). Integration guide draft fixed (SDK field names). x402 Hook + Colosseum drafts ready to post. | 🟢 S | `.claude/drafts/`, `.claude/agent-progress/PROGRESS.md` |
-| 22.2 | 🎯 FEAT | sova-x: on-demand wallet profile card — SVG renderer + CLI script. `pnpm test:wallet-card <ADDR>` → PNG in `out/`. Uses public `GET /intel/wallet/:addr`. Design in progress. | 🟡 M | `sova-x/src/render/wallet-profile-card.ts`, `sova-x/src/scripts/test-wallet-card.ts` |
-
----
-
-### Pending carry-over
-
-| Status | Task | Scope | Notes |
-|:------:|:-----|:-----:|:------|
-| ✅ | **[SHARE-3]** Holder profile share page parity rebuild — shared holder profile links now use holder-profiles v2 presentation and persist trimmed similarity sidebar data in the share snapshot. | 🟡 M | DONE. |
-| ✅ | **[SHARE-1+2]** Shareable holder profiles — fully built, code-reviewed, committed on `feature/holder-profile-sharing`. Ready for smoke test + merge. | 🟡 M | DONE. |
-| ✅ | **[INTEL-SLIM]** Agent-optimised endpoints complete — backend, SDK v0.2.0, docs, SKILL.md. Deploy SDK to npm + backend to server. | 🟡 M | `intel.controller.ts`, `intel-agent-transforms.ts`, `packages/sdk/`, `documentation/agent-skill/SKILL.md` |
-| ✅ | **[MCE-7 follow-up]** `WalletPreparationService` shipped — canonical `sync -> enrich` layer, all analysis processors unified. Merged to main 2026-04-02. | 🟢 S | `wallet-preparation.service.ts`, `market-context.module.ts`, processor call sites |
-| ⚪ | **[PAY-5d]** Blocked wallet E2E test — `isActive=false` returns 403 | 🟢 S | Manual DB flip + script |
-| ✅ | **[HUD-TOKENS-DAY — MIGRATION PENDING]** Code shipped (commit `7de00a5f`). Run `npx prisma migrate dev --name add-active-trading-days` to activate. Existing rows use legacy wall-clock fallback until re-analyzed. | 🟢 S | `prisma/schema.prisma` |
-| ⚪ | Production auth hardening: cookie-mode readiness + CSP tightening | 🔴 L | Set `CSRF_SECRET`; keep `AUTH_COOKIE_MODE=false` until backend cookie auth, frontend CSRF header flow, and stricter CSP are complete. |
-| ⚪ | Implement feed feature | 🔴 L | Design and implement activity feed functionality. |
-
-> **Note:** REMOVE AUTODOC from deps!
-
-**Recently Completed:**
-
-<details>
-<summary><b>Legend</b></summary>
-
-**Status:**  In Progress   Blocked   Ready   Testing
-**Scope:**  Small (<50 lines, <1hr)   Medium (2-5 files, <4hrs)   Large (5+ files, multi-day)
-
-</details>
-
----
-
-##  Current Focus & Priorities
-
-
-### P1: Helius API Optimization — ✅ COMPLETE (Feb 16-17)
-
-**Phase 2 (future):** Helius Webhooks / WebSocket subscriptions for active wallets
-
----
-
-##  Recent Activity
-
-### April 3, 2026 — Intel Contract Pipeline Layer Finished
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 3.1 | 🎯 FEAT | **[INTEL-AUDIT-1]** Added Intel surface drift audit covering controller endpoints vs SDK method coverage, accepted-response types, HUD fields, wallet behavior fields, and docs surfaces. Strict mode now catches the real drift classes we care about. | 🟡 M | `scripts/intel-surface-audit.ts`, `package.json`, `.github/workflows/intel-surface-audit.yml` |
-| 3.2 | 🔧 REFACTOR | **[INTEL-SYNC-BRIDGE-REMOVED]** Removed the temporary patch-sync script from the active workflow. The contract path no longer depends on regex surface patching. | 🟢 S | `package.json`, `scripts/intel-sync-surfaces.ts` |
-| 3.3 | 🔧 REFACTOR | **[INTEL-SDK-LAYERING]** SDK public accepted-response types now live explicitly in `packages/sdk/src/types.ts`; they are no longer re-exported from `generated-intel-contract.ts`. The generated file remains an internal artifact, and strict audit now checks parity between generated contract and public SDK types. | 🟢 S | `packages/sdk/src/types.ts`, `packages/sdk/src/client.ts`, `packages/sdk/src/index.ts`, `scripts/intel-surface-audit.ts` |
-| 3.4 | 🎯 FEAT | **[INTEL-ARTIFACT-1]** Intel public DTO layer + OpenAPI exporter + SDK contract generator are working end-to-end from `artifacts/intel-openapi.json`. `pnpm run build`, `pnpm run intel:openapi`, `pnpm run intel:sdk`, and `pnpm run intel:audit:strict` all pass. | 🟢 M | `src/api/shared/dto/intel-public.dto.ts`, `src/api/controllers/intel.controller.ts`, `scripts/export-intel-openapi.ts`, `scripts/generate-intel-sdk-contract.ts`, `packages/sdk/src/generated-intel-contract.ts`, `package.json` |
-| 3.5 | 🔧 REFACTOR | **[INTEL-ARTIFACT-ISOLATION]** OpenAPI export now boots a dedicated Intel-only Nest module with stub providers instead of the full `AppModule`, removing Redis/queue runtime coupling from artifact generation. | 🟢 S | `scripts/export-intel-openapi.ts`, `src/api/modules/intel-openapi.module.ts` |
-| 3.6 | 🔧 EVAL | **[INTEL-GENERATED-SDK-EVAL]** Added a one-off generator that emits a fully artifact-driven SDK package and exported it to `C:/Users/solastic/prj/sova-intel/sdk-generated`. The generated package compiles, proving docs-repo SDK ownership is viable, but the raw generated surface is still materially worse than the handwritten SDK ergonomics. | 🟢 M | `scripts/export-generated-intel-sdk.ts`, `artifacts/generated-sdk-eval/`, `C:/Users/solastic/prj/sova-intel/sdk-generated/` |
-| 3.7 | 🔧 INFRA | **[INTEL-HOOK-AUTOMATION]** Added local hook install support and a narrow Intel pre-commit check. `pnpm run hooks:install` installs `.git/hooks/pre-commit`, which reruns the Intel contract pipeline only for staged Intel contract changes, auto-stages generated contract outputs, and reminds the author to review handwritten SDK facade/docs follow-up. CI remains the hard backstop on PRs to `main`. | 🟢 S | `scripts/install-git-hooks.ps1`, `scripts/git-hooks/pre-commit-intel.ps1`, `.github/workflows/intel-surface-audit.yml`, `package.json` |
-
-**Current reality:**
-- `pnpm run build` is green.
-- `pnpm run intel:audit:strict` is green for the targeted drift classes.
-- `artifacts/intel-openapi.json` is emitted from an isolated Intel-only OpenAPI module, not the full app runtime.
-- `packages/sdk/src/generated-intel-contract.ts` is generated from that artifact.
-- `packages/sdk/src/types.ts` remains the canonical SDK public type surface, and strict audit verifies parity with the generated contract for accepted-response types.
-- A generated evaluation SDK package can also be emitted from the same artifact; it compiles, but today it is best treated as a low-level baseline rather than a direct replacement for the handwritten SDK.
-- Local automation exists via `pnpm run hooks:install`; once installed, commits touching staged Intel contract files automatically rerun the Intel contract pipeline and stage refreshed generated outputs.
-- CI automatically reruns the same contract pipeline on PRs to `main` and fails if generated files are stale or contract parity breaks.
-- Docs automation is still manual/downstream and should not yet be treated as artifact-driven.
-
-**What still must be done before this is “sorted out”:**
-1. Decide whether `packages/sdk/src/generated-intel-contract.ts` should stay committed as an internal checked-in artifact or become pure generated CI output.
-2. Decide whether to adopt a hybrid SDK model: generated low-level client/contracts plus a thin handwritten facade for ergonomic helpers.
-3. If the hybrid model is adopted, move SDK ownership into `C:/Users/solastic/prj/sova-intel` cleanly rather than maintaining endpoint plumbing in two places.
-4. Revisit docs automation from the now-stable artifact path, ideally as generated reference blocks plus drift detection rather than free-form patching.
-5. Keep the drift audit as the guardrail even if docs automation becomes more automated.
 
 ### April 2, 2026 — Token Supply Optimization + WalletPreparationService
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
-| 2.1 | 🐛 FIX | `TokenHoldersService.getTopHolders` was calling `heliusClient.getTokenSupply` directly, bypassing the Redis → DB → RPC cache in `TokenInfoService`. Now routes through `TokenInfoService.getTokenSupply` — every mint is cache-first and never fetched from RPC more than once across callers. | 🟢 S | `src/api/services/token-holders.service.ts` |
-| 2.2 | 🔧 REFACTOR | `buildSupplyMap` concurrency raised 3→10, inter-chunk delay lowered 300ms→100ms. For 200 cold mints: ~20s artificial delay cut to ~2s. Safe now that the main Helius API key is in use. | 🟢 S | `src/api/services/market-context.service.ts` |
-| 2.3 | 🎯 FEAT | `WalletPreparationService` — shared `sync → enrich` orchestration layer. All full-wallet analysis paths now call `prepareWallet(address, syncOptions?)` instead of inlining the sequence. Pass `undefined` for sync-options to enrich-only. Prevents the null-mcap orchestration gap (see `MARKET_CONTEXT_ORCHESTRATION_GAP_2026-03-31.md`) from recurring on new processor paths. | 🟢 S | `src/api/services/wallet-preparation.service.ts`, `src/api/modules/market-context.module.ts`, `src/queues/processors/analysis-operations.processor.ts`, `src/queues/processors/similarity-operations.processor.ts` |
-| 2.4 | 🔧 REFACTOR | Removed now-unused `HeliusSyncService` and `MarketContextService` constructor injections from `SimilarityOperationsProcessor` — both superseded by `WalletPreparationService`. | 🟢 S | `src/queues/processors/similarity-operations.processor.ts` |
+| 2.1 | 🐛 FIX | `TokenHoldersService.getTopHolders` was calling `heliusClient.getTokenSupply` directly, bypassing Redis → DB → RPC cache in `TokenInfoService`. Now routes through `TokenInfoService.getTokenSupply`. | 🟢 S | `src/api/services/token-holders.service.ts` |
+| 2.2 | 🔧 REFACTOR | `buildSupplyMap` concurrency raised 3→10, inter-chunk delay lowered 300ms→100ms. For 200 cold mints: ~20s artificial delay cut to ~2s. | 🟢 S | `src/api/services/market-context.service.ts` |
+| 2.3 | 🎯 FEAT | `WalletPreparationService` — shared `sync → enrich` orchestration layer. All full-wallet analysis paths now call `prepareWallet(address, syncOptions?)`. Prevents null-mcap orchestration gap from recurring on new processor paths. | 🟢 S | `src/api/services/wallet-preparation.service.ts`, `src/api/modules/market-context.module.ts`, `src/queues/processors/analysis-operations.processor.ts`, `src/queues/processors/similarity-operations.processor.ts` |
+| 2.4 | 🔧 REFACTOR | Removed now-unused `HeliusSyncService` and `MarketContextService` injections from `SimilarityOperationsProcessor` — superseded by `WalletPreparationService`. | 🟢 S | `src/queues/processors/similarity-operations.processor.ts` |
 
 **Key decisions:**
-- `wallet-operations` processor intentionally excluded from `WalletPreparationService` — it queues enrichment async via `process-market-context`, which is correct for that flow.
-- Staleness check (`needsSync`) stays in each processor — they decide whether to pass real sync options or `undefined`. The service only enforces ordering, not staleness logic.
-- `TokenHoldersService.supply` object returned to REST callers still has `uiAmount` populated correctly; `amount`/`decimals` are blank (display-only fields, no internal math uses them).
+- `wallet-operations` processor intentionally excluded from `WalletPreparationService` — queues enrichment async via `process-market-context`.
+- Staleness check (`needsSync`) stays in each processor. The service only enforces ordering, not staleness logic.
 
 ---
 
@@ -245,152 +68,36 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
-| 1.1 | 🎯 FEAT | Wallet market-cap behavior reworked to use robust persisted summaries: `typicalEntryMcapUsd`, `entryMcapP25Usd`, `entryMcapP75Usd`, `dominantEntryMcapBucket`, `dominantEntryMcapBucketShare`, plus token-level robust entry/exit mcap fields on `AnalysisResult`. Shared weighted-mcap math was embedded into existing `market-context-standalone.ts` rather than a new subsystem. | 🟡 M | `prisma/schema.prisma`, `prisma/migrations/20260401000000_market_cap_behavior_profile_rework/`, `behavior-service.ts`, `pnl-analysis-service.ts`, `market-context-standalone.ts` |
-| 1.2 | 🔧 REFACTOR | HUD mcap layering corrected. HUD now stays signal-only and shows `Typical Entry Mcap` as the primary signal; bracketed bucket presentation was removed because it falsely combined two different signals. Full behavior/profile API carries the richer mcap context. | 🟡 M | `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `behavior.service.ts`, `intel.controller.ts`, `dashboard/src/components/shared/WalletHudOverlay.tsx`, `dashboard/src/lib/mcap.ts`, `packages/sdk/src/types.ts` |
-| 1.3 | 🐛 FIX | Holder-profile token-mode `entryMcapUsd` was corrected twice: first away from token-level weighted median, then to the actual product metric. The final implementation now prefers open `TokenLot` position entry mcap weighted by `amountRemaining`, with `AnalysisResult.avgEntryMcap` fallback. This answers “where is this holder positioned in this token?” better than historical USD deployment or wallet-level typical metrics. Tooltip/copy updated accordingly. | 🟡 M | `analysis-operations.processor.ts`, `database-service.ts`, `dashboard/src/components/holder-profiles/v2/MinimalHoldersTable.tsx` |
-| 1.4 | 🐛 FIX | Startup SOL daily price cache behavior simplified. `QueueModule` no longer count-checks `solDailyPrice` and fire-and-forgets a 730-day backfill on startup. Startup now only calls `appendTodaySolPrice()`. Historical SOL fetches can still occur on-demand via `ensureSolPriceCoverage()` during enrichment when old timestamps require it. | 🟢 S | `src/queues/queue.module.ts`, `src/api/services/market-context.service.ts`, `src/core/services/market-context-standalone.ts` |
-| 1.5 | 📌 DECISION | Product semantics clarified: wallet HUD should answer “what caps does this wallet usually trade?”; holder-profile token rows should answer “around what mcap is this current holder position built?” These are different questions and intentionally use different mcap summaries. | 🟢 S | `.ai/context/MARKET_CAP_BEHAVIOR_PROFILE_REWORK_PLAN_2026-04-01.md` |
+| 1.1 | 🎯 FEAT | Wallet market-cap behavior reworked to use robust persisted summaries: `typicalEntryMcapUsd`, `entryMcapP25Usd`, `entryMcapP75Usd`, `dominantEntryMcapBucket`, `dominantEntryMcapBucketShare`, plus token-level robust entry/exit mcap on `AnalysisResult`. | 🟡 M | `prisma/schema.prisma`, `prisma/migrations/20260401000000_market_cap_behavior_profile_rework/`, `behavior-service.ts`, `pnl-analysis-service.ts`, `market-context-standalone.ts` |
+| 1.2 | 🔧 REFACTOR | HUD mcap layering corrected. HUD stays signal-only (`Typical Entry Mcap`); bracketed bucket removed. Full behavior/profile API carries richer mcap context. | 🟡 M | `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `behavior.service.ts`, `intel.controller.ts`, `dashboard/src/components/shared/WalletHudOverlay.tsx`, `dashboard/src/lib/mcap.ts`, `packages/sdk/src/types.ts` |
+| 1.3 | 🐛 FIX | Holder-profile token-mode `entryMcapUsd` corrected: now prefers open `TokenLot` position entry mcap weighted by `amountRemaining`, with `AnalysisResult.avgEntryMcap` fallback. Answers "where is this holder positioned in this token?" correctly. | 🟡 M | `analysis-operations.processor.ts`, `database-service.ts`, `dashboard/src/components/holder-profiles/v2/MinimalHoldersTable.tsx` |
+| 1.4 | 🐛 FIX | Startup SOL daily price cache simplified. `QueueModule` no longer fire-and-forgets 730-day backfill on startup. Startup only calls `appendTodaySolPrice()`. | 🟢 S | `src/queues/queue.module.ts`, `src/api/services/market-context.service.ts`, `src/core/services/market-context-standalone.ts` |
+| 1.5 | 📌 DECISION | Wallet HUD answers "what caps does this wallet usually trade?"; holder-profile token rows answer "around what mcap is this current position built?" — different questions, intentionally different mcap summaries. | 🟢 S | `.ai/context/MARKET_CAP_BEHAVIOR_PROFILE_REWORK_PLAN_2026-04-01.md` |
 
 ---
 
-### March 27, 2026 — Holder Profile Share Page Parity Rebuild
+### March 31, 2026 — MCE-7: Market Context Downstream ✅ COMPLETE
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
-| 27.1 | 🎯 FEAT | **[SHARE-3]** Rebuild `/share/hp/[shareId]` on top of the holder-profiles v2 UI instead of the bespoke summary page. Shared pages now use the canonical presentation path, token metadata snapshot, and a trimmed persisted similarity snapshot (`walletA`, `walletB`, scores, shared/unique counts only) so the public sidebar renders without storing the full raw similarity payload. | 🟡 M | `src/api/services/holder-profile-share.service.ts`, `src/api/controllers/dto/create-holder-profile-share.dto.ts`, `src/api/controllers/share.controller.ts`, `dashboard/src/app/share/hp/[shareId]/page.tsx`, `dashboard/src/app/tools/holder-profiles/page.tsx`, `dashboard/src/components/holder-profiles/v2/`, `dashboard/src/lib/` |
+| 31.1 | 🎯 FEAT | **[MCE-7A]** `AnalysisResult`: `avgExitMcap` + `avgExitMcapBucket` — volume-weighted avg mcap at sell time, per token | 🟢 S | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.2 | 🎯 FEAT | **[MCE-7B]** `TokenLot`: `entryPriceUsd`, `entryMcapUsd`, `entryMcapBucket`, `costBasisUsd` — per-lot USD cost basis and entry mcap, keyed by `signature:mint` | 🟢 S | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.3 | 🎯 FEAT | **[MCE-7C]** `WalletPnlSummary`: `totalVolumeUsd`, `realizedPnlUsd`, `unrealizedPnlUsd`, `netPnlUsd` — true FIFO USD replay matching SOL algorithm exactly | 🟡 M | `prisma/schema.prisma`, `pnl-analysis-service.ts` |
+| 31.4 | 🐛 FIX | **[MCE-7 review]** 6 bugs fixed before ship: signature collision on lot map, `realizedPnlUsd` including open positions, partial lot fraction on unrealized, 5→1 DB round-trips, excluded mints missing from USD path, lot enrichment firing on view-only calls | 🟡 M | `pnl-analysis-service.ts` |
+| 31.5 | 🎯 FEAT | **[MCE-7D]** HUD DTO: `typicalEntryMcapUsd` + `dominantEntryMcapBucket` surfaced. Migration `20260331000000_mce7_downstream` covering 16 new columns across 4 tables. | 🟢 S | `wallet-hud.dto.ts`, `wallet-hud.service.ts`, `prisma/migrations/` |
+| 31.6 | 🐛 FIX | **[MCE-7 orchestration]** Live wallet-analysis paths were consuming raw `SwapAnalysisInput` before market-context enrichment. Patched live orchestrators: dashboard wallet analysis, similarity deep sync, holder-profile wallet mode. | 🟡 M | `analysis-operations.processor.ts`, `similarity-operations.processor.ts`, `enrichment-operations.processor.ts`, `wallet-operations.processor.ts`, `scripts/queue-market-context-backfill.ts` |
+
+**Key decisions:**
+- `realizedPnlUsd` uses full FIFO replay in USD — not aggregate flow. Partial exits are correct.
+- Single `allEnrichedRows` query per analysis feeds all three downstream computations (A, B, C).
+- All new fields nullable, no existing API surface changed.
+- Self-healing only works if caller enforces `sync -> enrich -> analyze`; orchestration gap patched for live flows 2026-03-31.
 
 ---
 
-### March 24, 2026 — Shareable Holder Profiles
+## Architecture Decisions
 
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 24.1 | 🎯 FEAT | **[SHARE-1+2]** Shareable holder profiles — `HolderProfileShare` Prisma model + migration, `POST /share/hp` + `GET /share/hp/:id` NestJS endpoints, `/share/hp/[shareId]` SSR page with `generateMetadata` OG tags, `/api/og/hp/[shareId]` edge ImageResponse (1200×630), Share button in holder profiles UI (clipboard + toast). Zero TS errors both backend and frontend. **Not yet committed.** | 🟡 M | `prisma/schema.prisma`, `src/api/services/holder-profile-share.service.ts`, `src/api/controllers/share.controller.ts`, `src/api/modules/share.module.ts`, `dashboard/src/app/share/hp/[shareId]/page.tsx`, `dashboard/src/app/api/og/hp/[shareId]/route.tsx`, `dashboard/src/app/tools/holder-profiles/page.tsx`, `dashboard/src/middleware.ts` |
-
----
-
-### March 23, 2026 — Carry-over bug fixes + SDK update + pre-commit hook
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 23.1 | 🐛 FIX | **[PAY-X402-RECEIPT]** `X-Payment-Response` header now set synchronously — tx broadcast in guard (`broadcastAndGetSig`), sig stored on request, header set in interceptor before `next.handle()`, confirm+record fires async fire-and-forget | 🟢 S | `x402-verification.service.ts`, `credit.guard.ts`, `credit.interceptor.ts` |
-| 23.2 | 🐛 FIX | **[INTEL-DEEP-BUG]** `POST /intel/token/:mint/holders/deep` re-enabled — removed circular `wallets[]` requirement, added `chainSimilarity` flag to job data, processor auto-queues similarity after holder-profiles completes using discovered addresses. SDK updated: `queueDeepAnalysis` drops `wallets[]`, `pollDeepAnalysis` polls sequentially, new `pollResultKey` helper, `DeepPartialResponse` removed | 🟡 M | `jobs/types/index.ts`, `intel.controller.ts`, `analysis-operations.processor.ts`, `packages/sdk/src/` (4 files) |
-| 23.3 | 🐛 FIX | **[HUD-TOKENS-DAY]** `activeTradingDays` (distinct UTC calendar dates with trades) computed in analyzer, persisted in `WalletBehaviorProfile`, used as denominator for `uniqueTokensPerDay` + `avgTradesPerDay` in HUD with legacy wall-clock fallback. **Migration required:** `npx prisma migrate dev --name add-active-trading-days` | 🟡 M | `schema.prisma`, `types/behavior.ts`, `behavior/analyzer.ts`, `behavior-service.ts`, `behavior.service.ts`, `wallet-hud.service.ts` |
-| 23.4 | 🔧 INFRA | Pre-commit hook updated — DB backup block removed (SQLite/irrelevant). New: staging `intel.controller.ts` / DTOs / job types without SDK changes triggers a hard warning with `--no-verify` escape hatch. Staging SDK files runs `tsc --noEmit` and blocks on errors | 🟢 S | `.git/hooks/pre-commit` |
-
----
-
-### March 13, 2026 — Sig Buyers UI (branch: feature/sig-buyers-ui)
-
-### March 19, 2026 — Token Dashboard Merge Polish (branch: feature/token-dash-v2)
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 19.1 | 🔧 FIX | Personal token watchlist modal finished — user watchlist API wired through navbar star, personal tags editable, DexScreener `pairCreatedAt` surfaced as token age in favorites | 🟢 S | `user-watched-tokens.service.ts`, `TokenWatchlistModal.tsx`, `useUserWatchedTokens.ts`, `watched-tokens.service.ts` |
-| 19.2 | 🔧 FIX | `/tokens` UI simplified for analysts — removed sparkline fetch/render from watched token list and token thread, showing tags instead of trend lines in the list | 🟢 S | `WatchedTokenList.tsx`, `TokenThread.tsx` |
-
-**Summary:** Token dashboard transplant is complete, personal token watchlist UX is shipped, and the branch is ready to merge into `main`.
-
----
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 13.4 | 🎯 FEAT | SB-1–6: Significant Buyers scaffold — backend service (5-phase pipeline: RPC signatures → enrich → group → filter → analyze), controller, module, frontend page with UTC date/time picker + duration presets + min SOL presets + results table (max 200 rows, copy-all) | 🟡 M | `sig-buyers.dto.ts`, `sig-buyers.service.ts`, `sig-buyers.controller.ts`, `sig-buyers.module.ts`, `tools/sig-buyers/page.tsx`, `AppShell.tsx` |
-| 13.5 | 🔧 FIX | System wallet filtering uses centralized registry (`isKnownWallet` + `SystemWalletDetectionService.filterSystemWallets`) — removed hardcoded address list | 🟢 S | `sig-buyers.service.ts` |
-| 13.6 | 🔧 FIX | All times UTC throughout — `T...Z` parsing, `getUTC*()` display, ISO slice in results, "UTC" labels in UI | 🟢 S | `tools/sig-buyers/page.tsx` |
-
-**SB-1–11 complete. Feature fully shipped.**
-
----
-
-### March 13, 2026 — Self-serve API keys
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 13.1 | 🎯 FEAT | Self-serve API key endpoints — `POST/GET/DELETE /users/api-keys` (scope `['read']`, throttle 5/hr, ownership enforced) | 🟢 S | `src/api/controllers/users.controller.ts`, `src/api/modules/users.module.ts` |
-| 13.2 | 🎯 FEAT | Developer dashboard page — credit balance, one-time key reveal with copy button, key list + revoke. Nav link in UserMenu dropdown | 🟢 S | `dashboard/src/app/dashboard/developer/page.tsx`, `dashboard/src/components/auth/UserMenu.tsx` |
-| 13.3 | 🔧 FIX | `pnpm install` from root — linked `@sova-intel/sdk@0.1.1` workspace package into `node_modules` (was missing, caused bot TS errors) | 🟢 S | `pnpm-workspace.yaml`, `node_modules/@sova-intel/sdk` |
-
-**Summary:** Any developer can now register via email, receive signup credits automatically, open User Menu → API Keys, generate a key, and hit `/intel` endpoints immediately — zero manual intervention required. Registration gate (invite codes) toggled off via admin panel.
-
----
-
-### March 10, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------:|
-| 10.1 | 🔧 REFACTOR | Replace hand-rolled `IntelClient` + duplicate types with `@sova/intel-sdk` — bot now uses canonical SDK throughout | 🟡 M | `src/bot/intel/intel-client.ts` (deleted), `bot.ts`, all commands, all formatters |
-| 10.2 | 🐛 FIX | SDK `types.ts` was wrong — `WalletHud` had invented fields (`isBotFlagged`, `pnlSignal`) instead of real API fields (`isBot`, `isWhale`, `trimmedMeanPnl`, etc). Fixed against `WalletHudDto` source of truth | 🟡 M | `packages/sdk/src/types.ts`, `client.ts`, `index.ts`, `client.test.ts` |
-| 10.3 | 🎯 FEAT | Add `HolderProfile` + `HolderProfilesResult` types to SDK — were missing entirely | 🟢 S | `packages/sdk/src/types.ts`, `index.ts` |
-| 10.4 | 🎯 FEAT | Add contract tests (`contract.test.ts`) to SDK — hit real API, validate every field of every response type. `pnpm test` excludes them, `pnpm test:contract` runs them with env vars | 🟢 S | `packages/sdk/src/contract.test.ts`, `package.json` |
-| 10.5 | 🔧 REFACTOR | Add `packages/sdk` to pnpm workspace, add `@sova/intel-sdk: workspace:*` to root deps | 🟢 S | `pnpm-workspace.yaml`, `package.json` |
-| 10.6 | 🐛 FIX | Bot config env vars renamed to avoid collision with security/audit bot — `TELEGRAM_BOT_TOKEN` → `INTEL_BOT_TOKEN`, `ALLOWED_TELEGRAM_USER_IDS` → `INTEL_BOT_ALLOWED_USER_IDS` | 🟢 S | `src/bot/intel/config.ts` |
-| 10.7 | 🐛 FIX | Profile formatter was mixing hold time sources — `behavior.medianHoldTimeHours` vs `hud.medianHoldTimeHours` causing different values in `/hud` vs `/profile`. Both now use `hud.medianHoldTimeHours` (completed positions, more reliable) | 🟢 S | `formatters/profile.formatter.ts` |
-| 10.8 | 🎯 FEAT | Redesign `/hud` output — full address copyable in `<code>`, compact single-glance layout | 🟢 S | `formatters/hud.formatter.ts` |
-| 10.9 | 🎯 FEAT | Redesign `/profile` output — sectioned (PERFORMANCE / BEHAVIOR / PORTFOLIO / META), `timeAgo()` for last analyzed, full address copyable | 🟢 S | `formatters/profile.formatter.ts` |
-| 10.10 | 🎯 FEAT | Redesign `/holders` output — distribution elevated to top, sorted by hold-time spectrum (Sniper→Holder), system wallets demoted to footer, uncategorized wallets shown as `🆕 New` with supply % | 🟢 S | `formatters/holders.formatter.ts` |
-| 10.11 | 🔧 REFACTOR | PM2 ecosystem entry: switch from ts-node interpreter to compiled `dist/bot/intel/index.js` — eliminates 300MB ts-node memory footprint | 🟢 S | `ecosystem.config.js` |
-| 10.12 | 🐛 FIX | `@nestjs/core` upgraded to `11.1.9` by pnpm drift breaking `ScheduleModule` + `EventEmitterModule`. Pinned `@nestjs/core@11.1.2`, `@nestjs/common@11.1.6`, `@nestjs/schedule@6.0.0` | 🟢 S | `package.json` |
-| 10.13 | 🐛 FIX | `manage-api-keys.ts` script missing `EventEmitter2` arg after `ApiKeyService` constructor changed | 🟢 S | `scripts/manage-api-keys.ts` |
-
-### March 9, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 9.11 | 🎯 FEAT | TG-1–TG-9: Full Telegram Bot Intel implementation — schema, seed, scaffold, client, commands, formatters, attribution, PM2 | 🟡 M | `prisma/schema.prisma`, `prisma/seed-telegram-bot.ts`, `src/bot/intel/` (11 files), `ecosystem.config.js` |
-| 9.10 | 🎯 FEAT | Branch `feat/telegram-bot-intel` created — spec + CONTEXT updated | 🟢 S | `.ai/context/telegram-bot/spec.md`, `.ai/CONTEXT.md` |
-
-### March 9, 2026 — Holdings Radar (previous branch)
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 9.1 | 🎯 FEAT | TRK-1–5: Full Holdings Radar backend — models, guard, snapshot service, 7 endpoints | 🟡 M | `radar.controller.ts`, `radar-snapshot.service.ts`, `radar.module.ts`, schema migration |
-| 9.2 | 🐛 FIX | `isAnalyst` missing from all auth responses and frontend `User` type | 🟡 M | `auth.service.ts`, `auth.controller.ts`, `auth-store.ts`, `useAuth.ts` |
-| 9.3 | 🎯 FEAT | TRK-6–10: Holdings Radar frontend — event feed, holdings view, add/remove wallet, review actions | 🟡 M | `dashboard/src/app/radar/page.tsx` |
-| 9.4–9.9 | 🐛 FIX | Cascade of price/dust/USD bugs in radar snapshot and feed | 🟢 S | `radar-snapshot.service.ts`, `radar/page.tsx` |
-
----
-
-### March 4, 2026
-
-| ID | T | Title | Scope | Components |
-|:--:|:-:|:------|:-----:|:-----------|
-| 4.1 | 🐛 FIX | x402 v2 migration: server was emitting v1 protocol with CAIP-2 network names (mixed versions) | 🟡 M | `src/api/shared/guards/credit.guard.ts`, `src/api/shared/guards/composite-auth.guard.ts` |
-| 4.2 | 🐛 FIX | Job polling 401: `GET /jobs/:jobId` required auth, blocking x402 agents with no persistent identity | 🟢 S | `src/api/controllers/jobs.controller.ts` |
-| 4.3 | 🔒 SEC | Strip `result` + `data` from public job status — unauthenticated poll returns status/progress only | 🟢 S | `src/api/controllers/jobs.controller.ts` |
-| 4.4 | 🎯 FEAT | `/hud` auto-queues flash analysis on unknown wallet — returns 202 + jobId instead of 404 | 🟡 M | `src/api/controllers/intel.controller.ts` |
-| 4.5 | 🎯 FEAT | PAY-8: Synchronous cold-wallet resolution — hold HTTP connection, await job, return 200 in one request | 🔴 L | `src/api/controllers/intel.controller.ts`, `src/api/shared/guards/credit.guard.ts`, `src/queues/services/job-events-bridge.service.ts` |
-| 4.6 | 🐛 FIX | PAY-8: Prepaid re-call bypassed freshness gate — stale `updatedAt` caused re-queue instead of serving | 🟢 S | `src/api/controllers/intel.controller.ts` |
-| 4.7 | 🧪 TEST | PAY-8: `test-pay8.ts` — synchronous hold contract verification (JWT, no agent wallet needed) | 🟢 S | `src/scripts/test-pay8.ts` |
-
-**Summary:**
-
-**4.1:** The server was emitting `x402Version: 1` in the 402 body (v1 protocol) but using CAIP-2 network format (`solana:5eykt4...`) which is a v2 convention — breaking all x402 library clients that correctly implement the spec. Migrated to full x402 v2: `PAYMENT-REQUIRED` response header (base64 JSON), `x402Version: 2`, CAIP-2 network, `amount` field (not `maxAmountRequired`). Both guards now read `payment-signature` header (v2) with fallback to `x-payment` (v1 legacy). Response header changed from `X-Payment-Receipt` to `X-Payment-Response` (v2 spec). MCP wallet client (`mcp-x402`) updated with `AgentExactSvmScheme` subclass that injects `feePayer: signer.address` when the server omits it — the agent correctly pays its own SOL transaction fees.
-
-**4.2 / 4.3:** Job status polling was gated by `CompositeAuthGuard` — agents completing a payment have no persistent JWT or API key, so polling their own job returned 401. Made `GET /jobs/:jobId` public (`@Public()` decorator). To prevent free data extraction via jobId enumeration (`dashboard-<8hex>`), unauthenticated responses are stripped of `result` and `data` — only `id`, `name`, `queue`, `status`, `progress`, `createdAt`, `processedAt`, `finishedAt`, `attempts`, `maxAttempts` are returned. Authenticated users still get full response.
-
-**4.5/4.6/4.7:** PAY-8 — synchronous cold-wallet resolution. `getWalletIntel` and `getWalletHud` now hold the HTTP connection open (up to 30s) while the flash analysis runs, returning 200 + data in a single request. Uses `JobEventsBridgeService.waitForJob()` which reuses the already-open `QueueEvents` subscriber connection (no duplicate Redis connections). Three dedup paths (queue scan, Redis lock, fresh queue) all await the job. Prepaid marker written to Redis on timeout/failure — encodes `'x402'` vs userId so `CreditGuard` on re-call knows whether to skip or apply balance deduction. Freshness gate bypassed when `X-Prepaid-Job-Id` header is present (analysis just ran — stale `updatedAt` was causing re-queue loop). Test script `test-pay8.ts` verifies the full contract with JWT auth (no agent wallet required): 402 gate, warm 200 fast, cold 200 via synchronous hold, single credit charge, post-analysis /hud instant from DB. **E2E passed.**
-
-**4.4:** `GET /intel/wallet/:addr/hud` previously returned 404 on unknown wallets, forcing agents to make an extra call to `GET /intel/wallet/:addr` (5cr) just to trigger analysis before being able to use the cheaper 1cr HUD endpoint. The HUD endpoint now auto-queues a flash analysis on missing wallet (same logic as `getWalletIntel`) and returns 202 + `jobId` + `monitoringUrl`. Agent polls (free), then calls `/hud` again — 1cr charged on 200. `queueWorkingAfter: false` — HUD flash doesn't chain a working analysis (unnecessary for a 1cr signal call).
-
----
-
-<details>
-<summary><b>Icon Legend</b></summary>
-
-**Type:**
- Completed   Fix/Refactor   Metrics/Monitoring   Documentation   Decision   Bug   Feature
-
-</details>
-
-
-##  Known Issues
-
----
-
-##  Architecture Decisions
-
-ALWAYS run scripts with "npx ts-node -r tsconfig-paths/register" 
+**ALWAYS run scripts with:** `npx ts-node -r tsconfig-paths/register`
 
 ### DB Growth Investigation Protocol
 *Decided: 2026-02-26*
@@ -403,33 +110,16 @@ For future sessions investigating DB growth, run this sequence first (read-only)
    - Expect active container: `analyzer-postgres` and DB `sova_analyzer`.
 2. Baseline size:
    - `docker exec analyzer-postgres psql -U postgres -d sova_analyzer -c "SELECT pg_size_pretty(pg_database_size('sova_analyzer')), pg_database_size('sova_analyzer');"`
-3. Top table footprint:
-   - Query `pg_total_relation_size`, `pg_relation_size`, `pg_indexes_size`, toast size from `pg_class`.
-4. Day-level growth attribution:
-   - Group by day on:
-     - `SwapAnalysisInput.timestamp` (epoch int)
-     - `HeliusTransactionCache.fetchedAt` (fallback to `timestamp`)
-     - `TokenLot.createdAt`
-     - `AnalysisResult.updatedAt`
-   - Compute rows/day and estimated MB/day.
-5. Separate true growth vs bloat:
-   - `pg_stat_user_tables`: `n_live_tup`, `n_dead_tup`, autovacuum timestamps.
-6. Identify index amplification:
-   - `pg_index` + `pg_relation_size(index)` on top tables.
-7. Identify workload concentration:
-   - Top wallets by row counts (14d) for `SwapAnalysisInput`, `TokenLot`, `AnalysisResult`.
+3. Top table footprint: `pg_total_relation_size`, `pg_relation_size`, `pg_indexes_size`, toast from `pg_class`.
+4. Day-level growth: group by day on `SwapAnalysisInput.timestamp`, `HeliusTransactionCache.fetchedAt`, `TokenLot.createdAt`, `AnalysisResult.updatedAt`.
+5. Separate true growth vs bloat: `pg_stat_user_tables` (`n_live_tup`, `n_dead_tup`, autovacuum timestamps).
+6. Index amplification: `pg_index` + `pg_relation_size(index)` on top tables.
+7. Workload concentration: top wallets by row counts (14d) for `SwapAnalysisInput`, `TokenLot`, `AnalysisResult`.
 
-Interpretation rule used in this session:
-- If dead tuples are low on biggest tables, growth is ingest-driven, not vacuum lag.
-- If one index is multi-GB and tied to high-ingest table, index strategy is a primary pressure point.
-
-DB ops runbook:
-- Use [.ai/context/db_op/ONLINE_DB_CLEANUP_RUNBOOK_2026-03-05.md](/home/luna/analyzer/.ai/context/db_op/ONLINE_DB_CLEANUP_RUNBOOK_2026-03-05.md) for prune/repack maintenance, protected-wallet prune commands, and verified `pg_repack` workflow/results.
+DB ops runbook: `.ai/context/db_op/ONLINE_DB_CLEANUP_RUNBOOK_2026-03-05.md`
 
 ### Lock Scope Independence
 *Decided: 2026-01-13*
-
-Each analysis type uses isolated lock keys:
 
 ```
 Dashboard:       lock:wallet:dashboard-analysis:{address}
@@ -440,73 +130,54 @@ Similarity:      lock:similarity:{requestId}
 Holder Profiles: NO LOCK (relies on service idempotency)
 ```
 
-**Rationale:** Services are idempotent. Database caching allows safe concurrent execution. Metrics track if contention becomes problematic.
-
 ---
 
-##  Quick Reference
+## Quick Reference
 
 ### Key Code Locations
 
 | Area | Path | Notes |
 |:-----|:-----|:------|
 | **Dashboard Components** | `dashboard/src/components/` | Primary work area |
-| Discover Page | `dashboard/src/app/discover/` |  Complete |
-| Tracked Wallets | `dashboard/src/app/trackers/` |  Complete |
-| Holder Profiles v2 | `dashboard/src/components/holder-profiles/v2/` |  Final review |
-| Similarity Lab | `dashboard/src/app/similarity-lab/` |  Bug fixes pending |
+| Holder Profiles v2 | `dashboard/src/components/holder-profiles/v2/` | |
 | Analysis API | `src/api/controllers/analyses.controller.ts` | Backend endpoints |
 | Queue System | `src/queues/processors/` | Job processing |
 | Core Analysis | `src/core/analysis/` | Math & logic |
-| **Holdings Radar controller** | `src/api/controllers/radar.controller.ts` | 7 endpoints at `/analyst/radar/...` |
-| **Holdings Radar service** | `src/api/services/radar-snapshot.service.ts` | Snapshot + dust filter |
-| **AnalystGuard** | `src/api/shared/guards/analyst.guard.ts` | `isAnalyst \|\| isAdmin` |
-| **Telegram bot entry** | `src/bot/intel/index.ts` | Standalone process — runs from `dist/bot/intel/index.js` via PM2 (`sova-tg-bot`) |
-| **Telegram bot spec** | `.ai/context/telegram-bot/spec.md` | Architecture decisions, file structure, API contract |
-| **Bot API key script** | `scripts/manage-api-keys.ts` | `create <userId> -d "..." -s "full"` to generate key |
-| **X (Twitter) bot** | `submodules/sova-x/` | full implementation — see repo for src, commands, formatters |
-| **Public API docs** | `submodules/sova-intel/` | Docusaurus site — endpoints, SDK, pricing, SKILL.md |
-| **Intel SDK** | `packages/sdk/src/` | `SovaIntelClient` — canonical types + HTTP client. `pnpm test` for unit, `pnpm test:contract` for live API validation |
-| **Bot env vars** | `.env` | `INTEL_BOT_TOKEN`, `INTEL_API_KEY`, `INTEL_BOT_ALLOWED_USER_IDS`, `INTEL_BASE_URL` (optional, defaults to localhost:3001) |
+| Holdings Radar controller | `src/api/controllers/radar.controller.ts` | 7 endpoints at `/analyst/radar/...` |
+| Holdings Radar service | `src/api/services/radar-snapshot.service.ts` | Snapshot + dust filter |
+| AnalystGuard | `src/api/shared/guards/analyst.guard.ts` | `isAnalyst \|\| isAdmin` |
+| Telegram bot entry | `src/bot/intel/index.ts` | Standalone process via PM2 (`sova-tg-bot`) |
+| Telegram bot spec | `.ai/context/telegram-bot/spec.md` | Architecture, file structure, API contract |
+| Bot API key script | `scripts/manage-api-keys.ts` | `create <userId> -d "..." -s "full"` |
+| X (Twitter) bot | `submodules/sova-x/` | |
+| Public API docs | `submodules/sova-intel/` | Docusaurus site |
+| Intel SDK | `packages/sdk/src/` | `SovaIntelClient` — canonical types + HTTP client |
+| Bot env vars | `.env` | `INTEL_BOT_TOKEN`, `INTEL_API_KEY`, `INTEL_BOT_ALLOWED_USER_IDS`, `INTEL_BASE_URL` |
 
 ### Documentation Files
 
 | File | Purpose |
 |:-----|:--------|
 | `CONTEXT.md` | Timeline, active tasks, decisions (this file) |
-| `.ai/context/SHAREABLE_ANALYSIS_PLAN.md` | OG images + SSR share page architecture — full spec for public shareable analysis links |
 | `GUIDE.md` | Implementation roadmap, build instructions |
 | `RULES.md` | AI agent execution contract |
 | `HANDOFF.md` | Session start/end protocol |
+| `.ai/context/SHAREABLE_ANALYSIS_PLAN.md` | OG images + SSR share page architecture |
 
 ---
 
-##  Usage Guide
+## Usage Guide
 
-### When to Update
+**When to update:**
+- After completing tasks → add to Recent Activity
+- Starting new work → add to Active Work
+- Architectural decisions → add to Architecture Decisions
+- End of session → update Active Work, timestamp, CHANGELOG.md for user-facing changes
 
- After completing tasks  Add to Recent Activity
- Starting new work  Add to Active Work
- Architectural decisions  Add to Architecture Decisions
- Discovering bugs  Add to Known Issues
- End of session  Update Current Focus, timestamp, and CHANGELOG.md for user-facing changes
-
-### Entry Format
-
-Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
+**Entry format:** `DD.N` numbering (e.g. `3.1`, `3.2` for April 3)
 
 ```
 | ID | Icon | Clear title | Scope | Key components/files |
 ```
 
-- **ID:** Day.Sequence (13.1, 13.2, ...)
-- **Icon:** Type indicator (      )
-- **Title:** What was accomplished
-- **Scope:**  Small,  Medium,  Large
-- **Components:** Shortened paths to key files
-
----
-
-**Last Updated:** 2026-04-03  **Branch:** `main`
-
----
+- **Scope:** S = Small (<50 lines, <1hr) | M = Medium (2-5 files, <4hrs) | L = Large (5+ files, multi-day)

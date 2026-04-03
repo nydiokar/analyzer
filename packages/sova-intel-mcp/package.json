@@ -1,0 +1,49 @@
+{
+  "name": "sova-intel-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the Sova Intel on-chain intelligence API — wallet profiles, holder maps, coordination detection. Pay via API key or X402 (Solana USDC).",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "bin": {
+    "sova-intel-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.2",
+    "@sova-intel/sdk": "workspace:*",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "solana",
+    "wallet",
+    "intelligence",
+    "on-chain",
+    "x402",
+    "sova"
+  ],
+  "author": "Sova",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nydiokar/sova-intel.git"
+  },
+  "homepage": "https://docs.sova-intel.com"
+}
