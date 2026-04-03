@@ -117,6 +117,17 @@ interface SystemStats {
   usersWithCredits: number;
 }
 
+interface KolEntry {
+  address: string;
+  knownLabel: string | null;
+  kolProfile: {
+    name: string;
+    twitter: string | null;
+    telegram: string | null;
+    updatedAt: string;
+  } | null;
+}
+
 interface CreditTransactionItem {
   id: string;
   userId: string;
@@ -199,6 +210,15 @@ export default function AdminDashboardPage() {
   const [grantReason, setGrantReason] = useState('admin_grant');
   const [submittingGrant, setSubmittingGrant] = useState(false);
 
+  // KOL State
+  const [kols, setKols] = useState<KolEntry[]>([]);
+  const [kolsTotal, setKolsTotal] = useState(0);
+  const [loadingKols, setLoadingKols] = useState(false);
+  const [kolSearch, setKolSearch] = useState('');
+  const [showAddKolForm, setShowAddKolForm] = useState(false);
+  const [kolForm, setKolForm] = useState({ walletAddress: '', name: '', twitter: '', telegram: '' });
+  const [submittingKol, setSubmittingKol] = useState(false);
+
   // API Base URL - defined outside hooks to avoid dependency issues
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
 
@@ -216,6 +236,72 @@ export default function AdminDashboardPage() {
     }
     return headers;
   }, [getAuthHeader]);
+
+  // ==================== KOLS ====================
+
+  const fetchKols = useCallback(async (search?: string) => {
+    setLoadingKols(true);
+    try {
+      const params = new URLSearchParams({ limit: '100', offset: '0' });
+      if (search) params.set('search', search);
+      const response = await fetch(`${API_BASE_URL}/admin/kols?${params}`, { headers: buildHeaders() });
+      if (!response.ok) throw new Error('Failed to fetch KOLs');
+      const data = await response.json();
+      setKols(data.kols);
+      setKolsTotal(data.total);
+    } catch (error) {
+      toast.error('Failed to load KOLs');
+    } finally {
+      setLoadingKols(false);
+    }
+  }, [API_BASE_URL, buildHeaders]);
+
+  const handleAddKol = async () => {
+    if (!kolForm.walletAddress.trim() || !kolForm.name.trim()) {
+      toast.error('Wallet address and name are required');
+      return;
+    }
+    setSubmittingKol(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/kols`, {
+        method: 'POST',
+        headers: buildHeaders(true),
+        body: JSON.stringify({
+          walletAddress: kolForm.walletAddress.trim(),
+          name: kolForm.name.trim(),
+          twitter: kolForm.twitter.trim() || undefined,
+          telegram: kolForm.telegram.trim() || undefined,
+        }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Failed to add KOL');
+      }
+      toast.success(`KOL ${kolForm.name} added`);
+      setKolForm({ walletAddress: '', name: '', twitter: '', telegram: '' });
+      setShowAddKolForm(false);
+      await fetchKols(kolSearch);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to add KOL');
+    } finally {
+      setSubmittingKol(false);
+    }
+  };
+
+  const handleRemoveKol = async (walletAddress: string, name: string) => {
+    if (!confirm(`Remove KOL "${name}" (${walletAddress})? This clears their KOL tag but preserves wallet data.`)) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/kols/${walletAddress}`, {
+        method: 'DELETE',
+        headers: buildHeaders(),
+      });
+      if (!response.ok) throw new Error('Failed to remove KOL');
+      toast.success(`KOL ${name} removed`);
+      await fetchKols(kolSearch);
+    } catch (error) {
+      toast.error('Failed to remove KOL');
+    }
+  };
 
   // ==================== API KEYS ====================
 
@@ -740,6 +826,7 @@ export default function AdminDashboardPage() {
         void fetchCodeStats();
         void fetchKillSwitch();
         void fetchCodeRequirement();
+        void fetchKols();
       } catch (error) {
         console.error('Admin verification failed:', error);
         hasStartedAdminBootstrap.current = false;
@@ -776,13 +863,14 @@ export default function AdminDashboardPage() {
 
         {/* Tabs */}
         <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid h-10 w-full grid-cols-6">
+          <TabsList className="grid h-10 w-full grid-cols-7">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="codes">Reg. Codes</TabsTrigger>
             <TabsTrigger value="controls">Controls</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="credits">Credits</TabsTrigger>
             <TabsTrigger value="api-keys">API Keys</TabsTrigger>
+            <TabsTrigger value="kols">KOLs</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -1799,6 +1887,128 @@ export default function AdminDashboardPage() {
                             )}
                           </div>
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* KOLs Tab */}
+          <TabsContent value="kols" className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold">KOL Registry</h2>
+                <p className="text-muted-foreground">{kolsTotal} KOL wallet{kolsTotal !== 1 ? 's' : ''} registered</p>
+              </div>
+              <Button onClick={() => setShowAddKolForm(!showAddKolForm)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add KOL
+              </Button>
+            </div>
+
+            {showAddKolForm && (
+              <Card className="border-blue-500 bg-blue-900/10">
+                <CardHeader>
+                  <CardTitle>Add / Update KOL</CardTitle>
+                  <CardDescription>Tag a wallet as a KOL. Existing wallet data is preserved.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <Label htmlFor="kolAddress">Wallet Address *</Label>
+                      <Input
+                        id="kolAddress"
+                        placeholder="Solana wallet address"
+                        value={kolForm.walletAddress}
+                        onChange={(e) => setKolForm(f => ({ ...f, walletAddress: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <Label htmlFor="kolName">Name *</Label>
+                      <Input
+                        id="kolName"
+                        placeholder="Display name"
+                        value={kolForm.name}
+                        onChange={(e) => setKolForm(f => ({ ...f, name: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="kolTwitter">Twitter handle</Label>
+                      <Input
+                        id="kolTwitter"
+                        placeholder="@handle"
+                        value={kolForm.twitter}
+                        onChange={(e) => setKolForm(f => ({ ...f, twitter: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="kolTelegram">Telegram</Label>
+                      <Input
+                        id="kolTelegram"
+                        placeholder="@handle"
+                        value={kolForm.telegram}
+                        onChange={(e) => setKolForm(f => ({ ...f, telegram: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <Button onClick={handleAddKol} disabled={submittingKol}>
+                      {submittingKol ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+                      Save
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowAddKolForm(false)} disabled={submittingKol}>Cancel</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      className="pl-9"
+                      placeholder="Search by name, handle, or address…"
+                      value={kolSearch}
+                      onChange={(e) => {
+                        setKolSearch(e.target.value);
+                        fetchKols(e.target.value);
+                      }}
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingKols ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : kols.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">No KOLs found</p>
+                ) : (
+                  <div className="space-y-2">
+                    {kols.map((kol) => (
+                      <div key={kol.address} className="flex items-center justify-between border rounded-lg px-4 py-3 bg-muted/30">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{kol.kolProfile?.name ?? kol.knownLabel ?? '—'}</span>
+                            {kol.kolProfile?.twitter && (
+                              <Badge variant="outline" className="text-xs">@{kol.kolProfile.twitter.replace(/^@/, '')}</Badge>
+                            )}
+                          </div>
+                          <code className="text-xs text-muted-foreground">{kol.address}</code>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive ml-4 flex-shrink-0"
+                          onClick={() => handleRemoveKol(kol.address, kol.kolProfile?.name ?? kol.knownLabel ?? kol.address)}
+                        >
+                          <Minus className="w-4 h-4" />
+                        </Button>
                       </div>
                     ))}
                   </div>

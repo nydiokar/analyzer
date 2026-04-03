@@ -268,9 +268,9 @@ const WalletBadge = memo(({
       ? (knownType as KnownWalletType)
       : undefined;
 
-  // Check if this is a known/system wallet that shouldn't show trading metrics
+  // KOL wallets are real traders — show their metrics. Only dim for system/protocol types.
   const isKnownWallet = Boolean(normalizedKnownType || knownLabel);
-  const shouldDimMetrics = isKnownWallet;
+  const shouldDimMetrics = isKnownWallet && normalizedKnownType !== 'KOL';
   const displayNickname = favoriteData?.nickname
     ? stripHudEncoding(favoriteData.nickname) || undefined
     : undefined;

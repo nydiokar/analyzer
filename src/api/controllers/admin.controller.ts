@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, Logger, ValidationPipe, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, HttpStatus, Logger, ValidationPipe, Req, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery, ApiBody, ApiProperty } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
@@ -207,6 +207,24 @@ class UsersListResponseDto {
   @ApiProperty({ description: 'Number of results skipped' })
   @IsNumber()
   offset: number;
+}
+
+class UpsertKolDto {
+  @IsString()
+  @IsNotEmpty()
+  walletAddress: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  twitter?: string;
+
+  @IsOptional()
+  @IsString()
+  telegram?: string;
 }
 
 interface AuthenticatedRequest extends Request {
@@ -632,5 +650,45 @@ export class AdminController {
   @ApiResponse({ status: HttpStatus.OK, description: 'System stats' })
   async getSystemStats() {
     return this.databaseService.getSystemStats();
+  }
+
+  // ========================================
+  // KOL MANAGEMENT
+  // ========================================
+
+  @Get('kols')
+  @ApiOperation({ summary: 'List all KOL wallet entries (admin only)' })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'offset', required: false, type: Number })
+  @ApiResponse({ status: HttpStatus.OK, description: 'List of KOL wallets' })
+  async listKols(
+    @Query('search') search?: string,
+    @Query('limit') limitStr?: string,
+    @Query('offset') offsetStr?: string,
+  ) {
+    const limit = Math.min(Math.max(1, parseInt(limitStr || '50', 10)), 500);
+    const offset = Math.max(0, parseInt(offsetStr || '0', 10));
+    return this.databaseService.listKols({ search, limit, offset });
+  }
+
+  @Post('kols')
+  @ApiOperation({ summary: 'Add or update a KOL wallet entry (admin only)' })
+  @ApiResponse({ status: HttpStatus.CREATED, description: 'KOL entry upserted' })
+  async upsertKol(@Body(ValidationPipe) dto: UpsertKolDto, @Req() req: AuthenticatedRequest) {
+    const result = await this.databaseService.upsertKol(dto);
+    this.logger.log(`Admin ${req.user?.id} upserted KOL ${dto.walletAddress} (${dto.name})`);
+    return result;
+  }
+
+  @Delete('kols/:walletAddress')
+  @ApiOperation({ summary: 'Remove a KOL wallet entry (admin only)' })
+  @ApiParam({ name: 'walletAddress', type: String })
+  @ApiResponse({ status: HttpStatus.OK, description: 'KOL entry removed' })
+  async removeKol(@Param('walletAddress') walletAddress: string, @Req() req: AuthenticatedRequest) {
+    const deleted = await this.databaseService.removeKol(walletAddress);
+    if (!deleted) throw new NotFoundException(`KOL wallet ${walletAddress} not found`);
+    this.logger.log(`Admin ${req.user?.id} removed KOL ${walletAddress}`);
+    return { success: true, message: `KOL ${walletAddress} removed` };
   }
 }

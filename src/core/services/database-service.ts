@@ -1003,6 +1003,73 @@ export class DatabaseService {
         }
     }
 
+    // ========================================
+    // KOL MANAGEMENT
+    // ========================================
+
+    async listKols(opts: { search?: string; limit: number; offset: number }) {
+        const { search, limit, offset } = opts;
+        const where = search
+            ? {
+                knownType: 'KOL',
+                OR: [
+                    { address: { contains: search, mode: 'insensitive' as const } },
+                    { knownLabel: { contains: search, mode: 'insensitive' as const } },
+                    { kolProfile: { is: { name: { contains: search, mode: 'insensitive' as const } } } },
+                    { kolProfile: { is: { twitter: { contains: search, mode: 'insensitive' as const } } } },
+                ],
+              }
+            : { knownType: 'KOL' };
+
+        const [wallets, total] = await Promise.all([
+            this.prismaClient.wallet.findMany({
+                where,
+                include: { kolProfile: true },
+                orderBy: [{ knownLabel: 'asc' }],
+                skip: offset,
+                take: limit,
+            }),
+            this.prismaClient.wallet.count({ where }),
+        ]);
+
+        return { kols: wallets, total, limit, offset };
+    }
+
+    async upsertKol(dto: { walletAddress: string; name: string; twitter?: string; telegram?: string }) {
+        const { walletAddress, name, twitter, telegram } = dto;
+        await this.prismaClient.$transaction([
+            this.prismaClient.wallet.upsert({
+                where: { address: walletAddress },
+                create: { address: walletAddress, knownType: 'KOL', knownLabel: name, classification: 'unknown' },
+                update: { knownType: 'KOL', knownLabel: name },
+            }),
+            this.prismaClient.kolProfile.upsert({
+                where: { walletAddress },
+                create: { walletAddress, name, twitter: twitter ?? null, telegram: telegram ?? null },
+                update: { name, twitter: twitter ?? null, telegram: telegram ?? null },
+            }),
+        ]);
+        return { success: true, walletAddress, name };
+    }
+
+    async removeKol(walletAddress: string): Promise<boolean> {
+        try {
+            // Deleting KolProfile cascades are not set — clear knownType on the wallet instead,
+            // then delete the KolProfile row. Use a transaction for atomicity.
+            await this.prismaClient.$transaction([
+                this.prismaClient.kolProfile.delete({ where: { walletAddress } }),
+                this.prismaClient.wallet.update({
+                    where: { address: walletAddress },
+                    data: { knownType: null, knownLabel: null },
+                }),
+            ]);
+            return true;
+        } catch (error: any) {
+            if (error.code === 'P2025') return false;
+            throw error;
+        }
+    }
+
     /**
      * Deletes a user by their ID.
      * IMPORTANT: This is a permanent deletion.

@@ -24,7 +24,7 @@ export class TopHolderItemDto {
 
   @ApiPropertyOptional({
     description: 'Known wallet type from registry (e.g., BURN, LP, JUPITER)',
-    enum: ['BURN', 'LP', 'RAYDIUM', 'ORCA', 'JUPITER', 'PROTOCOL', 'EXCHANGE', 'SYSTEM'],
+    enum: ['BURN', 'LP', 'RAYDIUM', 'ORCA', 'JUPITER', 'PROTOCOL', 'EXCHANGE', 'SYSTEM', 'KOL'],
   })
   knownType?: string;
 
