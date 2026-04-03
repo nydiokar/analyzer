@@ -1,14 +1,9 @@
 import { z } from "zod";
 import type { SovaIntelClient } from "@sova-intel/sdk";
-import { pollJobResult, JobPollerError } from "../core/polling.js";
-import { pollResultKey } from "@sova-intel/sdk";
-import {
-  completedResult,
-  queuedResult,
-  errorResult,
-  toMcpContent,
-} from "../core/result.js";
-import { classifyError } from "../core/errors.js";
+import { pollJobResult, isPollTimeoutError, type PollOptions } from "../core/polling.js";
+import { completedResult, queuedResult, toMcpContent } from "../core/result.js";
+import { handleToolError } from "../core/handle-error.js";
+import type { ToolCostMap } from "../core/pricing.js";
 
 export const deepTokenAnalysisSchema = z.object({
   tokenMint: z.string().min(32).max(44).describe("Solana token mint address (base58)"),
@@ -19,28 +14,30 @@ export async function deepTokenAnalysisHandler(
   args: z.infer<typeof deepTokenAnalysisSchema>,
   client: SovaIntelClient,
   authMode: string,
+  toolCosts: ToolCostMap,
+  pollOptions: PollOptions = {},
 ) {
   const topN = args.topN ?? 20;
 
-  // Queue once — captures both job descriptors
   let jobs;
   try {
     jobs = await client.queueDeepAnalysis(args.tokenMint, topN);
   } catch (err) {
-    const { code, message } = classifyError(err);
-    return { content: [toMcpContent(errorResult("deep_token_analysis", code, message, authMode))], isError: true };
+    return handleToolError("deep_token_analysis", err, authMode, toolCosts);
   }
 
-  // Step 1: poll holder-profiles job using its resultKey
   let holderProfiles: unknown;
   try {
     holderProfiles = await pollJobResult<unknown>(
       client,
-      jobs.holderProfiles.jobId,
-      `holder-profiles:result:${jobs.holderProfiles.jobId}`,
+      {
+        jobId: jobs.holderProfiles.jobId,
+        resultKey: `holder-profiles:result:${jobs.holderProfiles.jobId}`,
+      },
+      pollOptions,
     );
   } catch (err) {
-    if (err instanceof JobPollerError) {
+    if (isPollTimeoutError(err)) {
       return { content: [toMcpContent(queuedResult(
         "deep_token_analysis",
         `Deep analysis still running for ${args.tokenMint.slice(0, 8)}…. Use job_wait to resume.`,
@@ -55,23 +52,32 @@ export async function deepTokenAnalysisHandler(
         authMode,
       ))] };
     }
-    const { code, message } = classifyError(err);
-    return { content: [toMcpContent(errorResult("deep_token_analysis", code, message, authMode))], isError: true };
+    return handleToolError("deep_token_analysis", err, authMode, toolCosts);
   }
 
-  // Step 2: poll the similarity result key — chained by the processor after holder-profiles completes
-  // Use pollResultKey directly (no jobId for the chained similarity job)
-  const http = (client as unknown as { http: Parameters<typeof pollResultKey>[0] }).http;
   let similarity: unknown;
   try {
-    similarity = await pollResultKey<unknown>(
-      http,
-      jobs.similarity.resultKey,
-      { intervalMs: 5000, maxAttempts: 9 },
+    similarity = await pollJobResult<unknown>(
+      client,
+      { resultKey: jobs.similarity.resultKey },
+      pollOptions,
     );
   } catch (err) {
-    const { code, message } = classifyError(err);
-    return { content: [toMcpContent(errorResult("deep_token_analysis", code, message, authMode))], isError: true };
+    if (isPollTimeoutError(err)) {
+      return { content: [toMcpContent(queuedResult(
+        "deep_token_analysis",
+        `Deep analysis still running for ${args.tokenMint.slice(0, 8)}…. Use job_wait to resume (similarity phase).`,
+        {
+          monitoringUrl: jobs.holderProfiles.monitoringUrl,
+          resultKey: jobs.similarity.resultKey,
+          resumeTool: "job_wait",
+          resultType: "deep_analysis_similarity",
+          input: args.tokenMint,
+        },
+        authMode,
+      ))] };
+    }
+    return handleToolError("deep_token_analysis", err, authMode, toolCosts);
   }
 
   return { content: [toMcpContent(completedResult(

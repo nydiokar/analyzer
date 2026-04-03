@@ -1,27 +1,19 @@
 // ---------------------------------------------------------------------------
 // MCP-level polling helper
-// Wraps the SDK's pollAndFetch using only the public SDK API surface.
+// Wraps the SDK's public resume methods.
 // tools use this instead of touching SDK internals directly.
 // ---------------------------------------------------------------------------
 
-import { SovaIntelClient, pollAndFetch, JobPollerError } from "@sova-intel/sdk";
-
-// The SDK exports pollAndFetch but its first arg is HttpClient (not exported).
-// We extract the type from the function signature to stay honest about what we depend on.
-type HttpClient = Parameters<typeof pollAndFetch>[0];
-
-/**
- * Extract the internal HttpClient from a SovaIntelClient instance.
- * This is the only place in the MCP that touches an SDK non-public field.
- * It is isolated here so it can be updated in one place if the SDK changes.
- */
-function getHttp(client: SovaIntelClient): HttpClient {
-  return (client as unknown as { http: HttpClient }).http;
-}
+import { SovaIntelClient, JobPollerError } from "@sova-intel/sdk";
 
 export interface PollOptions {
   intervalMs?: number;
   maxAttempts?: number;
+}
+
+export interface ResultPollRef {
+  jobId?: string;
+  resultKey: string;
 }
 
 /**
@@ -30,19 +22,28 @@ export interface PollOptions {
  */
 export async function pollJobResult<T>(
   client: SovaIntelClient,
-  jobId: string,
-  resultKey: string,
+  ref: ResultPollRef,
   options: PollOptions = {},
 ): Promise<T> {
-  return pollAndFetch<T>(
-    getHttp(client),
-    jobId,
-    resultKey,
-    {
-      intervalMs: options.intervalMs ?? 5000,
-      maxAttempts: options.maxAttempts ?? 9,
-    },
-  );
+  const resolvedOptions = {
+    intervalMs: options.intervalMs ?? 5000,
+    maxAttempts: options.maxAttempts ?? 9,
+  };
+
+  if (ref.jobId) {
+    return client.pollJobResult<T>(ref.jobId, ref.resultKey, resolvedOptions);
+  }
+
+  return client.pollResultByKey<T>(ref.resultKey, resolvedOptions);
+}
+
+export function isPollTimeoutError(err: unknown): boolean {
+  if (err instanceof JobPollerError) {
+    return err.message.includes("did not complete within");
+  }
+
+  return err instanceof Error &&
+    err.message.includes("did not appear within");
 }
 
 export { JobPollerError };

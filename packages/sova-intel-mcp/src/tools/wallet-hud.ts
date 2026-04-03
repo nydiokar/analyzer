@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { SovaIntelClient } from "@sova-intel/sdk";
-import { completedResult, errorResult, toMcpContent } from "../core/result.js";
-import { classifyError } from "../core/errors.js";
+import { completedResult, toMcpContent } from "../core/result.js";
+import { handleToolError } from "../core/handle-error.js";
+import type { ToolCostMap } from "../core/pricing.js";
 import { summarizeWalletHud } from "../core/summary.js";
 
 export const walletHudSchema = z.object({
@@ -12,19 +13,12 @@ export async function walletHudHandler(
   args: z.infer<typeof walletHudSchema>,
   client: SovaIntelClient,
   authMode: string,
+  toolCosts: ToolCostMap,
 ) {
   try {
     const hud = await client.getWalletHud(args.walletAddress);
-    const result = completedResult(
-      "wallet_hud",
-      summarizeWalletHud(hud),
-      hud,
-      authMode,
-    );
-    return { content: [toMcpContent(result)] };
+    return { content: [toMcpContent(completedResult("wallet_hud", summarizeWalletHud(hud), hud, authMode))] };
   } catch (err) {
-    const { code, message } = classifyError(err);
-    const result = errorResult("wallet_hud", code, message, authMode);
-    return { content: [toMcpContent(result)], isError: true };
+    return handleToolError("wallet_hud", err, authMode, toolCosts);
   }
 }

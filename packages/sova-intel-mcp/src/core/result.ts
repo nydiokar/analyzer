@@ -5,7 +5,7 @@
 export type ToolMode = "completed" | "queued";
 
 export interface JobRef {
-  jobId: string;
+  jobId?: string;
   monitoringUrl?: string | null;
   resultKey?: string;
   agentResultKey?: string;
@@ -83,3 +83,4 @@ export function errorResult(
 export function toMcpContent(result: ToolResult): { type: "text"; text: string } {
   return { type: "text", text: JSON.stringify(result, null, 2) };
 }
+

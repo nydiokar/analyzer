@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SovaIntelClient } from "@sova-intel/sdk";
 import type { McpConfig } from "./config.js";
 import type { ResolvedAuth } from "./auth/resolve-auth-mode.js";
+import type { ToolCostMap } from "./core/pricing.js";
 
 import { checkAvailability } from "./core/availability.js";
 import { errorResult, toMcpContent } from "./core/result.js";
@@ -24,10 +25,18 @@ import { pricingResourceHandler } from "./resources/pricing.js";
 import { skillResourceHandler } from "./resources/skill.js";
 import { authHelpResourceHandler } from "./resources/auth-help.js";
 
+function toPollOptions(timeoutMs: number, pollIntervalMs: number, maxPollAttempts: number) {
+  return {
+    intervalMs: pollIntervalMs,
+    maxAttempts: Math.max(1, Math.min(maxPollAttempts, Math.ceil(timeoutMs / pollIntervalMs))),
+  };
+}
+
 export function createServer(
   config: McpConfig,
   resolved: ResolvedAuth,
   client: SovaIntelClient | null,
+  toolCosts: ToolCostMap,
 ): McpServer {
   const server = new McpServer({
     name: "sova-intel",
@@ -35,6 +44,16 @@ export function createServer(
   });
 
   const authMode = resolved.mode;
+  const standardPollOptions = toPollOptions(
+    config.waitTimeoutMs,
+    config.pollIntervalMs,
+    config.maxPollAttempts,
+  );
+  const deepPollOptions = toPollOptions(
+    config.deepWaitTimeoutMs,
+    config.pollIntervalMs,
+    config.maxPollAttempts,
+  );
 
   // Helper: guard paid tools in limited mode
   function guardedClient(toolName: string): SovaIntelClient | null {
@@ -56,7 +75,7 @@ export function createServer(
         const r = errorResult("wallet_hud", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return walletHudHandler(args, c, authMode);
+      return walletHudHandler(args, c, authMode, toolCosts);
     },
   );
 
@@ -70,7 +89,7 @@ export function createServer(
         const r = errorResult("wallet_profile", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return walletProfileHandler(args, c, authMode);
+      return walletProfileHandler(args, c, authMode, toolCosts);
     },
   );
 
@@ -84,7 +103,7 @@ export function createServer(
         const r = errorResult("wallet_token_pnl", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return walletTokenPnlHandler(args, c, authMode);
+      return walletTokenPnlHandler(args, c, authMode, toolCosts);
     },
   );
 
@@ -98,7 +117,7 @@ export function createServer(
         const r = errorResult("batch_wallet_hud", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return batchWalletHudHandler(args, c, authMode);
+      return batchWalletHudHandler(args, c, authMode, toolCosts);
     },
   );
 
@@ -112,7 +131,7 @@ export function createServer(
         const r = errorResult("token_holder_profiles", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return tokenHolderProfilesHandler(args, c, authMode);
+      return tokenHolderProfilesHandler(args, c, authMode, toolCosts, standardPollOptions);
     },
   );
 
@@ -126,7 +145,7 @@ export function createServer(
         const r = errorResult("wallet_similarity", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return walletSimilarityHandler(args, c, authMode);
+      return walletSimilarityHandler(args, c, authMode, toolCosts, standardPollOptions);
     },
   );
 
@@ -140,7 +159,7 @@ export function createServer(
         const r = errorResult("deep_token_analysis", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return deepTokenAnalysisHandler(args, c, authMode);
+      return deepTokenAnalysisHandler(args, c, authMode, toolCosts, deepPollOptions);
     },
   );
 
@@ -163,7 +182,7 @@ export function createServer(
         const r = errorResult("job_wait", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return jobWaitHandler(args, c, authMode);
+      return jobWaitHandler(args, c, authMode, deepPollOptions);
     },
   );
 

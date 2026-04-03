@@ -36,8 +36,31 @@ export function loadConfig(): McpConfig {
   const pollIntervalMs = parseInt(process.env.SOVA_POLL_INTERVAL_MS ?? "5000", 10);
   // MCP hard timeout is ~60s. Keep all in-process waiting well under that.
   const maxPollAttempts = parseInt(process.env.SOVA_MAX_POLL_ATTEMPTS ?? "9", 10);
-  const waitTimeoutMs = parseInt(process.env.SOVA_WAIT_TIMEOUT_MS ?? "45000", 10);
-  const deepWaitTimeoutMs = parseInt(process.env.SOVA_DEEP_WAIT_TIMEOUT_MS ?? "45000", 10);
+  const waitTimeoutMs = Math.min(parseInt(process.env.SOVA_WAIT_TIMEOUT_MS ?? "45000", 10), 45_000);
+  const deepWaitTimeoutMs = Math.min(parseInt(process.env.SOVA_DEEP_WAIT_TIMEOUT_MS ?? "45000", 10), 45_000);
+
+  if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) {
+    throw new Error("SOVA_POLL_INTERVAL_MS must be a positive integer.");
+  }
+  if (!Number.isFinite(maxPollAttempts) || maxPollAttempts <= 0) {
+    throw new Error("SOVA_MAX_POLL_ATTEMPTS must be a positive integer.");
+  }
+  if (!Number.isFinite(waitTimeoutMs) || waitTimeoutMs <= 0) {
+    throw new Error("SOVA_WAIT_TIMEOUT_MS must be a positive integer.");
+  }
+  if (!Number.isFinite(deepWaitTimeoutMs) || deepWaitTimeoutMs <= 0) {
+    throw new Error("SOVA_DEEP_WAIT_TIMEOUT_MS must be a positive integer.");
+  }
+  if (waitTimeoutMs < pollIntervalMs) {
+    throw new Error(
+      `SOVA_WAIT_TIMEOUT_MS (${waitTimeoutMs}) must be >= SOVA_POLL_INTERVAL_MS (${pollIntervalMs}).`,
+    );
+  }
+  if (deepWaitTimeoutMs < pollIntervalMs) {
+    throw new Error(
+      `SOVA_DEEP_WAIT_TIMEOUT_MS (${deepWaitTimeoutMs}) must be >= SOVA_POLL_INTERVAL_MS (${pollIntervalMs}).`,
+    );
+  }
 
   return {
     baseUrl: process.env.SOVA_BASE_URL ?? "https://api.sova-intel.com/api/v1",

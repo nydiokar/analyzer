@@ -1,23 +1,23 @@
 import { z } from "zod";
 import type { SovaIntelClient } from "@sova-intel/sdk";
-import { pollJobResult, JobPollerError } from "../core/polling.js";
+import { pollJobResult, isPollTimeoutError, type PollOptions } from "../core/polling.js";
 import { completedResult, queuedResult, errorResult, toMcpContent } from "../core/result.js";
 import { classifyError } from "../core/errors.js";
 
 export const jobWaitSchema = z.object({
-  jobId: z.string().describe("Job ID from a queued tool response"),
-  agentResultKey: z.string().optional().describe("agentResultKey from queued envelope — preferred for agent-endpoint tools"),
-  resultKey: z.string().optional().describe("resultKey from queued envelope — fallback when agentResultKey is absent"),
-  resultType: z.string().optional().describe("Hint from queued envelope — for context only"),
-  input: z.string().optional().describe("Original input from queued envelope — for context only"),
+  jobId: z.string().optional().describe("Job ID from a queued tool response when available"),
+  agentResultKey: z.string().optional().describe("agentResultKey from queued envelope â€” preferred for agent-endpoint tools"),
+  resultKey: z.string().optional().describe("resultKey from queued envelope â€” fallback when agentResultKey is absent"),
+  resultType: z.string().optional().describe("Hint from queued envelope â€” for context only"),
+  input: z.unknown().optional().describe("Original input from queued envelope â€” for context only"),
 });
 
 export async function jobWaitHandler(
   args: z.infer<typeof jobWaitSchema>,
   client: SovaIntelClient,
   authMode: string,
+  pollOptions: PollOptions = {},
 ) {
-  // Prefer agentResultKey — compact agent-optimised shape
   const resolvedKey = args.agentResultKey ?? args.resultKey;
 
   if (!resolvedKey) {
@@ -33,19 +33,24 @@ export async function jobWaitHandler(
   }
 
   try {
-    const data = await pollJobResult<unknown>(client, args.jobId, resolvedKey);
+    const data = await pollJobResult<unknown>(
+      client,
+      { jobId: args.jobId, resultKey: resolvedKey },
+      pollOptions,
+    );
+    const completionTarget = args.jobId ?? resolvedKey;
     return { content: [toMcpContent(completedResult(
       "job_wait",
-      `Job ${args.jobId} complete.`,
+      `Queued result ${completionTarget} complete.`,
       data,
       authMode,
     ))] };
   } catch (err) {
-    if (err instanceof JobPollerError) {
-      // Still running — return another queued envelope so agent can retry
+    if (isPollTimeoutError(err)) {
+      const pendingTarget = args.jobId ?? resolvedKey;
       return { content: [toMcpContent(queuedResult(
         "job_wait",
-        `Job ${args.jobId} still running. Call job_wait again to continue polling.`,
+        `Queued result ${pendingTarget} still running. Call job_wait again to continue polling.`,
         {
           jobId: args.jobId,
           agentResultKey: args.agentResultKey,

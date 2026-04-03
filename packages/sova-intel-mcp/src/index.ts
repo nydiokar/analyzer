@@ -7,6 +7,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { loadConfig } from "./config.js";
 import { resolveAuth } from "./auth/resolve-auth-mode.js";
 import { createSovaClient } from "./client/create-sova-client.js";
+import { fetchToolCosts, type ToolCostMap } from "./core/pricing.js";
 import { createServer } from "./server.js";
 
 async function main() {
@@ -30,11 +31,21 @@ async function main() {
     console.error(`[sova-intel-mcp] Auth mode: ${resolved.mode}`);
   }
 
+  // Fetch live pricing once at startup — used for actionable payment_error messages.
+  // Non-fatal: if the fetch fails, tools still work but payment errors won't include cost details.
+  let toolCosts: ToolCostMap = {};
+  try {
+    toolCosts = await fetchToolCosts(config.baseUrl);
+    console.error(`[sova-intel-mcp] Pricing loaded (${Object.keys(toolCosts).length} tools).`);
+  } catch (err) {
+    console.error(`[sova-intel-mcp] Warning: could not fetch pricing — payment error messages will omit cost details. (${(err as Error).message})`);
+  }
+
   const client = resolved.mode !== "limited"
     ? createSovaClient(config, resolved)
     : null;
 
-  const server = createServer(config, resolved, client);
+  const server = createServer(config, resolved, client, toolCosts);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 

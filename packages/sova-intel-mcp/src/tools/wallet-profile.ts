@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { SovaIntelClient } from "@sova-intel/sdk";
-import { completedResult, errorResult, toMcpContent } from "../core/result.js";
-import { classifyError } from "../core/errors.js";
+import { completedResult, toMcpContent } from "../core/result.js";
+import { handleToolError } from "../core/handle-error.js";
+import type { ToolCostMap } from "../core/pricing.js";
 import { summarizeWalletProfile } from "../core/summary.js";
 
 export const walletProfileSchema = z.object({
@@ -12,6 +13,7 @@ export async function walletProfileHandler(
   args: z.infer<typeof walletProfileSchema>,
   client: SovaIntelClient,
   authMode: string,
+  toolCosts: ToolCostMap,
 ) {
   try {
     const profile = await client.getWalletProfile(args.walletAddress);
@@ -23,8 +25,6 @@ export async function walletProfileHandler(
     );
     return { content: [toMcpContent(result)] };
   } catch (err) {
-    const { code, message } = classifyError(err);
-    const result = errorResult("wallet_profile", code, message, authMode);
-    return { content: [toMcpContent(result)], isError: true };
+    return handleToolError("wallet_profile", err, authMode, toolCosts);
   }
 }

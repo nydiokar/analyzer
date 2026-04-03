@@ -24,6 +24,11 @@ import type {
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 60;
 
+interface PollOptions {
+  intervalMs?: number;
+  maxAttempts?: number;
+}
+
 export class SovaIntelClient {
   private readonly http: HttpClient;
   private readonly pollIntervalMs: number;
@@ -134,11 +139,9 @@ export class SovaIntelClient {
   ): Promise<T> {
     const job = await this.queueHolderProfiles(tokenMint, topN);
     // Processor stores at holder-profiles:result:{jobId} (not requestId)
-    return pollAndFetch<T>(
-      this.http,
+    return this.pollJobResult<T>(
       job.jobId,
       `holder-profiles:result:${job.jobId}`,
-      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
     );
   }
 
@@ -158,11 +161,9 @@ export class SovaIntelClient {
    */
   async pollSimilarity<T = unknown>(wallets: string[]): Promise<T> {
     const job = await this.queueSimilarity(wallets);
-    return pollAndFetch<T>(
-      this.http,
+    return this.pollJobResult<T>(
       job.jobId,
       `similarity:result:${job.requestId}`,
-      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
     );
   }
 
@@ -204,19 +205,15 @@ export class SovaIntelClient {
     const jobs = await this.queueDeepAnalysis(tokenMint, topN);
 
     // Step 1: wait for holder-profiles and fetch its result
-    const holderProfiles = await pollAndFetch<TH>(
-      this.http,
+    const holderProfiles = await this.pollJobResult<TH>(
       jobs.holderProfiles.jobId,
       `holder-profiles:result:${jobs.holderProfiles.jobId}`,
-      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
     );
 
     // Step 2: poll the similarity result key — processor queues it automatically
     // after holder-profiles completes, so we start polling immediately after step 1.
-    const similarity = await pollResultKey<TS>(
-      this.http,
+    const similarity = await this.pollResultByKey<TS>(
       jobs.similarity.resultKey,
-      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
     );
 
     return { holderProfiles, similarity };
@@ -253,11 +250,9 @@ export class SovaIntelClient {
     topN = 20,
   ): Promise<AgentHolderProfilesResult> {
     const job = await this.queueTokenHoldersAgent(tokenMint, topN);
-    return pollAndFetch<AgentHolderProfilesResult>(
-      this.http,
+    return this.pollJobResult<AgentHolderProfilesResult>(
       job.jobId,
       job.agentResultKey,
-      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
     );
   }
 
@@ -288,11 +283,45 @@ export class SovaIntelClient {
    */
   async pollWalletSimilarityAgent(wallets: string[]): Promise<AgentSimilarityResult> {
     const job = await this.queueWalletSimilarityAgent(wallets);
-    return pollAndFetch<AgentSimilarityResult>(
-      this.http,
+    return this.pollJobResult<AgentSimilarityResult>(
       job.jobId,
       job.agentResultKey,
-      { intervalMs: this.pollIntervalMs, maxAttempts: this.maxPollAttempts },
+    );
+  }
+
+  /**
+   * Public resume path for queued jobs with a known job id and result key.
+   */
+  async pollJobResult<T>(
+    jobId: string,
+    resultKey: string,
+    options: PollOptions = {},
+  ): Promise<T> {
+    return pollAndFetch<T>(
+      this.http,
+      jobId,
+      resultKey,
+      {
+        intervalMs: options.intervalMs ?? this.pollIntervalMs,
+        maxAttempts: options.maxAttempts ?? this.maxPollAttempts,
+      },
+    );
+  }
+
+  /**
+   * Public resume path for chained async flows where only the result key is known.
+   */
+  async pollResultByKey<T>(
+    resultKey: string,
+    options: PollOptions = {},
+  ): Promise<T> {
+    return pollResultKey<T>(
+      this.http,
+      resultKey,
+      {
+        intervalMs: options.intervalMs ?? this.pollIntervalMs,
+        maxAttempts: options.maxAttempts ?? this.maxPollAttempts,
+      },
     );
   }
 

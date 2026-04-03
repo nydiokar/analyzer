@@ -1,13 +1,9 @@
 import { z } from "zod";
 import type { SovaIntelClient, AgentSimilarityResult } from "@sova-intel/sdk";
-import { pollJobResult, JobPollerError } from "../core/polling.js";
-import {
-  completedResult,
-  queuedResult,
-  errorResult,
-  toMcpContent,
-} from "../core/result.js";
-import { classifyError } from "../core/errors.js";
+import { pollJobResult, isPollTimeoutError, type PollOptions } from "../core/polling.js";
+import { completedResult, queuedResult, toMcpContent } from "../core/result.js";
+import { handleToolError } from "../core/handle-error.js";
+import type { ToolCostMap } from "../core/pricing.js";
 import { summarizeSimilarity } from "../core/summary.js";
 
 export const walletSimilaritySchema = z.object({
@@ -22,22 +18,23 @@ export async function walletSimilarityHandler(
   args: z.infer<typeof walletSimilaritySchema>,
   client: SovaIntelClient,
   authMode: string,
+  toolCosts: ToolCostMap,
+  pollOptions: PollOptions = {},
 ) {
   // Queue once — capture job metadata for the queued envelope on timeout
   let job;
   try {
     job = await client.queueWalletSimilarityAgent(args.wallets);
   } catch (err) {
-    const { code, message } = classifyError(err);
-    return { content: [toMcpContent(errorResult("wallet_similarity", code, message, authMode))], isError: true };
+    return handleToolError("wallet_similarity", err, authMode, toolCosts);
   }
 
   // Poll directly using the captured agentResultKey — no second queue call
   try {
     const res = await pollJobResult<AgentSimilarityResult>(
       client,
-      job.jobId,
-      job.agentResultKey,
+      { jobId: job.jobId, resultKey: job.agentResultKey },
+      pollOptions,
     );
     return { content: [toMcpContent(completedResult(
       "wallet_similarity",
@@ -46,7 +43,7 @@ export async function walletSimilarityHandler(
       authMode,
     ))] };
   } catch (err) {
-    if (err instanceof JobPollerError) {
+    if (isPollTimeoutError(err)) {
       return { content: [toMcpContent(queuedResult(
         "wallet_similarity",
         `Similarity analysis still running for ${args.wallets.length} wallets. Use job_wait to retrieve the result.`,
@@ -62,7 +59,6 @@ export async function walletSimilarityHandler(
         authMode,
       ))] };
     }
-    const { code, message } = classifyError(err);
-    return { content: [toMcpContent(errorResult("wallet_similarity", code, message, authMode))], isError: true };
+    return handleToolError("wallet_similarity", err, authMode, toolCosts);
   }
 }

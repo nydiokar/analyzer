@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { SovaIntelClient } from "@sova-intel/sdk";
-import { completedResult, errorResult, toMcpContent } from "../core/result.js";
-import { classifyError } from "../core/errors.js";
+import { completedResult, toMcpContent } from "../core/result.js";
+import { handleToolError } from "../core/handle-error.js";
+import type { ToolCostMap } from "../core/pricing.js";
 import { summarizeTokenPnl } from "../core/summary.js";
 
 export const walletTokenPnlSchema = z.object({
@@ -16,6 +17,7 @@ export async function walletTokenPnlHandler(
   args: z.infer<typeof walletTokenPnlSchema>,
   client: SovaIntelClient,
   authMode: string,
+  toolCosts: ToolCostMap,
 ) {
   try {
     const res = await client.getWalletTokens(args.walletAddress, {
@@ -32,8 +34,6 @@ export async function walletTokenPnlHandler(
     );
     return { content: [toMcpContent(result)] };
   } catch (err) {
-    const { code, message } = classifyError(err);
-    const result = errorResult("wallet_token_pnl", code, message, authMode);
-    return { content: [toMcpContent(result)], isError: true };
+    return handleToolError("wallet_token_pnl", err, authMode, toolCosts);
   }
 }

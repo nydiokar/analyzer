@@ -12,6 +12,8 @@ export type ErrorCode =
   | "upstream_error"
   | "limited_mode_unavailable";
 
+const TOP_UP_URL = "https://www.sova-intel.com/dashboard/credits";
+
 export function classifyError(err: unknown): { code: ErrorCode; message: string } {
   if (!(err instanceof Error)) {
     return { code: "upstream_error", message: String(err) };
@@ -36,4 +38,25 @@ export function classifyError(err: unknown): { code: ErrorCode; message: string 
   }
 
   return { code: "upstream_error", message: msg };
+}
+
+/**
+ * Build an actionable payment_error detail block.
+ * toolCosts is fetched from GET /pricing at startup — never hardcoded.
+ */
+export function paymentErrorDetail(
+  toolName: string,
+  toolCosts: Record<string, { credits: number; usd: string }>,
+): {
+  toolCost: string;
+  topUpUrl: string;
+  remedy: string;
+} {
+  const cost = toolCosts[toolName];
+  const costStr = cost ? `${cost.credits}cr (${cost.usd})` : "unknown cost";
+  return {
+    toolCost: costStr,
+    topUpUrl: TOP_UP_URL,
+    remedy: `Top up credits at ${TOP_UP_URL}. ${toolName} costs ${costStr} per call.`,
+  };
 }

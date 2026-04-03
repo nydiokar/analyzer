@@ -379,6 +379,31 @@ describe("pollHolderProfiles", () => {
   });
 });
 
+describe("pollJobResult", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it("uses the public resume path without exposing internal HttpClient", async () => {
+    const resumed = { ready: true };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+      const url = input.toString();
+      if (url.includes("/jobs/job-77") && !url.includes("result")) {
+        return jsonResponse({ status: "completed", progress: 100 });
+      }
+      if (url.includes("/jobs/result/by-key")) {
+        expect(new URL(url).searchParams.get("key")).toBe("agent:result:job-77");
+        return jsonResponse(resumed);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+
+    const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
+    const result = await client.pollJobResult<typeof resumed>("job-77", "agent:result:job-77");
+
+    expect(result.ready).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // pollSimilarity — verifies requestId-based result key
 // ---------------------------------------------------------------------------
@@ -500,6 +525,36 @@ describe("pollDeepAnalysis", () => {
     expect(resultKeysUsed).toContain("similarity:result:sim-req-1");
     expect(result.holderProfiles.profiles[0].wallet).toBe("addr1");
     expect(result.similarity.score).toBe(0.85);
+  });
+});
+
+describe("pollResultByKey", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it("polls a result key directly for chained flows with no final job id", async () => {
+    let attempts = 0;
+    const chained = { score: 0.42 };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+      const url = input.toString();
+      if (!url.includes("/jobs/result/by-key")) {
+        return jsonResponse({ error: "unexpected" }, 500);
+      }
+
+      attempts++;
+      if (attempts < 3) {
+        return jsonResponse({ message: "Not ready" }, 404);
+      }
+
+      expect(new URL(url).searchParams.get("key")).toBe("similarity:result:sim-req-2");
+      return jsonResponse(chained);
+    });
+
+    const client = makeApiKeyClient(fetchMock as unknown as typeof fetch);
+    const result = await client.pollResultByKey<typeof chained>("similarity:result:sim-req-2");
+
+    expect(attempts).toBe(3);
+    expect(result.score).toBe(0.42);
   });
 });
 

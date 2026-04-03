@@ -1,13 +1,9 @@
 import { z } from "zod";
 import type { SovaIntelClient, AgentHolderProfilesResult } from "@sova-intel/sdk";
-import { pollJobResult, JobPollerError } from "../core/polling.js";
-import {
-  completedResult,
-  queuedResult,
-  errorResult,
-  toMcpContent,
-} from "../core/result.js";
-import { classifyError } from "../core/errors.js";
+import { pollJobResult, isPollTimeoutError, type PollOptions } from "../core/polling.js";
+import { completedResult, queuedResult, toMcpContent } from "../core/result.js";
+import { handleToolError } from "../core/handle-error.js";
+import type { ToolCostMap } from "../core/pricing.js";
 import { summarizeHolderProfiles } from "../core/summary.js";
 
 export const tokenHolderProfilesSchema = z.object({
@@ -19,24 +15,23 @@ export async function tokenHolderProfilesHandler(
   args: z.infer<typeof tokenHolderProfilesSchema>,
   client: SovaIntelClient,
   authMode: string,
+  toolCosts: ToolCostMap,
+  pollOptions: PollOptions = {},
 ) {
   const topN = args.topN ?? 20;
 
-  // Queue once — capture job metadata for the queued envelope on timeout
   let job;
   try {
     job = await client.queueTokenHoldersAgent(args.tokenMint, topN);
   } catch (err) {
-    const { code, message } = classifyError(err);
-    return { content: [toMcpContent(errorResult("token_holder_profiles", code, message, authMode))], isError: true };
+    return handleToolError("token_holder_profiles", err, authMode, toolCosts);
   }
 
-  // Poll directly using the captured agentResultKey — no second queue call
   try {
     const res = await pollJobResult<AgentHolderProfilesResult>(
       client,
-      job.jobId,
-      job.agentResultKey,
+      { jobId: job.jobId, resultKey: job.agentResultKey },
+      pollOptions,
     );
     return { content: [toMcpContent(completedResult(
       "token_holder_profiles",
@@ -45,7 +40,7 @@ export async function tokenHolderProfilesHandler(
       authMode,
     ))] };
   } catch (err) {
-    if (err instanceof JobPollerError) {
+    if (isPollTimeoutError(err)) {
       return { content: [toMcpContent(queuedResult(
         "token_holder_profiles",
         `Analysis still running for ${args.tokenMint.slice(0, 8)}…. Use job_wait to retrieve the result.`,
@@ -61,7 +56,6 @@ export async function tokenHolderProfilesHandler(
         authMode,
       ))] };
     }
-    const { code, message } = classifyError(err);
-    return { content: [toMcpContent(errorResult("token_holder_profiles", code, message, authMode))], isError: true };
+    return handleToolError("token_holder_profiles", err, authMode, toolCosts);
   }
 }

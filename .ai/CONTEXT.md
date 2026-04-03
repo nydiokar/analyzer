@@ -9,7 +9,8 @@
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
 | MCP-8 | **[sova-intel-mcp] End-to-end smoke test** — wire into Claude Desktop or Claude Code, run `wallet_hud` live | 🔴 NOW |
-| MCP-9 | **[sova-intel-mcp] README** — install snippets (Claude Desktop + Claude Code), env vars, tool listing | 🟡 |
+| MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🔴 |
+| MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |
 | GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
 | GUIDE-1 | **Finish wallet intelligence guide** (`documentation/agent-wallet-intelligence-guide.md`) | ⚪ |
 | X-1 | **Finish sova-x wallets/tokens opening work** | ⚪ |
@@ -25,6 +26,7 @@
 | ⚪ | **Implement feed feature** | Design and implement activity feed functionality |
 | ⚪ | **Intel contract — SDK ownership decision** | Decide: handwritten SDK as main facade + generated as low-level baseline, or hybrid generated-core + handwritten-facade. Then: move SDK ownership into `sova-intel` cleanly, revisit docs automation from stable artifact path |
 | ⚪ | **REMOVE AUTODOC from deps** | |
+| ⚪ | **[sova-intel-mcp] Do not treat as public-ready yet** | Audit found missing README, missing real smoke verification, undocumented runtime deps for `x402`, and MCP reliance on SDK internals despite scaffold claims |
 
 ---
 
@@ -34,6 +36,7 @@
 
 | ID | T | Title | Scope | Components |
 |:--:|:-:|:------|:-----:|:-----------:|
+| MCP-10a | 🔧 FIX | **[MCP-AUDIT-FIXES]** Closed the local scaffold gaps from the MCP audit: removed SDK-internal MCP coupling by adding public SDK resume methods, fixed `job_wait` queued-envelope input handling, wired real timeout-derived polling, removed baked pricing table fallback, added MCP README, and declared `x402` runtime deps. SDK tests pass; SDK + MCP builds pass. Live API/Claude/x402 verification still pending. | 🟡 M | `packages/sdk/src/client.ts`, `packages/sdk/src/client.test.ts`, `packages/sova-intel-mcp/src/core/polling.ts`, `src/tools/*.ts`, `src/server.ts`, `src/config.ts`, `package.json`, `README.md` |
 | MCP-1 | 🎯 FEAT | **[MCP-SCAFFOLD]** Package scaffold — `package.json` (ESM, bin entry `sova-intel-mcp`, workspace SDK dep), `tsconfig.json` (NodeNext), `src/index.ts` (stdio entrypoint, limited-mode startup log). `pnpm build` clean. | 🟢 S | `packages/sova-intel-mcp/package.json`, `tsconfig.json`, `src/index.ts` |
 | MCP-2 | 🎯 FEAT | **[MCP-AUTH]** Config + auth layer — env-var loading with fail-fast on bad explicit mode, `auto` resolves apikey → x402 → limited, x402 builder lazy-imports Solana deps only when needed. | 🟢 S | `src/config.ts`, `src/auth/resolve-auth-mode.ts`, `src/auth/x402-auth.ts`, `src/client/create-sova-client.ts` |
 | MCP-3 | 🎯 FEAT | **[MCP-CORE]** Core layer — typed output envelope (`ToolResult`, `completedResult`, `queuedResult`, `errorResult`), stable error taxonomy + classifier, per-tool factual summaries, limited-mode availability guard. | 🟢 S | `src/core/result.ts`, `src/core/errors.ts`, `src/core/summary.ts`, `src/core/availability.ts` |
@@ -196,3 +199,7 @@ Holder Profiles: NO LOCK (relies on service idempotency)
 ```
 
 - **Scope:** S = Small (<50 lines, <1hr) | M = Medium (2-5 files, <4hrs) | L = Large (5+ files, multi-day)
+
+
+
+
