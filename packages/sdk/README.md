@@ -97,7 +97,7 @@ const client = new SovaIntelClient({
 
 const hud = await client.getWalletHud("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU");
 
-console.log(hud.behaviorCode);       // "SWING_TRADER"
+console.log(hud.behaviorCode);       // "W"
 console.log(hud.winRate);            // 0.67
 console.log(hud.trimmedMeanPnl);     // 12.4 (SOL)
 console.log(hud.isBot);              // false
@@ -132,7 +132,6 @@ for (const holder of result.profiles) {
 ---
 
 ## All methods
-
 | Method | Endpoint | Credits |
 |:-------|:---------|--------:|
 | `getWalletProfile(address)` | `GET /intel/wallet/:addr` | 5 |
@@ -140,9 +139,15 @@ for (const holder of result.profiles) {
 | `getWalletTokens(address, params?)` | `GET /intel/wallet/:addr/tokens` | 3 |
 | `batchHud(wallets[])` | `POST /intel/wallets/batch-hud` | 5 flat |
 | `queueHolderProfiles(mint, topN?)` | `POST /intel/token/:mint/holders` | 20 |
-| `pollHolderProfiles(mint, topN?)` | same + auto-poll | 20 |
+| `pollHolderProfiles(mint, topN?)` | queue + auto-poll helper | no extra charge |
 | `queueSimilarity(wallets[])` | `POST /intel/wallets/similarity` | 20 |
-| `pollSimilarity(wallets[])` | same + auto-poll | 20 |
+| `pollSimilarity(wallets[])` | queue + auto-poll helper | no extra charge |
+| `queueTokenHoldersAgent(mint, topN?)` | `POST /intel/token/:mint/holders/agent` | 20 |
+| `pollTokenHoldersAgent(mint, topN?)` | queue + auto-poll helper | no extra charge |
+| `queueWalletSimilarityAgent(wallets[])` | `POST /intel/wallets/similarity/agent` | 20 |
+| `pollWalletSimilarityAgent(wallets[])` | queue + auto-poll helper | no extra charge |
+| `queueDeepAnalysis(mint, topN?)` | `POST /intel/token/:mint/holders/deep` | 35 |
+| `pollDeepAnalysis(mint, topN?)` | queue + auto-poll helper | no extra charge |
 
 Full reference with schemas: **[docs.sova-intel.com](https://docs.sova-intel.com)**
 

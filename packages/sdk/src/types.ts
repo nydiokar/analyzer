@@ -182,6 +182,27 @@ export interface JobAcceptedResponse {
   monitoringUrl: string;
 }
 
+export interface HolderProfilesJobAcceptedResponse {
+  status: "queued";
+  jobId: string;
+  requestId: string;
+  monitoringUrl: string;
+  tokenMint: string;
+  topN: number;
+  resultKey: string;
+  message: string;
+}
+
+export interface SimilarityJobAcceptedResponse {
+  status: "queued";
+  jobId: string;
+  requestId: string;
+  monitoringUrl: string;
+  walletCount: number;
+  resultKey: string;
+  message: string;
+}
+
 /** Returned by GET /intel/wallet/:addr and GET /intel/wallet/:addr/hud on timeout fallback (202). */
 export interface WalletGetQueuedResponse {
   status: "queued";

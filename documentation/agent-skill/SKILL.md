@@ -24,9 +24,9 @@ curl https://api.sova-intel.com/api/v1/intel/wallet/WALLET_ADDRESS/hud \
   -H "X-Api-Key: ak_your_key"
 ```
 
-Returns: `{ behaviorCode, winRate, trimmedMeanPnl, medianHoldTimeHours, avgTxValueSol, avgTradesPerDay, uniqueTokensPerDay, currentHoldingsSol, dataQualityTier, isBot, isWhale, calculatedAt }`
+Returns: `{ signalType, behaviorCode, winRate, trimmedMeanPnl, medianHoldTimeHours, avgTxValueSol, avgTradesPerDay, uniqueTokensPerDay, currentHoldingsSol, currentHoldingsUsd, typicalEntryMcapUsd, dominantEntryMcapBucket, dataQualityTier, isBot, isWhale, calculatedAt, provenance }`
 
-`behaviorCode` values: `SNIPER` `SCALPER` `MOMENTUM` `INTRADAY` `DAY_TRADER` `SWING_TRADER` `POSITION_TRADER` `HODLER`
+`behaviorCode` is a compact single-letter code such as `W` (swing), `M` (momentum), `H` (holder), or `?` (unknown).
 
 The API holds the request up to 30s for a live result. If it times out it returns HTTP 202 — see [Async jobs](#async-jobs).
 

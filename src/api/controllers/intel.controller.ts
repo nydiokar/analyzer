@@ -17,7 +17,7 @@ import {
   Req,
   Inject,
 } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiParam, ApiProperty, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 import { IsArray, IsString, ArrayMaxSize, ArrayMinSize, IsOptional, IsInt, Min, Max } from 'class-validator';
@@ -38,6 +38,18 @@ import { BehaviorService } from '../services/behavior.service';
 import { PnlOverviewService } from '../services/pnl-overview.service';
 import { TokenPerformanceService } from '../services/token-performance.service';
 import { TokenPerformanceQueryDto } from '../shared/dto/token-performance-query.dto';
+import { WalletHudDto } from '../shared/dto/wallet-hud.dto';
+import {
+  IntelBatchHudResponseDto,
+  IntelDeepJobAcceptedResponseDto,
+  IntelHolderProfilesAgentJobAcceptedResponseDto,
+  IntelHolderProfilesJobAcceptedResponseDto,
+  IntelSimilarityAgentJobAcceptedResponseDto,
+  IntelSimilarityJobAcceptedResponseDto,
+  IntelTokenPerformanceResponseDto,
+  IntelWalletProfileResponseDto,
+  IntelWalletQueuedResponseDto,
+} from '../shared/dto/intel-public.dto';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { RedisLockService } from '../../queues/services/redis-lock.service';
@@ -53,6 +65,11 @@ import { getKnownWallet, isAnalysisBlockingType } from '../../config/known-walle
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
 
 class BatchHudRequestDto {
+  @ApiProperty({
+    type: [String],
+    minItems: 1,
+    maxItems: 30,
+  })
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(30)
@@ -61,6 +78,12 @@ class BatchHudRequestDto {
 }
 
 class IntelTokenHoldersRequestDto {
+  @ApiProperty({
+    required: false,
+    minimum: 1,
+    maximum: 50,
+    default: 20,
+  })
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -69,6 +92,11 @@ class IntelTokenHoldersRequestDto {
 }
 
 class IntelWalletSimilarityRequestDto {
+  @ApiProperty({
+    type: [String],
+    minItems: 2,
+    maxItems: 30,
+  })
   @IsArray()
   @ArrayMinSize(2)
   @ArrayMaxSize(30)
@@ -214,8 +242,8 @@ export class IntelController {
 **HTTP 422 — status "skipped":** Known system/program wallet, not eligible for analysis. 0cr charged.`,
   })
   @ApiParam({ name: 'addr', description: 'Solana wallet address' })
-  @ApiResponse({ status: 200, description: 'Aggregated wallet intel' })
-  @ApiResponse({ status: 202, description: 'Analysis queued — poll monitoringUrl then call again' })
+  @ApiResponse({ status: 200, description: 'Aggregated wallet intel', type: IntelWalletProfileResponseDto })
+  @ApiResponse({ status: 202, description: 'Analysis queued — poll monitoringUrl then call again', type: IntelWalletQueuedResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid Solana address' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   @ApiResponse({ status: 422, description: 'Known system wallet — not eligible for analysis, 0cr charged' })
@@ -446,7 +474,7 @@ export class IntelController {
     description: 'Paginated token-level performance data for a wallet. Supports sorting by PnL, win-rate, volume, or percentage-gain.',
   })
   @ApiParam({ name: 'addr', description: 'Solana wallet address' })
-  @ApiResponse({ status: 200, description: 'Paginated token performance data' })
+  @ApiResponse({ status: 200, description: 'Paginated token performance data', type: IntelTokenPerformanceResponseDto })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   @ApiResponse({ status: 404, description: 'No token data — call GET /intel/wallet/:addr first to trigger analysis' })
   async getWalletTokens(
@@ -481,8 +509,8 @@ export class IntelController {
     description: 'Returns compact heads-up-display metrics. Auto-queues flash analysis if wallet is unknown — returns 202, poll monitoringUrl, then call again.',
   })
   @ApiParam({ name: 'addr', description: 'Solana wallet address' })
-  @ApiResponse({ status: 200, description: 'Wallet HUD metrics' })
-  @ApiResponse({ status: 202, description: 'Analysis queued — poll monitoringUrl then call again' })
+  @ApiResponse({ status: 200, description: 'Wallet HUD metrics', type: WalletHudDto })
+  @ApiResponse({ status: 202, description: 'Analysis queued — poll monitoringUrl then call again', type: IntelWalletQueuedResponseDto })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   @ApiResponse({ status: 422, description: 'Known system wallet — not eligible for analysis' })
   async getWalletHud(@Param('addr') addr: string, @Req() req: Request & { user?: User }) {
@@ -633,7 +661,7 @@ export class IntelController {
   })
   @ApiParam({ name: 'mint', description: 'Solana token mint address' })
   @ApiBody({ type: IntelTokenHoldersRequestDto })
-  @ApiResponse({ status: 202, description: 'Holder-profiles job accepted — poll monitoringUrl for completion' })
+  @ApiResponse({ status: 202, description: 'Holder-profiles job accepted — poll monitoringUrl for completion', type: IntelHolderProfilesJobAcceptedResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid token mint address or topN out of range' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   async queueTokenHolders(
@@ -697,7 +725,7 @@ export class IntelController {
     description: 'Queues similarity analysis for 2-30 wallet addresses. Always returns HTTP 202 with a job ID for async polling.',
   })
   @ApiBody({ type: IntelWalletSimilarityRequestDto })
-  @ApiResponse({ status: 202, description: 'Similarity job accepted - poll monitoringUrl for completion' })
+  @ApiResponse({ status: 202, description: 'Similarity job accepted - poll monitoringUrl for completion', type: IntelSimilarityJobAcceptedResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid wallet list or invalid wallet address' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   async queueWalletSimilarity(
@@ -759,7 +787,7 @@ The full developer result remains available at \`resultKey\`.
   })
   @ApiParam({ name: 'mint', description: 'Solana token mint address' })
   @ApiBody({ type: IntelTokenHoldersRequestDto })
-  @ApiResponse({ status: 202, description: 'Holder-profiles agent job accepted — poll monitoringUrl, then fetch agentResultKey' })
+  @ApiResponse({ status: 202, description: 'Holder-profiles agent job accepted — poll monitoringUrl, then fetch agentResultKey', type: IntelHolderProfilesAgentJobAcceptedResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid token mint address or topN out of range' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   async queueTokenHoldersAgent(
@@ -909,7 +937,7 @@ Returns HTTP 202. Poll \`monitoringUrl\`. Once completed, fetch \`agentResultKey
 20cr deducted on job acceptance.`,
   })
   @ApiBody({ type: IntelWalletSimilarityRequestDto })
-  @ApiResponse({ status: 202, description: 'Similarity agent job accepted — poll monitoringUrl, then fetch agentResultKey' })
+  @ApiResponse({ status: 202, description: 'Similarity agent job accepted — poll monitoringUrl, then fetch agentResultKey', type: IntelSimilarityAgentJobAcceptedResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid wallet list or invalid wallet address' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   async queueWalletSimilarityAgent(
@@ -1010,7 +1038,8 @@ Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the
 35cr per call (vs 40cr for the manual two-step flow).`,
   })
   @ApiParam({ name: 'mint', description: 'Solana token mint address' })
-  @ApiResponse({ status: 202, description: 'Holder-profiles + chained similarity queued — poll both result keys' })
+  @ApiBody({ type: IntelTokenHoldersDeepRequestDto })
+  @ApiResponse({ status: 202, description: 'Holder-profiles + chained similarity queued — poll both result keys', type: IntelDeepJobAcceptedResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid mint address or topN out of range' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   async queueTokenHoldersDeep(
@@ -1268,7 +1297,7 @@ Returns:
 5cr per call. Call again after queued jobs complete to get the remaining HUDs. Max 30 wallets.`,
   })
   @ApiBody({ type: BatchHudRequestDto })
-  @ApiResponse({ status: 200, description: 'Batch HUD — huds map + queued jobs + skipped list' })
+  @ApiResponse({ status: 200, description: 'Batch HUD — huds map + queued jobs + skipped list', type: IntelBatchHudResponseDto })
   @ApiResponse({ status: 400, description: 'Invalid request — empty array, >30 wallets, or invalid addresses' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   async batchWalletHud(

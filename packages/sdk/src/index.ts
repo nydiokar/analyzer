@@ -38,6 +38,8 @@ export type {
   JobRef,
   JobStatus,
   JobAcceptedResponse,
+  HolderProfilesJobAcceptedResponse,
+  SimilarityJobAcceptedResponse,
   WalletGetQueuedResponse,
   DeepJobAcceptedResponse,
   // Agent-optimised job accepted responses

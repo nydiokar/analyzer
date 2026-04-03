@@ -1,6 +1,6 @@
 ﻿# Sova Intel - Project Context
 
-**Branch:** `main`  **Last Updated:** 2026-04-02  **Status:** Token supply cache bypass fixed; buildSupplyMap concurrency raised; WalletPreparationService shipped and merged. Entry Mcap Distribution feature shipped on wallet profile page.
+**Branch:** `main`  **Last Updated:** 2026-04-03  **Status:** Token supply cache bypass fixed; buildSupplyMap concurrency raised; WalletPreparationService shipped and merged. Entry Mcap Distribution feature shipped on wallet profile page. Intel contract pipeline layer is now in place: controller DTOs export an isolated OpenAPI artifact, SDK contract generation derives from that artifact, and strict audit verifies parity. Docs automation remains downstream work.
 
 **Base:** `feat/tracked-wallets-page` → `main` (Credit ledger + Intel API + X402 + Holdings Radar — all complete)
 
@@ -10,6 +10,11 @@
 
 - Finish the wallet intelligence guide.
 - Finish Sova-X wallets/tokens opening work.
+- Intel public contract automation:
+  - Drift audit is working and useful.
+  - Intel-only OpenAPI artifact export is isolated from full app runtime.
+  - SDK accepted-response contract is generated from `artifacts/intel-openapi.json` and parity-checked against the explicit SDK public types.
+  - Next required step: decide how far to automate docs from the artifact, without reintroducing patch-sync drift.
 
 ---
 
@@ -184,6 +189,30 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 ---
 
 ##  Recent Activity
+
+### April 3, 2026 — Intel Contract Pipeline Layer Finished
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| 3.1 | 🎯 FEAT | **[INTEL-AUDIT-1]** Added Intel surface drift audit covering controller endpoints vs SDK method coverage, accepted-response types, HUD fields, wallet behavior fields, and docs surfaces. Strict mode now catches the real drift classes we care about. | 🟡 M | `scripts/intel-surface-audit.ts`, `package.json`, `.github/workflows/intel-surface-audit.yml` |
+| 3.2 | 🔧 REFACTOR | **[INTEL-SYNC-BRIDGE-REMOVED]** Removed the temporary patch-sync script from the active workflow. The contract path no longer depends on regex surface patching. | 🟢 S | `package.json`, `scripts/intel-sync-surfaces.ts` |
+| 3.3 | 🔧 REFACTOR | **[INTEL-SDK-LAYERING]** SDK public accepted-response types now live explicitly in `packages/sdk/src/types.ts`; they are no longer re-exported from `generated-intel-contract.ts`. The generated file remains an internal artifact, and strict audit now checks parity between generated contract and public SDK types. | 🟢 S | `packages/sdk/src/types.ts`, `packages/sdk/src/client.ts`, `packages/sdk/src/index.ts`, `scripts/intel-surface-audit.ts` |
+| 3.4 | 🎯 FEAT | **[INTEL-ARTIFACT-1]** Intel public DTO layer + OpenAPI exporter + SDK contract generator are working end-to-end from `artifacts/intel-openapi.json`. `pnpm run build`, `pnpm run intel:openapi`, `pnpm run intel:sdk`, and `pnpm run intel:audit:strict` all pass. | 🟢 M | `src/api/shared/dto/intel-public.dto.ts`, `src/api/controllers/intel.controller.ts`, `scripts/export-intel-openapi.ts`, `scripts/generate-intel-sdk-contract.ts`, `packages/sdk/src/generated-intel-contract.ts`, `package.json` |
+| 3.5 | 🔧 REFACTOR | **[INTEL-ARTIFACT-ISOLATION]** OpenAPI export now boots a dedicated Intel-only Nest module with stub providers instead of the full `AppModule`, removing Redis/queue runtime coupling from artifact generation. | 🟢 S | `scripts/export-intel-openapi.ts`, `src/api/modules/intel-openapi.module.ts` |
+
+**Current reality:**
+- `pnpm run build` is green.
+- `pnpm run intel:audit:strict` is green for the targeted drift classes.
+- `artifacts/intel-openapi.json` is emitted from an isolated Intel-only OpenAPI module, not the full app runtime.
+- `packages/sdk/src/generated-intel-contract.ts` is generated from that artifact.
+- `packages/sdk/src/types.ts` remains the canonical SDK public type surface, and strict audit verifies parity with the generated contract for accepted-response types.
+- Docs automation is still manual/downstream and should not yet be treated as artifact-driven.
+
+**What still must be done before this is “sorted out”:**
+1. Decide whether `packages/sdk/src/generated-intel-contract.ts` should stay committed as an internal checked-in artifact or become pure generated CI output.
+2. Decide whether more SDK surfaces should be generated from the artifact, or whether generation should stay limited to parity-critical accepted-response types and field inventories.
+3. Revisit docs automation from the now-stable artifact path, ideally as generated reference blocks plus drift detection rather than free-form patching.
+4. Keep the drift audit as the guardrail even if docs automation becomes more automated.
 
 ### April 2, 2026 — Token Supply Optimization + WalletPreparationService
 
@@ -467,6 +496,6 @@ Recent Activity entries use: `DD.N` numbering (e.g., `13.1`, `13.2` for Jan 13)
 
 ---
 
-**Last Updated:** 2026-03-28  **Branch:** `main`
+**Last Updated:** 2026-04-03  **Branch:** `main`
 
 ---

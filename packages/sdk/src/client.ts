@@ -12,8 +12,9 @@ import type {
   TokenPnlResponse,
   TokenPnlParams,
   BatchHudResponse,
-  JobAcceptedResponse,
   DeepJobAcceptedResponse,
+  HolderProfilesJobAcceptedResponse,
+  SimilarityJobAcceptedResponse,
   HolderProfilesAgentJobAcceptedResponse,
   SimilarityAgentJobAcceptedResponse,
   AgentHolderProfilesResult,
@@ -115,8 +116,8 @@ export class SovaIntelClient {
   async queueHolderProfiles(
     tokenMint: string,
     topN = 20,
-  ): Promise<JobAcceptedResponse> {
-    return this.http.request<JobAcceptedResponse>({
+  ): Promise<HolderProfilesJobAcceptedResponse> {
+    return this.http.request<HolderProfilesJobAcceptedResponse>({
       method: "POST",
       path: `/intel/token/${tokenMint}/holders`,
       body: { topN },
@@ -144,8 +145,8 @@ export class SovaIntelClient {
   // -------------------------------------------------------------------------
   // POST /intel/wallets/similarity — 20cr (async)
   // -------------------------------------------------------------------------
-  async queueSimilarity(wallets: string[]): Promise<JobAcceptedResponse> {
-    return this.http.request<JobAcceptedResponse>({
+  async queueSimilarity(wallets: string[]): Promise<SimilarityJobAcceptedResponse> {
+    return this.http.request<SimilarityJobAcceptedResponse>({
       method: "POST",
       path: `/intel/wallets/similarity`,
       body: { wallets },
