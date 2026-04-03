@@ -1,0 +1,56 @@
+{
+  "name": "@sova-intel/sdk-generated",
+  "version": "0.2.0",
+  "description": "Generated evaluation SDK for the Sova Intel API, derived from the Intel OpenAPI artifact.",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json",
+    "prepublishOnly": "pnpm build",
+    "test": "vitest run --exclude src/contract.test.ts",
+    "test:watch": "vitest --exclude src/contract.test.ts",
+    "test:contract": "vitest run src/contract.test.ts"
+  },
+  "keywords": [
+    "solana",
+    "wallet",
+    "intelligence",
+    "pnl",
+    "on-chain",
+    "x402",
+    "defi",
+    "crypto",
+    "sova"
+  ],
+  "author": "Sova",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.5",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nydiokar/sova-intel.git"
+  },
+  "homepage": "https://docs.sova-intel.com"
+}

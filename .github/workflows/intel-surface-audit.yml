@@ -7,10 +7,15 @@ on:
       - main
     paths:
       - 'src/api/controllers/intel.controller.ts'
+      - 'src/api/shared/dto/intel-public.dto.ts'
       - 'src/api/shared/dto/wallet-hud.dto.ts'
       - 'src/api/services/wallet-hud.service.ts'
+      - 'src/api/modules/intel-openapi.module.ts'
       - 'packages/sdk/**'
       - 'documentation/agent-skill/**'
+      - 'artifacts/intel-openapi.json'
+      - 'scripts/export-intel-openapi.ts'
+      - 'scripts/generate-intel-sdk-contract.ts'
       - 'scripts/intel-surface-audit.ts'
       - 'package.json'
 
@@ -42,8 +47,24 @@ jobs:
         working-directory: analyzer
         run: pnpm install --frozen-lockfile
 
+      - name: TypeScript build
+        working-directory: analyzer
+        run: pnpm run build
+
+      - name: Export Intel OpenAPI artifact
+        working-directory: analyzer
+        run: pnpm run intel:openapi
+
+      - name: Generate SDK contract
+        working-directory: analyzer
+        run: pnpm run intel:sdk
+
       - name: Run strict Intel surface audit
         working-directory: analyzer
         env:
           INTEL_PUBLIC_DOCS_ROOT: ${{ github.workspace }}/sova-intel
         run: pnpm run intel:audit:strict
+
+      - name: Verify generated Intel artifacts are committed
+        working-directory: analyzer
+        run: git diff --exit-code -- artifacts/intel-openapi.json packages/sdk/src/generated-intel-contract.ts

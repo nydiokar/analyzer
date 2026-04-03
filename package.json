@@ -32,6 +32,7 @@
     "test:agent-similarity-by-key": "npx ts-node -r tsconfig-paths/register src/scripts/test-agent-similarity-by-key.ts",
     "intel:openapi": "npx ts-node -r tsconfig-paths/register scripts/export-intel-openapi.ts",
     "intel:sdk": "npx ts-node -r tsconfig-paths/register scripts/generate-intel-sdk-contract.ts",
+    "intel:sdk:generated": "npx ts-node -r tsconfig-paths/register scripts/export-generated-intel-sdk.ts",
     "intel:audit": "npx ts-node -r tsconfig-paths/register scripts/intel-surface-audit.ts",
     "intel:audit:strict": "npx ts-node -r tsconfig-paths/register scripts/intel-surface-audit.ts --strict",
     "intel:verify": "pnpm run intel:openapi && pnpm run intel:sdk && pnpm run intel:audit:strict",
