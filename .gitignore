@@ -37,6 +37,9 @@ analysis_reports/
 analysis_sessions/
 debug_output/
 out/
+artifacts/
+generated-sdk-eval/
+
 # But keep fixture files for regression tests
 !debug_output/*_raw.json
 !debug_output/*_database_rows.json

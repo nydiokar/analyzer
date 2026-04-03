@@ -36,6 +36,7 @@
     "intel:audit": "npx ts-node -r tsconfig-paths/register scripts/intel-surface-audit.ts",
     "intel:audit:strict": "npx ts-node -r tsconfig-paths/register scripts/intel-surface-audit.ts --strict",
     "intel:verify": "pnpm run intel:openapi && pnpm run intel:sdk && pnpm run intel:audit:strict",
+    "hooks:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-git-hooks.ps1",
     "validate:deps": "npx ts-node -r tsconfig-paths/register scripts/validate-dependencies.ts",
     "clear:wallet": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-wallet-data.ts",
     "clear:queues": "npx ts-node -r tsconfig-paths/register scripts/clean-up/clear-all-queues.ts",

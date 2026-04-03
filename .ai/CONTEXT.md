@@ -14,7 +14,11 @@
   - Drift audit is working and useful.
   - Intel-only OpenAPI artifact export is isolated from full app runtime.
   - SDK accepted-response contract is generated from `artifacts/intel-openapi.json` and parity-checked against the explicit SDK public types.
+  - `pnpm run intel:verify` is the local end-to-end contract check (`intel:openapi` + `intel:sdk` + `intel:audit:strict`).
+  - `pnpm run hooks:install` installs a narrow local pre-commit hook that auto-runs the Intel contract pipeline only when staged Intel contract files changed.
   - One-off generated SDK evaluation package exists in `C:/Users/solastic/prj/sova-intel/sdk-generated` and compiles, but it is still lower-quality than the handwritten SDK.
+  - `sdk-generated` is evaluation-only for now and should not be committed until the hybrid/generated SDK ownership decision is made.
+  - Next session: make one intentional Intel endpoint contract change and test the full path end-to-end (local hook -> `intel:verify` -> generated outputs -> SDK facade follow-up -> docs impact) before deciding on hybrid SDK adoption.
   - Next required step: decide whether to keep the handwritten SDK as the main public facade and use generated SDK output only as a low-level baseline, or to promote a hybrid generated-core + handwritten-facade model.
 
 ---
@@ -201,6 +205,7 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 | 3.4 | 🎯 FEAT | **[INTEL-ARTIFACT-1]** Intel public DTO layer + OpenAPI exporter + SDK contract generator are working end-to-end from `artifacts/intel-openapi.json`. `pnpm run build`, `pnpm run intel:openapi`, `pnpm run intel:sdk`, and `pnpm run intel:audit:strict` all pass. | 🟢 M | `src/api/shared/dto/intel-public.dto.ts`, `src/api/controllers/intel.controller.ts`, `scripts/export-intel-openapi.ts`, `scripts/generate-intel-sdk-contract.ts`, `packages/sdk/src/generated-intel-contract.ts`, `package.json` |
 | 3.5 | 🔧 REFACTOR | **[INTEL-ARTIFACT-ISOLATION]** OpenAPI export now boots a dedicated Intel-only Nest module with stub providers instead of the full `AppModule`, removing Redis/queue runtime coupling from artifact generation. | 🟢 S | `scripts/export-intel-openapi.ts`, `src/api/modules/intel-openapi.module.ts` |
 | 3.6 | 🔧 EVAL | **[INTEL-GENERATED-SDK-EVAL]** Added a one-off generator that emits a fully artifact-driven SDK package and exported it to `C:/Users/solastic/prj/sova-intel/sdk-generated`. The generated package compiles, proving docs-repo SDK ownership is viable, but the raw generated surface is still materially worse than the handwritten SDK ergonomics. | 🟢 M | `scripts/export-generated-intel-sdk.ts`, `artifacts/generated-sdk-eval/`, `C:/Users/solastic/prj/sova-intel/sdk-generated/` |
+| 3.7 | 🔧 INFRA | **[INTEL-HOOK-AUTOMATION]** Added local hook install support and a narrow Intel pre-commit check. `pnpm run hooks:install` installs `.git/hooks/pre-commit`, which reruns the Intel contract pipeline only for staged Intel contract changes, auto-stages generated contract outputs, and reminds the author to review handwritten SDK facade/docs follow-up. CI remains the hard backstop on PRs to `main`. | 🟢 S | `scripts/install-git-hooks.ps1`, `scripts/git-hooks/pre-commit-intel.ps1`, `.github/workflows/intel-surface-audit.yml`, `package.json` |
 
 **Current reality:**
 - `pnpm run build` is green.
@@ -209,6 +214,8 @@ All SLIM steps done. Backend shipped earlier; SDK and docs completed this sessio
 - `packages/sdk/src/generated-intel-contract.ts` is generated from that artifact.
 - `packages/sdk/src/types.ts` remains the canonical SDK public type surface, and strict audit verifies parity with the generated contract for accepted-response types.
 - A generated evaluation SDK package can also be emitted from the same artifact; it compiles, but today it is best treated as a low-level baseline rather than a direct replacement for the handwritten SDK.
+- Local automation exists via `pnpm run hooks:install`; once installed, commits touching staged Intel contract files automatically rerun the Intel contract pipeline and stage refreshed generated outputs.
+- CI automatically reruns the same contract pipeline on PRs to `main` and fails if generated files are stale or contract parity breaks.
 - Docs automation is still manual/downstream and should not yet be treated as artifact-driven.
 
 **What still must be done before this is “sorted out”:**
