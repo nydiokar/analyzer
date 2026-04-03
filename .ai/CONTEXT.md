@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `main` | **Last Updated:** 2026-04-03 | **Status:** Intel contract pipeline complete; WalletPreparationService merged; Entry Mcap Distribution shipped on wallet profile page.
+**Branch:** `main` | **Last Updated:** 2026-04-03 | **Status:** sova-intel-mcp scaffold complete and building clean.
 
 ---
 
@@ -8,13 +8,8 @@
 
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
-| MCP-1 | **[sova-intel-mcp] Package scaffold** — `package.json`, `tsconfig.json`, `src/index.ts`, `src/server.ts` | 🔴 NOW |
-| MCP-2 | **[sova-intel-mcp] Config + auth layer** — `config.ts`, `auth/resolve-auth-mode.ts`, `auth/api-key-auth.ts`, `auth/x402-auth.ts` | 🔴 NOW |
-| MCP-3 | **[sova-intel-mcp] Core layer** — `core/result.ts`, `core/errors.ts`, `core/summary.ts`, `core/availability.ts` | 🔴 |
-| MCP-4 | **[sova-intel-mcp] Wallet tools** — `wallet-hud`, `wallet-profile`, `wallet-token-pnl`, `batch-wallet-hud` | 🔴 |
-| MCP-5 | **[sova-intel-mcp] Async tools** — `token-holder-profiles`, `wallet-similarity`, `deep-token-analysis`, `job-status`, `job-wait` | 🔴 |
-| MCP-6 | **[sova-intel-mcp] Resources** — `pricing` (live fetch), `skill` (live), `auth-help` | 🟡 |
-| MCP-7 | **[sova-intel-mcp] Build + install wiring** — `pnpm install`, `pnpm build`, smoke test via `npx` | 🟡 |
+| MCP-8 | **[sova-intel-mcp] End-to-end smoke test** — wire into Claude Desktop or Claude Code, run `wallet_hud` live | 🔴 NOW |
+| MCP-9 | **[sova-intel-mcp] README** — install snippets (Claude Desktop + Claude Code), env vars, tool listing | 🟡 |
 | GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
 | GUIDE-1 | **Finish wallet intelligence guide** (`documentation/agent-wallet-intelligence-guide.md`) | ⚪ |
 | X-1 | **Finish sova-x wallets/tokens opening work** | ⚪ |
@@ -34,6 +29,26 @@
 ---
 
 ## Recent Activity
+
+### April 3, 2026 — sova-intel-mcp Scaffold
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| MCP-1 | 🎯 FEAT | **[MCP-SCAFFOLD]** Package scaffold — `package.json` (ESM, bin entry `sova-intel-mcp`, workspace SDK dep), `tsconfig.json` (NodeNext), `src/index.ts` (stdio entrypoint, limited-mode startup log). `pnpm build` clean. | 🟢 S | `packages/sova-intel-mcp/package.json`, `tsconfig.json`, `src/index.ts` |
+| MCP-2 | 🎯 FEAT | **[MCP-AUTH]** Config + auth layer — env-var loading with fail-fast on bad explicit mode, `auto` resolves apikey → x402 → limited, x402 builder lazy-imports Solana deps only when needed. | 🟢 S | `src/config.ts`, `src/auth/resolve-auth-mode.ts`, `src/auth/x402-auth.ts`, `src/client/create-sova-client.ts` |
+| MCP-3 | 🎯 FEAT | **[MCP-CORE]** Core layer — typed output envelope (`ToolResult`, `completedResult`, `queuedResult`, `errorResult`), stable error taxonomy + classifier, per-tool factual summaries, limited-mode availability guard. | 🟢 S | `src/core/result.ts`, `src/core/errors.ts`, `src/core/summary.ts`, `src/core/availability.ts` |
+| MCP-4 | 🎯 FEAT | **[MCP-WALLET-TOOLS]** Wallet tools — `wallet_hud` (1cr), `wallet_profile` (5cr), `wallet_token_pnl` (3cr), `batch_wallet_hud` (5cr). Thin handlers; SDK handles GET timeout fallback internally. | 🟢 S | `src/tools/wallet-hud.ts`, `wallet-profile.ts`, `wallet-token-pnl.ts`, `batch-wallet-hud.ts` |
+| MCP-5 | 🎯 FEAT | **[MCP-ASYNC-TOOLS]** Async tools — `token_holder_profiles` (20cr, `pollTokenHoldersAgent`), `wallet_similarity` (20cr, `pollWalletSimilarityAgent`), `deep_token_analysis` (35cr), `job_status` (free), `job_wait` (resume via `pollAndFetch`). All return queued envelope on `JobPollerError` — no throws. | 🟡 M | `src/tools/token-holder-profiles.ts`, `wallet-similarity.ts`, `deep-token-analysis.ts`, `job-status.ts`, `job-wait.ts` |
+| MCP-6 | 🎯 FEAT | **[MCP-RESOURCES]** Resources — `sova://pricing` (live `GET /pricing`, static fallback), `sova://skill` (live GitHub raw), `sova://help/auth` (static, always available). | 🟢 S | `src/resources/pricing.ts`, `skill.ts`, `auth-help.ts` |
+| MCP-7 | 🎯 FEAT | **[MCP-SERVER]** Server registration — 9 tools + 3 resources wired into `McpServer`, limited-mode guard per tool, `isError: true` structured returns. Zero TS errors. | 🟢 S | `src/server.ts` |
+
+**Key decisions:**
+- stdio transport; `npx sova-intel-mcp` install shape.
+- Agent-optimised SDK methods only: `pollTokenHoldersAgent()`, `pollWalletSimilarityAgent()` — not verbose developer variants.
+- Async tools queue first (capturing `agentResultKey`), poll second; on `JobPollerError` return queued envelope with `resumeTool: "job_wait"`.
+- x402 lazy-imports Solana deps — apikey-only deployments don't pay the cost.
+
+---
 
 ### April 3, 2026 — Intel Contract Pipeline Finished
 

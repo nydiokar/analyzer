@@ -16,13 +16,19 @@ Sections:
 - `Purpose`
 - `Repo Fit`
 - `Product Definition`
+- `Goals and Non-Goals`
 - `Locked Decisions`
 - `Surface Boundaries`
 - `V1 Tool Surface`
+- `V0 Tool Contracts`
 - `Output Contract`
 - `Auth and Startup`
+- `Auth, Credits, and Rate Limits`
+- `Agent Integrations`
 - `Implementation Shape`
 - `Async, Errors, Availability`
+- `End-to-End Workflow`
+- `Milestones and Acceptance`
 - `Verification`
 - `Extraction`
 
@@ -68,6 +74,22 @@ The MCP should return:
 - a short factual summary
 - the raw structured result
 - stable metadata
+
+## Goals and Non-Goals
+
+### Goals
+
+- expose the highest-signal Intel workflows as a small MCP surface
+- keep the MCP buildable from the public API and `@sova-intel/sdk`
+- make auth/payment behavior predictable for agents
+- prefer compact agent-ready outputs over verbose developer payloads
+
+### Non-goals
+
+- mirroring every Sova endpoint
+- introducing a second serving model beside the public API + SDK
+- local persistence, caching tiers, or credit ledger logic inside the MCP
+- broad prompt libraries, recommendations, or write/mutate tools in V1
 
 ## Locked Decisions
 
@@ -272,6 +294,36 @@ A plugin should either wrap the MCP or wrap the SDK directly while honoring the 
 - polls jobId to completion, then fetches result by resultKey/agentResultKey
 - standard resume tool referenced in every queued envelope
 
+## V0 Tool Contracts
+
+This section freezes the initial implementation surface in one place. Keep it small and use existing endpoints or thin SDK-backed wrappers only.
+
+### Core implementation set
+
+| Tool | Purpose | Required input | Response data shape | Cost | API / SDK mapping |
+|:-----|:--------|:---------------|:--------------------|:----:|:------------------|
+| `wallet_hud` | Cheapest wallet read for first-pass triage | `walletAddress: string` | compact HUD metrics, data quality, summary fields | 1cr | `GET /intel/wallet/:addr/hud` via `client.getWalletHud(walletAddress)` |
+| `wallet_profile` | Full wallet intelligence for deeper follow-up | `walletAddress: string` | aggregated wallet response with summary, HUD, behavior, PnL | 5cr | `GET /intel/wallet/:addr` via `client.getWalletProfile(walletAddress)` |
+| `wallet_token_pnl` | Token-by-token wallet breakdown | `walletAddress: string` | paginated token rows plus pagination metadata | 3cr | `GET /intel/wallet/:addr/tokens` via `client.getWalletTokens(walletAddress, params)` |
+| `token_holder_profiles` | Top-holder behavior for a token in compact agent form | `tokenMint: string` | slim holder profile result, holder tiers, concentration summary | 20cr | `POST /intel/token/:mint/holders/agent` via `client.pollTokenHoldersAgent(tokenMint, topN?)` |
+| `wallet_similarity` | Coordination analysis for 2-30 wallets in compact agent form | `wallets: string[]` | `coordinationScore`, `flaggedPairs`, `topOverlaps`, metadata | 20cr | `POST /intel/wallets/similarity/agent` via `client.pollWalletSimilarityAgent(wallets)` |
+| `job_wait` | Resume any queued tool | `jobId: string` plus queued metadata | completed envelope for original tool, or still-queued envelope | 0cr | wrapper over `GET /jobs/:jobId` plus result hydration |
+
+### Deferred but valid in V1 codebase
+
+`deep_token_analysis`
+- valid endpoint and price: 35cr
+- useful when holder composition and coordination are both required together
+- not a default first move because it is the most expensive token path
+- map to `POST /intel/token/:mint/holders/deep` via `client.pollDeepAnalysis(tokenMint, topN?)`
+
+### Input notes
+
+- `walletAddress` and `tokenMint` must be valid Solana addresses
+- `wallet_similarity.wallets` accepts 2-30 wallets
+- `topN` defaults to 20 and should stay capped to the API limit
+- `wallet_token_pnl` may expose `page`, `limit`, and sort params, but the MCP should keep the public input surface narrow
+
 ### Resources
 
 `sova://pricing`
@@ -447,6 +499,57 @@ stdio. The server is started as a subprocess by the MCP client. This is the stan
 
 Streamable HTTP is the correct transport for a hosted/remote deployment but is out of scope for V1.
 
+## Auth, Credits, and Rate Limits
+
+### Credit behavior
+
+- pricing source of truth is `GET /pricing`; the MCP should not hardcode a second pricing table
+- synchronous success charges once
+- queued async acceptance for paid tools is the point where the API accepts and charges the job
+- `job_wait` and result hydration are read-only resume operations and should stay 0cr
+- the MCP must never auto-escalate from a cheaper tool to a more expensive one without an explicit agent call
+
+### Auth decision rules
+
+- if `apikey` mode is configured, send the API key and let the API enforce balance/rate limits
+- if `x402` mode is configured, let the SDK handle the 402 challenge and retry path internally
+- if `auto` is configured, prefer API key first, then x402, then limited mode
+- limited mode exposes only free resources and must return `limited_mode_unavailable` for paid tools
+
+### Error behavior worth freezing
+
+- insufficient API-key credits: return structured `payment_error` with current tool cost and a short top-up remedy
+- x402 payment required: return structured `payment_error` only if the SDK cannot complete the payment flow; otherwise the MCP should complete the retry internally
+- invalid input: `validation_error`
+- upstream 429: `rate_limit_error`
+- queued job fails upstream: `job_failed`
+
+### Rate-limit handling
+
+- do not invent a local rate-limit policy in V1
+- preserve upstream 429 semantics and surface retry guidance when the API provides it
+- avoid local fan-out patterns that multiply calls for a single logical tool execution
+
+## Agent Integrations
+
+Keep the integration guidance short and tied to actual MCP client behavior.
+
+### Claude Code
+
+- transport: stdio via `npx`
+- discovery: tool names and one-sentence descriptions should be explicit and cost-aware
+- response shape: summary first; raw data preserved for follow-up reasoning
+- example call shape: `wallet_hud({ "walletAddress": "<address>" })`
+
+### Claude Desktop
+
+- same server config shape as Claude Code
+- prefer short summaries because the tool result is shown inline in chat UI
+- queued responses must always include `resumeTool: "job_wait"` and the original input so the model can resume cleanly
+- example call shape: `token_holder_profiles({ "tokenMint": "<mint>", "topN": 20 })`
+
+If an adapter plugin is added later for a different framework, it should preserve these same tool names, costs, and queued-envelope semantics rather than redefining the product surface.
+
 ## Implementation Shape
 
 Build in this repo first as:
@@ -567,6 +670,36 @@ When unavailable, return a structured error with:
 - reason
 - missing config
 - suggested remedy
+
+## End-to-End Workflow
+
+Token intelligence default path:
+
+1. Agent calls `token_holder_profiles` with `tokenMint` and optional `topN`.
+2. MCP uses the agent endpoint and waits up to `SOVA_WAIT_TIMEOUT_MS`.
+3. If the result completes in time, MCP returns `mode: "completed"` with a compact holder summary and raw structured data.
+4. If the job does not complete in time, MCP returns `mode: "queued"` with `jobId`, `resumeTool: "job_wait"`, and the original input.
+5. Agent calls `job_wait`.
+6. MCP polls job status, hydrates the agent result via `agentResultKey` when available, and returns the same final envelope shape.
+7. If the agent then needs coordination analysis, it must explicitly call `wallet_similarity`; the MCP does not silently spend an additional 20 credits.
+
+## Milestones and Acceptance
+
+### Build order
+
+1. package scaffold + config + auth resolution
+2. result envelope + structured error layer
+3. `wallet_hud`, `wallet_profile`, `wallet_token_pnl`
+4. `token_holder_profiles`, `wallet_similarity`, `job_wait`
+5. resources: `pricing`, `skill`, `auth-help`
+
+### V0 acceptance
+
+- the six-tool implementation set above works without private backend imports
+- each paid tool advertises the correct credit cost from the live product surface
+- `token_holder_profiles` and `wallet_similarity` use the agent endpoints, not the verbose developer endpoints
+- queued flows are resumable with `job_wait` and do not require the agent to guess the result path
+- the server can start in `apikey`, `x402`, `auto`, or limited mode with predictable behavior
 
 ## Verification
 
