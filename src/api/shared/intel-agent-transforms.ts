@@ -217,7 +217,7 @@ export interface AgentSimilarityPair {
   /**
    * Present when this pair crosses a coordination threshold.
    * HIGH_SIMILARITY: combinedScore > 0.7
-   * HIGH_OVERLAP: either wallet >50% overlap OR >20 shared tokens
+   * HIGH_OVERLAP: either wallet >50% overlap OR >=20 shared tokens with >=20% overlap in either wallet
    * HIGH_SIMILARITY_AND_OVERLAP: both
    */
   flag?: 'HIGH_SIMILARITY' | 'HIGH_OVERLAP' | 'HIGH_SIMILARITY_AND_OVERLAP';
@@ -250,7 +250,8 @@ export interface AgentSimilarityResult {
 
 const HIGH_SIMILARITY_THRESHOLD = 0.7;
 const HIGH_OVERLAP_PCT_THRESHOLD = 0.5;   // either wallet >50% portfolio overlap
-const HIGH_OVERLAP_COUNT_THRESHOLD = 20;  // or >20 shared tokens regardless of score
+const HIGH_OVERLAP_COUNT_THRESHOLD = 20;  // count gate for large meaningful overlaps
+const HIGH_OVERLAP_MIN_PCT_WITH_COUNT = 0.2; // raw count alone is too noisy for large portfolios
 
 // A pair is worth showing if it clears at least one bar:
 //   - combinedScore >= 0.15 (binary*0.4 + capital*0.6, same formula as similarity-lab UI), OR
@@ -276,6 +277,21 @@ function pairOverlapPcts(p: CombinedPairwiseSimilarity): { overlapPctA: number; 
   const overlapPctA = portfolioSizeA > 0 ? Math.round((p.binarySharedTokenCount / portfolioSizeA) * 1000) / 1000 : 0;
   const overlapPctB = portfolioSizeB > 0 ? Math.round((p.binarySharedTokenCount / portfolioSizeB) * 1000) / 1000 : 0;
   return { overlapPctA, overlapPctB, portfolioSizeA, portfolioSizeB };
+}
+
+function hasHighOverlap(
+  sharedTokenCount: number,
+  overlapPctA: number,
+  overlapPctB: number,
+): boolean {
+  if (overlapPctA > HIGH_OVERLAP_PCT_THRESHOLD || overlapPctB > HIGH_OVERLAP_PCT_THRESHOLD) {
+    return true;
+  }
+
+  return (
+    sharedTokenCount >= HIGH_OVERLAP_COUNT_THRESHOLD &&
+    (overlapPctA >= HIGH_OVERLAP_MIN_PCT_WITH_COUNT || overlapPctB >= HIGH_OVERLAP_MIN_PCT_WITH_COUNT)
+  );
 }
 
 /** Map full CombinedSimilarityResult → AgentSimilarityResult */
@@ -313,10 +329,7 @@ export function buildAgentSimilarityResult(
     const { overlapPctA, overlapPctB, portfolioSizeA, portfolioSizeB } = pairOverlapPcts(p);
     const score = combinedScore(p);
     const highSim = score > HIGH_SIMILARITY_THRESHOLD;
-    const highOverlap =
-      overlapPctA > HIGH_OVERLAP_PCT_THRESHOLD ||
-      overlapPctB > HIGH_OVERLAP_PCT_THRESHOLD ||
-      p.binarySharedTokenCount > HIGH_OVERLAP_COUNT_THRESHOLD;
+    const highOverlap = hasHighOverlap(p.binarySharedTokenCount, overlapPctA, overlapPctB);
 
     let flag: AgentSimilarityPair['flag'];
     if (highSim || highOverlap) {

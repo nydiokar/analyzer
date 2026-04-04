@@ -38,7 +38,7 @@ function test(name: string, fn: () => void): void {
 
 // ── Fixtures — real shapes sampled from live API responses ────────────────────
 
-const WALLET_ADDR = 'Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7';
+const WALLET_ADDR = '4XnHZZmHwSQ8RszJsdc7snvxG8dZtm6g4hvpkCMkguMx';
 
 const hudFixture: WalletHud = {
   walletAddress: WALLET_ADDR,
@@ -113,7 +113,7 @@ const holderProfilesFixture: HolderProfilesResult = {
 const similarityFixture = {
   pairwiseSimilarities: [
     {
-      walletA: 'Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7',
+      walletA: '4XnHZZmHwSQ8RszJsdc7snvxG8dZtm6g4hvpkCMkguMx',
       walletB: '94kNnCEvewxq2yzhbCK3jfL4CQ4z4br3MNcwn4MCrt8p',
       binaryScore: 0.78,
       capitalScore: 0.85,
@@ -299,7 +299,7 @@ test('trader types distribution line', () => {
 console.log('\nformatComparison');
 
 const ADDRS = [
-  'Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7',
+  '4XnHZZmHwSQ8RszJsdc7snvxG8dZtm6g4hvpkCMkguMx',
   '94kNnCEvewxq2yzhbCK3jfL4CQ4z4br3MNcwn4MCrt8p',
 ];
 

@@ -4,7 +4,7 @@
  *
  * Usage:
  *   npx ts-node -r tsconfig-paths/register src/scripts/debug-wallet-mcap.ts \
- *     --wallet Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7
+ *     --wallet 4XnHZZmHwSQ8RszJsdc7snvxG8dZtm6g4hvpkCMkguMx
  */
 import * as dotenv from 'dotenv';
 dotenv.config();
