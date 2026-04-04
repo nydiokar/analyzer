@@ -78,7 +78,7 @@ export function createServer(
         const r = errorResult("wallet_hud", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return walletHudHandler(args, c, authMode, toolCosts);
+      return walletHudHandler(args, c, authMode, toolCosts, standardPollOptions);
     },
   );
 
@@ -92,7 +92,7 @@ export function createServer(
         const r = errorResult("wallet_profile", "limited_mode_unavailable", "Requires authentication. See sova://help/auth.", authMode);
         return { content: [toMcpContent(r)], isError: true };
       }
-      return walletProfileHandler(args, c, authMode, toolCosts);
+      return walletProfileHandler(args, c, authMode, toolCosts, standardPollOptions);
     },
   );
 

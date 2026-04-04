@@ -246,6 +246,37 @@ export default function WalletProfileLayout({
     tokenPerformanceMutateRef.current = mutate;
   }, []);
 
+  const refreshWalletDerivedViews = useCallback(async () => {
+    try {
+      // Small delay to ensure backend has finished writing updated data.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      await globalMutate(
+        (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/summary`),
+      );
+      await globalMutate(
+        (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
+      );
+      await globalMutate(
+        (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/pnl-overview`),
+      );
+      await globalMutate(
+        (key) => typeof key === 'string' && (
+          key.startsWith(`/wallets/${walletAddress}/behavior-analysis`) ||
+          key.startsWith(`/wallets/${walletAddress}/behavioral-patterns`)
+        ),
+      );
+      await globalMutate(
+        (key) => typeof key === 'string' && (
+          key === `/wallets/${walletAddress}/hud` ||
+          (key.startsWith(`/wallets/hud/batch:`) && key.includes(walletAddress))
+        ),
+      );
+    } catch (error) {
+      console.error('Error refreshing derived wallet views', error);
+    }
+  }, [globalMutate, walletAddress]);
+
   const registerJobSubscription = useCallback(
     async (scope: DashboardAnalysisScope, jobId: string) => {
       // No more ref tracking - scope will be read from job completion event
@@ -457,34 +488,7 @@ export default function WalletProfileLayout({
         });
       }
 
-      try {
-        // Small delay to ensure backend has finished writing updated data
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Refresh wallet summary for all time ranges (invalidate all summary cache keys)
-        await globalMutate(
-          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/summary`),
-        );
-        // Also refresh dependent views so UI stops showing skeletons
-        await globalMutate(
-          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/token-performance`),
-        );
-        await globalMutate(
-          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/pnl-overview`),
-        );
-        await globalMutate(
-          (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/behavioral-patterns`),
-        );
-        // Invalidate HUD cache so the overlay re-fetches after analysis
-        await globalMutate(
-          (key) => typeof key === 'string' && (
-            key === `/wallets/${walletAddress}/hud` ||
-            (key.startsWith(`/wallets/hud/batch:`) && key.includes(walletAddress))
-          ),
-        );
-      } catch (error) {
-        console.error('Error refreshing wallet summary after completion', error);
-      }
+      await refreshWalletDerivedViews();
 
       // CHANGED: Direct mutate call instead of global cache invalidation
       // This ensures TokenPerformanceTab immediately refetches data
@@ -543,6 +547,7 @@ export default function WalletProfileLayout({
     },
     onEnrichmentComplete: async () => {
       setEnrichmentJobId(null);
+      await refreshWalletDerivedViews();
       // CHANGED: Direct mutate call for immediate image refresh
       try {
         const mutateFn = tokenPerformanceMutateRef.current;

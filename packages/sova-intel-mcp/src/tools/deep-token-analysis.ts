@@ -7,7 +7,7 @@ import type { ToolCostMap } from "../core/pricing.js";
 
 export const deepTokenAnalysisSchema = z.object({
   tokenMint: z.string().min(32).max(44).describe("Solana token mint address (base58)"),
-  topN: z.number().int().min(1).max(50).default(20).optional().describe("Number of top holders to analyze (default 20)"),
+  topN: z.coerce.number().int().min(1).max(50).default(20).optional().describe("Number of top holders to analyze (default 20)"),
 });
 
 export async function deepTokenAnalysisHandler(

@@ -6,6 +6,7 @@ export type ToolMode = "completed" | "queued";
 
 export interface JobRef {
   jobId?: string;
+  prepaidJobId?: string;
   monitoringUrl?: string | null;
   resultKey?: string;
   agentResultKey?: string;

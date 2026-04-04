@@ -7,8 +7,8 @@ import { summarizeTokenPnl } from "../core/summary.js";
 
 export const walletTokenPnlSchema = z.object({
   walletAddress: z.string().min(32).max(44).describe("Solana wallet address (base58)"),
-  page: z.number().int().min(1).default(1).optional().describe("Page number (default 1)"),
-  pageSize: z.number().int().min(1).max(100).default(20).optional().describe("Results per page (default 20)"),
+  page: z.coerce.number().int().min(1).default(1).optional().describe("Page number (default 1)"),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20).optional().describe("Results per page (default 20)"),
   sortBy: z.enum(["netSolProfitLoss", "realizedPnlSol", "roi", "totalSolSpent"]).default("realizedPnlSol").optional(),
   sortOrder: z.enum(["ASC", "DESC"]).default("DESC").optional(),
 });

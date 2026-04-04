@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { HttpClient } from "./http.js";
-import { pollAndFetch, pollResultKey } from "./poller.js";
+import { pollAndFetch, pollResultKey, JobPollerError } from "./poller.js";
 import type {
   SovaIntelClientConfig,
   WalletProfileResponse,
@@ -43,43 +43,76 @@ export class SovaIntelClient {
   // -------------------------------------------------------------------------
   // GET /intel/wallet/:addr — 5cr
   // Warm/fresh: returns 200 directly.
-  // Cold/stale: server holds request up to ~30s. On timeout fallback (202),
-  // this method polls job completion and re-calls with X-Prepaid-Job-Id.
+  // Cold/stale: returns WalletGetQueuedResponse (202 shape) immediately.
+  // Use getWalletProfile() for a blocking variant that polls internally.
   // -------------------------------------------------------------------------
-  async getWalletProfile(walletAddress: string): Promise<WalletProfileResponse> {
-    const path = `/intel/wallet/${walletAddress}`;
-    const res = await this.http.request<WalletProfileResponse | WalletGetQueuedResponse>({
-      path,
-    });
 
+  /**
+   * Raw fetch: returns the HUD immediately if fresh, or a WalletGetQueuedResponse
+   * if the wallet is stale and analysis has been queued. Callers handle the queued case.
+   */
+  async fetchWalletHud(walletAddress: string): Promise<WalletHud | WalletGetQueuedResponse> {
+    return this.http.request<WalletHud | WalletGetQueuedResponse>({
+      path: `/intel/wallet/${walletAddress}/hud`,
+    });
+  }
+
+  /**
+   * Raw fetch: returns the profile immediately if fresh, or a WalletGetQueuedResponse
+   * if the wallet is stale and analysis has been queued. Callers handle the queued case.
+   */
+  async fetchWalletProfile(walletAddress: string): Promise<WalletProfileResponse | WalletGetQueuedResponse> {
+    return this.http.request<WalletProfileResponse | WalletGetQueuedResponse>({
+      path: `/intel/wallet/${walletAddress}`,
+    });
+  }
+
+  /**
+   * Re-fetch wallet profile using a prepaid job id after polling completion.
+   */
+  async fetchWalletProfilePrepaid(walletAddress: string, prepaidJobId: string): Promise<WalletProfileResponse> {
+    return this.http.request<WalletProfileResponse>({
+      path: `/intel/wallet/${walletAddress}`,
+      headers: { "X-Prepaid-Job-Id": prepaidJobId },
+    });
+  }
+
+  /**
+   * Re-fetch wallet HUD using a prepaid job id after polling completion.
+   */
+  async fetchWalletHudPrepaid(walletAddress: string, prepaidJobId: string): Promise<WalletHud> {
+    return this.http.request<WalletHud>({
+      path: `/intel/wallet/${walletAddress}/hud`,
+      headers: { "X-Prepaid-Job-Id": prepaidJobId },
+    });
+  }
+
+  /**
+   * Blocking: fetch wallet profile, polling if stale. Throws on timeout.
+   * For MCP use fetchWalletProfile() + handle queued case explicitly.
+   */
+  async getWalletProfile(walletAddress: string): Promise<WalletProfileResponse> {
+    const res = await this.fetchWalletProfile(walletAddress);
     if ("status" in res && res.status === "queued") {
       const queued = res as WalletGetQueuedResponse;
       const prepaidJobId = queued.prepaidJobId ?? queued.jobId;
       await this.waitForJob(queued.jobId);
-      return this.http.request<WalletProfileResponse>({
-        path,
-        headers: { "X-Prepaid-Job-Id": prepaidJobId },
-      });
+      return this.fetchWalletProfilePrepaid(walletAddress, prepaidJobId);
     }
-
     return res as WalletProfileResponse;
   }
 
-  // -------------------------------------------------------------------------
-  // GET /intel/wallet/:addr/hud — 1cr
-  // Same timeout fallback contract as getWalletProfile.
-  // -------------------------------------------------------------------------
+  /**
+   * Blocking: fetch wallet HUD, polling if stale. Throws on timeout.
+   * For MCP use fetchWalletHud() + handle queued case explicitly.
+   */
   async getWalletHud(walletAddress: string): Promise<WalletHud> {
-    const path = `/intel/wallet/${walletAddress}/hud`;
-    const res = await this.http.request<WalletHud | WalletGetQueuedResponse>({ path });
+    const res = await this.fetchWalletHud(walletAddress);
     if ("status" in res && res.status === "queued") {
       const queued = res as WalletGetQueuedResponse;
       const prepaidJobId = queued.prepaidJobId ?? queued.jobId;
       await this.waitForJob(queued.jobId);
-      return this.http.request<WalletHud>({
-        path,
-        headers: { "X-Prepaid-Job-Id": prepaidJobId },
-      });
+      return this.fetchWalletHudPrepaid(walletAddress, prepaidJobId);
     }
     return res as WalletHud;
   }
@@ -329,18 +362,24 @@ export class SovaIntelClient {
   // Internal helpers
   // -------------------------------------------------------------------------
 
-  /** Poll a job until it completes or fails (no result fetch). */
-  private async waitForJob(jobId: string): Promise<void> {
-    const { pollIntervalMs, maxPollAttempts } = this;
-    for (let i = 0; i < maxPollAttempts; i++) {
+  /**
+   * Poll a job until it completes or fails (no result fetch).
+   * Throws JobPollerError on timeout, Error on job failure.
+   * Public so MCP and other callers can use it for the wallet HUD/profile
+   * re-fetch pattern (poll status → re-call with X-Prepaid-Job-Id).
+   */
+  async waitForJob(jobId: string, options: PollOptions = {}): Promise<void> {
+    const intervalMs = options.intervalMs ?? this.pollIntervalMs;
+    const maxAttempts = options.maxAttempts ?? this.maxPollAttempts;
+    for (let i = 0; i < maxAttempts; i++) {
       const status = await this.http.request<{ status: string }>({
         path: `/jobs/${jobId}`,
       });
       if (status.status === "completed") return;
       if (status.status === "failed") throw new Error(`Job ${jobId} failed`);
-      await sleep(pollIntervalMs);
+      await sleep(intervalMs);
     }
-    throw new Error(`Job ${jobId} timed out`);
+    throw new JobPollerError(jobId, `Job ${jobId} did not complete within ${maxAttempts} attempts`);
   }
 }
 

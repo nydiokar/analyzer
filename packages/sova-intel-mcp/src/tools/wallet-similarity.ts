@@ -6,12 +6,13 @@ import { handleToolError } from "../core/handle-error.js";
 import type { ToolCostMap } from "../core/pricing.js";
 import { summarizeSimilarity } from "../core/summary.js";
 
+const walletsArraySchema = z.preprocess(
+  (v) => (typeof v === "string" ? JSON.parse(v) : v),
+  z.array(z.string().min(32).max(44)).min(2).max(30),
+);
+
 export const walletSimilaritySchema = z.object({
-  wallets: z
-    .array(z.string().min(32).max(44))
-    .min(2)
-    .max(30)
-    .describe("Array of Solana wallet addresses (base58), 2–30"),
+  wallets: walletsArraySchema.describe("Array of Solana wallet addresses (base58), 2–30"),
 });
 
 export async function walletSimilarityHandler(

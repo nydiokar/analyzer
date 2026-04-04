@@ -5,11 +5,13 @@ import { handleToolError } from "../core/handle-error.js";
 import type { ToolCostMap } from "../core/pricing.js";
 import { summarizeBatchHud } from "../core/summary.js";
 
+const batchWalletsArraySchema = z.preprocess(
+  (v) => (typeof v === "string" ? JSON.parse(v) : v),
+  z.array(z.string().min(32).max(44)).min(1).max(30),
+);
+
 export const batchWalletHudSchema = z.object({
-  wallets: z
-    .array(z.string().min(32).max(44))
-    .min(1)
-    .max(30)
+  wallets: batchWalletsArraySchema
     .describe("Array of Solana wallet addresses (base58), 1–30"),
 });
 
