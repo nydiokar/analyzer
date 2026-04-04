@@ -1,0 +1,196 @@
+{
+  "_comment": "Sample transcript showing the analyze_token prompt driving a two-tool token analysis. The holder profiles job completes immediately in this example; in practice it may require one or more job_wait calls first. Wallet addresses and token mint are illustrative.",
+  "prompt": "analyze_token",
+  "promptArgs": {
+    "tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "topN": "20"
+  },
+  "transcript": [
+    {
+      "turn": 1,
+      "role": "agent",
+      "action": "call_tool",
+      "tool": "token_holder_profiles",
+      "input": {
+        "tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "topN": 20
+      }
+    },
+    {
+      "turn": 1,
+      "role": "tool_response",
+      "tool": "token_holder_profiles",
+      "output": {
+        "ok": true,
+        "tool": "token_holder_profiles",
+        "mode": "queued",
+        "summary": "Analysis queued for EPjFWdd5…. Use job_wait to retrieve the result.",
+        "data": null,
+        "job": {
+          "jobId": "hp_01HZ9QXKV3BMNR4T8W2Y6PJDCE",
+          "monitoringUrl": "https://api.sova-intel.com/api/v1/jobs/hp_01HZ9QXKV3BMNR4T8W2Y6PJDCE",
+          "agentResultKey": "holder-profiles:agent:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "resultKey": "holder-profiles:result:hp_01HZ9QXKV3BMNR4T8W2Y6PJDCE",
+          "resumeTool": "job_wait",
+          "resultType": "agent_holder_profiles",
+          "input": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        "meta": { "source": "sova-intel-api", "authMode": "apikey" }
+      }
+    },
+    {
+      "turn": 2,
+      "role": "agent",
+      "action": "call_tool",
+      "reasoning": "mode:queued — calling job_wait with jobId and agentResultKey from the envelope",
+      "tool": "job_wait",
+      "input": {
+        "jobId": "hp_01HZ9QXKV3BMNR4T8W2Y6PJDCE",
+        "agentResultKey": "holder-profiles:agent:EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "resultType": "agent_holder_profiles",
+        "input": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+      }
+    },
+    {
+      "turn": 2,
+      "role": "tool_response",
+      "tool": "job_wait",
+      "output": {
+        "ok": true,
+        "tool": "job_wait",
+        "mode": "completed",
+        "summary": "Queued result hp_01HZ9QXKV3BMNR4T8W2Y6PJDCE complete.",
+        "data": {
+          "aggregate": {
+            "analyzedHolders": 20,
+            "totalHolders": 4821,
+            "top5SupplyPct": 38.2,
+            "avgWalletPnlSol": 4.71,
+            "behaviorDistribution": [
+              { "behaviorType": "SWING_TRADER", "count": 9, "pct": 0.45 },
+              { "behaviorType": "MOMENTUM",     "count": 5, "pct": 0.25 },
+              { "behaviorType": "SCALPER",       "count": 3, "pct": 0.15 },
+              { "behaviorType": "HODLER",        "count": 2, "pct": 0.10 },
+              { "behaviorType": "SNIPER",        "count": 1, "pct": 0.05 }
+            ]
+          },
+          "profiles": [
+            {
+              "walletAddress": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+              "behaviorType": "SWING_TRADER",
+              "winRate": 0.67,
+              "medianHoldTimeHours": 18.4,
+              "dataQualityTier": "GOLD",
+              "isBot": false,
+              "isWhale": false,
+              "supplyPct": 9.8
+            },
+            {
+              "walletAddress": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+              "behaviorType": "MOMENTUM",
+              "winRate": 0.58,
+              "medianHoldTimeHours": 6.2,
+              "dataQualityTier": "SILVER",
+              "isBot": false,
+              "isWhale": true,
+              "supplyPct": 8.1
+            },
+            {
+              "walletAddress": "3FHpkMTQ3QyAJoLoXvdAJ8e7B9d3KGxQZ5zWriTuYoGB",
+              "behaviorType": "SCALPER",
+              "winRate": 0.44,
+              "medianHoldTimeHours": 0.3,
+              "dataQualityTier": "SILVER",
+              "isBot": false,
+              "isWhale": false,
+              "supplyPct": 7.4
+            }
+          ]
+        },
+        "job": null,
+        "meta": { "source": "sova-intel-api", "authMode": "apikey" }
+      }
+    },
+    {
+      "turn": 3,
+      "role": "agent",
+      "action": "call_tool",
+      "reasoning": "Holder profiles complete. Extracting wallet addresses from profiles and calling wallet_similarity.",
+      "tool": "wallet_similarity",
+      "input": {
+        "wallets": [
+          "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+          "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+          "3FHpkMTQ3QyAJoLoXvdAJ8e7B9d3KGxQZ5zWriTuYoGB"
+        ]
+      }
+    },
+    {
+      "turn": 3,
+      "role": "tool_response",
+      "tool": "wallet_similarity",
+      "output": {
+        "ok": true,
+        "tool": "wallet_similarity",
+        "mode": "completed",
+        "summary": "coordination score 0.31 (LOW), 3 wallets, 0 flagged pairs.",
+        "data": {
+          "coordinationScore": 0.31,
+          "pairs": [
+            {
+              "walletA": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+              "walletB": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+              "similarityScore": 0.38,
+              "sharedTokenCount": 5,
+              "portfolioSizeA": 22,
+              "portfolioSizeB": 19,
+              "overlapPctA": 0.23,
+              "overlapPctB": 0.26,
+              "flag": null
+            },
+            {
+              "walletA": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+              "walletB": "3FHpkMTQ3QyAJoLoXvdAJ8e7B9d3KGxQZ5zWriTuYoGB",
+              "similarityScore": 0.21,
+              "sharedTokenCount": 2,
+              "portfolioSizeA": 22,
+              "portfolioSizeB": 14,
+              "overlapPctA": 0.09,
+              "overlapPctB": 0.14,
+              "flag": null
+            }
+          ],
+          "globalMetrics": { "averageSimilarity": 0.31 },
+          "metadata": {
+            "walletsAnalyzed": 3,
+            "totalPairs": 3,
+            "meaningfulPairs": 2,
+            "flaggedPairs": 0
+          }
+        },
+        "job": null,
+        "meta": { "source": "sova-intel-api", "authMode": "apikey" }
+      }
+    },
+    {
+      "turn": 4,
+      "role": "agent",
+      "action": "synthesize",
+      "output": {
+        "token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "holderProfile": {
+          "dominantBehavior": "SWING_TRADER (9/20 holders, 45%)",
+          "top5SupplyPct": 38.2,
+          "avgHolderPnlSol": 4.71,
+          "analyzedHolders": 20
+        },
+        "coordinationRisk": {
+          "score": 0.31,
+          "level": "LOW",
+          "flaggedPairs": 0
+        },
+        "assessment": "Holder base is dominated by swing traders with a moderate win rate and positive average PnL — consistent with a token that attracts active but non-predatory traders. Supply concentration is moderate (top-5 hold 38%). Coordination risk is LOW with no flagged pairs, suggesting the top holders are operating independently."
+      }
+    }
+  ]
+}

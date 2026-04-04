@@ -81,9 +81,47 @@ SOLANA_RPC_URL=https://your-rpc-endpoint
 
 ## Resources
 
-- `sova://pricing`
-- `sova://skill`
-- `sova://help/auth`
+- `sova://pricing` — live credit costs fetched from the API
+- `sova://skill` — full tool reference and usage guidance
+- `sova://help/auth` — auth setup for API key and x402 modes
+- `sova://playbooks/token-analysis` — step-by-step token analysis decision tree
+
+## Prompts
+
+### `analyze_token`
+
+Runs a full token intelligence analysis: holder behavioral profiles followed by coordination detection. Handles async job queuing automatically — the prompt instructs the agent to use `job_wait` if either tool returns a queued response.
+
+**Arguments:**
+- `tokenMint` (required) — Solana token mint address (base58)
+- `topN` (optional) — number of top holders to analyze, 1–50 (default: 20)
+
+**Tools used in sequence:** `token_holder_profiles` → `job_wait` (if needed) → `wallet_similarity` → `job_wait` (if needed)
+
+**Credit cost:** 40cr (20cr holder profiles + 20cr similarity)
+
+Invoking from an MCP client (e.g. Claude Desktop or Claude Code):
+
+```
+Use the analyze_token prompt with tokenMint=<MINT_ADDRESS>
+```
+
+Or from an MCP inspector / programmatic client:
+
+```json
+{
+  "method": "prompts/get",
+  "params": {
+    "name": "analyze_token",
+    "arguments": {
+      "tokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "topN": "20"
+    }
+  }
+}
+```
+
+See `examples/analyze-token-transcript.json` for a full sample of how the prompt drives the two-tool workflow including the async job-wait pattern.
 
 ## Example invocations
 

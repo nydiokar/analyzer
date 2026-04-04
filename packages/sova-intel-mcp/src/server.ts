@@ -2,6 +2,7 @@
 // Sova Intel MCP — server registration
 // ---------------------------------------------------------------------------
 
+import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SovaIntelClient } from "@sova-intel/sdk";
 import type { McpConfig } from "./config.js";
@@ -24,6 +25,8 @@ import { jobWaitSchema, jobWaitHandler } from "./tools/job-wait.js";
 import { pricingResourceHandler } from "./resources/pricing.js";
 import { skillResourceHandler } from "./resources/skill.js";
 import { authHelpResourceHandler } from "./resources/auth-help.js";
+import { tokenAnalysisPlaybookHandler } from "./resources/token-analysis-playbook.js";
+import { analyzeTokenPrompt } from "./prompts/analyze-token.js";
 
 function toPollOptions(timeoutMs: number, pollIntervalMs: number, maxPollAttempts: number) {
   return {
@@ -227,6 +230,49 @@ export function createServer(
         text: authHelpResourceHandler(),
       }],
     }),
+  );
+
+  server.resource(
+    "token-analysis-playbook",
+    "sova://playbooks/token-analysis",
+    {
+      mimeType: "text/plain",
+      description: "Step-by-step decision tree for token analysis: tool sequence, async job handling, credit costs, and when to escalate to single-wallet tools.",
+    },
+    () => ({
+      contents: [{
+        uri: "sova://playbooks/token-analysis",
+        mimeType: "text/plain",
+        text: tokenAnalysisPlaybookHandler(),
+      }],
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Prompts
+  // -------------------------------------------------------------------------
+
+  server.prompt(
+    "analyze_token",
+    "Analyze a Solana token: runs token_holder_profiles then wallet_similarity in sequence, handles async job envelopes, and synthesizes a structured intelligence report.",
+    {
+      tokenMint: z.string().min(32).max(44).describe("Solana token mint address (base58)"),
+      topN: z.string().regex(/^\d+$/).optional().describe("Number of top holders to analyze, 1–50 (default: 20)"),
+    },
+    (args) => {
+      const topN = args.topN ? parseInt(args.topN, 10) : undefined;
+      return {
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: analyzeTokenPrompt({ tokenMint: args.tokenMint, topN }),
+            },
+          },
+        ],
+      };
+    },
   );
 
   return server;
