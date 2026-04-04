@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `main` | **Last Updated:** 2026-04-03 | **Status:** sova-intel-mcp scaffold complete and building clean.
+**Branch:** `main` | **Last Updated:** 2026-04-04 | **Status:** `@sova-intel/mcp@0.1.0` published; post-publish live verification still pending.
 
 ---
 
@@ -8,7 +8,7 @@
 
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
-| MCP-8 | **[sova-intel-mcp] End-to-end smoke test** — wire into Claude Desktop or Claude Code, run `wallet_hud` live | 🔴 NOW |
+| MCP-8 | **[sova-intel-mcp] Post-publish end-to-end smoke test** — install published MCP in Claude Desktop or Claude Code, run `wallet_hud` live | 🔴 NOW |
 | MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🔴 |
 | MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |
 | GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
@@ -26,11 +26,19 @@
 | ⚪ | **Implement feed feature** | Design and implement activity feed functionality |
 | ⚪ | **Intel contract — SDK ownership decision** | Decide: handwritten SDK as main facade + generated as low-level baseline, or hybrid generated-core + handwritten-facade. Then: move SDK ownership into `sova-intel` cleanly, revisit docs automation from stable artifact path |
 | ⚪ | **REMOVE AUTODOC from deps** | |
-| ⚪ | **[sova-intel-mcp] Do not treat as public-ready yet** | Audit found missing README, missing real smoke verification, undocumented runtime deps for `x402`, and MCP reliance on SDK internals despite scaffold claims |
+| ⚪ | **[sova-intel-mcp] Post-publish hardening** | Published, but still need real smoke verification plus live invalid-input, expired-result-key, limited-mode, apikey, and x402 verification against the API |
 
 ---
 
 ## Recent Activity
+
+### April 4, 2026 — sova-intel-mcp Published
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| MCP-16 | 🚀 RELEASE | **[MCP-PUBLISH]** `@sova-intel/mcp@0.1.0` published. Local publish workflow was removed from this repo afterward; CI remains, and live post-publish verification is still pending. | 🟢 S | `packages/sova-intel-mcp/package.json`, `.github/workflows/continuous-integration.yml` |
+
+---
 
 ### April 3, 2026 — sova-intel-mcp Scaffold
 
