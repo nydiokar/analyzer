@@ -48,15 +48,14 @@ jobs:
             exit 1
           fi
 
-  publish:
+  publish-sdk:
     needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/@sova-intel/sdk@')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -71,12 +70,11 @@ jobs:
       - name: Build SDK
         run: pnpm --filter @sova-intel/sdk build
 
-      - name: Build MCP
-        run: pnpm --filter @sova-intel/mcp build
-
-      - name: Extract version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF##*@}" >> $GITHUB_OUTPUT
+      - name: Publish SDK to npm
+        if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta')"
+        run: pnpm --filter @sova-intel/sdk publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -87,14 +85,42 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish SDK to npm
-        if: "startsWith(github.ref, 'refs/tags/@sova-intel/sdk@') && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')"
-        run: pnpm --filter @sova-intel/sdk publish --access public --no-git-checks
+  publish-mcp:
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/@sova-intel/mcp@')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK from workspace
+        run: pnpm --filter @sova-intel/sdk build
+
+      - name: Build MCP
+        run: pnpm --filter @sova-intel/mcp build
+
+      - name: Publish MCP to npm
+        if: "!contains(github.ref, 'alpha') && !contains(github.ref, 'beta')"
+        run: pnpm --filter @sova-intel/mcp publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish MCP to npm
-        if: "startsWith(github.ref, 'refs/tags/@sova-intel/mcp@') && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')"
-        run: pnpm --filter @sova-intel/mcp publish --access public --no-git-checks
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+          generate_release_notes: true
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
