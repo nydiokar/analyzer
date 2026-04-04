@@ -1,8 +1,16 @@
 name: Continuous Integration
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'packages/sdk/**'
+      - 'packages/sova-intel-mcp/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'packages/sdk/**'
+      - 'packages/sova-intel-mcp/**'
   workflow_dispatch:
 
 jobs:
@@ -26,6 +34,12 @@ jobs:
 
       - name: Build SDK
         run: pnpm --filter @sova-intel/sdk run build
+
+      - name: Build MCP
+        run: pnpm --filter @sova-intel/mcp run build
+
+      - name: Test MCP
+        run: pnpm --filter @sova-intel/mcp run test
 
       - name: Generate Prisma Client
         run: pnpm exec prisma generate

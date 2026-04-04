@@ -410,7 +410,7 @@ export interface AgentSimilarityPair {
   /**
    * Present when the pair crosses a coordination threshold.
    * HIGH_SIMILARITY: combinedScore > 0.7
-   * HIGH_OVERLAP: either wallet >50% overlap OR >20 shared tokens
+   * HIGH_OVERLAP: either wallet >50% overlap OR >=20 shared tokens with >=20% overlap in either wallet
    * HIGH_SIMILARITY_AND_OVERLAP: both conditions met
    */
   flag?: "HIGH_SIMILARITY" | "HIGH_OVERLAP" | "HIGH_SIMILARITY_AND_OVERLAP";
