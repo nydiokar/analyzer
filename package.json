@@ -56,11 +56,7 @@
     "db:prune-so111": "npx ts-node -r tsconfig-paths/register scripts/maintenance/prune-redundant-so111.ts",
     "lint": "eslint .",
     "lint:dashboard": "npm run lint --prefix dashboard",
-    "extract-logs": "ts-node -r tsconfig-paths/register scripts/extract-log-statements.ts",
-    "release": "bash scripts/release.sh",
-    "release:patch": "bash scripts/release.sh patch",
-    "release:minor": "bash scripts/release.sh minor",
-    "release:major": "bash scripts/release.sh major"
+    "extract-logs": "ts-node -r tsconfig-paths/register scripts/extract-log-statements.ts"
   },
   "keywords": [
     "crypto",
