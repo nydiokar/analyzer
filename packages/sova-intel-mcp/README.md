@@ -2,15 +2,39 @@
 
 MCP server for [Sova Intel](https://sova-intel.com) — on-chain wallet and token intelligence for AI agents.
 
-Behavioral wallet profiles, holder maps, coordination detection, per-token PnL. Pay via API key or X402 (Solana USDC).
+Ask natural-language questions about Solana wallets and token holders from any MCP-compatible client. Get behavioral profiles, holder maps, coordination scores, and per-token PnL — without writing a single line of code.
 
-## Install
+## What you can ask
 
+```
+What kind of trader is DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm?
+```
+```
+Who are the top holders of J5DnHXXmKsXmCAeSvPRc5qR64ruYKcZHKwZijv9HnZgK
+and what are their trading styles?
+```
+```
+Do any of those holders look coordinated or like the same actor?
+```
+
+That's it. The MCP handles the API calls, async jobs, and polling automatically.
+
+## Quickstart
+
+**1. Get an API key** at [sova-intel.com](https://sova-intel.com)
+
+**2. Add to your MCP client**
+
+Claude Code (one command):
 ```bash
 claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp
 ```
 
-Or add to your MCP client config manually:
+Claude Desktop — add to `claude_desktop_config.json`:
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Mac: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Cursor — add to `.cursor/mcp.json` in your project root.
 
 ```json
 {
@@ -24,13 +48,13 @@ Or add to your MCP client config manually:
 }
 ```
 
-- **Claude Desktop** — `%APPDATA%\Claude\claude_desktop_config.json` (Windows) / `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac)
-- **Claude Code** — `claude mcp add` command above, or `.mcp.json` in project root
-- **Cursor** — `.cursor/mcp.json` in project root
+**3. Restart your client** and confirm `sova-intel` appears connected.
 
-Get an API key at [sova-intel.com](https://sova-intel.com).
+**4. Ask your first question** — paste any of the prompts above.
 
-**No API key?** Use X402 mode — pay per call with Solana USDC, no account needed:
+### No API key?
+
+Use X402 mode — pay per call with Solana USDC, no account needed:
 
 ```json
 {
@@ -62,19 +86,17 @@ Requires USDC in that wallet. See `env.example` for all config options.
 | `job_status` | Check a queued job | 0cr |
 | `job_wait` | Resume a queued job and get the result | 0cr |
 
-`token_holder_profiles`, `wallet_similarity`, and `deep_token_analysis` are async — if analysis exceeds the poll window they return `mode: "queued"` with a `jobId`. Call `job_wait` to resume. Credits are charged once regardless of poll rounds.
+`token_holder_profiles`, `wallet_similarity`, and `deep_token_analysis` queue analysis server-side. If results aren't ready within the poll window they return a `jobId` — the MCP automatically resumes with `job_wait`. **Credits are charged once regardless of poll rounds.**
 
-## Resources & prompts
+## Resources
 
 - `sova://pricing` — live credit costs
 - `sova://skill` — full tool reference
 - `sova://help/auth` — auth setup guide
-- `sova://playbooks/token-analysis` — step-by-step token analysis decision tree
-- `analyze_token` prompt — runs `token_holder_profiles` → `wallet_similarity` in sequence, handles async automatically (40cr)
 
 ## Examples
 
-See [`examples/smoke-test-transcript.md`](examples/smoke-test-transcript.md) for a real session showing `wallet_hud`, the async `token_holder_profiles → job_wait` flow, and `wallet_similarity`.
+[`examples/smoke-test-transcript.md`](examples/smoke-test-transcript.md) — real session showing `wallet_hud`, async `token_holder_profiles → job_wait`, and `wallet_similarity` with actual output.
 
 ## License
 

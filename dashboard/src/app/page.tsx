@@ -63,9 +63,13 @@ const editorLines = [
 function SearchParamsHandler({
   showAuthModal,
   setShowAuthModal,
+  authDefaultTab,
+  setAuthDefaultTab,
 }: {
   showAuthModal: boolean;
   setShowAuthModal: (show: boolean) => void;
+  authDefaultTab: 'login' | 'register';
+  setAuthDefaultTab: (tab: 'login' | 'register') => void;
 }) {
   const { isAuthenticated } = useAuth();
   const router = useRouter();
@@ -73,10 +77,14 @@ function SearchParamsHandler({
 
   useEffect(() => {
     const redirectPath = searchParams.get('redirect');
-    if (redirectPath && !isAuthenticated) {
+    const tab = searchParams.get('tab');
+    if (tab === 'register') {
+      setAuthDefaultTab('register');
+      setShowAuthModal(true);
+    } else if (redirectPath && !isAuthenticated) {
       setShowAuthModal(true);
     }
-  }, [searchParams, isAuthenticated, setShowAuthModal]);
+  }, [searchParams, isAuthenticated, setShowAuthModal, setAuthDefaultTab]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -93,6 +101,7 @@ function SearchParamsHandler({
     <AuthModal
       open={showAuthModal}
       onOpenChange={setShowAuthModal}
+      defaultTab={authDefaultTab}
       onSuccess={() => {
         setShowAuthModal(false);
         router.push('/discover');
@@ -103,6 +112,10 @@ function SearchParamsHandler({
 
 export default function LandingPage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authDefaultTab, setAuthDefaultTab] = useState<'login' | 'register'>('login');
+
+  const openLogin    = () => { setAuthDefaultTab('login');    setShowAuthModal(true); };
+  const openRegister = () => { setAuthDefaultTab('register'); setShowAuthModal(true); };
 
   return (
     <LandingShell>
@@ -134,7 +147,7 @@ export default function LandingPage() {
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
-                onClick={() => setShowAuthModal(true)}
+                onClick={openLogin}
                 className="hidden border-white/70 bg-white text-slate-950 hover:bg-slate-100 md:inline-flex"
               >
                 <LogIn className="mr-2 h-4 w-4" />
@@ -181,7 +194,7 @@ export default function LandingPage() {
                 </div>
 
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                  <Button onClick={() => setShowAuthModal(true)} size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 px-7 text-white hover:from-blue-700 hover:to-purple-700">
+                  <Button onClick={openRegister} size="lg" className="bg-gradient-to-r from-blue-600 to-purple-600 px-7 text-white hover:from-blue-700 hover:to-purple-700">
                     Open Dashboard
                     <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -379,7 +392,7 @@ export default function LandingPage() {
                     ))}
                   </div>
                   <div className="mt-6">
-                    <Button onClick={() => setShowAuthModal(true)} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700">
+                    <Button onClick={openRegister} className="bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700">
                       Get Started
                       <ChevronRight className="ml-2 h-4 w-4" />
                     </Button>
@@ -589,7 +602,7 @@ export default function LandingPage() {
                         <div>Works for manual teams and programmatic use.</div>
                       </div>
                       <Button
-                        onClick={() => setShowAuthModal(true)}
+                        onClick={openRegister}
                         className={`mt-8 w-full ${highlighted ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700' : 'border border-slate-700 bg-slate-900/40 text-slate-200 hover:bg-slate-800 hover:text-white'}`}
                         variant={highlighted ? 'default' : 'outline'}
                       >
@@ -664,7 +677,7 @@ export default function LandingPage() {
           </div>
 
           <Suspense fallback={null}>
-            <SearchParamsHandler showAuthModal={showAuthModal} setShowAuthModal={setShowAuthModal} />
+            <SearchParamsHandler showAuthModal={showAuthModal} setShowAuthModal={setShowAuthModal} authDefaultTab={authDefaultTab} setAuthDefaultTab={setAuthDefaultTab} />
           </Suspense>
         </footer>
       </div>

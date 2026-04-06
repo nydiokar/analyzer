@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sova Intel MCP — On-Chain Intelligence for AI Agents</title>
+  <meta name="description" content="Ask natural-language questions about Solana wallets and token holders from any MCP-compatible client. Behavioral profiles, holder maps, coordination detection." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0b0d;
+      --surface:   #111318;
+      --border:    #1e2128;
+      --border-hi: #2a2f3a;
+      --text:      #e2e4e9;
+      --muted:     #6b7280;
+      --accent:    #7c6cf8;
+      --accent-lo: rgba(124,108,248,0.12);
+      --accent-hi: #a99ffa;
+      --green:     #22c55e;
+      --green-lo:  rgba(34,197,94,0.10);
+      --amber:     #f59e0b;
+      --code-bg:   #0d0f14;
+      --radius:    10px;
+      --radius-lg: 16px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section { padding: 80px 0; }
+    section + section { padding-top: 0; }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10,11,13,0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    nav .inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .logo-mark {
+      width: 26px;
+      height: 26px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+
+    .nav-cta {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      padding: 7px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+    .nav-cta:hover { opacity: 0.85; }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 96px 0 64px;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent-lo);
+      border: 1px solid rgba(124,108,248,0.25);
+      border-radius: 100px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--accent-hi);
+      margin-bottom: 28px;
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      color: #fff;
+      margin-bottom: 20px;
+    }
+
+    h1 em {
+      font-style: normal;
+      color: var(--accent-hi);
+    }
+
+    .hero-sub {
+      font-size: 18px;
+      color: var(--muted);
+      max-width: 520px;
+      margin: 0 auto 40px;
+      line-height: 1.6;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 12px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+    .btn-primary:hover { opacity: 0.85; }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--radius);
+      padding: 12px 24px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+
+    /* ── Demo prompts ── */
+    .demo { padding: 64px 0; }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-size: 26px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .section-sub {
+      font-size: 15px;
+      color: var(--muted);
+      margin-bottom: 40px;
+    }
+
+    .prompt-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 16px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .prompt-card:hover { border-color: var(--border-hi); }
+
+    .prompt-q {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .prompt-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--accent-lo);
+      border: 1px solid rgba(124,108,248,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+      margin-top: 1px;
+      color: var(--accent-hi);
+    }
+
+    .prompt-text {
+      font-size: 15px;
+      color: var(--text);
+      line-height: 1.5;
+      font-style: italic;
+    }
+
+    .prompt-result {
+      padding: 16px 24px 20px;
+    }
+
+    .result-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--green);
+      background: var(--green-lo);
+      border-radius: 4px;
+      padding: 2px 7px;
+      margin-bottom: 10px;
+    }
+
+    .result-body {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      color: #b0b8c8;
+    }
+
+    .result-body .k  { color: var(--muted); }
+    .result-body .v  { color: #e2e4e9; }
+    .result-body .hl { color: var(--accent-hi); font-weight: 600; }
+    .result-body .ok { color: var(--green); }
+    .result-body .warn { color: var(--amber); }
+
+    /* ── Install ── */
+    .install { padding: 64px 0; }
+
+    .install-steps {
+      display: grid;
+      gap: 16px;
+    }
+
+    .step {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--accent-lo);
+      border: 1px solid rgba(124,108,248,0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent-hi);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .step-content { flex: 1; }
+
+    .step-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .step-title a {
+      color: var(--accent-hi);
+      text-decoration: none;
+    }
+    .step-title a:hover { text-decoration: underline; }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #b0b8c8;
+    }
+
+    pre .comment { color: var(--muted); }
+    pre .key     { color: #7dd3fc; }
+    pre .val     { color: #86efac; }
+    pre .str     { color: #fca5a5; }
+    pre .cmd     { color: var(--accent-hi); }
+
+    .step-note {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+
+    .tab {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      color: var(--muted);
+      background: transparent;
+      transition: all 0.15s;
+    }
+
+    .tab.active {
+      color: var(--text);
+      background: var(--surface);
+      border-color: var(--border);
+    }
+
+    /* ── Tools grid ── */
+    .tools { padding: 64px 0; }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .tool-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      transition: border-color 0.2s;
+    }
+    .tool-card:hover { border-color: var(--border-hi); }
+
+    .tool-name {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 13px;
+      color: var(--accent-hi);
+      margin-bottom: 6px;
+    }
+
+    .tool-desc {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+
+    .tool-cost {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--border);
+      border-radius: 4px;
+      padding: 2px 7px;
+      display: inline-block;
+    }
+
+    /* ── CTA ── */
+    .cta-section {
+      padding: 80px 0;
+      text-align: center;
+    }
+
+    .cta-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 56px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta-box::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 300px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+
+    .cta-box h2 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    .cta-box p {
+      font-size: 16px;
+      color: var(--muted);
+      margin-bottom: 32px;
+    }
+
+    .cta-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px 0;
+    }
+
+    footer .inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 24px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    footer .links {
+      display: flex;
+      gap: 20px;
+    }
+
+    footer a {
+      font-size: 13px;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    footer a:hover { color: var(--text); }
+
+    footer .copy {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    /* ── Divider ── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      h1 { font-size: 1.9rem; }
+      .hero { padding: 64px 0 48px; }
+      .cta-box { padding: 40px 24px; }
+      .tools-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="inner">
+    <a class="logo" href="#">
+      <span class="logo-mark">S</span>
+      Sova Intel
+    </a>
+    <a class="nav-cta" href="https://sova-intel.com/?tab=register">Get API Key</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="badge">
+      <span class="badge-dot"></span>
+      MCP Server · @sova-intel/mcp
+    </div>
+
+    <h1>Ask questions about<br><em>on-chain wallets</em> and get answers.</h1>
+
+    <p class="hero-sub">
+      Connect to any MCP-compatible client. Ask in plain English.
+      Get behavioral profiles, holder maps, and coordination signals — instantly.
+    </p>
+
+    <div class="hero-actions">
+      <a class="btn-primary" href="https://sova-intel.com/?tab=register">Get an API key</a>
+      <a class="btn-ghost" href="https://www.npmjs.com/package/@sova-intel/mcp" target="_blank">View on npm</a>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- DEMO PROMPTS -->
+<section class="demo">
+  <div class="container">
+    <div class="section-label">Live demo</div>
+    <h2 class="section-title">Three questions. Real answers.</h2>
+    <p class="section-sub">This is what a session looks like in Claude Code or Claude Desktop.</p>
+
+    <!-- Prompt 1 -->
+    <div class="prompt-card">
+      <div class="prompt-q">
+        <span class="prompt-icon">↗</span>
+        <span class="prompt-text">"What kind of trader is DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm?"</span>
+      </div>
+      <div class="prompt-result">
+        <div class="result-tag">✓ wallet_hud · 1 credit</div>
+        <div class="result-body">
+          <span class="k">behavior    </span><span class="hl">DAY_TRADER</span><br>
+          <span class="k">win rate    </span><span class="v">29.9%</span><br>
+          <span class="k">median hold </span><span class="v">12.9 hours</span><br>
+          <span class="k">holdings    </span><span class="v">777 SOL · $62,892</span><br>
+          <span class="k">data quality</span><span class="ok">GOLD</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompt 2 -->
+    <div class="prompt-card">
+      <div class="prompt-q">
+        <span class="prompt-icon">↗</span>
+        <span class="prompt-text">"Who are the top holders of J5DnHXXmKsXmCAeSvPRc5qR64ruYKcZHKwZijv9HnZgK and what are their trading styles?"</span>
+      </div>
+      <div class="prompt-result">
+        <div class="result-tag">✓ token_holder_profiles · 20 credits</div>
+        <div class="result-body">
+          <span class="k">holders analyzed  </span><span class="v">9 / 10</span><br>
+          <span class="k">top 5 supply      </span><span class="v">17.98%</span><br>
+          <span class="k">dominant style    </span><span class="hl">INTRADAY</span><span class="k"> (4 wallets, 11.9% supply)</span><br>
+          <span class="k">also present      </span><span class="v">MOMENTUM · SWING · SNIPER</span><br>
+          <span class="k">avg holder PnL    </span><span class="warn">−260 SOL</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompt 3 -->
+    <div class="prompt-card">
+      <div class="prompt-q">
+        <span class="prompt-icon">↗</span>
+        <span class="prompt-text">"Do any of those holders look coordinated or like the same actor?"</span>
+      </div>
+      <div class="prompt-result">
+        <div class="result-tag">✓ wallet_similarity · 20 credits</div>
+        <div class="result-body">
+          <span class="k">coordination score  </span><span class="ok">0.28 LOW</span><br>
+          <span class="k">wallets checked     </span><span class="v">9 · 36 pairs</span><br>
+          <span class="k">flagged pairs       </span><span class="warn">6</span><br>
+          <span class="k">top flag            </span><span class="v">2jjgBE… ↔ ACp9B9…</span><br>
+          <span class="k">similarity          </span><span class="warn">0.82 · 677 shared tokens</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- INSTALL -->
+<section class="install">
+  <div class="container">
+    <div class="section-label">Setup</div>
+    <h2 class="section-title">Running in under two minutes.</h2>
+    <p class="section-sub">No SDK. No wrapper. Just config and a restart.</p>
+
+    <div class="install-steps">
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <div class="step-title"><a href="https://sova-intel.com/?tab=register">Get an API key</a> at sova-intel.com</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <div class="step-title">Add to your MCP client config</div>
+          <div class="tabs">
+            <button class="tab active" onclick="showTab('claude-code', this)">Claude Code</button>
+            <button class="tab" onclick="showTab('claude-desktop', this)">Claude Desktop / Cursor</button>
+          </div>
+
+          <div id="tab-claude-code">
+<pre><span class="cmd">claude mcp add sova-intel \
+  -e SOVA_API_KEY=ak_your_key \
+  -- npx -y @sova-intel/mcp</span></pre>
+          </div>
+
+          <div id="tab-claude-desktop" style="display:none">
+<pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"sova-intel"</span>: {
+      <span class="key">"command"</span>: <span class="str">"npx"</span>,
+      <span class="key">"args"</span>: [<span class="str">"-y"</span>, <span class="str">"@sova-intel/mcp"</span>],
+      <span class="key">"env"</span>: { <span class="key">"SOVA_API_KEY"</span>: <span class="str">"ak_your_key"</span> }
+    }
+  }
+}</pre>
+            <p class="step-note">
+              Claude Desktop: <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows) &nbsp;/&nbsp; <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (Mac)<br>
+              Cursor: <code>.cursor/mcp.json</code> in your project root
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <div class="step-title">Restart your client and confirm <code>sova-intel</code> appears connected.</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <div class="step-title">Ask your first question.</div>
+          <div class="step-note">Try any of the three prompts above. The MCP handles everything from there.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- TOOLS -->
+<section class="tools">
+  <div class="container">
+    <div class="section-label">Tools</div>
+    <h2 class="section-title">Nine tools. Ask anything.</h2>
+    <p class="section-sub">Your client picks the right tool automatically. You just ask.</p>
+
+    <div class="tools-grid">
+      <div class="tool-card">
+        <div class="tool-name">wallet_hud</div>
+        <div class="tool-desc">Behavior type, win rate, hold time, data quality for any wallet.</div>
+        <span class="tool-cost">1 credit</span>
+      </div>
+      <div class="tool-card">
+        <div class="tool-name">wallet_profile</div>
+        <div class="tool-desc">Full intel — HUD + PnL + behavior + KOL identity.</div>
+        <span class="tool-cost">5 credits</span>
+      </div>
+      <div class="tool-card">
+        <div class="tool-name">wallet_token_pnl</div>
+        <div class="tool-desc">Per-token PnL breakdown for a wallet, paginated.</div>
+        <span class="tool-cost">3 credits</span>
+      </div>
+      <div class="tool-card">
+        <div class="tool-name">batch_wallet_hud</div>
+        <div class="tool-desc">HUD signals for up to 30 wallets in one call.</div>
+        <span class="tool-cost">5 credits flat</span>
+      </div>
+      <div class="tool-card">
+        <div class="tool-name">token_holder_profiles</div>
+        <div class="tool-desc">Behavioral profiles for a token's top holders.</div>
+        <span class="tool-cost">20 credits</span>
+      </div>
+      <div class="tool-card">
+        <div class="tool-name">wallet_similarity</div>
+        <div class="tool-desc">Coordination and sybil score for 2–30 wallets.</div>
+        <span class="tool-cost">20 credits</span>
+      </div>
+      <div class="tool-card">
+        <div class="tool-name">deep_token_analysis</div>
+        <div class="tool-desc">Holder profiles + similarity in a single call.</div>
+        <span class="tool-cost">35 credits</span>
+      </div>
+      <div class="tool-card">
+        <div class="tool-name">job_status / job_wait</div>
+        <div class="tool-desc">Resume async jobs. Handled automatically — you rarely call these.</div>
+        <span class="tool-cost">Free</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="container">
+    <div class="cta-box">
+      <h2>Ready to ask your first question?</h2>
+      <p>Get an API key, paste one config block, restart your client.</p>
+      <div class="cta-actions">
+        <a class="btn-primary" href="https://sova-intel.com/?tab=register">Get API Key — free credits included</a>
+        <a class="btn-ghost" href="https://www.npmjs.com/package/@sova-intel/mcp" target="_blank">npm package ↗</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="inner">
+    <div class="links">
+      <a href="https://sova-intel.com">sova-intel.com</a>
+      <a href="https://www.npmjs.com/package/@sova-intel/mcp" target="_blank">npm</a>
+      <a href="https://docs.sova-intel.com" target="_blank">Docs</a>
+    </div>
+    <span class="copy">MIT License</span>
+  </div>
+</footer>
+
+<script>
+  function showTab(id, btn) {
+    document.getElementById('tab-claude-code').style.display    = 'none';
+    document.getElementById('tab-claude-desktop').style.display = 'none';
+    document.getElementById('tab-' + id).style.display         = 'block';
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+  }
+</script>
+
+</body>
+</html>
