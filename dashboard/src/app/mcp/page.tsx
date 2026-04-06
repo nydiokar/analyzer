@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { AuthModal } from '@/components/auth/AuthModal';
+import { LandingShell } from '@/components/layout/LandingShell';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/useAuth';
+import { Check, ChevronRight, Copy, LogIn } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ChevronRight, Copy, Check, LogIn } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { LandingShell } from '@/components/layout/LandingShell';
-import { AuthModal } from '@/components/auth/AuthModal';
-import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 
 // ── fade-in on scroll ──────────────────────────────────────────────────────
 
@@ -146,8 +146,6 @@ const CONFIGS = {
     ),
     hint: (
       <p className="mt-3 text-xs text-slate-600">
-        Windows: <code className="rounded bg-slate-800/60 px-1 text-slate-400">claude mcp add sova-intel -e SOVA_API_KEY=your_key -- cmd /c npx -y @sova-intel/mcp</code>
-        {' Â· '}
         Mac/Linux: <code className="rounded bg-slate-800/60 px-1 text-slate-400">claude mcp add sova-intel -e SOVA_API_KEY=your_key -- npx -y @sova-intel/mcp</code>
       </p>
     ),

@@ -54,8 +54,8 @@ export default function DeveloperPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/users/api-keys`, { headers: buildHeaders() });
       if (!res.ok) throw new Error('Failed to fetch API keys');
-      const data = await res.json();
-      setKeys(data);
+      const data: ApiKeyInfo[] = await res.json();
+      setKeys(data.filter((key) => key.isActive));
     } catch {
       toast.error('Failed to load API keys');
     } finally {
@@ -108,6 +108,7 @@ export default function DeveloperPage() {
         headers: buildHeaders(),
       });
       if (!res.ok && res.status !== 204) throw new Error('Failed to revoke key');
+      setKeys((currentKeys) => currentKeys.filter((key) => key.id !== keyId));
       toast.success('API key revoked');
       await fetchKeys();
     } catch {
