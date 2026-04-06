@@ -343,8 +343,8 @@ importers:
         specifier: ^1.98.4
         version: 1.98.4(bufferutil@4.1.0)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10)
       '@sova-intel/sdk':
-        specifier: workspace:*
-        version: link:../sdk
+        specifier: ^0.2.1
+        version: 0.2.1
       bs58:
         specifier: ^6.0.0
         version: 6.0.0
@@ -3323,6 +3323,10 @@ packages:
 
   '@solana/web3.js@1.98.4':
     resolution: {integrity: sha512-vv9lfnvjUsRiq//+j5pBdXig0IQdtzA0BRZ3bXEP4KaIyF1CcaydWqgyzQgfZMNIsWNWmG+AUHwPy4AHOD6gpw==}
+
+  '@sova-intel/sdk@0.2.1':
+    resolution: {integrity: sha512-GRBpwGvcPlJuaUZfgOxVrF7ZSqflaDCFwnqQtaQH7E+UI+PgCiENgqhn6ZGYPZrpw4AYuOdxi9KJmDbFI9wVog==}
+    engines: {node: '>=18.0.0'}
 
   '@stablelib/base64@1.0.1':
     resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
@@ -12237,6 +12241,8 @@ snapshots:
       - encoding
       - typescript
       - utf-8-validate
+
+  '@sova-intel/sdk@0.2.1': {}
 
   '@stablelib/base64@1.0.1': {}
 
