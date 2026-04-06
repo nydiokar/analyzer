@@ -116,20 +116,41 @@ function CopyButton({ text }: { text: string }) {
 // ── quickstart block ───────────────────────────────────────────────────────
 
 const CONFIGS = {
+  codex: {
+    label: 'Codex',
+    command: 'codex mcp add sova-intel --env SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp',
+    render: (
+      <span>
+        <span className="text-violet-400">codex</span>
+        {' mcp add sova-intel --env '}
+        <span className="text-sky-300">SOVA_API_KEY</span>
+        {'='}
+        <span className="text-emerald-300">ak_your_key</span>
+        {' -- npx -y @sova-intel/mcp'}
+      </span>
+    ),
+    hint: null,
+  },
   claudecode: {
     label: 'Claude Code',
     command: 'claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp',
     render: (
       <span>
         <span className="text-violet-400">claude</span>
-        {' mcp add sova-intel \\\n  -e '}
+        {' mcp add sova-intel -e '}
         <span className="text-sky-300">SOVA_API_KEY</span>
         {'='}
         <span className="text-emerald-300">ak_your_key</span>
-        {' \\\n  -- npx -y @sova-intel/mcp'}
+        {' -- npx -y @sova-intel/mcp'}
       </span>
     ),
-    hint: null,
+    hint: (
+      <p className="mt-3 text-xs text-slate-600">
+        Windows: <code className="rounded bg-slate-800/60 px-1 text-slate-400">claude mcp add sova-intel -e SOVA_API_KEY=your_key -- cmd /c npx -y @sova-intel/mcp</code>
+        {' Â· '}
+        Mac/Linux: <code className="rounded bg-slate-800/60 px-1 text-slate-400">claude mcp add sova-intel -e SOVA_API_KEY=your_key -- npx -y @sova-intel/mcp</code>
+      </p>
+    ),
   },
   desktop: {
     label: 'Claude Desktop',
@@ -206,7 +227,7 @@ const CONFIGS = {
 type TabKey = keyof typeof CONFIGS;
 
 function QuickstartBlock({ onGetKey }: { onGetKey: () => void }) {
-  const [tab, setTab] = useState<TabKey>('claudecode');
+  const [tab, setTab] = useState<TabKey>('codex');
   const [glowing, setGlowing] = useState(false);
   const current = CONFIGS[tab];
 
@@ -403,7 +424,7 @@ export default function McpPage() {
 
           <FadeIn delay={200}>
             <p className="mx-auto mt-5 max-w-lg text-lg leading-relaxed text-slate-400">
-              One config block in Claude Desktop, Claude Code, or Cursor.
+              One config block in Codex, Claude Desktop, Claude Code, or Cursor.
               Behavioral profiles, holder maps, coordination detection — in plain language.
             </p>
             <p className="mt-4 text-xs text-slate-600">

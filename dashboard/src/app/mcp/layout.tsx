@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 export const metadata: Metadata = {
   title: 'Sova Intel MCP — On-Chain Wallet Intelligence for AI Agents',
   description:
-    'Ask natural-language questions about Solana wallets and token holders from Claude Desktop, Claude Code, or Cursor. Behavioral profiles, holder maps, coordination detection.',
+    'Ask natural-language questions about Solana wallets and token holders from Codex, Claude Desktop, Claude Code, or Cursor. Behavioral profiles, holder maps, coordination detection.',
   openGraph: {
     title: 'Sova Intel MCP — On-Chain Wallet Intelligence for AI Agents',
     description:
