@@ -211,7 +211,14 @@ export class IntelController {
         : null,
       pnl: pnlOverview
         ? {
-            allTime: pnlOverview.allTimeData ?? null,
+            allTime: pnlOverview.allTimeData
+              ? {
+                  realizedPnlSol: pnlOverview.allTimeData.realizedPnl,
+                  unrealizedPnlSol: pnlOverview.allTimeData.unrealizedPnl ?? 0,
+                  netPnlSol: (pnlOverview.allTimeData.realizedPnl ?? 0) + (pnlOverview.allTimeData.unrealizedPnl ?? 0),
+                  winRate: pnlOverview.allTimeData.swapWinRate != null ? pnlOverview.allTimeData.swapWinRate / 100 : 0,
+                }
+              : null,
             period: pnlOverview.periodData ?? null,
           }
         : null,

@@ -29,11 +29,15 @@ export function summarizeWalletProfile(res: WalletProfileResponse): string {
   const parts: string[] = [];
   if (res.hud) {
     parts.push(`${res.hud.behaviorCode} profile`);
-    parts.push(`win rate ${(res.hud.winRate * 100).toFixed(0)}%`);
+    if (res.hud.winRate != null) {
+      parts.push(`win rate ${(res.hud.winRate * 100).toFixed(0)}%`);
+    }
   }
   if (res.pnl?.allTime) {
     const pnl = res.pnl.allTime.realizedPnlSol;
-    parts.push(`realized PnL ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} SOL`);
+    if (pnl != null) {
+      parts.push(`realized PnL ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} SOL`);
+    }
   }
   if (res.kol) {
     parts.push(`known KOL: ${res.kol.name}`);

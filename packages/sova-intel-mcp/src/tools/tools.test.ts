@@ -44,46 +44,78 @@ const MOCK_QUEUED = {
   message: "Analysis queued.",
 };
 
+// Matches the real wire shape from buildIntelResponse() in intel.controller.ts
+// after the pnl mapping fix (PnlOverviewResponseData → IntelPnlAllTimeDto).
 const MOCK_WALLET_PROFILE = {
-  hud: MOCK_HUD,
-  behavior: {
-    speedCategory: "medium",
-    exitPattern: "partial_exit",
-    medianHoldTimeHours: 12.1,
-    tradingStyle: "swing",
-  },
+  status: "ok" as const,
+  walletAddress: WALLET,
   summary: {
+    lastAnalyzedAt: "2026-03-03T11:30:00.000Z",
     realizedPnl: 142.87,
     profitableTradesCount: 34,
     totalTradesCount: 51,
     currentSolBalance: 4.21,
+    knownType: null,
+    knownLabel: null,
   },
-  pnl: { allTime: { realizedPnlSol: 142.87 } },
   kol: null,
+  hud: MOCK_HUD,
+  behavior: {
+    tradingStyle: "swing",
+    speedCategory: "medium",
+    avgHoldTimeHours: 10.5,
+    medianHoldTimeHours: 12.1,
+    buySellRatio: 1.2,
+    exitPattern: "partial_exit",
+    avgEntryMcapUsd: 200000,
+    typicalEntryMcapUsd: 220000,
+    entryMcapP25Usd: 100000,
+    entryMcapP75Usd: 500000,
+    dominantEntryMcapBucket: "200-500k",
+    dominantEntryMcapBucketShare: 0.45,
+  },
+  // pnl.allTime is mapped by buildIntelResponse to IntelPnlAllTimeDto shape:
+  // realizedPnlSol, unrealizedPnlSol, netPnlSol, winRate (decimal)
+  pnl: {
+    allTime: {
+      realizedPnlSol: 142.87,
+      unrealizedPnlSol: 12.5,
+      netPnlSol: 155.37,
+      winRate: 0.67,
+    },
+    period: null,
+  },
 };
 
+// Matches AgentHolderProfilesResult from /intel/token/:mint/holders/agent
 const MOCK_HOLDER_PROFILES_RESULT = {
-  jobId: "job-holders-1",
-  tokenMint: MINT,
-  profiles: [],
   aggregate: {
     totalHolders: 100,
     analyzedHolders: 20,
+    top1SupplyPct: 12.3,
     top5SupplyPct: 42.5,
     behaviorDistribution: [
-      { behaviorType: "SWING_TRADER", count: 8 },
+      { behaviorType: "SWING_TRADER", count: 8, supplyPct: 22.1 },
     ],
     avgWalletPnlSol: 5.3,
   },
+  profiles: [],
+  metadata: {
+    tokenMint: MINT,
+    totalHoldersRequested: 20,
+    totalHoldersAnalyzed: 20,
+  },
 };
 
+// Matches AgentSimilarityResult from /intel/wallets/similarity/agent
 const MOCK_SIMILARITY_RESULT = {
-  jobId: "job-sim-1",
-  wallets: [WALLET, WALLET_2],
   coordinationScore: 0.75,
-  pairwiseSimilarities: [],
+  pairs: [],
+  globalMetrics: { averageSimilarity: 0.61 },
   metadata: {
     walletsAnalyzed: 2,
+    totalPairs: 1,
+    meaningfulPairs: 1,
     flaggedPairs: 1,
   },
 };
@@ -96,13 +128,15 @@ const MOCK_AGENT_JOB = {
   message: "Queued.",
 };
 
+// Matches BatchHudResponse from /intel/wallets/batch-hud
 const MOCK_BATCH_HUD_RESPONSE = {
   huds: {
     [WALLET]: MOCK_HUD,
     [WALLET_2]: MOCK_HUD,
   },
-  queued: [],
-  skipped: [],
+  queued: [] as Array<{ walletAddress: string; jobId: string; monitoringUrl: string }>,
+  skipped: [] as string[],
+  calculatedAt: "2026-03-03T11:30:00.000Z",
 };
 
 // ---------------------------------------------------------------------------
@@ -230,6 +264,24 @@ describe("walletProfileHandler", () => {
     expect(parsed.tool).toBe("wallet_profile");
     expect(parsed.summary).toContain("W profile");
     expect(parsed.job).toBeNull();
+    expect(res.isError).toBeUndefined();
+  });
+
+  it("fresh: hud present but winRate/realizedPnlSol undefined — does not throw", async () => {
+    const profileWithMissingNumerics = {
+      ...MOCK_WALLET_PROFILE,
+      hud: { ...MOCK_HUD, winRate: undefined as unknown as number },
+      pnl: { allTime: { realizedPnlSol: undefined as unknown as number } },
+    };
+    const client = makeMockClient({
+      fetchWalletProfile: vi.fn().mockResolvedValue(profileWithMissingNumerics),
+    });
+
+    const res = await walletProfileHandler({ walletAddress: WALLET }, client, AUTH_MODE, TOOL_COSTS, POLL_OPTIONS);
+    const parsed = parseResult(res);
+
+    expect(parsed.mode).toBe("completed");
+    expect(parsed.ok).toBe(true);
     expect(res.isError).toBeUndefined();
   });
 
@@ -454,8 +506,9 @@ describe("batchWalletHudHandler", () => {
   it("mixed: 1 hud ready + 1 queued — summary includes 'queued (stale)'", async () => {
     const mixedResponse = {
       huds: { [WALLET]: MOCK_HUD },
-      queued: [WALLET_2],
-      skipped: [],
+      queued: [{ walletAddress: WALLET_2, jobId: "job-stale-1", monitoringUrl: "/api/v1/jobs/job-stale-1" }],
+      skipped: [] as string[],
+      calculatedAt: "2026-03-03T11:30:00.000Z",
     };
     const client = makeMockClient({
       batchHud: vi.fn().mockResolvedValue(mixedResponse),
