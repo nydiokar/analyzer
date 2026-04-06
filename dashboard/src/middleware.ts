@@ -19,7 +19,7 @@ const verifiedOnlyRoutes = [
 ];
 
 // Public routes (accessible without auth)
-const publicRoutes = ['/', '/help', '/verify', '/settings', '/reset-password', '/share'];
+const publicRoutes = ['/', '/help', '/verify', '/settings', '/reset-password', '/share', '/mcp'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
