@@ -131,6 +131,25 @@ const CONFIGS = {
     ),
     hint: null,
   },
+  cline: {
+    label: 'Cline',
+    command: 'cline mcp add sova-intel --env SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp',
+    render: (
+      <span>
+        <span className="text-violet-400">cline</span>
+        {' mcp add sova-intel --env '}
+        <span className="text-sky-300">SOVA_API_KEY</span>
+        {'='}
+        <span className="text-emerald-300">ak_your_key</span>
+        {' -- npx -y @sova-intel/mcp'}
+      </span>
+    ),
+    hint: (
+      <p className="mt-3 text-xs text-slate-600">
+        Cline stores MCP servers in <code className="rounded bg-slate-800/60 px-1 text-slate-400">cline_mcp_settings.json</code>.
+      </p>
+    ),
+  },
   claudecode: {
     label: 'Claude Code',
     command: 'claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp',
@@ -420,11 +439,11 @@ export default function McpPage() {
 
           <FadeIn delay={200}>
             <p className="mx-auto mt-5 max-w-lg text-lg leading-relaxed text-slate-400">
-              One config block in Codex, Claude Desktop, Claude Code, or Cursor.
+              One config block in Codex, Cline, Claude Desktop, Claude Code, or Cursor.
               Behavioral profiles, holder maps, coordination detection — in plain language.
             </p>
             <p className="mt-4 text-xs text-slate-600">
-              Works with Claude Desktop · Claude Code · Cursor · any MCP-compatible client or agent
+              Works with Codex · Cline · Claude Desktop · Claude Code · Cursor · any MCP-compatible client or agent
             </p>
           </FadeIn>
         </section>
