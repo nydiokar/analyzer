@@ -58,10 +58,10 @@ function Particles() {
           key={i}
           className="absolute block rounded-full bg-white/[0.04]"
           style={{
-            width:  `${2 + (i % 4)}px`,
+            width: `${2 + (i % 4)}px`,
             height: `${2 + (i % 4)}px`,
-            left:   `${(i * 37 + 7) % 100}%`,
-            top:    `${(i * 53 + 11) % 100}%`,
+            left: `${(i * 37 + 7) % 100}%`,
+            top: `${(i * 53 + 11) % 100}%`,
             animation: `float-${i % 3} ${6 + (i % 5)}s ease-in-out ${(i * 0.7) % 4}s infinite`,
           }}
         />
@@ -250,9 +250,8 @@ function QuickstartBlock({ onGetKey }: { onGetKey: () => void }) {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-all duration-200 ${
-                tab === t ? 'bg-slate-700 text-slate-100' : 'text-slate-500 hover:text-slate-300'
-              }`}
+              className={`rounded-md px-3 py-1 text-xs font-medium transition-all duration-200 ${tab === t ? 'bg-slate-700 text-slate-100' : 'text-slate-500 hover:text-slate-300'
+                }`}
             >
               {CONFIGS[t].label}
             </button>
@@ -321,10 +320,10 @@ function PromptCard({ prompt, tool, cost, lines, delay = 0 }: {
                 <dt className="w-40 flex-shrink-0 text-slate-500">{label}</dt>
                 <dd className={
                   color === 'accent' ? 'font-semibold text-violet-300' :
-                  color === 'warn'   ? 'text-amber-400' :
-                  color === 'ok'     ? 'text-emerald-400' :
-                  color === 'muted'  ? 'text-slate-500' :
-                  'text-slate-200'
+                    color === 'warn' ? 'text-amber-400' :
+                      color === 'ok' ? 'text-emerald-400' :
+                        color === 'muted' ? 'text-slate-500' :
+                          'text-slate-200'
                 }>{value}</dd>
               </div>
             ))}
@@ -354,16 +353,16 @@ function ToolCard({ name, desc, cost, href }: { name: string; desc: string; cost
 
 // ── page ───────────────────────────────────────────────────────────────────
 
-const DOCS = 'https://docs.sova-intel.com/docs/endpoints';
+const DOCS = 'https://docs.sova-intel.com/endpoints';
 
 export default function McpPage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authTab, setAuthTab]             = useState<'login' | 'register'>('register');
+  const [authTab, setAuthTab] = useState<'login' | 'register'>('register');
   const { isAuthenticated } = useAuth();
   const router = useRouter();
 
   const openRegister = () => { setAuthTab('register'); setShowAuthModal(true); };
-  const openLogin    = () => { setAuthTab('login');    setShowAuthModal(true); };
+  const openLogin = () => { setAuthTab('login'); setShowAuthModal(true); };
 
   return (
     <LandingShell>
@@ -484,11 +483,11 @@ export default function McpPage() {
               prompt="What kind of trader is DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm?"
               tool="wallet_hud" cost="1 credit"
               lines={[
-                { label: 'behavior',     value: 'DAY_TRADER',  color: 'accent' },
-                { label: 'win rate',     value: '29.9%' },
-                { label: 'median hold',  value: '12.9 hours' },
-                { label: 'holdings',     value: '777 SOL · $62,892' },
-                { label: 'data quality', value: 'GOLD',        color: 'ok' },
+                { label: 'behavior', value: 'DAY_TRADER', color: 'accent' },
+                { label: 'win rate', value: '29.9%' },
+                { label: 'median hold', value: '12.9 hours' },
+                { label: 'holdings', value: '777 SOL · $62,892' },
+                { label: 'data quality', value: 'GOLD', color: 'ok' },
               ]}
             />
             <PromptCard
@@ -497,10 +496,10 @@ export default function McpPage() {
               tool="token_holder_profiles" cost="20 credits"
               lines={[
                 { label: 'holders analyzed', value: '9 / 10' },
-                { label: 'top 5 supply',     value: '17.98%' },
-                { label: 'dominant style',   value: 'INTRADAY  (4 wallets, 11.9% supply)', color: 'accent' },
-                { label: 'also present',     value: 'MOMENTUM · SWING · SNIPER',           color: 'muted' },
-                { label: 'avg holder PnL',   value: '−260 SOL',                            color: 'warn' },
+                { label: 'top 5 supply', value: '17.98%' },
+                { label: 'dominant style', value: 'INTRADAY  (4 wallets, 11.9% supply)', color: 'accent' },
+                { label: 'also present', value: 'MOMENTUM · SWING · SNIPER', color: 'muted' },
+                { label: 'avg holder PnL', value: '−260 SOL', color: 'warn' },
               ]}
             />
             <PromptCard
@@ -508,11 +507,11 @@ export default function McpPage() {
               prompt="Do any of those holders look coordinated or like the same actor?"
               tool="wallet_similarity" cost="20 credits"
               lines={[
-                { label: 'coordination',  value: '0.28  LOW',                color: 'ok' },
+                { label: 'coordination', value: '0.28  LOW', color: 'ok' },
                 { label: 'pairs checked', value: '36' },
-                { label: 'flagged pairs', value: '6',                        color: 'warn' },
-                { label: 'top flag',      value: '2jjgBE… ↔ ACp9B9…' },
-                { label: 'similarity',    value: '0.82 · 677 shared tokens', color: 'warn' },
+                { label: 'flagged pairs', value: '6', color: 'warn' },
+                { label: 'top flag', value: '2jjgBE… ↔ ACp9B9…' },
+                { label: 'similarity', value: '0.82 · 677 shared tokens', color: 'warn' },
               ]}
             />
           </div>
@@ -532,14 +531,14 @@ export default function McpPage() {
 
           <FadeIn delay={80}>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <ToolCard name="wallet_hud"            href={`${DOCS}/wallet-intel`}  cost="1 credit"       desc="Behavior type, win rate, hold time, and data quality for any wallet." />
-              <ToolCard name="wallet_profile"        href={`${DOCS}/wallet-intel`}  cost="5 credits"      desc="Full intel — HUD + PnL summary + behavior breakdown + KOL identity." />
-              <ToolCard name="wallet_token_pnl"      href={`${DOCS}/wallet-intel`}  cost="3 credits"      desc="Per-token PnL breakdown for a wallet, paginated." />
-              <ToolCard name="batch_wallet_hud"      href={`${DOCS}/wallet-intel`}  cost="5 credits flat" desc="HUD signals for up to 30 wallets in one call." />
-              <ToolCard name="token_holder_profiles" href={`${DOCS}/batch-token`}   cost="20 credits"     desc="Behavioral profiles for a token's top holders. Runs async, auto-resumes." />
-              <ToolCard name="wallet_similarity"     href={`${DOCS}/batch-token`}   cost="20 credits"     desc="Coordination and sybil score for 2–30 wallets." />
-              <ToolCard name="deep_token_analysis"   href={`${DOCS}/batch-token`}   cost="35 credits"     desc="Holder profiles + similarity bundled in one call." />
-              <ToolCard name="job_status / job_wait" href={`${DOCS}/async-jobs`}    cost="Free"           desc="Resume async jobs. Called automatically — you don't need to think about these." />
+              <ToolCard name="wallet_hud" href={`${DOCS}/wallet-intel`} cost="1 credit" desc="Behavior type, win rate, hold time, and data quality for any wallet." />
+              <ToolCard name="wallet_profile" href={`${DOCS}/wallet-intel`} cost="5 credits" desc="Full intel — HUD + PnL summary + behavior breakdown + KOL identity." />
+              <ToolCard name="wallet_token_pnl" href={`${DOCS}/wallet-intel`} cost="3 credits" desc="Per-token PnL breakdown for a wallet, paginated." />
+              <ToolCard name="batch_wallet_hud" href={`${DOCS}/wallet-intel`} cost="5 credits flat" desc="HUD signals for up to 30 wallets in one call." />
+              <ToolCard name="token_holder_profiles" href={`${DOCS}/batch-token`} cost="20 credits" desc="Behavioral profiles for a token's top holders. Runs async, auto-resumes." />
+              <ToolCard name="wallet_similarity" href={`${DOCS}/batch-token`} cost="20 credits" desc="Coordination and sybil score for 2–30 wallets." />
+              <ToolCard name="deep_token_analysis" href={`${DOCS}/batch-token`} cost="35 credits" desc="Holder profiles + similarity bundled in one call." />
+              <ToolCard name="job_status / job_wait" href={`${DOCS}/async-jobs`} cost="Free" desc="Resume async jobs. Called automatically — you don't need to think about these." />
             </div>
           </FadeIn>
         </section>
@@ -575,10 +574,10 @@ export default function McpPage() {
       <footer className="border-t border-slate-800">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-4 px-5 py-6 md:px-8">
           <div className="flex gap-6 text-sm text-slate-500">
-            <Link href="/"                                                          className="transition-colors hover:text-slate-300">sova-intel.com</Link>
+            <Link href="/" className="transition-colors hover:text-slate-300">sova-intel.com</Link>
             <Link href="https://www.npmjs.com/package/@sova-intel/mcp" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-slate-300">npm</Link>
-            <Link href="https://docs.sova-intel.com"                   target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-slate-300">Docs</Link>
-            <Link href="/terms"                                                     className="transition-colors hover:text-slate-300">Terms</Link>
+            <Link href="https://docs.sova-intel.com" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-slate-300">Docs</Link>
+            <Link href="/terms" className="transition-colors hover:text-slate-300">Terms</Link>
           </div>
           <span className="text-sm text-slate-600">MIT License</span>
         </div>
