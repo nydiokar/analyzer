@@ -146,7 +146,6 @@ const CONFIGS = {
     ),
     hint: (
       <p className="mt-3 text-xs text-slate-600">
-        Mac/Linux: <code className="rounded bg-slate-800/60 px-1 text-slate-400">claude mcp add sova-intel -e SOVA_API_KEY=your_key -- npx -y @sova-intel/mcp</code>
       </p>
     ),
   },
