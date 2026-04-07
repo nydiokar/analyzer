@@ -1,7 +1,7 @@
 # Daily Aggregates Implementation Spec
-**Date:** 2026-04-05  
-**Status:** READY FOR EXECUTION PLANNING  
-**Author:** Architecture audit + spec (Claude, session 2026-04-05)
+**Date:** 2026-04-07  
+**Status:** REVISED 2026-04-07 — corrections applied post code audit  
+**Author:** Architecture audit + spec (Claude, session 2026-04-05); corrections (Claude, session 2026-04-07)
 
 > This document is the canonical handoff artifact for the next agent tasked with planning and executing daily aggregate support. Every claim below was verified against the actual codebase. Uncertainty is called out explicitly. Do not act on assumptions — re-read the referenced files before writing code.
 
@@ -216,6 +216,8 @@ All in `src/api/controllers/wallets.controller.ts`.
 - Alert evaluator: `@Cron('*/30 * * * * *')` — evaluates token price alerts only. No analysis scheduling.
 - Payment reconciliation: repeating BullMQ job — unrelated.
 
+**`@Cron` pattern reference:** The `@Cron` decorator from `@nestjs/schedule` is already established in this codebase. See `src/queues/jobs/alert-evaluator.job.ts` and `src/api/services/wallet-hunt.service.ts` for existing usages. The daily aggregation job follows the same pattern.
+
 **No nightly reanalysis cron.** Analysis runs only on explicit request.
 
 ---
@@ -236,9 +238,8 @@ All in `src/api/controllers/wallets.controller.ts`.
 
 - `SwapAnalysisInput.timestamp` is reliable for UTC calendar-day bucketing. No special handling needed.
 - Dedup constraint on `SwapAnalysisInput` makes daily recompute idempotent — retrying a day's computation always produces the same result.
-- `PnlAnalysisService` already accepts `timeRange` and correctly scopes to it. Calling it with a one-day window works today — it's just not persisted.
-- PostgreSQL is sufficient. Data volume and query patterns do not require ClickHouse. This is not a performance problem; it is a missing persistence layer.
 - Fields like `totalFees`, `realizedPnlSol`, `tradeCount`, `volumeSol` are additive — they can be stored per day and summed for any window with correct arithmetic.
+- PostgreSQL is sufficient. Data volume and query patterns do not require ClickHouse. This is not a performance problem; it is a missing persistence layer.
 
 ### What fails or does not hold
 
@@ -248,6 +249,7 @@ All in `src/api/controllers/wallets.controller.ts`.
 - **`profitableTokensCount` (lifetime) is a distinct-token count.** Summing a daily version across N days overcounts tokens touched on multiple days. For windowed distinct counts, query `SwapAnalysisInput` directly.
 - **`medianPnlPerToken`, `trimmedMeanPnlPerToken`** (AdvancedTradeStats) require a sorted distribution — not derivable from daily row aggregates.
 - **Realized PnL attribution spans day boundaries.** A buy on day 1 + sell on day 8 produces realized PnL attributed to day 8 (the sell date). This is correct and consistent with how `PnlAnalysisService` currently scopes timeRange queries, but it must be explicitly communicated to users.
+- **FIFO lot matching requires full chronological history.** Scoping `buildFifoLotsForToken` to a single calendar day's swaps produces wrong results for sells that close positions opened on earlier days. `realizedPnlSol` for daily rows must be derived from a full-history FIFO pass with per-sell date attribution — not from day-scoped calls to `analyzeWalletPnl`. See §3 and §5 for the correct approach.
 
 ---
 
@@ -258,7 +260,7 @@ All in `src/api/controllers/wallets.controller.ts`.
 **Separate two concerns that are currently collapsed:**
 
 1. **Lifetime summaries** (`WalletPnlSummary`, `WalletBehaviorProfile`, `AnalysisResult`) — unchanged. These remain the outputs of full-history analysis runs.
-2. **Daily PnL aggregates** — one new table, written by a separate nightly job, never by the sync/analysis flow.
+2. **Daily PnL aggregates** — one new table, written by a separate job, never by the sync/analysis flow.
 
 **Do not create:** `WalletBehaviorProfileDaily`, per-token daily rows (`wallet+mint+day`).
 
@@ -279,10 +281,10 @@ model WalletDailyPnl {
   volumeSol                Float    // Σ(associatedSolValue) for all swaps
   feesSol                  Float    // Σ(feeAmount) for all swaps
 
-  // Realized PnL — attributed to sell date
-  realizedPnlSol           Float    // Net realized PnL for pairs closed on this day
-  profitablePairsCount     Int      // Closed pairs with positive PnL
-  totalPairsClosedCount    Int      // All closed pairs on this day
+  // Realized PnL — attributed to sell date via full-history FIFO pass
+  realizedPnlSol           Float    // Net realized PnL for sell events on this day
+  profitableSellsCount     Int      // Sell events where FIFO-attributed PnL was positive
+  totalSellsCount          Int      // All sell events on this day (same as sellCount)
 
   // Token coverage
   uniqueMintsTradedCount   Int      // Distinct mints touched today (NOT additive for multi-day distinct counts)
@@ -292,12 +294,13 @@ model WalletDailyPnl {
   volumeUsd                Float?
   realizedPnlUsd           Float?
 
-  // Data quality flag
+  // Data quality flags
   hasIncompleteEnrichment  Boolean  // True if any swap in this day lacked usdValue / mcapBucket
   hasIncompleteHistory     Boolean  // True if wallet has hasIncompleteHistory on AnalysisResult (cost basis unknown)
 
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
+  lastComputedAt           DateTime // Set explicitly on every successful aggregation run — used for freshness monitoring
 
   @@unique([walletAddress, date])
   @@index([walletAddress])
@@ -305,13 +308,17 @@ model WalletDailyPnl {
 }
 ```
 
+**Note on `profitableSellsCount` / `totalSellsCount`:** These are sell-event counts, not token counts. A single token traded multiple times contributes one entry per sell event. `winRate` derived from these fields is a sell-event win rate, not a token win rate. See §3.2 for the derivation formula.
+
+**Note on `lastComputedAt`:** Set explicitly on every successful aggregation run, distinct from `updatedAt` (which advances on any write). Enables the monitoring query `WHERE "lastComputedAt" < NOW() - INTERVAL '26 hours'` to surface wallets whose daily rows have gone stale. `@updatedAt` alone is insufficient — it advances on every write but does not advance when a row is intentionally skipped or when the nightly job finds nothing changed.
+
 ### 3.2 What Is NOT in This Table (Explicit Exclusions)
 
 | Excluded field | Reason |
 |---|---|
 | `unrealizedPnl` | Point-in-time mark-to-market; meaningless for past days |
 | `currentSolBalance` | Live fetch only; no historical reconstruction |
-| `winRate` | Derive at query time: `SUM(profitablePairsCount) / SUM(totalPairsClosedCount)` |
+| `winRate` | Derive at query time: `SUM(profitableSellsCount) / SUM(totalSellsCount)` |
 | Any behavior metrics | Non-additive; require full sequence re-analysis |
 | Per-token PnL | Requires `wallet+mint+day` — future scope |
 | `medianPnlPerToken`, `trimmedMeanPnl` | Require sorted distribution across window |
@@ -333,7 +340,7 @@ model WalletDailyPnl {
 
 - `tradeCount`, `buyCount`, `sellCount`
 - `volumeSol`, `feesSol`
-- `totalPairsClosedCount`, `profitablePairsCount`
+- `totalSellsCount`, `profitableSellsCount`
 - `realizedPnlSol` (with sell-date attribution semantic — see §10)
 - `volumeUsd`, `realizedPnlUsd` (where not null)
 
@@ -341,7 +348,7 @@ model WalletDailyPnl {
 
 | Metric | Formula |
 |---|---|
-| `winRate` for N-day window | `SUM(profitablePairsCount) / SUM(totalPairsClosedCount)` |
+| `winRate` for N-day window | `SUM(profitableSellsCount) / SUM(totalSellsCount)` (sell-event win rate) |
 | Average trade size | `SUM(volumeSol) / SUM(tradeCount)` |
 | Total realized PnL for period | `SUM(realizedPnlSol) WHERE date BETWEEN X AND Y` |
 | Daily PnL chart | One row per day; `realizedPnlSol` plotted directly |
@@ -365,8 +372,8 @@ model WalletDailyPnl {
 
 ### Metrics requiring special handling for time windows
 
-- `realizedPnlSol` — buy-sell pairs straddling day/window boundaries: attribute PnL to **sell date**. Consistent with existing `PnlAnalysisService` behavior. Must be documented.
-- `profitableTokensCount` vs `profitablePairsCount` — the lifetime field counts distinct profitable tokens. For daily/windowed use, count profitable **pairs closed** on that day instead. Semantically different — do not conflate.
+- `realizedPnlSol` — buy-sell pairs straddling day/window boundaries: attribute PnL to **sell date**. Consistent with sell-date attribution semantic. Must be documented.
+- `profitableSellsCount` vs lifetime `profitableTokensCount` — the lifetime field counts distinct profitable tokens. For daily/windowed use, `profitableSellsCount` counts profitable sell events on that day. Semantically different — do not conflate. A token traded on multiple days contributes one sell event per sell transaction, not one per token.
 
 ---
 
@@ -380,33 +387,57 @@ Trigger → sync() → SwapAnalysisInput rows
 → analyzeWalletBehavior() → WalletBehaviorProfile
 ```
 
-### After (proposed — minimal change)
+### After (proposed)
 
 ```
 Trigger → sync() → SwapAnalysisInput rows
 → analyzeWalletPnl() → AnalysisResult + WalletPnlSummary  [UNCHANGED]
 → analyzeWalletBehavior() → WalletBehaviorProfile          [UNCHANGED]
+→ [after analysis completes] dispatch async BullMQ job:
+    DailyAggregationJob for this wallet (today + yesterday) [NON-BLOCKING — user response not delayed]
 ```
 
 ```
-[Separate nightly job — NOT in sync/analysis flow]
+[Primary trigger — after each analysis, non-blocking]
+analysis-operations.processor.ts (around line 232, after walletHudService.invalidateCache)
+→ dispatch BullMQ job: DailyAggregationJob({ walletAddress, dates: [today, yesterday] })
+→ DailyAggregationService.recomputeDays(walletAddress, dates)
+   → runs full-history FIFO pass, attributes sell events to their calendar day
+   → upserts WalletDailyPnl rows for affected dates
+   → sets lastComputedAt on each row
+```
+
+```
+[Secondary trigger — nightly repair, @Cron('0 0 * * *')]
 DailyAggregationJob (cron: midnight UTC)
-→ Fetch wallets active in past 30 days
-→ For each wallet: DailyAggregationService.recomputeRecentDays(walletAddress)
-   → For each affected date: upsert WalletDailyPnl row
+→ Fetch wallets where lastComputedAt < NOW() - 26 hours (not refreshed by primary trigger)
+→ For each: DailyAggregationService.recomputeRecentDays(walletAddress, last 2–3 days)
+   → covers late-arriving enrichment and wallets not recently analyzed
 ```
 
-### Why daily aggregation is NOT part of sync flow
+### Why two tiers
 
-1. Sync is on the hot path (user-triggered, Redis-locked). Adding aggregation increases failure surface and latency.
-2. Daily aggregates need only 24-hour granularity. Nightly recalculation is sufficient.
-3. A separate job can re-run on failure without retriggering analysis.
+The primary async dispatch (after analysis) keeps daily rows fresh immediately after a wallet is analyzed, without waiting up to 23 hours for the nightly cron. It is non-blocking — the BullMQ job is dispatched after the user response is already sent, mirroring the existing `walletHudService.invalidateCache` pattern at line 232 of `analysis-operations.processor.ts`. The nightly repair cron is a safety net for wallets that were not recently analyzed and for late-arriving enrichment on the last 2–3 days.
 
-### Sync vs async decision
+### Why daily aggregation does NOT call `analyzeWalletPnl` — CRITICAL
 
-**Async, nightly batch job.** Not inline with sync.
+`DailyAggregationService` does **not** call `analyzeWalletPnl` at all, not even with `isViewOnly: true`. The reason is architectural:
 
-**One exception:** After first-ever full sync of a new wallet, the nightly job would leave it with no daily data until it runs (up to 23 hours). A backfill-on-first-analysis trigger is a reasonable optimization but should be deferred to avoid complexity.
+`buildFifoLotsForToken` (in `src/core/analysis/swap/fifo-lot-tracker.ts`) requires the full chronological buy history to correctly cost sells. If you scope `getSwapAnalysisInputs` to a single calendar day, sells that close positions opened on earlier days will have no matching lots. This triggers `hasIncompleteHistory = true` and produces wrong or zero `realizedPnlSol` for the majority of real trades. This would silently corrupt the primary metric the feature exists to show.
+
+**Correct approach:** Run FIFO over the full wallet history, then attribute each sell event to its calendar day:
+
+1. Fetch all `SwapAnalysisInput` rows for the wallet (no time filter), ordered by `timestamp ASC` — same as a normal `analyzeWalletPnl` call.
+2. Group rows by `mint`. For each mint, run `buildFifoLotsForToken` (imported from `src/core/analysis/swap/fifo-lot-tracker.ts`) over the full chronological history.
+3. During FIFO execution, for each sell event (`direction='out'`), record: `{ date: UTC calendar day of sell timestamp, realizedPnlSol: proceeds minus costBasis for this sell, isProfitable: boolean }`.
+4. Group these per-sell records by date → produces `realizedPnlSol`, `profitableSellsCount`, `totalSellsCount` per day.
+5. JOIN with a simple `SwapAnalysisInput GROUP BY date` aggregation for the additive fields (`tradeCount`, `buyCount`, `sellCount`, `volumeSol`, `feesSol`, `uniqueMintsTradedCount`, `newMintsEnteredCount`).
+
+`buildFifoLotsForToken` is already exported from `src/core/analysis/swap/fifo-lot-tracker.ts` and can be called directly. The backfill uses the same `DailyAggregationService` — no separate logic.
+
+### Why daily aggregation does NOT modify the sync or analysis flow
+
+Do not modify `helius-sync-service.ts` or the analysis flow (`pnl-analysis-service.ts`, `behavior-service.ts`). The async daily aggregation dispatch belongs in `analysis-operations.processor.ts`, after analysis completes, mirroring the existing HUD cache invalidation pattern at line 232.
 
 ### Failure handling and idempotency
 
@@ -424,8 +455,8 @@ DailyAggregationJob (cron: midnight UTC)
 | File | Purpose |
 |---|---|
 | `prisma/migrations/XXXX_add_wallet_daily_pnl.sql` | Schema migration |
-| `src/core/services/daily-aggregation.service.ts` | Core logic: compute `WalletDailyPnl` rows from `SwapAnalysisInput` |
-| `src/queues/jobs/daily-aggregation.job.ts` | `@Cron` nightly job that drives the service |
+| `src/core/services/daily-aggregation.service.ts` | Core logic: full-history FIFO pass with per-sell date attribution; upserts `WalletDailyPnl` rows |
+| `src/queues/jobs/daily-aggregation.job.ts` | `@Cron` nightly repair job + BullMQ job handler for per-wallet dispatch |
 | `src/api/dto/wallet-daily-pnl.dto.ts` | Query + response DTOs for new endpoint |
 
 ### Files to modify
@@ -434,6 +465,7 @@ DailyAggregationJob (cron: midnight UTC)
 |---|---|
 | `prisma/schema.prisma` | Add `WalletDailyPnl` model |
 | `src/api/controllers/wallets.controller.ts` | Add `GET /wallets/:addr/pnl-daily` endpoint |
+| `src/queues/processors/analysis-operations.processor.ts` | After analysis completes (around line 232, after `walletHudService.invalidateCache`), dispatch async BullMQ job for daily aggregation of this wallet |
 | `src/core/modules/` (relevant NestJS module) | Register `DailyAggregationService` and job |
 | `dashboard/src/` | Add daily PnL chart component |
 
@@ -443,8 +475,7 @@ DailyAggregationJob (cron: midnight UTC)
 |---|---|
 | `pnl-analysis-service.ts` | Lifetime analysis flow unchanged |
 | `behavior-service.ts` | Behavior stays lifetime-only; no daily variant |
-| `helius-sync-service.ts` | Sync flow unchanged |
-| `analysis-operations.processor.ts` | No new BullMQ job types needed initially |
+| `helius-sync-service.ts` | Sync flow unchanged — do not modify |
 
 ---
 
@@ -461,6 +492,7 @@ Query params:
 
 Response shape:
 {
+  attributionMethod: "sell_date",   // PnL is attributed to the sell event's calendar day
   data: [
     {
       date: "2026-03-01",
@@ -470,9 +502,9 @@ Response shape:
       volumeSol: number,
       feesSol: number,
       realizedPnlSol: number,
-      profitablePairsCount: number,
-      totalPairsClosedCount: number,
-      winRate: number,           // derived: profitablePairs / totalPairs
+      profitableSellsCount: number,
+      totalSellsCount: number,
+      winRate: number,               // derived: profitableSellsCount / totalSellsCount (sell-event win rate)
       uniqueMintsTradedCount: number,
       volumeUsd: number | null,
       realizedPnlUsd: number | null,
@@ -540,8 +572,8 @@ CREATE TABLE "WalletDailyPnl" (
   "volumeSol"                DOUBLE PRECISION NOT NULL,
   "feesSol"                  DOUBLE PRECISION NOT NULL,
   "realizedPnlSol"           DOUBLE PRECISION NOT NULL,
-  "profitablePairsCount"     INTEGER NOT NULL,
-  "totalPairsClosedCount"    INTEGER NOT NULL,
+  "profitableSellsCount"     INTEGER NOT NULL,
+  "totalSellsCount"          INTEGER NOT NULL,
   "uniqueMintsTradedCount"   INTEGER NOT NULL,
   "newMintsEnteredCount"     INTEGER NOT NULL,
   "volumeUsd"                DOUBLE PRECISION,
@@ -550,6 +582,7 @@ CREATE TABLE "WalletDailyPnl" (
   "hasIncompleteHistory"     BOOLEAN NOT NULL DEFAULT false,
   "createdAt"                TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"                TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "lastComputedAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "WalletDailyPnl_walletAddress_date_key" UNIQUE ("walletAddress", "date")
 );
 CREATE INDEX "WalletDailyPnl_walletAddress_idx" ON "WalletDailyPnl"("walletAddress");
@@ -558,13 +591,13 @@ CREATE INDEX "WalletDailyPnl_date_idx" ON "WalletDailyPnl"("date");
 
 ### Backfill approach
 
-**Problem:** `realizedPnlSol` and `profitablePairsCount` require buy-sell pair matching — this logic lives in TypeScript (`PnlAnalysisService`), not in SQL. A pure SQL GROUP BY can cover counts and volumes but not PnL.
+**Problem:** `realizedPnlSol` and `profitableSellsCount` require FIFO lot matching over the full wallet history — this logic lives in TypeScript (`buildFifoLotsForToken`), not in SQL. A pure SQL GROUP BY can cover counts and volumes but not PnL.
 
-**Recommended approach:** Run `DailyAggregationService` (once implemented) as a one-time backfill script over all wallets. The service calls `analyzeWalletPnl(wallet, { startTs, endTs }, { isViewOnly: true })` scoped to each calendar day, extracts the realized PnL, and upserts the row. This reuses existing logic and avoids reimplementing pair matching.
+**Correct approach:** Run `DailyAggregationService` (once implemented) as a one-time backfill script over all wallets. The service performs the full-history FIFO pass described in §5, attributing each sell event to its calendar day. The same service instance used for ongoing aggregation handles the backfill — no separate logic. This ensures backfill and ongoing daily rows are produced by identical code.
+
+**Do not** call `analyzeWalletPnl(wallet, dayTimeRange, { isViewOnly: true })` scoped to individual calendar days. This produces wrong `realizedPnlSol` for any sell that closes a position opened on a prior day. See §5 for the full explanation.
 
 **Cost estimate:** ~1–5 seconds per wallet (depending on history depth). For ~1000 wallets → 15–90 minutes. Acceptable for a one-time overnight run.
-
-**Simple volume/count fields** can alternatively be pre-seeded via SQL GROUP BY before PnL is filled in, but this adds complexity for marginal gain. Recommend single-pass TypeScript backfill for correctness.
 
 ### Validation query (run after backfill)
 
@@ -581,7 +614,7 @@ ORDER BY delta DESC
 LIMIT 50;
 ```
 
-Non-zero deltas reveal wallets where daily and lifetime pairing logic diverged. Investigate top outliers. Perfect alignment is not expected for `hasIncompleteHistory` wallets (cost basis unknown) — this is acceptable.
+Non-zero deltas reveal wallets where daily and lifetime pairing logic diverged. Investigate top outliers. Perfect alignment is not expected for `hasIncompleteHistory` wallets (cost basis unknown). Because both the daily rows and the lifetime summary use `buildFifoLotsForToken` over full history, residual deltas should be small and explainable by enrichment gaps.
 
 ### Rollout order (staged, each step independently deployable)
 
@@ -589,7 +622,7 @@ Non-zero deltas reveal wallets where daily and lifetime pairing logic diverged. 
 |---|---|---|
 | 1 | Schema migration (no writes) | Zero — additive |
 | 2 | `DailyAggregationService` with unit tests | Low — isolated |
-| 3 | Nightly cron job, writes for new data only | Low — no existing code touched |
+| 3 | Nightly cron repair job + async dispatch hook in `analysis-operations.processor.ts` | Low — dispatch is non-blocking; no existing behavior changed |
 | 4 | Backfill script for historical data | Medium — CPU-intensive, safe to rerun |
 | 5 | `GET /wallets/:addr/pnl-daily` read endpoint | Low — read-only |
 | 6 | Dashboard daily PnL chart component | Low — UI only |
@@ -604,7 +637,7 @@ Stage 7 is the only step that modifies an existing code path. Defer until daily 
 ### Design risks
 
 **R1 — Realized PnL sell-date attribution semantic**  
-A buy on March 1 + sell on March 8 produces realized PnL in the March 8 daily row. A 7-day window containing March 8 but not March 1 includes this PnL. This is correct by the sell-date convention and consistent with how `PnlAnalysisService` already scopes time-range queries — but it is non-obvious to users. Must be documented in the API response (e.g. `attributionMethod: "sell_date"`) and explained in the dashboard.
+A buy on March 1 + sell on March 8 produces realized PnL in the March 8 daily row. A 7-day window containing March 8 but not March 1 includes this PnL. This is correct by the sell-date convention and consistent with how `PnlAnalysisService` already scopes time-range queries — but it is non-obvious to users. Must be documented in the API response (`attributionMethod: "sell_date"` in the response envelope) and explained in the dashboard.
 
 **R2 — `uniqueMintsTradedCount` is not a cross-day distinct count**  
 `SUM(uniqueMintsTradedCount)` over N days overcounts tokens traded on multiple days. Any dashboard metric claiming "distinct tokens traded in last 30 days" must query `SwapAnalysisInput` directly (`COUNT(DISTINCT mint) WHERE timestamp >= ...`). The daily row field is for single-day display only.
@@ -614,14 +647,14 @@ Wallets with `AnalysisResult.hasIncompleteHistory = true` have unknown cost basi
 
 ### Implementation risks
 
-**R4 — Daily pairing logic must match lifetime pairing logic**  
-If `DailyAggregationService` uses a slightly different buy-sell pairing algorithm than `PnlAnalysisService`, daily rows will not sum to the lifetime figure. **Fix:** Do not reimplement pair matching. Call `analyzeWalletPnl(wallet, dayTimeRange, { isViewOnly: true })` and extract the PnL from its output. Extract the shared utility if needed for testing, but do not fork the logic.
+**R4 — FIFO must run over full history, not day-scoped**  
+FIFO lot matching (`buildFifoLotsForToken`) requires the full chronological buy history to correctly cost sells. Scoping the input to a single calendar day causes sells that close positions opened on prior days to produce `hasIncompleteHistory = true` and wrong or zero `realizedPnlSol` for the majority of real trades. The correct approach is the full-history FIFO pass with per-sell date attribution described in §5. `DailyAggregationService` calls `buildFifoLotsForToken` directly — it does not call `analyzeWalletPnl` at all. The backfill uses the same service.
 
-**R5 — Nightly job failure leaves stale rows**  
-If the cron fails mid-run, some wallets will have data for yesterday and some won't. Add per-wallet `updatedAt` to `WalletDailyPnl` and a monitoring query to surface wallets not refreshed within 26 hours.
+**R5 — Nightly job failure leaves stale rows; `lastComputedAt` enables monitoring**  
+If the cron fails mid-run, some wallets will have data for yesterday and some won't. The `lastComputedAt` field on `WalletDailyPnl` is set explicitly on every successful aggregation run. Monitoring query: `WHERE "lastComputedAt" < NOW() - INTERVAL '26 hours'`. Note that `@updatedAt` alone is insufficient — it advances on every write but does not advance when a row is intentionally skipped or when the nightly job runs and finds nothing changed.
 
 **R6 — Backfill performance for large wallets**  
-Wallets with thousands of swaps across months will be slow per TypeScript backfill. Consider processing in date-range chunks (e.g. 30-day batches) to reduce memory pressure per invocation. The underlying `PnlAnalysisService` already accepts `timeRange`, so this is straightforward.
+Wallets with thousands of swaps across months require a full `SwapAnalysisInput` scan per wallet. The full-history FIFO pass processes all rows in one pass, which is memory-bounded but not date-chunk-able without breaking FIFO correctness. A single wallet's full history is the minimum unit of work. Process wallets sequentially rather than in parallel during backfill to manage memory pressure.
 
 ### Semantic risks
 
@@ -637,22 +670,25 @@ As the daily chart ships, there will be product pressure to add per-day `flipper
 
 ### Go / no-go
 
-**Go.** Daily aggregates are feasible. The data is already correctly timestamped. The minimum viable implementation is small and does not touch any existing code path. PostgreSQL is sufficient for this data volume. ClickHouse is not justified.
+**Go.** Daily aggregates are feasible. The data is already correctly timestamped. The minimum viable implementation is small and does not touch any existing code path in a breaking way. PostgreSQL is sufficient for this data volume. ClickHouse is not justified.
 
 ### Minimum viable implementation (exact scope)
 
-1. Add `WalletDailyPnl` table — Prisma migration.
-2. Implement `DailyAggregationService.computeDailyPnl(walletAddress, date: string)`:
-   - Fetch `SwapAnalysisInput` rows for wallet + UTC day.
-   - Count `tradeCount`, `buyCount`, `sellCount`, `uniqueMintsTradedCount`.
-   - Sum `volumeSol` (`associatedSolValue`), `feesSol` (`feeAmount`).
-   - Call `analyzeWalletPnl(wallet, { startTs, endTs }, { isViewOnly: true })` to get `realizedPnlSol`, `profitablePairsCount`, `totalPairsClosedCount`. **Do not reimplement pairing logic.**
+1. Add `WalletDailyPnl` table — Prisma migration. Include `lastComputedAt DateTime` field.
+2. Implement `DailyAggregationService.recomputeDays(walletAddress, dates: string[])`:
+   - Fetch **all** `SwapAnalysisInput` rows for the wallet (no time filter), ordered by `timestamp ASC`.
+   - Group by `mint`. For each mint, call `buildFifoLotsForToken` (imported from `src/core/analysis/swap/fifo-lot-tracker.ts`) over the full history.
+   - During FIFO execution, for each sell event (`direction='out'`), record `{ date: UTC calendar day of sell timestamp, realizedPnlSol: proceeds minus costBasis for this sell, isProfitable: boolean }`.
+   - Group per-sell records by date → `realizedPnlSol`, `profitableSellsCount`, `totalSellsCount` per day.
+   - JOIN with `SwapAnalysisInput GROUP BY date` for `tradeCount`, `buyCount`, `sellCount`, `volumeSol`, `feesSol`, `uniqueMintsTradedCount`, `newMintsEnteredCount`.
    - Sum `volumeUsd` (from `SwapAnalysisInput.usdValue`) where not null; set `hasIncompleteEnrichment` if any row in the day has null `usdValue`.
    - Propagate `hasIncompleteHistory` from any `AnalysisResult` row for this wallet.
-   - Upsert `WalletDailyPnl` row.
-3. Add nightly `@Cron('0 0 * * *')` job that iterates wallets with `newestProcessedTimestamp` in last 30 days and calls the service for the last 2 days (yesterday + today, to catch late-arriving enrichment).
-4. Add `GET /wallets/:addr/pnl-daily` endpoint with `startDate`/`endDate` query params.
-5. Run one-time backfill script over all wallets.
+   - Upsert `WalletDailyPnl` rows for the requested dates; set `lastComputedAt = now()` on each.
+   - **Do not call `analyzeWalletPnl` anywhere in this service.**
+3. In `analysis-operations.processor.ts`, after the existing `walletHudService.invalidateCache(walletAddress)` call (around line 232), dispatch an async BullMQ job: `DailyAggregationJob({ walletAddress, dates: [today, yesterday] })`. Non-blocking — user response is not delayed.
+4. Add nightly `@Cron('0 0 * * *')` repair job (following the pattern in `src/queues/jobs/alert-evaluator.job.ts`) that queries wallets where `lastComputedAt < NOW() - 26 hours` and calls the service for the last 2–3 days (to catch late-arriving enrichment).
+5. Add `GET /wallets/:addr/pnl-daily` endpoint with `startDate`/`endDate` query params. Include `attributionMethod: "sell_date"` in the response envelope.
+6. Run one-time backfill script over all wallets using the same `DailyAggregationService`.
 
 ### What is out of scope for first implementation
 
@@ -675,16 +711,20 @@ As the daily chart ships, there will be product pressure to add per-day `flipper
 | Wallet controller | `src/api/controllers/wallets.controller.ts` |
 | PnL overview service | `src/core/services/pnl-overview.service.ts` |
 | Job processor | `src/queues/processors/analysis-operations.processor.ts` |
+| FIFO lot tracker | `src/core/analysis/swap/fifo-lot-tracker.ts` |
+| Alert evaluator job (Cron pattern reference) | `src/queues/jobs/alert-evaluator.job.ts` |
 | Prisma schema | `prisma/schema.prisma` |
 | Market context / enrichment | `src/core/services/market-context-standalone.ts` |
 
 ## Appendix B: Key Constraints for Executing Agent
 
-1. Do not reimplement buy-sell pairing logic. Reuse `PnlAnalysisService` with `isViewOnly: true`.
-2. Do not add daily behavior tables or daily token-level tables.
-3. Do not modify the sync flow or the analysis flow.
-4. The `hasIncompleteHistory` flag must be propagated to `WalletDailyPnl` rows.
-5. The `@@unique([walletAddress, date])` constraint is required — all writes must upsert.
-6. `realizedPnlSol` attribution is sell-date-based — document this in code comments and API response.
-7. Validate by cross-checking `SUM(WalletDailyPnl.realizedPnlSol)` vs `WalletPnlSummary.realizedPnl` after backfill.
-8. ClickHouse is not on the table unless PostgreSQL proves structurally insufficient at production volume. It has not.
+1. Do not call `analyzeWalletPnl` from `DailyAggregationService`. Call `buildFifoLotsForToken` directly from `src/core/analysis/swap/fifo-lot-tracker.ts` over the full wallet history.
+2. Do not scope `SwapAnalysisInput` queries to a single calendar day when computing `realizedPnlSol`. FIFO requires the full chronological history. Attribute sell events to their calendar day after the full-history FIFO pass.
+3. Do not add daily behavior tables or daily token-level tables.
+4. Do not modify `helius-sync-service.ts` or the analysis flow. The async daily aggregation dispatch belongs in `analysis-operations.processor.ts`, after analysis completes, mirroring the existing HUD cache invalidation pattern at line 232.
+5. The `hasIncompleteHistory` flag must be propagated to `WalletDailyPnl` rows.
+6. The `@@unique([walletAddress, date])` constraint is required — all writes must upsert.
+7. `realizedPnlSol` attribution is sell-date-based — document this in code comments and API response (`attributionMethod: "sell_date"`).
+8. Set `lastComputedAt` explicitly on every successful aggregation run. Do not rely on `@updatedAt` for freshness monitoring.
+9. Validate by cross-checking `SUM(WalletDailyPnl.realizedPnlSol)` vs `WalletPnlSummary.realizedPnl` after backfill. Residual deltas should be small and limited to `hasIncompleteHistory` wallets.
+10. ClickHouse is not on the table unless PostgreSQL proves structurally insufficient at production volume. It has not.
