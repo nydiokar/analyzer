@@ -33,6 +33,7 @@ model Wallet {
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
   kolProfile                   KolProfile?
+  dailyPnl                     WalletDailyPnl[]
 
   @@index([classification])
   @@index([classificationConfidence])
@@ -291,6 +292,46 @@ model WalletBehaviorProfile {
   @@index([walletAddress])
   @@index([strategyType])
   @@index([speedCategory])
+}
+
+model WalletDailyPnl {
+  id                      Int      @id @default(autoincrement())
+  walletAddress           String
+  date                    String   // "YYYY-MM-DD" UTC calendar day
+
+  // Additive swap facts
+  tradeCount              Int
+  buyCount                Int
+  sellCount               Int
+  volumeSol               Float    // Σ(associatedSolValue)
+  feesSol                 Float    // Σ(feeAmount)
+
+  // Realized PnL — attributed to sell date via full-history FIFO pass
+  realizedPnlSol          Float
+  profitableSellsCount    Int      // sell events where FIFO-attributed PnL > 0
+  totalSellsCount         Int      // all sell events on this day
+
+  // Token coverage
+  uniqueMintsTradedCount  Int      // distinct mints touched; NOT additive across days
+  newMintsEnteredCount    Int      // first-ever buy of this mint for this wallet
+
+  // USD metrics (null if enrichment incomplete)
+  volumeUsd               Float?
+  realizedPnlUsd          Float?
+
+  // Data quality flags
+  hasIncompleteEnrichment Boolean  @default(false)
+  hasIncompleteHistory    Boolean  @default(false)
+
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  lastComputedAt          DateTime @default(now()) // set explicitly on every successful run
+
+  wallet                  Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@unique([walletAddress, date])
+  @@index([walletAddress])
+  @@index([date])
 }
 
 model HolderProfileSnapshot {
