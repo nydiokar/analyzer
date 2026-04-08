@@ -47,6 +47,8 @@ import { PaymentConfirmationService } from '../api/services/payment-confirmation
 import { getErrorMessage } from '../core/utils/error-utils';
 import { MarketContextModule } from '../api/modules/market-context.module';
 import { MarketContextService } from '../api/services/market-context.service';
+import { DailyAggregationService } from '../core/services/daily-aggregation.service';
+import { DailyAggregationJob } from './jobs/daily-aggregation.job';
 
 @Global()
 @Module({
@@ -99,6 +101,8 @@ import { MarketContextService } from '../api/services/market-context.service';
     EnrichmentOperationsProcessor,
     PaymentReconciliationProcessor,
     PaymentConfirmationService,
+    DailyAggregationService,
+    DailyAggregationJob,
   ],
   exports: [
     RedisModule,

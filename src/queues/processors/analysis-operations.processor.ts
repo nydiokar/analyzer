@@ -37,6 +37,7 @@ import { MarketContextService } from '../../api/services/market-context.service'
 import { WalletPreparationService } from '../../api/services/wallet-preparation.service';
 import { getErrorMessage } from 'core/utils/error-utils';
 import { classifyMcap } from '../../core/services/market-context-standalone';
+import { DailyAggregationService } from '../../core/services/daily-aggregation.service';
 import { REDIS_CLIENT } from '../config/redis.provider';
 import Redis from 'ioredis';
 
@@ -68,6 +69,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     private readonly walletPreparationService: WalletPreparationService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
     private readonly sigBuyersService: SigBuyersService,
+    private readonly dailyAggregationService: DailyAggregationService,
   ) {
     const config = QueueConfigs[QueueNames.ANALYSIS_OPERATIONS];
     
@@ -94,6 +96,22 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     });
 
     this.logger.debug('AnalysisOperationsProcessor has been initialized');
+  }
+
+  /**
+   * Fires-and-forgets a daily aggregation recompute for today + yesterday.
+   * Non-blocking: errors are logged but never propagate to the calling job.
+   */
+  private dispatchDailyAggregation(walletAddress: string): void {
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+    this.dailyAggregationService
+      .recomputeDays(walletAddress, [today, yesterday])
+      .catch((err) =>
+        this.logger.error(
+          `DailyAgg dispatch failed for ${walletAddress}: ${getErrorMessage(err)}`,
+        ),
+      );
   }
 
   private async processJob(job: Job): Promise<any> {
@@ -231,6 +249,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // TODO: Refactor to event-driven pattern (emit 'wallet.pnl.updated' event, WalletHudService subscribes)
       await this.walletHudService.invalidateCache(walletAddress);
 
+      // Refresh daily PnL rows for today + yesterday (non-blocking — does not delay response)
+      this.dispatchDailyAggregation(walletAddress);
+
       this.logger.log(`PnL analysis completed for ${walletAddress}. RunId: ${pnlResult.runId}`);
 
       // Track successful job completion
@@ -363,6 +384,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         this.holderProfilesCacheService.invalidateForWallet(walletAddress),
         this.walletHudService.invalidateCache(walletAddress),
       ]);
+
+      // Refresh daily PnL rows for today + yesterday (non-blocking — does not delay response)
+      this.dispatchDailyAggregation(walletAddress);
 
       this.logger.log(`Behavior analysis completed for ${walletAddress}`);
 
@@ -779,6 +803,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       // PRAGMATIC: Invalidation at processor level until we have event-driven architecture
       // TODO: Refactor to event-driven pattern (emit 'wallet.dashboard.completed' event, WalletHudService subscribes)
       await this.walletHudService.invalidateCache(walletAddress);
+
+      // Refresh daily PnL rows for today + yesterday (non-blocking — does not delay response)
+      this.dispatchDailyAggregation(walletAddress);
 
       // Note: JobEventsBridgeService automatically publishes completion events via BullMQ's 'completed' event
       // No need to manually publish here to avoid duplicate events

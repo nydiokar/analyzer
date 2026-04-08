@@ -110,6 +110,12 @@ export interface ComprehensiveSimilarityFlowData {
 
 
 
+// Daily Aggregation Job Data
+export interface DailyAggregationJobData {
+  walletAddress: string;
+  dates: string[]; // "YYYY-MM-DD" UTC calendar days to recompute
+}
+
 // Significant Buyers Job Data
 export interface SigBuyersJobData {
   mint: string;
