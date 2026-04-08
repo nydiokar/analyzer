@@ -10,8 +10,6 @@ import { PnlOverviewModule } from './pnl-overview.module';
 import { DatabaseModule } from '../modules/database.module';
 import { TokenInfoModule } from '../integrations/token-info.module';
 import { DexscreenerModule } from '../integrations/dexscreener.module';
-import { DailyAggregationService } from '../../core/services/daily-aggregation.service';
-
 @Module({
   imports: [
     DatabaseModule, // For WalletsController direct use
@@ -23,7 +21,7 @@ import { DailyAggregationService } from '../../core/services/daily-aggregation.s
     DexscreenerModule, // For SOL price fetching
   ],
   controllers: [WalletsController],
-  providers: [DailyAggregationService],
+  providers: [],
   // Services are provided within their respective feature modules (TokenPerformanceService, BehaviorService)
   // and made available through exports if needed, or used by the controller via DI.
 }) 

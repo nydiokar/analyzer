@@ -1,15 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty } from 'class-validator';
+import { IsNotEmpty, Matches } from 'class-validator';
+
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export class WalletDailyPnlQueryDto {
   @ApiProperty({ description: 'Start date (YYYY-MM-DD)', example: '2026-03-01' })
   @IsNotEmpty()
-  @IsDateString()
+  @Matches(ISO_DATE_PATTERN, { message: 'startDate must be a date in YYYY-MM-DD format' })
   startDate: string;
 
   @ApiProperty({ description: 'End date (YYYY-MM-DD)', example: '2026-03-31' })
   @IsNotEmpty()
-  @IsDateString()
+  @Matches(ISO_DATE_PATTERN, { message: 'endDate must be a date in YYYY-MM-DD format' })
   endDate: string;
 }
 

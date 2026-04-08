@@ -385,9 +385,6 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         this.walletHudService.invalidateCache(walletAddress),
       ]);
 
-      // Refresh daily PnL rows for today + yesterday (non-blocking — does not delay response)
-      this.dispatchDailyAggregation(walletAddress);
-
       this.logger.log(`Behavior analysis completed for ${walletAddress}`);
 
       // Track successful job completion

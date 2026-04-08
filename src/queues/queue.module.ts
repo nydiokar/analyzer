@@ -106,6 +106,7 @@ import { DailyAggregationJob } from './jobs/daily-aggregation.job';
   ],
   exports: [
     RedisModule,
+    DailyAggregationService,
     WalletOperationsQueue,
     AnalysisOperationsQueue,
     SimilarityOperationsQueue,
