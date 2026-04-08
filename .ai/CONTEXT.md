@@ -38,6 +38,9 @@ Staged rollout per spec §9. Each stage is independently deployable. **Do not me
 
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
+| SYNC-1 | **Redundant Helius fetches** — SmartFetch fetches 162/662 txns from Helius then saves 0 (all already in DB). `newestProcessedSignature` cursor should stop the fetch early but isn't. Trace `executeSmartFetch` phase 1 → `getAllTransactionsForAddress` → how `stopAtSignature` is used. | 🔴 |
+| SYNC-2 | **Concurrent job overlap on same wallet** — `pnl` and `dashboard-analysis` lock keys are separate, so both job types can run simultaneously on the same wallet, each triggering independent full Helius fetches + analysis. Need a shared sync-level lock, or at minimum ensure only one job type can hold the sync at a time. Also: `pnl-overview` period picker change triggers `analyzeWalletPnl` (all-time) via the all-time path on every period switch — `isViewOnly: true` but still expensive. | 🔴 |
+| DA-12 | **PnL Calendar view** — replace current bar chart with: (1) cumulative PnL curve (area chart, green/red fill above/below zero, min/max annotated) as primary view, (2) calendar heatmap modal (month grid, each day coloured by PnL intensity, click/hover shows Buys/Sells, Buy Vol, Sell Vol, Fees for that day). Data already exists in `WalletDailyPnl`. See reference screenshots. | 🟡 |
 | MCP-8 | **[sova-intel-mcp] Post-publish end-to-end smoke test** — install published MCP in Claude Desktop or Claude Code, run `wallet_hud` live | 🔴 NOW |
 | MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🔴 |
 | MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |

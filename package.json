@@ -1,6 +1,6 @@
 {
   "name": "Sova Intel",
-  "version": "1.1.20",
+  "version": "1.1.21",
   "description": "Solana wallet analysis - analyze behavior, decode strategies, profit smarter",
   "main": "dist/index.js",
   "engines": {
