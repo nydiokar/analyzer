@@ -322,6 +322,25 @@ export class DailyAggregationService {
   }
 
   /**
+   * Reads persisted WalletDailyPnl rows for a date range.
+   * Returns rows ordered by date ascending. Missing days (no swaps, not yet computed)
+   * are absent from the result — the caller fills gaps as needed.
+   */
+  async getDailyPnl(
+    walletAddress: string,
+    startDate: string,
+    endDate: string,
+  ) {
+    return this.db.walletDailyPnl.findMany({
+      where: {
+        walletAddress,
+        date: { gte: startDate, lte: endDate },
+      },
+      orderBy: { date: 'asc' },
+    });
+  }
+
+  /**
    * Recomputes the last N days for a wallet.
    * Used by the nightly repair cron (default: today + yesterday).
    */

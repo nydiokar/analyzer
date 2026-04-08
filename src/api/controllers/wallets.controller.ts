@@ -29,6 +29,7 @@ import { TokenInfoService } from '../services/token-info.service';
 import { WalletClassificationService } from '../../core/services/wallet-classification.service';
 import { SmartFetchService } from '../../core/services/smart-fetch-service';
 import { DexscreenerService } from '../services/dexscreener.service';
+import { DailyAggregationService } from '../../core/services/daily-aggregation.service';
 
 
 // DTOs
@@ -43,6 +44,7 @@ import { CreateNoteDto } from '../shared/dto/create-note.dto';
 import { UpdateNoteDto } from '../shared/dto/update-note.dto';
 import { WalletSearchQueryDto } from '../shared/dto/wallet-search-query.dto';
 import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../shared/dto/wallet-search-result.dto';
+import { WalletDailyPnlQueryDto, WalletDailyPnlResponseDto, DailyPnlRowDto } from '../dto/wallet-daily-pnl.dto';
 import { getErrorMessage } from 'core/utils/error-utils';
 @ApiTags('Wallets')
 @Controller('wallets')
@@ -58,6 +60,7 @@ export class WalletsController {
     private readonly classificationService: WalletClassificationService,
     private readonly smartFetchService: SmartFetchService,
     private readonly dexscreenerService: DexscreenerService,
+    private readonly dailyAggregationService: DailyAggregationService,
   ) {}
 
   @Get('search')
@@ -953,6 +956,80 @@ export class WalletsController {
     } catch (error) {
       this.logger.error(`Failed to fetch exit timing tokens for wallet ${walletAddress}: ${getErrorMessage(error)}`);
       throw new InternalServerErrorException('Failed to fetch exit timing tokens');
+    }
+  }
+
+  @Get(':walletAddress/pnl-daily')
+  @ApiOperation({
+    summary: 'Get daily PnL rows for a wallet',
+    description:
+      'Returns pre-computed WalletDailyPnl rows for the requested date range. ' +
+      'Realized PnL uses sell-date attribution: a buy on day 1 + sell on day 8 appears in the day-8 row. ' +
+      'Rows are only present for days that have been computed; days with no swaps may be absent. ' +
+      'uniqueMintsTradedCount is per-day only and must NOT be summed for multi-day distinct counts.',
+  })
+  @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address', type: String })
+  @ApiResponse({ status: 200, type: WalletDailyPnlResponseDto })
+  @ApiResponse({ status: 400, description: 'Invalid or missing startDate / endDate.' })
+  @ApiResponse({ status: 404, description: 'No daily PnL data found for this wallet in the requested range.' })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  async getDailyPnl(
+    @Param('walletAddress') walletAddress: string,
+    @Query() queryDto: WalletDailyPnlQueryDto,
+  ): Promise<WalletDailyPnlResponseDto> {
+    try {
+      const rows = await this.dailyAggregationService.getDailyPnl(
+        walletAddress,
+        queryDto.startDate,
+        queryDto.endDate,
+      );
+
+      if (rows.length === 0) {
+        throw new NotFoundException(
+          `No daily PnL data found for wallet ${walletAddress} between ${queryDto.startDate} and ${queryDto.endDate}. ` +
+          `Rows are populated after analysis runs. Try triggering an analysis first.`,
+        );
+      }
+
+      const data: DailyPnlRowDto[] = rows.map((row) => ({
+        date: row.date,
+        tradeCount: row.tradeCount,
+        buyCount: row.buyCount,
+        sellCount: row.sellCount,
+        volumeSol: row.volumeSol,
+        feesSol: row.feesSol,
+        realizedPnlSol: row.realizedPnlSol,
+        profitableSellsCount: row.profitableSellsCount,
+        totalSellsCount: row.totalSellsCount,
+        winRate: row.totalSellsCount > 0
+          ? row.profitableSellsCount / row.totalSellsCount
+          : null,
+        uniqueMintsTradedCount: row.uniqueMintsTradedCount,
+        volumeUsd: row.volumeUsd,
+        realizedPnlUsd: row.realizedPnlUsd,
+        hasIncompleteEnrichment: row.hasIncompleteEnrichment,
+        hasIncompleteHistory: row.hasIncompleteHistory,
+      }));
+
+      const totalSells = data.reduce((s, r) => s + r.totalSellsCount, 0);
+      const profitableSells = data.reduce((s, r) => s + r.profitableSellsCount, 0);
+
+      return {
+        attributionMethod: 'sell_date',
+        data,
+        summary: {
+          totalRealizedPnlSol: data.reduce((s, r) => s + r.realizedPnlSol, 0),
+          totalTradeCount: data.reduce((s, r) => s + r.tradeCount, 0),
+          totalVolumeSol: data.reduce((s, r) => s + r.volumeSol, 0),
+          winRate: totalSells > 0 ? profitableSells / totalSells : null,
+          periodStart: queryDto.startDate,
+          periodEnd: queryDto.endDate,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error(`Error fetching daily PnL for wallet ${walletAddress}: ${getErrorMessage(error)}`);
+      throw new InternalServerErrorException('Failed to retrieve daily PnL data.');
     }
   }
 } 
