@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-08 | **Status:** Daily aggregates in progress — service done, job/endpoint/backfill remaining.
+**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-08 | **Status:** Daily aggregates — DA-1 through DA-7 complete, 21 tests passing. Next: deploy to staging, validate against real data, then DA-6 backfill.
 
 ---
 
@@ -15,10 +15,11 @@ Staged rollout per spec §9. Each stage is independently deployable. **Do not me
 | 1 | DA-1 | Schema migration — `WalletDailyPnl` in `prisma/schema.prisma` | ✅ Done |
 | 2 | DA-2 | `DailyAggregationService` (`src/core/services/daily-aggregation.service.ts`) — full-history FIFO pass, per-sell date attribution, upserts | ✅ Done |
 | 3a | DA-3 | `DailyAggregationJob` (`src/queues/jobs/daily-aggregation.job.ts`) — nightly `@Cron('0 0 * * *')` repair job querying `lastComputedAt < NOW() - 26h`, calls `recomputeRecentDays(wallet, 3)` | ✅ Done |
-| 3b | DA-4 | Async dispatch hook in `analysis-operations.processor.ts` — `dispatchDailyAggregation()` fires after `invalidateCache` in `processAnalyzePnl`, `processAnalyzeBehavior`, `processDashboardWalletAnalysis` | ✅ Done |
-| 3c | DA-5 | `DailyAggregationService` + `DailyAggregationJob` registered as providers in `QueueModule` | ✅ Done |
-| 4 | DA-6 | Backfill script — one-time run of `recomputeDays` over all wallets; then run validation query from spec §9 | ⬜ |
-| 5 | DA-7 | `GET /wallets/:addr/pnl-daily` endpoint — `src/api/controllers/wallets.controller.ts` + `src/api/dto/wallet-daily-pnl.dto.ts`; response includes `attributionMethod: "sell_date"` | ⬜ |
+| 3b | DA-4 | Async dispatch hook in `analysis-operations.processor.ts` — `dispatchDailyAggregation()` fires after `invalidateCache` in `processAnalyzePnl` and `processDashboardWalletAnalysis` only (not behavior — no swap writes) | ✅ Done |
+| 3c | DA-5 | `DailyAggregationService` + `DailyAggregationJob` registered in `QueueModule`; service exported so `WalletsModule` resolves from global module (no duplicate instance) | ✅ Done |
+| 4 | DA-6 | Backfill script — one-time run of `recomputeDays` over all wallets; run validation query from spec §9 (`SUM(realizedPnlSol)` vs `WalletPnlSummary.realizedPnl`). **Do after staging validation.** | ⬜ After validation |
+| 5 | DA-7 | `GET /wallets/:addr/pnl-daily` — query/response DTOs, range guard (endDate ≥ startDate, max 366d), `attributionMethod: "sell_date"`, 404 with actionable message | ✅ Done |
+| — | DA-VAL | **Staging validation gate** — trigger analysis on 3–5 wallets, hit `GET /pnl-daily`, run SQL cross-check: `SUM(WalletDailyPnl.realizedPnlSol)` vs `WalletPnlSummary.realizedPnl`. Investigate any large deltas on non-incomplete-history wallets before backfill. | ⬜ Next |
 | 6 | DA-8 | Dashboard daily PnL chart component — build after endpoint is live and validated | ⬜ deferred |
 | 7 | DA-9 | Serve `pnl-overview` period queries from daily table — defer until rows validated | ⬜ deferred |
 
