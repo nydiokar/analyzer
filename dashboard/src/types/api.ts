@@ -380,6 +380,40 @@ export interface PnlOverviewResponse {
   allTimeData: PnlOverviewResponseData;
 }
 
+// --- Daily PnL Types ---
+export interface WalletDailyPnlRow {
+  date: string;               // "YYYY-MM-DD"
+  tradeCount: number;
+  buyCount: number;
+  sellCount: number;
+  volumeSol: number;
+  feesSol: number;
+  realizedPnlSol: number;
+  profitableSellsCount: number;
+  totalSellsCount: number;
+  winRate: number;            // derived: profitableSellsCount / totalSellsCount
+  uniqueMintsTradedCount: number;
+  volumeUsd: number | null;
+  realizedPnlUsd: number | null;
+  hasIncompleteEnrichment: boolean;
+  hasIncompleteHistory: boolean;
+}
+
+export interface WalletDailyPnlSummary {
+  totalRealizedPnlSol: number;
+  totalTradeCount: number;
+  totalVolumeSol: number;
+  winRate: number;
+  periodStart: string;
+  periodEnd: string;
+}
+
+export interface WalletDailyPnlResponse {
+  attributionMethod: 'sell_date';
+  data: WalletDailyPnlRow[];
+  summary: WalletDailyPnlSummary;
+}
+
 // Simple structure for favorite wallet entries with JSON-based tags/collections
 export interface FavoriteWallet {
   walletAddress: string;

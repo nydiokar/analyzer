@@ -261,6 +261,9 @@ export default function WalletProfileLayout({
         (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/pnl-overview`),
       );
       await globalMutate(
+        (key) => typeof key === 'string' && key.startsWith(`/wallets/${walletAddress}/pnl-daily`),
+      );
+      await globalMutate(
         (key) => typeof key === 'string' && (
           key.startsWith(`/wallets/${walletAddress}/behavior-analysis`) ||
           key.startsWith(`/wallets/${walletAddress}/behavioral-patterns`)

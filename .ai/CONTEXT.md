@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-08 | **Status:** Daily aggregates — DA-1 through DA-7 complete, 21 tests passing. Next: deploy to staging, validate against real data, then DA-6 backfill.
+**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-08 | **Status:** DA-1 through DA-8 complete. DA-9 (pnl-overview from daily table) and DA-10 (lifetime USDC fix) deferred to backlog.
 
 ---
 
@@ -17,11 +17,12 @@ Staged rollout per spec §9. Each stage is independently deployable. **Do not me
 | 3a | DA-3 | `DailyAggregationJob` (`src/queues/jobs/daily-aggregation.job.ts`) — nightly `@Cron('0 0 * * *')` repair job querying `lastComputedAt < NOW() - 26h`, calls `recomputeRecentDays(wallet, 3)` | ✅ Done |
 | 3b | DA-4 | Async dispatch hook in `analysis-operations.processor.ts` — `dispatchDailyAggregation()` fires after `invalidateCache` in `processAnalyzePnl` and `processDashboardWalletAnalysis` only (not behavior — no swap writes) | ✅ Done |
 | 3c | DA-5 | `DailyAggregationService` + `DailyAggregationJob` registered in `QueueModule`; service exported so `WalletsModule` resolves from global module (no duplicate instance) | ✅ Done |
-| 4 | DA-6 | Backfill script — one-time run of `recomputeDays` over all wallets; run validation query from spec §9 (`SUM(realizedPnlSol)` vs `WalletPnlSummary.realizedPnl`). **Do after staging validation.** | ⬜ After validation |
+| 4 | DA-6 | Backfill script — one-time run of `recomputeDays` over all wallets; run validation query from spec §9 (`SUM(realizedPnlSol)` vs `WalletPnlSummary.realizedPnl`). **Do after staging validation.** | ✅ Done |
 | 5 | DA-7 | `GET /wallets/:addr/pnl-daily` — query/response DTOs, range guard (endDate ≥ startDate, max 366d), `attributionMethod: "sell_date"`, 404 with actionable message | ✅ Done |
-| — | DA-VAL | **Staging validation gate** — trigger analysis on 3–5 wallets, hit `GET /pnl-daily`, run SQL cross-check: `SUM(WalletDailyPnl.realizedPnlSol)` vs `WalletPnlSummary.realizedPnl`. Investigate any large deltas on non-incomplete-history wallets before backfill. | ⬜ Next |
-| 6 | DA-8 | Dashboard daily PnL chart component — build after endpoint is live and validated | ⬜ deferred |
+| — | DA-VAL | **Staging validation gate** — trigger analysis on 3–5 wallets, hit `GET /pnl-daily`, run SQL cross-check: `SUM(WalletDailyPnl.realizedPnlSol)` vs `WalletPnlSummary.realizedPnl`. Investigate any large deltas on non-incomplete-history wallets before backfill. | ✅ Done |
+| 6 | DA-8 | Dashboard period-scoped wallet profile page — period picker (1d/7d/30d/all) drives summary stats, PnL chart, and overview panels on the wallet profile page. Token performance stays all-time. HUD stays all-time (snapshot, not windowed). See DA-8 design notes below. | ✅ Done |
 | 7 | DA-9 | Serve `pnl-overview` period queries from daily table — defer until rows validated | ⬜ deferred |
+| 8 | DA-10 | **Lifetime PnL accuracy fix** — `WalletPnlSummary.realizedPnl` is computed using a single current SOL price for all USDC→SOL conversions across history. Should use per-swap `solPriceUsd` (already stored on `SwapAnalysisInput` from enrichment) instead, matching what `DailyAggregationService` does. Delta is small (~5 SOL on a 35-USDC-swap wallet) but systematically wrong for USDC-heavy wallets. Fix lives in `src/core/analysis/swap/analyzer.ts` — pass per-swap `solPriceUsd` into the USDC conversion instead of a single `estimatedSolPriceUsd`. | ⬜ Backlog |
 
 **Key constraints (from spec Appendix B):**
 - `DailyAggregationService` NEVER calls `analyzeWalletPnl` — FIFO runs directly in the service

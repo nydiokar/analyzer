@@ -69,10 +69,10 @@ interface FifoLot {
  * this function emits one record per sell event rather than accumulating a
  * single total — buildFifoLotsForToken cannot provide per-sell attribution.
  *
- * Note on USDC swaps: buildFifoLotsForToken converts USDC→SOL only when the
- * caller supplies solPriceUsd. DailyAggregationService has no per-swap SOL
- * price at aggregation time, so USDC-only rows get zero SOL value here —
- * identical to calling buildFifoLotsForToken(inputs) without solPriceUsd.
+ * USDC swaps: mirrors buildFifoLotsForToken exactly — if associatedSolValue is
+ * zero but associatedUsdcValue is present, converts via associatedUsdcValue /
+ * solPriceUsd (the SOL/USD price already stored on each SwapAnalysisInput row
+ * from market-context enrichment). Rows lacking both values are non-economic (zero).
  */
 export function attributeSellsByDay(inputs: SwapAnalysisInput[]): {
   sellEvents: SellEvent[];
@@ -94,10 +94,22 @@ export function attributeSellsByDay(inputs: SwapAnalysisInput[]): {
   for (const input of ordered) {
     const normalizedAmount = Math.abs(input.amount);
     const baseSolValue = Math.abs(input.associatedSolValue);
+    const fallbackUsdcValue = Math.abs(input.associatedUsdcValue ?? 0);
 
-    // No solPriceUsd available at aggregation time — USDC rows get zero SOL value,
-    // matching the behaviour of buildFifoLotsForToken called without solPriceUsd.
-    const effectiveSolValue = baseSolValue > VALUE_EPSILON ? baseSolValue : 0;
+    // Mirror buildFifoLotsForToken exactly:
+    //   1. SOL value present → use it
+    //   2. USDC value present + solPriceUsd → convert USDC/solPriceUsd → SOL
+    //   3. Neither → zero (non-economic transfer)
+    // solPriceUsd is the SOL/USD price at trade time, already on SwapAnalysisInput
+    // from market-context enrichment.
+    let effectiveSolValue: number;
+    if (baseSolValue > VALUE_EPSILON) {
+      effectiveSolValue = baseSolValue;
+    } else if (fallbackUsdcValue > VALUE_EPSILON && input.solPriceUsd) {
+      effectiveSolValue = fallbackUsdcValue / input.solPriceUsd;
+    } else {
+      effectiveSolValue = 0;
+    }
 
     if (input.direction === 'in') {
       lots.push({
@@ -159,9 +171,15 @@ type DbClient = Pick<PrismaClient, 'swapAnalysisInput' | 'analysisResult' | 'wal
 export class DailyAggregationService {
   private readonly db: DbClient;
 
-  constructor(db?: DbClient) {
-    // Allows injection of a mock in tests; falls back to the app-wide singleton.
-    this.db = db ?? defaultPrisma;
+  constructor() {
+    this.db = defaultPrisma;
+  }
+
+  /** For use in tests only — pass a mock DbClient directly. */
+  static withDb(db: DbClient): DailyAggregationService {
+    const svc = new DailyAggregationService();
+    (svc as any).db = db;
+    return svc;
   }
 
   /**
@@ -226,7 +244,16 @@ export class DailyAggregationService {
       const day = days.get(date)!;
 
       day.tradeCount++;
-      day.volumeSol += Math.abs(swap.associatedSolValue);
+      // Mirror FIFO tracker: SOL value → direct; USDC value → convert via solPriceUsd; else 0
+      const swapSolValue = Math.abs(swap.associatedSolValue);
+      const swapUsdcValue = Math.abs(swap.associatedUsdcValue ?? 0);
+      const swapEffectiveSol =
+        swapSolValue > VALUE_EPSILON
+          ? swapSolValue
+          : swapUsdcValue > VALUE_EPSILON && swap.solPriceUsd
+            ? swapUsdcValue / swap.solPriceUsd
+            : 0;
+      day.volumeSol += swapEffectiveSol;
       day.feesSol += swap.feeAmount ?? 0;
       day.uniqueMints.add(swap.mint);
 
