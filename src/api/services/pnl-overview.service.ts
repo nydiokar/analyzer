@@ -5,6 +5,7 @@ import { DexscreenerService } from './dexscreener.service';
 import { BalanceCacheService } from './balance-cache.service';
 import { SwapAnalysisSummary } from '../../types/helius-api';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+import { prisma } from '../../core/services/database-service';
 
 
 // Updated PnlOverviewResponse to include more fields
@@ -127,6 +128,106 @@ export class PnlOverviewService {
     };
   }
 
+  /**
+   * DA-9: Aggregate period PnL data from WalletDailyPnl rows.
+   * Returns null if no daily rows exist for the period.
+   *
+   * volumeSol in WalletDailyPnl is Σ(effectiveSolValue) for all swaps (buys + sells combined)
+   * and cannot be split into spent vs received. We query SwapAnalysisInput directly for a
+   * cheap direction-level groupBy to get the buy/sell SOL split accurately — no FIFO,
+   * no Redis lock, just a single aggregate query.
+   *
+   * Fields not derivable from daily rows (medianPLToken, trimmedMean, advancedStats) are omitted.
+   */
+  private async getPeriodDataFromDailyRows(
+    walletAddress: string,
+    startTs: number,
+    endTs: number,
+  ): Promise<PnlOverviewResponseData | null> {
+    // Convert unix timestamps to YYYY-MM-DD UTC strings for WalletDailyPnl date column
+    const startDate = new Date(startTs * 1000).toISOString().slice(0, 10);
+    const endDate = new Date(endTs * 1000).toISOString().slice(0, 10);
+
+    const [rows, directionGroups] = await Promise.all([
+      prisma.walletDailyPnl.findMany({
+        where: {
+          walletAddress,
+          date: { gte: startDate, lte: endDate },
+        },
+        select: {
+          date: true,
+          realizedPnlSol: true,
+          volumeSol: true,
+          feesSol: true,
+          tradeCount: true,
+          buyCount: true,
+          sellCount: true,
+          profitableSellsCount: true,
+          totalSellsCount: true,
+          volumeUsd: true,
+          realizedPnlUsd: true,
+        },
+      }),
+      // Cheap direction-level aggregate from SwapAnalysisInput to get buy/sell SOL split.
+      // Uses timestamp (unix seconds) bounds derived from the same date range.
+      prisma.swapAnalysisInput.groupBy({
+        by: ['direction'],
+        where: {
+          walletAddress,
+          timestamp: { gte: startTs, lte: endTs },
+        },
+        _sum: { associatedSolValue: true },
+      }),
+    ]);
+
+    if (rows.length === 0) return null;
+
+    const totalRealizedPnl = rows.reduce((s, r) => s + r.realizedPnlSol, 0);
+    const totalVolumeSol = rows.reduce((s, r) => s + r.volumeSol, 0);
+    const totalSellCount = rows.reduce((s, r) => s + r.sellCount, 0);
+    const totalProfitableSells = rows.reduce((s, r) => s + r.profitableSellsCount, 0);
+    const totalSells = rows.reduce((s, r) => s + r.totalSellsCount, 0);
+    const hasVolumeUsd = rows.some(r => r.volumeUsd !== null);
+    const totalVolumeUsd = hasVolumeUsd
+      ? rows.reduce((s, r) => s + (r.volumeUsd ?? 0), 0)
+      : null;
+
+    // Buy/sell SOL split from SwapAnalysisInput direction groupBy
+    const buyGroup = directionGroups.find(g => g.direction === 'in');
+    const sellGroup = directionGroups.find(g => g.direction === 'out');
+    const totalSolSpent = Math.abs(buyGroup?._sum?.associatedSolValue ?? 0);
+    const totalSolReceived = Math.abs(sellGroup?._sum?.associatedSolValue ?? 0);
+
+    // Sell-event win rate (sell-event basis, not token win rate)
+    const swapWinRate = totalSells > 0 ? (totalProfitableSells / totalSells) * 100 : 0;
+    const avgPLTrade = totalSellCount > 0 ? totalRealizedPnl / totalSellCount : 0;
+
+    const minDate = rows.reduce((m, r) => (r.date < m ? r.date : m), rows[0].date);
+    const maxDate = rows.reduce((m, r) => (r.date > m ? r.date : m), rows[0].date);
+
+    return {
+      dataFrom: `${minDate} to ${maxDate} UTC`,
+      realizedPnl: totalRealizedPnl,
+      unrealizedPnl: undefined, // point-in-time — not available for past periods
+      swapWinRate,
+      winLossCount: `${totalProfitableSells}/${totalSells} sells`,
+      avgPLTrade,
+      totalVolume: totalVolumeSol,
+      totalSolSpent,
+      totalSolReceived,
+      // Advanced stats require sorted distributions across tokens — not derivable from daily row aggregates
+      medianPLToken: undefined,
+      trimmedMeanPnlPerToken: undefined,
+      tokenWinRate: swapWinRate, // closest equivalent available from daily rows
+      standardDeviationPnl: undefined,
+      medianPnlToVolatilityRatio: undefined,
+      weightedEfficiencyScore: undefined,
+      averagePnlPerDayActiveApprox: undefined,
+      profitableTokensCount: undefined,
+      unprofitableTokensCount: undefined,
+    };
+  }
+
   async getPnlOverview(
     walletAddress: string,
     timeRange?: { startTs?: number; endTs?: number },
@@ -158,15 +259,10 @@ export class PnlOverviewService {
       throw new NotFoundException(`No PNL overview data available for wallet ${walletAddress}. All-time analysis might have failed, yielded no results, or was skipped.`);
     }
 
+    // DA-9: serve period data from WalletDailyPnl rows — fast, no Redis lock, no raw-swap recompute.
     let periodData: PnlOverviewResponseData | null = null;
     if (timeRange && timeRange.startTs && timeRange.endTs) {
-      const periodAnalysisSummary = await this.pnlAnalysisService.analyzeWalletPnl(
-        walletAddress,
-        timeRange,
-        { isViewOnly: true, skipBalanceFetch: false, preFetchedBalances, solPriceUsd },
-      );
-      periodData = await this.formatPnlData(periodAnalysisSummary);
-      // If periodData is null (e.g. no transactions in period), it's fine, it will be returned as null.
+      periodData = await this.getPeriodDataFromDailyRows(walletAddress, timeRange.startTs, timeRange.endTs);
     }
 
     return {
