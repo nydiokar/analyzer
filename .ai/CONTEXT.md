@@ -14,9 +14,9 @@ Staged rollout per spec §9. Each stage is independently deployable. **Do not me
 |:-----:|:--:|:-----|:------:|
 | 1 | DA-1 | Schema migration — `WalletDailyPnl` in `prisma/schema.prisma` | ✅ Done |
 | 2 | DA-2 | `DailyAggregationService` (`src/core/services/daily-aggregation.service.ts`) — full-history FIFO pass, per-sell date attribution, upserts | ✅ Done |
-| 3a | DA-3 | `DailyAggregationJob` (`src/queues/jobs/daily-aggregation.job.ts`) — nightly `@Cron('0 0 * * *')` repair job querying `lastComputedAt < NOW() - 26h`, calls `recomputeRecentDays(wallet, 3)` | ⬜ Next |
-| 3b | DA-4 | Async dispatch hook in `analysis-operations.processor.ts` — after `walletHudService.invalidateCache` (~line 232), dispatch BullMQ `DailyAggregationJob({ walletAddress, dates: [today, yesterday] })`, non-blocking | ⬜ |
-| 3c | DA-5 | Register `DailyAggregationService` + job in the relevant NestJS module | ⬜ |
+| 3a | DA-3 | `DailyAggregationJob` (`src/queues/jobs/daily-aggregation.job.ts`) — nightly `@Cron('0 0 * * *')` repair job querying `lastComputedAt < NOW() - 26h`, calls `recomputeRecentDays(wallet, 3)` | ✅ Done |
+| 3b | DA-4 | Async dispatch hook in `analysis-operations.processor.ts` — `dispatchDailyAggregation()` fires after `invalidateCache` in `processAnalyzePnl`, `processAnalyzeBehavior`, `processDashboardWalletAnalysis` | ✅ Done |
+| 3c | DA-5 | `DailyAggregationService` + `DailyAggregationJob` registered as providers in `QueueModule` | ✅ Done |
 | 4 | DA-6 | Backfill script — one-time run of `recomputeDays` over all wallets; then run validation query from spec §9 | ⬜ |
 | 5 | DA-7 | `GET /wallets/:addr/pnl-daily` endpoint — `src/api/controllers/wallets.controller.ts` + `src/api/dto/wallet-daily-pnl.dto.ts`; response includes `attributionMethod: "sell_date"` | ⬜ |
 | 6 | DA-8 | Dashboard daily PnL chart component — build after endpoint is live and validated | ⬜ deferred |
