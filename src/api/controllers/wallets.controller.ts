@@ -44,7 +44,7 @@ import { CreateNoteDto } from '../shared/dto/create-note.dto';
 import { UpdateNoteDto } from '../shared/dto/update-note.dto';
 import { WalletSearchQueryDto } from '../shared/dto/wallet-search-query.dto';
 import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../shared/dto/wallet-search-result.dto';
-import { WalletDailyPnlQueryDto, WalletDailyPnlResponseDto, DailyPnlRowDto } from '../dto/wallet-daily-pnl.dto';
+import { WalletDailyPnlQueryDto, WalletDailyPnlResponseDto, DailyPnlRowDto, validateDailyPnlDateRange } from '../dto/wallet-daily-pnl.dto';
 import { getErrorMessage } from 'core/utils/error-utils';
 @ApiTags('Wallets')
 @Controller('wallets')
@@ -978,6 +978,8 @@ export class WalletsController {
     @Query() queryDto: WalletDailyPnlQueryDto,
   ): Promise<WalletDailyPnlResponseDto> {
     try {
+      validateDailyPnlDateRange(queryDto.startDate, queryDto.endDate);
+
       const rows = await this.dailyAggregationService.getDailyPnl(
         walletAddress,
         queryDto.startDate,

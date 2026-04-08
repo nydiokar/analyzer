@@ -1,7 +1,19 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNotEmpty, Matches } from 'class-validator';
+import { BadRequestException } from '@nestjs/common';
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+export const MAX_DAILY_PNL_RANGE_DAYS = 366;
+
+export function validateDailyPnlDateRange(startDate: string, endDate: string): void {
+  if (endDate < startDate) {
+    throw new BadRequestException('endDate must be on or after startDate');
+  }
+  const diffDays = (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400_000;
+  if (diffDays > MAX_DAILY_PNL_RANGE_DAYS) {
+    throw new BadRequestException(`Date range must not exceed ${MAX_DAILY_PNL_RANGE_DAYS} days`);
+  }
+}
 
 export class WalletDailyPnlQueryDto {
   @ApiProperty({ description: 'Start date (YYYY-MM-DD)', example: '2026-03-01' })
