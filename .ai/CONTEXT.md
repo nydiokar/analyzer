@@ -1,10 +1,37 @@
 # Sova Intel — Project Context
 
-**Branch:** `main` | **Last Updated:** 2026-04-04 | **Status:** `@sova-intel/mcp@0.1.0` published; post-publish live verification still pending.
+**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-08 | **Status:** Daily aggregates in progress — service done, job/endpoint/backfill remaining.
 
 ---
 
 ## Active Work
+
+### Daily Aggregates — `feature/daily-aggregates` (spec: `.ai/context/DAILY_AGGREGATES_SPEC_2026-04-05.md`)
+
+Staged rollout per spec §9. Each stage is independently deployable. **Do not merge until stage 5 is complete.**
+
+| Stage | ID | Task | Status |
+|:-----:|:--:|:-----|:------:|
+| 1 | DA-1 | Schema migration — `WalletDailyPnl` in `prisma/schema.prisma` | ✅ Done |
+| 2 | DA-2 | `DailyAggregationService` (`src/core/services/daily-aggregation.service.ts`) — full-history FIFO pass, per-sell date attribution, upserts | ✅ Done |
+| 3a | DA-3 | `DailyAggregationJob` (`src/queues/jobs/daily-aggregation.job.ts`) — nightly `@Cron('0 0 * * *')` repair job querying `lastComputedAt < NOW() - 26h`, calls `recomputeRecentDays(wallet, 3)` | ⬜ Next |
+| 3b | DA-4 | Async dispatch hook in `analysis-operations.processor.ts` — after `walletHudService.invalidateCache` (~line 232), dispatch BullMQ `DailyAggregationJob({ walletAddress, dates: [today, yesterday] })`, non-blocking | ⬜ |
+| 3c | DA-5 | Register `DailyAggregationService` + job in the relevant NestJS module | ⬜ |
+| 4 | DA-6 | Backfill script — one-time run of `recomputeDays` over all wallets; then run validation query from spec §9 | ⬜ |
+| 5 | DA-7 | `GET /wallets/:addr/pnl-daily` endpoint — `src/api/controllers/wallets.controller.ts` + `src/api/dto/wallet-daily-pnl.dto.ts`; response includes `attributionMethod: "sell_date"` | ⬜ |
+| 6 | DA-8 | Dashboard daily PnL chart component — build after endpoint is live and validated | ⬜ deferred |
+| 7 | DA-9 | Serve `pnl-overview` period queries from daily table — defer until rows validated | ⬜ deferred |
+
+**Key constraints (from spec Appendix B):**
+- `DailyAggregationService` NEVER calls `analyzeWalletPnl` — FIFO runs directly in the service
+- FIFO must run over full wallet history; day-scoped FIFO produces wrong realized PnL
+- `lastComputedAt` set explicitly on every run; do NOT rely on `@updatedAt` for freshness monitoring
+- All writes are upserts (`@@unique([walletAddress, date])`)
+- `realizedPnlSol` is sell-date attributed — document in API response and code comments
+
+---
+
+### Other Active
 
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
@@ -31,6 +58,15 @@
 ---
 
 ## Recent Activity
+
+### April 8, 2026 — Daily Aggregates: Schema + Service (DA-1, DA-2)
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| DA-1 | 🎯 FEAT | **[DAILY-AGG-SCHEMA]** `WalletDailyPnl` model added to `prisma/schema.prisma`. Fields: additive swap facts, FIFO-attributed realized PnL, USD nullable metrics, quality flags (`hasIncompleteEnrichment`, `hasIncompleteHistory`), `lastComputedAt` explicit freshness field. `@@unique([walletAddress, date])`. | 🟢 S | `prisma/schema.prisma` |
+| DA-2 | 🎯 FEAT | **[DAILY-AGG-SERVICE]** `DailyAggregationService` implemented. Full-history FIFO pass with per-sell date attribution via `attributeSellsByDay`. Additive fields (volume, fees, counts) computed in a single scan. `recomputeDays(wallet, dates[])` + `recomputeRecentDays(wallet, nDays)`. Reviewed and corrected for coding conventions: `createLogger` (Winston), `core/` import aliases, `volumeUsd` null semantics tied to `hasIncompleteEnrichment`. Does NOT call `analyzeWalletPnl`. | 🟢 S | `src/core/services/daily-aggregation.service.ts` |
+
+---
 
 ### April 4, 2026 — sova-intel-mcp Published
 

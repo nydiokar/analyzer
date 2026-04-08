@@ -1,16 +1,21 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { prisma } from './database-service';
-import { SwapAnalysisInput } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
+import { PrismaClient, SwapAnalysisInput } from '@prisma/client';
+import { prisma as defaultPrisma } from 'core/services/database-service';
+import { createLogger } from 'core/utils/logger';
 
-// Per-sell attribution record produced during the FIFO pass
-interface SellEvent {
-  date: string;            // "YYYY-MM-DD" UTC
+const logger = createLogger('DailyAggregationService');
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
+
+/** Per-sell attribution record produced during the FIFO pass for one mint. */
+export interface SellEvent {
+  date: string;           // "YYYY-MM-DD" UTC
   realizedPnlSol: number;
   isProfitable: boolean;
-  volumeSol: number;       // SOL value of this sell
 }
 
-// Per-day aggregated result before upserting
 interface DayAggregate {
   date: string;
   tradeCount: number;
@@ -23,16 +28,21 @@ interface DayAggregate {
   totalSellsCount: number;
   uniqueMints: Set<string>;
   newMints: Set<string>;
-  volumeUsd: number | null;
+  volumeUsd: number;
   hasIncompleteEnrichment: boolean;
   hasIncompleteHistory: boolean;
 }
 
-function toUtcDate(unixSeconds: number): string {
+// ---------------------------------------------------------------------------
+// Pure helpers — exported for testing
+// ---------------------------------------------------------------------------
+
+export function toUtcDate(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
 }
 
-// FIFO tolerances — must match fifo-lot-tracker.ts exactly
+// Tolerances matching fifo-lot-tracker.ts exactly — kept in sync so that
+// SUM(WalletDailyPnl.realizedPnlSol) ≈ WalletPnlSummary.realizedPnl.
 const VALUE_EPSILON = 1e-9;
 const PERCENTAGE_TOLERANCE = 0.001;
 const MIN_TOLERANCE = 0.001;
@@ -46,20 +56,32 @@ interface FifoLot {
 }
 
 /**
- * Runs a FIFO pass over one mint's full swap history and emits a SellEvent
- * for each sell, attributed to the sell's calendar day.
+ * Runs a per-sell FIFO pass over ONE mint's full swap history and emits a
+ * SellEvent for each sell transaction, attributed to the sell's UTC calendar day.
  *
- * Uses the same algorithm and tolerances as buildFifoLotsForToken so that
- * SUM(WalletDailyPnl.realizedPnlSol) ≈ WalletPnlSummary.realizedPnl.
+ * CRITICAL: must receive the FULL chronological history for the mint —
+ * never a day-scoped slice. A buy on day 1 must be visible when costing
+ * a sell on day 8, otherwise FIFO produces wrong realizedPnlSol.
+ *
+ * The cost-basis algorithm and tolerances mirror buildFifoLotsForToken in
+ * fifo-lot-tracker.ts so that SUM(WalletDailyPnl.realizedPnlSol) converges
+ * to WalletPnlSummary.realizedPnl. The only intentional difference is that
+ * this function emits one record per sell event rather than accumulating a
+ * single total — buildFifoLotsForToken cannot provide per-sell attribution.
+ *
+ * Note on USDC swaps: buildFifoLotsForToken converts USDC→SOL only when the
+ * caller supplies solPriceUsd. DailyAggregationService has no per-swap SOL
+ * price at aggregation time, so USDC-only rows get zero SOL value here —
+ * identical to calling buildFifoLotsForToken(inputs) without solPriceUsd.
  */
-function attributeSellsByDay(inputs: SwapAnalysisInput[]): {
+export function attributeSellsByDay(inputs: SwapAnalysisInput[]): {
   sellEvents: SellEvent[];
   hasIncompleteHistory: boolean;
 } {
   const sellEvents: SellEvent[] = [];
   let hasIncompleteHistory = false;
 
-  // Sort ascending: timestamp → signature → buys before sells at same ts
+  // Sort: timestamp asc → signature asc → buys before sells at same timestamp
   const ordered = [...inputs].sort((a, b) => {
     if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
     if (a.signature !== b.signature) return a.signature.localeCompare(b.signature);
@@ -72,19 +94,10 @@ function attributeSellsByDay(inputs: SwapAnalysisInput[]): {
   for (const input of ordered) {
     const normalizedAmount = Math.abs(input.amount);
     const baseSolValue = Math.abs(input.associatedSolValue);
-    const fallbackUsdcValue = Math.abs(input.associatedUsdcValue ?? 0);
 
-    // Use the same SOL/USDC resolution as the original FIFO tracker
-    let effectiveSolValue: number;
-    if (baseSolValue > VALUE_EPSILON) {
-      effectiveSolValue = baseSolValue;
-    } else if (fallbackUsdcValue > VALUE_EPSILON) {
-      // No solPriceUsd available here — treat USDC-only rows as zero SOL value
-      // This matches the behaviour when solPriceUsd is undefined in buildFifoLotsForToken
-      effectiveSolValue = 0;
-    } else {
-      effectiveSolValue = 0;
-    }
+    // No solPriceUsd available at aggregation time — USDC rows get zero SOL value,
+    // matching the behaviour of buildFifoLotsForToken called without solPriceUsd.
+    const effectiveSolValue = baseSolValue > VALUE_EPSILON ? baseSolValue : 0;
 
     if (input.direction === 'in') {
       lots.push({
@@ -95,7 +108,7 @@ function attributeSellsByDay(inputs: SwapAnalysisInput[]): {
       continue;
     }
 
-    // direction === 'out' — sell event
+    // Sell — compute per-sell realized PnL
     let remainingToSell = normalizedAmount;
     const unitProceeds = normalizedAmount > 0 ? effectiveSolValue / normalizedAmount : 0;
     const completionTolerance = Math.min(
@@ -126,16 +139,30 @@ function attributeSellsByDay(inputs: SwapAnalysisInput[]): {
       date: toUtcDate(input.timestamp),
       realizedPnlSol: pnl,
       isProfitable: pnl > 0,
-      volumeSol: effectiveSolValue,
     });
   }
 
   return { sellEvents, hasIncompleteHistory };
 }
 
+// ---------------------------------------------------------------------------
+// Minimal Prisma interface for DI + testability
+// ---------------------------------------------------------------------------
+
+type DbClient = Pick<PrismaClient, 'swapAnalysisInput' | 'analysisResult' | 'walletDailyPnl'>;
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
 @Injectable()
 export class DailyAggregationService {
-  private readonly logger = new Logger(DailyAggregationService.name);
+  private readonly db: DbClient;
+
+  constructor(db?: DbClient) {
+    // Allows injection of a mock in tests; falls back to the app-wide singleton.
+    this.db = db ?? defaultPrisma;
+  }
 
   /**
    * Recomputes WalletDailyPnl rows for the given dates for one wallet.
@@ -149,26 +176,27 @@ export class DailyAggregationService {
 
     const dateSet = new Set(dates);
 
-    // 1. Fetch full swap history — no time filter
-    const allSwaps = await prisma.swapAnalysisInput.findMany({
+    // 1. Full history — no time filter
+    const allSwaps = await this.db.swapAnalysisInput.findMany({
       where: { walletAddress },
       orderBy: { timestamp: 'asc' },
     });
 
     if (allSwaps.length === 0) {
-      this.logger.debug(`[DailyAgg] No swaps for ${walletAddress}, skipping`);
+      logger.debug(`[DailyAgg] No swaps for ${walletAddress}, skipping`);
       return;
     }
 
-    // 2. Check wallet-level incomplete history flag
-    const anyIncompleteHistory = await prisma.analysisResult.findFirst({
+    // 2. Wallet-level incomplete-history flag from AnalysisResult
+    const anyIncomplete = await this.db.analysisResult.findFirst({
       where: { walletAddress, hasIncompleteHistory: true },
       select: { id: true },
     });
-    const walletHasIncompleteHistory = !!anyIncompleteHistory;
+    const walletHasIncompleteHistory = !!anyIncomplete;
 
-    // 3. Build day aggregates map — initialise entries only for requested dates
+    // 3. Build per-day aggregates
     const days = new Map<string, DayAggregate>();
+
     const initDay = (date: string): DayAggregate => ({
       date,
       tradeCount: 0,
@@ -186,16 +214,11 @@ export class DailyAggregationService {
       hasIncompleteHistory: walletHasIncompleteHistory,
     });
 
-    // 3a. Additive fields from raw swaps — only for requested dates
-    // Track which mints we've seen before each requested date (for newMints)
-    const mintFirstSeenDate = new Map<string, string>();
+    // 3a. Additive fields — scan full history but only accumulate for requested dates
+    const mintFirstSeenDate = new Map<string, string>(); // mint → earliest date in full history
     for (const swap of allSwaps) {
       const date = toUtcDate(swap.timestamp);
-
-      // Track first-seen date for every mint across full history
-      if (!mintFirstSeenDate.has(swap.mint)) {
-        mintFirstSeenDate.set(swap.mint, date);
-      }
+      if (!mintFirstSeenDate.has(swap.mint)) mintFirstSeenDate.set(swap.mint, date);
 
       if (!dateSet.has(date)) continue;
 
@@ -209,17 +232,13 @@ export class DailyAggregationService {
 
       if (swap.direction === 'in') {
         day.buyCount++;
-        // newMint: first-ever buy of this mint for this wallet
-        if (mintFirstSeenDate.get(swap.mint) === date) {
-          day.newMints.add(swap.mint);
-        }
+        if (mintFirstSeenDate.get(swap.mint) === date) day.newMints.add(swap.mint);
       } else {
         day.sellCount++;
       }
 
-      // USD volume
       if (swap.usdValue !== null && swap.usdValue !== undefined) {
-        day.volumeUsd = (day.volumeUsd ?? 0) + swap.usdValue;
+        day.volumeUsd += swap.usdValue;
       } else {
         day.hasIncompleteEnrichment = true;
       }
@@ -228,14 +247,13 @@ export class DailyAggregationService {
     // 3b. FIFO pass per mint — attributes realized PnL to sell date
     const mintGroups = new Map<string, SwapAnalysisInput[]>();
     for (const swap of allSwaps) {
-      const group = mintGroups.get(swap.mint) ?? [];
-      group.push(swap);
-      mintGroups.set(swap.mint, group);
+      const arr = mintGroups.get(swap.mint) ?? [];
+      arr.push(swap);
+      mintGroups.set(swap.mint, arr);
     }
 
     for (const [, mintSwaps] of mintGroups) {
       const { sellEvents, hasIncompleteHistory } = attributeSellsByDay(mintSwaps);
-
       for (const event of sellEvents) {
         if (!dateSet.has(event.date)) continue;
         if (!days.has(event.date)) days.set(event.date, initDay(event.date));
@@ -253,13 +271,27 @@ export class DailyAggregationService {
     for (const date of dates) {
       const day = days.get(date);
 
-      if (!day) {
-        // No swaps on this date — upsert a zero row so it exists and is marked fresh
-        await prisma.walletDailyPnl.upsert({
-          where: { walletAddress_date: { walletAddress, date } },
-          create: {
-            walletAddress,
-            date,
+      const payload = day
+        ? {
+            tradeCount: day.tradeCount,
+            buyCount: day.buyCount,
+            sellCount: day.sellCount,
+            volumeSol: day.volumeSol,
+            feesSol: day.feesSol,
+            realizedPnlSol: day.realizedPnlSol,
+            profitableSellsCount: day.profitableSellsCount,
+            totalSellsCount: day.totalSellsCount,
+            uniqueMintsTradedCount: day.uniqueMints.size,
+            newMintsEnteredCount: day.newMints.size,
+            // null when any swap lacked usdValue — consumer uses hasIncompleteEnrichment flag
+            volumeUsd: day.hasIncompleteEnrichment ? null : day.volumeUsd,
+            realizedPnlUsd: null as null, // deferred — requires per-sell USD enrichment
+            hasIncompleteEnrichment: day.hasIncompleteEnrichment,
+            hasIncompleteHistory: day.hasIncompleteHistory,
+            lastComputedAt: now,
+          }
+        : {
+            // No swaps on this date — zero row, still marked fresh
             tradeCount: 0,
             buyCount: 0,
             sellCount: 0,
@@ -270,84 +302,28 @@ export class DailyAggregationService {
             totalSellsCount: 0,
             uniqueMintsTradedCount: 0,
             newMintsEnteredCount: 0,
-            volumeUsd: null,
-            realizedPnlUsd: null,
+            volumeUsd: null as null,
+            realizedPnlUsd: null as null,
             hasIncompleteEnrichment: false,
             hasIncompleteHistory: walletHasIncompleteHistory,
             lastComputedAt: now,
-          },
-          update: {
-            tradeCount: 0,
-            buyCount: 0,
-            sellCount: 0,
-            volumeSol: 0,
-            feesSol: 0,
-            realizedPnlSol: 0,
-            profitableSellsCount: 0,
-            totalSellsCount: 0,
-            uniqueMintsTradedCount: 0,
-            newMintsEnteredCount: 0,
-            volumeUsd: null,
-            realizedPnlUsd: null,
-            hasIncompleteEnrichment: false,
-            hasIncompleteHistory: walletHasIncompleteHistory,
-            lastComputedAt: now,
-          },
-        });
-        continue;
-      }
+          };
 
-      const volumeUsd = day.volumeUsd !== null && day.volumeUsd > 0 ? day.volumeUsd : null;
-
-      await prisma.walletDailyPnl.upsert({
+      await this.db.walletDailyPnl.upsert({
         where: { walletAddress_date: { walletAddress, date } },
-        create: {
-          walletAddress,
-          date,
-          tradeCount: day.tradeCount,
-          buyCount: day.buyCount,
-          sellCount: day.sellCount,
-          volumeSol: day.volumeSol,
-          feesSol: day.feesSol,
-          realizedPnlSol: day.realizedPnlSol,
-          profitableSellsCount: day.profitableSellsCount,
-          totalSellsCount: day.totalSellsCount,
-          uniqueMintsTradedCount: day.uniqueMints.size,
-          newMintsEnteredCount: day.newMints.size,
-          volumeUsd,
-          realizedPnlUsd: null, // USD PnL requires per-sell enriched data — deferred
-          hasIncompleteEnrichment: day.hasIncompleteEnrichment,
-          hasIncompleteHistory: day.hasIncompleteHistory,
-          lastComputedAt: now,
-        },
-        update: {
-          tradeCount: day.tradeCount,
-          buyCount: day.buyCount,
-          sellCount: day.sellCount,
-          volumeSol: day.volumeSol,
-          feesSol: day.feesSol,
-          realizedPnlSol: day.realizedPnlSol,
-          profitableSellsCount: day.profitableSellsCount,
-          totalSellsCount: day.totalSellsCount,
-          uniqueMintsTradedCount: day.uniqueMints.size,
-          newMintsEnteredCount: day.newMints.size,
-          volumeUsd,
-          realizedPnlUsd: null,
-          hasIncompleteEnrichment: day.hasIncompleteEnrichment,
-          hasIncompleteHistory: day.hasIncompleteHistory,
-          lastComputedAt: now,
-        },
+        create: { walletAddress, date, ...payload },
+        update: payload,
       });
     }
 
-    this.logger.debug(
-      `[DailyAgg] Upserted ${days.size} day(s) for ${walletAddress} (requested: ${dates.join(', ')})`,
+    logger.debug(
+      `[DailyAgg] Upserted ${dates.length} day(s) for ${walletAddress}`,
     );
   }
 
   /**
-   * Recomputes the last N days for a wallet (default: today + yesterday).
-   * Used by the nightly repair cron.
+   * Recomputes the last N days for a wallet.
+   * Used by the nightly repair cron (default: today + yesterday).
    */
   async recomputeRecentDays(walletAddress: string, nDays = 2): Promise<void> {
     const dates: string[] = [];
