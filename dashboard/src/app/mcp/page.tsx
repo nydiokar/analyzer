@@ -296,7 +296,6 @@ function QuickstartBlock({ onGetKey }: { onGetKey: () => void }) {
         >
           {current.render}
         </pre>
-        {current.hint}
       </div>
 
       {/* footer */}
