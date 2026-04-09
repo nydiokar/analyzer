@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-08 | **Status:** DA-1 through DA-8 complete. DA-9 (pnl-overview from daily table) and DA-10 (lifetime USDC fix) deferred to backlog.
+**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-09 | **Status:** DA-1 through DA-9 complete. DA-10 (lifetime USDC fix) backlog. DA-12 (PnL curve panel + calendar) designed, not yet implemented. SYNC-1/SYNC-2 (redundant Helius fetches + job overlap) logged, not yet investigated.
 
 ---
 
@@ -25,6 +25,151 @@ Staged rollout per spec §9. Each stage is independently deployable. **Do not me
 | — | DA-11 | **Windowed behavior on period picker** — when period is selected, call `GET /wallets/:addr/behavior-analysis?startDate=&endDate=` (already exists, ad-hoc recompute from raw swaps) and surface `medianHoldTime`, `speedCategory`, `buySellRatio` in the period panel. Suppress signals that are meaningless for short windows. Internal dashboard only — no public API changes. | ⬜ Backlog |
 | 8 | DA-10 | **Lifetime PnL accuracy fix** — `WalletPnlSummary.realizedPnl` is computed using a single current SOL price for all USDC→SOL conversions across history. Should use per-swap `solPriceUsd` (already stored on `SwapAnalysisInput` from enrichment) instead, matching what `DailyAggregationService` does. Delta is small (~5 SOL on a 35-USDC-swap wallet) but systematically wrong for USDC-heavy wallets. Fix lives in `src/core/analysis/swap/analyzer.ts` — pass per-swap `solPriceUsd` into the USDC conversion instead of a single `estimatedSolPriceUsd`. | ⬜ Backlog |
 
+---
+
+### DA-12 — PnL Curve Panel + Calendar (wallet profile header redesign)
+
+**Goal:** Move the daily PnL visualisation out of the Account Stats tab and into the wallet profile header, directly next to the summary card. Make the header PNL stat period-aware. Add a calendar modal for the canonical "PnL per day" calendar view.
+
+---
+
+#### Current header layout (Row 2 in `WalletProfileLayout.tsx` ~line 1288)
+```
+[AccountSummaryCard 180px fixed] [WalletHudOverlay expanded] [McapDistributionBar 220px fixed]
+```
+`AccountSummaryCard` shows: PNL (all-time, never changes with period picker) / Balance / Last Active
+
+---
+
+#### Target header layout
+```
+[AccountSummaryCard 180px fixed] [PnlCurvePanel flex-1] [WalletHudOverlay expanded] [McapDistributionBar 220px fixed]
+```
+
+---
+
+#### Step 1 — Remove DailyPnlChart from AccountStatsPnlTab
+
+File: `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx`
+- Remove `import DailyPnlChart`
+- Remove the `<div className="rounded-lg border bg-card px-3 py-2">` block containing `<DailyPnlChart>`
+- Remove `gap-3 sm:gap-4` from the outer div (revert to `h-full flex flex-col`)
+
+---
+
+#### Step 2 — Create PnlCurvePanel component
+
+File: `dashboard/src/components/charts/PnlCurvePanel.tsx` (new file)
+
+**Props:** `walletAddress: string`
+
+**Data:** SWR fetch `GET /wallets/${walletAddress}/pnl-daily?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`
+- Construct key from `useTimeRangeStore` `startDate`/`endDate` — same pattern as existing `DailyPnlChart.tsx`
+- Type: `WalletDailyPnlResponse` from `@/types/api`
+- `fetcher` from `@/lib/fetcher`
+- `revalidateOnFocus: false`, `revalidateOnReconnect: false`
+- On loading: `<Skeleton className="h-full w-full rounded-lg" />`
+- On 404 or no data: `return null`
+- On other error: `return null`
+
+**Layout (when data present):** `flex flex-row gap-3 h-full`
+
+**Left — cumulative PnL area chart (`flex-1`, height ~120px):**
+- Use `EChartComponent` from `@/components/charts/EChartComponent`
+- Compute cumulative series: `rows.reduce((acc, r) => { const prev = acc[acc.length-1] ?? 0; acc.push(prev + r.realizedPnlSol); return acc; }, [] as number[])`
+- X axis: dates formatted as `"D MMM"` (e.g. "1 Apr") — same `formatDate` helper as DailyPnlChart
+- Y axis: hidden labels, show zero line only (`axisLine: { show: false }`, `splitLine: show only zero line`)
+- Series: `type: 'line'`, `areaStyle: { opacity: 0.15 }`. Colour entire line+area green (`#22c55e`) if final cumulative value >= 0, red (`#ef4444`) if negative
+- Mark max and min points: `markPoint: { data: [{ type: 'max' }, { type: 'min' }] }` with small symbol size (~6) and label showing `+X.XX` / `-X.XX SOL`
+- Zero reference line: `markLine: { data: [{ yAxis: 0 }], lineStyle: { type: 'dashed', color: 'hsl(215 27.9% 16.9%)' }, label: { show: false } }`
+- Tooltip: trigger axis, show date + that day's `realizedPnlSol` + running cumulative total
+- `backgroundColor: 'transparent'`, minimal grid, no legend
+- A `CalendarDays` icon button (lucide-react, `h-3.5 w-3.5`) absolutely positioned top-right of the chart div — `onClick` opens the calendar modal (`setCalendarOpen(true)`)
+
+**Right — stats strip (`w-[130px] shrink-0 flex flex-col justify-center gap-2`):**
+- Realized PnL: `data.summary.totalRealizedPnlSol` — bold, green/red coloured, format as `+X.XXX SOL`
+- Trades: `data.summary.totalTradeCount`
+- Win Rate: `data.summary.winRate` — format as `XX%` or `N/A`
+- Labels in `text-[10px] text-muted-foreground uppercase tracking-wide`, values in `text-sm font-semibold`
+
+**Calendar modal (shadcn `Dialog`):**
+- State: `const [calendarOpen, setCalendarOpen] = useState(false)`
+- State: `const [calendarMonth, setCalendarMonth] = useState<{ year: number; month: number }>(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; })`
+- Build a map: `const dayMap = new Map(data.data.map(r => [r.date, r]))`
+- Month grid: 7 columns (Mon–Sun). For each day cell in the current month:
+  - If row exists: background colour intensity based on `realizedPnlSol` magnitude. Use opacity variants: `bg-green-500/10` → `bg-green-500/40` → `bg-green-500/70` for positive tiers (< 0.1 SOL / 0.1–1 SOL / > 1 SOL). Same tiers for red. Zero/no data: `bg-muted/20`
+  - Show `realizedPnlSol` formatted as `+X.XX` / `-X.XX` in `text-[10px]` inside the cell
+  - Hover tooltip (use shadcn Tooltip): date, Trades (tradeCount), Buys/Sells (buyCount/sellCount), Volume (volumeSol formatted to 2dp + " SOL"), Win Rate (profitableSellsCount/totalSellsCount formatted as %)
+- Month navigation: `<` and `>` buttons, disable `<` if no data exists before current month, disable `>` if no data exists after
+- Initialise `calendarMonth` to the most recent month that has data in `data.data`
+- Dialog title: `"PnL Calendar"` with the month+year label
+
+---
+
+#### Step 3 — Wire PnlCurvePanel into WalletProfileLayout
+
+File: `dashboard/src/components/layout/WalletProfileLayout.tsx`
+- Add `import PnlCurvePanel from '@/components/charts/PnlCurvePanel'`
+- In Row 2, insert between `AccountSummaryCard` and `WalletHudOverlay`:
+  ```tsx
+  <div className="flex-1 min-w-0 rounded-xl border bg-card px-3 py-2">
+    <PnlCurvePanel walletAddress={walletAddress} />
+  </div>
+  ```
+
+---
+
+#### Step 4 — Period-aware PNL in AccountSummaryCard
+
+**Problem:** `AccountSummaryCard` shows `data.latestPnl` which is always all-time realized PnL from `WalletSummaryData`. It never changes when the period picker changes.
+
+**Fix:**
+- `WalletProfileLayout` already SWR-fetches `pnl-daily` for `PnlCurvePanel` (via the component itself). To avoid a duplicate fetch, add a separate SWR call in `WalletProfileLayout` for the same key and extract `summary.totalRealizedPnlSol`. Since SWR deduplicates by key, there is no double network call.
+- Key construction (identical to PnlCurvePanel so SWR deduplicates):
+  ```ts
+  const dailyPnlKey = useMemo(() => {
+    if (!walletAddress || !startDate || !endDate) return null;
+    const s = startDate.toISOString().slice(0, 10);
+    const e = endDate.toISOString().slice(0, 10);
+    return `/wallets/${walletAddress}/pnl-daily?startDate=${s}&endDate=${e}`;
+  }, [walletAddress, startDate, endDate]);
+  const { data: dailyPnlData } = useSWR<WalletDailyPnlResponse>(dailyPnlKey, fetcher, { revalidateOnFocus: false, revalidateOnReconnect: false });
+  ```
+- Add `WalletDailyPnlResponse` to the import from `@/types/api` in WalletProfileLayout
+- Pass `periodPnlSol={dailyPnlData?.summary?.totalRealizedPnlSol ?? null}` to `AccountSummaryCard`
+
+In `AccountSummaryCard.tsx`:
+- Add optional prop `periodPnlSol?: number | null`
+- In the PNL section, display `periodPnlSol ?? data.latestPnl` as the value
+- If `periodPnlSol` is defined and not null, add a tiny `text-[9px] text-muted-foreground` label `"period"` below/beside the value so the user knows it's period-scoped not all-time
+
+---
+
+#### Key files touched
+| File | Change |
+|---|---|
+| `dashboard/src/components/dashboard/AccountStatsPnlTab.tsx` | Remove DailyPnlChart panel |
+| `dashboard/src/components/charts/PnlCurvePanel.tsx` | New file — curve + stats + calendar modal |
+| `dashboard/src/components/layout/WalletProfileLayout.tsx` | Insert PnlCurvePanel, add dailyPnlKey SWR, pass periodPnlSol |
+| `dashboard/src/components/dashboard/AccountSummaryCard.tsx` | Accept + render periodPnlSol |
+
+- check "C:\Users\Cicada38\Pictures\Screenshots\Screenshot 2026-04-09 005726.png" for full outlook refefence but don't copy 100% 
+
+- check "C:\Users\Cicada38\Pictures\Screenshots\Screenshot 2026-04-09 005858.png" as reference for the calendar modal
+
+- check "C:\Users\Cicada38\Pictures\Screenshots\Screenshot 2026-04-09 011040.png" for reference for some stats to include around the curve
+
+#### Files NOT touched
+- Any backend file
+- `AccountStatsPnlTab.tsx` beyond removing the chart block
+- HUD, McapDistributionBar, token performance
+
+#### Validation
+- `npx tsc --noEmit -p tsconfig.json` from `dashboard/` must pass with 0 errors
+- No new backend endpoints needed — all data from existing `GET /pnl-daily`
+
+---
+
 **Key constraints (from spec Appendix B):**
 - `DailyAggregationService` NEVER calls `analyzeWalletPnl` — FIFO runs directly in the service
 - FIFO must run over full wallet history; day-scoped FIFO produces wrong realized PnL
@@ -39,8 +184,21 @@ Staged rollout per spec §9. Each stage is independently deployable. **Do not me
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
 | SYNC-1 | **Redundant Helius fetches** — SmartFetch fetches 162/662 txns from Helius then saves 0 (all already in DB). `newestProcessedSignature` cursor should stop the fetch early but isn't. Trace `executeSmartFetch` phase 1 → `getAllTransactionsForAddress` → how `stopAtSignature` is used. | 🔴 |
+See logs whereas this wallet was sync and analyzed earlier before so the question i swhy do we sync it with all available 691 sig fetched when we just can append and we keep the data available including the helius cache : 
+0|sova-backend-api  |   Fetching details: Processed ~100% of signatures (162/162 sigs → 162 txns fetched)...
+ [HeliusSyncService] [Sync] 🎉 SmartFetch completed for Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7: 0 transactions processed and saved to database.
+ [PnlAnalysisService] [PnlAnalysis] Analysis completed for Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7: 782 transactions → 85 tokens, Net PNL: -0.8503 SOL
+0|sova-backend-api  |   Fetching details: Processed ~100% of signatures (662/662 sigs → 662 txns fetched)...
+0|sova-backend-api  |   Fetching details: Processed ~100% of signatures (488/488 sigs → 488 txns fetched)...
+ [HeliusSyncService] [Sync] 🎉 SmartFetch completed for Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7: 0 transactions processed and saved to database.
+ [PnlAnalysisService] [PnlAnalysis] Analysis completed for Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7: 782 transactions → 85 tokens, Net PNL: -0.8503 SOL
+0|sova-backend-api  |   Fetching details: Processed ~100% of signatures (662/662 sigs → 662 txns fetched)...
+0|sova-backend-api  |   Fetching details: Processed ~100% of signatures (662/662 sigs → 662 txns fetched)...
+ [HeliusSyncService] [Sync] 🎉 SmartFetch completed for Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7: 0 transactions processed and saved to database.
+ [PnlAnalysisService] [PnlAnalysis] Analysis completed for Gu7JugMP1FZHdFmKDveCHxsJXwXGe4P1pYeRz47nq1V7: 782 transactions → 85 tokens, Net PNL: -0.8503 SOL
+
 | SYNC-2 | **Concurrent job overlap on same wallet** — `pnl` and `dashboard-analysis` lock keys are separate, so both job types can run simultaneously on the same wallet, each triggering independent full Helius fetches + analysis. Need a shared sync-level lock, or at minimum ensure only one job type can hold the sync at a time. Also: `pnl-overview` period picker change triggers `analyzeWalletPnl` (all-time) via the all-time path on every period switch — `isViewOnly: true` but still expensive. | 🔴 |
-| DA-12 | **PnL Calendar view** — replace current bar chart with: (1) cumulative PnL curve (area chart, green/red fill above/below zero, min/max annotated) as primary view, (2) calendar heatmap modal (month grid, each day coloured by PnL intensity, click/hover shows Buys/Sells, Buy Vol, Sell Vol, Fees for that day). Data already exists in `WalletDailyPnl`. See reference screenshots. | 🟡 |
+| DA-12 | **PnL Curve Panel + Calendar — wallet profile header redesign** — see DA-12 design spec below | 🟡 |
 | MCP-8 | **[sova-intel-mcp] Post-publish end-to-end smoke test** — install published MCP in Claude Desktop or Claude Code, run `wallet_hud` live | 🔴 NOW |
 | MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🔴 |
 | MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |
