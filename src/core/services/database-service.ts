@@ -1774,6 +1774,12 @@ export class DatabaseService {
       if (data.firstProcessedTimestamp !== undefined && data.firstProcessedTimestamp !== null) {
         payloadData.firstProcessedTimestamp = Number(data.firstProcessedTimestamp);
       }
+      if (data.oldestProcessedSignature !== undefined && data.oldestProcessedSignature !== null) {
+        payloadData.oldestProcessedSignature = String(data.oldestProcessedSignature);
+      }
+      if (data.olderHistorySatisfiedTarget !== undefined && data.olderHistorySatisfiedTarget !== null) {
+        payloadData.olderHistorySatisfiedTarget = Number(data.olderHistorySatisfiedTarget);
+      }
       if (data.newestProcessedSignature !== undefined && data.newestProcessedSignature !== null) {
         payloadData.newestProcessedSignature = String(data.newestProcessedSignature);
       }
@@ -2659,6 +2665,58 @@ export class DatabaseService {
         } catch (error) {
             this.logger.error(`Error counting swap inputs for wallet ${walletAddress}`, { error, options });
             return 0;
+        }
+    }
+
+    async countDistinctSwapSignatures(
+        walletAddress: string,
+        options: { sinceTs?: number; untilTs?: number } = {}
+    ): Promise<number> {
+        this.logger.debug(`Counting distinct swap signatures for wallet ${walletAddress}`, options);
+        try {
+            const where: Prisma.SwapAnalysisInputWhereInput = {
+                walletAddress,
+            };
+
+            if (options.sinceTs !== undefined || options.untilTs !== undefined) {
+                const timestampFilter: Prisma.IntFilter = {};
+                if (options.sinceTs !== undefined) {
+                    timestampFilter.gte = options.sinceTs;
+                }
+                if (options.untilTs !== undefined) {
+                    timestampFilter.lte = options.untilTs;
+                }
+                where.timestamp = timestampFilter;
+            }
+
+            const rows = await this.prismaClient.swapAnalysisInput.findMany({
+                where,
+                select: { signature: true },
+                distinct: ['signature'],
+            });
+
+            return rows.length;
+        } catch (error) {
+            this.logger.error(`Error counting distinct swap signatures for wallet ${walletAddress}`, { error, options });
+            return 0;
+        }
+    }
+
+    async getOldestSwapSignatureForWallet(walletAddress: string): Promise<{ signature: string; timestamp: number } | null> {
+        try {
+            const row = await this.prismaClient.swapAnalysisInput.findFirst({
+                where: { walletAddress },
+                select: { signature: true, timestamp: true },
+                orderBy: [
+                    { timestamp: 'asc' },
+                    { id: 'asc' },
+                ],
+            });
+
+            return row ?? null;
+        } catch (error) {
+            this.logger.error(`Error fetching oldest swap signature for wallet ${walletAddress}`, { error });
+            return null;
         }
     }
 

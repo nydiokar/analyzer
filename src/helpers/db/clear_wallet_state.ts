@@ -150,6 +150,8 @@ async function clearWalletState() {
       where: { address: walletAddress },
       data: {
         firstProcessedTimestamp: null,
+        oldestProcessedSignature: null,
+        olderHistorySatisfiedTarget: null,
         newestProcessedSignature: null,
         newestProcessedTimestamp: null,
         lastSuccessfulFetchTimestamp: null,
