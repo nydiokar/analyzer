@@ -25,6 +25,7 @@ interface AccountSummaryCardProps {
   className?: string;
   triggerAnalysis?: () => void;
   isAnalyzingGlobal?: boolean;
+  periodPnlSol?: number | null;
   // NEW: Add data props from parent
   walletSummary?: WalletSummaryData;
   summaryError?: any;
@@ -58,15 +59,17 @@ export default function AccountSummaryCard({
   className,
   triggerAnalysis,
   isAnalyzingGlobal,
+  periodPnlSol,
   walletSummary: data,
   summaryError: error,
   summaryIsLoading: isLoading,
 }: AccountSummaryCardProps) {
   const { isDemo } = useApiKeyStore();
+  const displayedPnl = periodPnlSol ?? data?.latestPnl ?? null;
   const pnlVariant = useMemo(() => {
-    if (data?.latestPnl === null || data?.latestPnl === undefined) return "default" as const;
-    return data.latestPnl >= 0 ? "success" : "error";
-  }, [data?.latestPnl]);
+    if (displayedPnl === null || displayedPnl === undefined) return "default" as const;
+    return displayedPnl >= 0 ? "success" : "error";
+  }, [displayedPnl]);
 
   // Get strategy type description - cleaner and more concise
   const getStrategyDescription = (strategy: string): string => {
@@ -264,11 +267,14 @@ export default function AccountSummaryCard({
             pnlVariant === "error" ? "text-red-500 dark:text-red-400" :
             "text-foreground"
           )}>
-            {formatPnl(data.latestPnl ?? null)}
+            {formatPnl(displayedPnl)}
           </span>
           <span className="text-xs text-muted-foreground">SOL</span>
         </div>
-        {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
+        {periodPnlSol !== null && periodPnlSol !== undefined && (
+          <p className="mt-1 text-[9px] uppercase tracking-[0.18em] text-muted-foreground">period</p>
+        )}
+        {(periodPnlSol === null || periodPnlSol === undefined) && data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
           <p className="text-xs text-muted-foreground mt-0.5">{formatUsdValue(data.latestPnlUsd)}</p>
         )}
       </div>

@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-09 | **Status:** DA-1 through DA-9 complete. DA-10 (lifetime USDC fix) backlog. DA-12 (PnL curve panel + calendar) designed, not yet implemented. SYNC-1/SYNC-2 (redundant Helius fetches + job overlap) logged, not yet investigated.
+**Branch:** `feature/daily-aggregates` | **Last Updated:** 2026-04-09 | **Status:** DA-1 through DA-9 complete. DA-10 (lifetime USDC fix) backlog. DA-12 header PnL curve + calendar is partially implemented but requires a dedicated polish/fix pass before sign-off. SYNC-1/SYNC-2 (redundant Helius fetches + job overlap) logged, not yet investigated.
 
 ---
 
@@ -30,6 +30,48 @@ Staged rollout per spec §9. Each stage is independently deployable. **Do not me
 ### DA-12 — PnL Curve Panel + Calendar (wallet profile header redesign)
 
 **Goal:** Move the daily PnL visualisation out of the Account Stats tab and into the wallet profile header, directly next to the summary card. Make the header PNL stat period-aware. Add a calendar modal for the canonical "PnL per day" calendar view.
+
+**Implementation status (2026-04-09):**
+- `PnlCurvePanel` is now wired into the wallet profile header and `AccountSummaryCard` period PnL reacts to the picker.
+- Header `pnl-daily` keys were switched from `toISOString().slice(0, 10)` to local `format(date, 'yyyy-MM-dd')` to avoid UTC date drift in the selected range.
+- Frontend curve panel now densifies the selected period day-by-day so zero-activity days are rendered instead of collapsing sparse API rows.
+- `DailyAggregationService.getDailyPnl()` was patched to self-heal missing active dates in the requested range by checking `SwapAnalysisInput` activity and backfilling absent `WalletDailyPnl` rows before returning.
+- Runtime note: if `/pnl-daily` still returns only the last 2 days after these changes, the API process is likely still running old code. Restart required before judging the fix.
+
+**Critical runtime finding from this session:**
+- `GET /wallets/:addr/pnl-daily` summary currently echoes the requested `periodStart/periodEnd`, but totals are computed only from whatever persisted `WalletDailyPnl` rows exist in `data`.
+- Observed payload for `startDate=2026-03-10&endDate=2026-04-09` returned only rows for `2026-04-08` and `2026-04-09`, proving the persisted daily table was incomplete for that wallet/range.
+- This matches the current write path: live analysis dispatch only refreshes `today + yesterday` and nightly repair only refreshes the last 3 days. Historical coverage still depends on proper backfill or the new self-heal path being live.
+
+**DA-12 follow-up polish / bug backlog (must address before sign-off):**
+- **Header layout restructure:** `WalletHudOverlay` currently consumes too much horizontal space for 7 metrics. Re-evaluate row ownership; likely move HUD nearer the wallet badge/actions row and free more width for the PnL curve + Entry Mcap surfaces.
+- **Chart-first composition:** current header still buries the graph. Keep the chart as the visual hero and the right-side metrics lean.
+- **Remove UI noise:** no pills like `Sell-date FIFO`, no decorative overload, no duplicated realized-PnL callouts.
+- **Unrealized PnL:** add unrealized PnL under realized PnL. All-time unrealized is acceptable/preferred if period-scoped unrealized is not meaningful.
+- **Performance semantics audit:** investigate why examples like `301 txs` vs `52 wins / 91 losses` do not reconcile. Likely mixing total trades with sell-event win/loss counts. Labels and/or metric definitions need correction.
+- **Cross-surface win-rate mismatch:** HUD and header performance currently show materially different win rates. Likely one is token-level and the other is sell-event/trade-level. This must be explicitly communicated or unified; otherwise it creates dissonance and looks broken.
+- **Volume labeling:** performance rail volume must explicitly say `SOL`.
+- **Coins traded metric:** if product still wants `coins traded`, verify whether it is derivable without faking a distinct multi-day mint count. `uniqueMintsTradedCount` is per-day only and not safely additive across the window.
+- **Triangulate `tokens traded` vs `total trades`:** Behavioral Patterns already surfaces `unique tokens traded` and `total trades` under key volume metrics, but those values do not currently reconcile cleanly with the header performance rail. Since Behavioral Patterns also responds to period changes, we are stitching metrics from too many sources with different semantics/time windows. Need a deliberate review of layer ownership and metric consistency across header performance, HUD, Behavioral Patterns, and Account Stats / PnL overview.
+- **Calendar must be period-agnostic:** desired product behavior is an all-time calendar modal, not a picker-scoped calendar. Current `/pnl-daily` contract (`max 366d`) does not support this yet; requires backend contract change or dedicated endpoint support.
+- **Calendar month boundaries:** current calendar grid shows trailing days from the previous month and leading days from the next month. Product requirement is to show the selected month itself only, not a padded cross-month board.
+- **Calendar accuracy verification:** verify days marked as no/zero activity against actual wallet activity. Need to distinguish:
+  - no realized PnL
+  - no sell activity
+  - no swap activity
+  - missing persisted `WalletDailyPnl` rows
+- **All-time picker state:** when picker is `All`, current 366-day `pnl-daily` cap means curve/performance are suppressed or invalid. Need an explicit product/backend decision instead of silently hiding the surface.
+- **Loading/orchestration quality:** first-load of a fresh wallet currently shows noisy frontend states because behavior data and `pnl-daily` can 404 while analysis is still warming up. Need coordinated loading states rather than transient error-looking surfaces.
+- **Initial render sizing bug:** first render of `PnlCurvePanel` can expand too aggressively and starve `Entry Mcap` / adjacent header widgets until reload or period change. Needs fixed space ownership.
+- **Skeleton parity:** chart panel skeleton must mimic the actual final layout/space ownership.
+- **Entry Mcap race / visibility:** `Entry Mcap` can fail to appear until reload or until picker change. Needs investigation in header composition / loading orchestration.
+- **Chart interaction polish:** hover point / crosshair should feel closer to the reference terminal chart. X-axis labels were removed because they became unreadable noise; revisit only if we can do it minimally.
+- **Data-source consistency audit:** current header/profile surfaces are pulling from too many different sources (`WalletDailyPnl`, HUD snapshot, behavior-analysis, pnl-overview/raw analysis). Re-review the whole composition in light of observed mismatches and decide which surface owns which metric semantics.
+
+**Open backend/design questions from this session:**
+- Is the 366-day cap still correct now that DA-12 wants an all-time calendar? For chart-only usage it was a guardrail; for calendar/all-history usage it is the wrong contract.
+- Should `/pnl-daily` expose coverage metadata (`computedStart`, `computedEnd`, or `isPartial`) so the UI can distinguish incomplete projection coverage from true zero-activity days?
+- Should analysis dispatch continue refreshing only `today + yesterday`, or should it expand to a broader recent range for newly analyzed wallets?
 
 ---
 

@@ -15,7 +15,6 @@ import { Card } from "@/components/ui/card";
 import { Metric } from "@/components/ui/metric";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import DailyPnlChart from "@/components/charts/DailyPnlChart";
 
 // Minimal replacements for removed Tremor primitives
 const Title = ({ className, children }: { className?: string; children: React.ReactNode }) => (
@@ -505,7 +504,7 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   if (isLoading && !isAnalyzingGlobal) {
     return (
       <div className="h-full flex flex-col p-2 sm:p-3 md:p-4">
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2">
           <div className="min-h-0">
             <PnlDisplaySkeleton title="Period Specific PNL & Stats" />
           </div>
@@ -642,15 +641,9 @@ export default function AccountStatsPnlTab({ walletAddress, isAnalyzingGlobal, t
   }
 
   return (
-    <div className="h-full flex flex-col p-2 sm:p-3 md:p-4 gap-3 sm:gap-4">
-      {/* Daily PnL bar chart — scoped to selected period */}
-      <div className="rounded-lg border bg-card px-3 py-2">
-        <p className="text-[10px] sm:text-xs font-semibold text-foreground mb-2">Daily Realized PnL</p>
-        <DailyPnlChart walletAddress={walletAddress} />
-      </div>
-
+    <div className="h-full flex flex-col p-2 sm:p-3 md:p-4">
       {/* Period + all-time panels side by side */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2">
         <div className="min-h-0">{periodCardContent}</div>
         <div className="min-h-0 lg:border-l border-slate-700 lg:pl-3 xl:pl-4">{allTimeCardContent}</div>
       </div>

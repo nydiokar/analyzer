@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, memo, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import useSWR, { useSWRConfig } from 'swr';
 import AccountSummaryCard from '@/components/dashboard/AccountSummaryCard';
+import PnlCurvePanel from '@/components/charts/PnlCurvePanel';
 import { WalletHudOverlay } from '@/components/shared/WalletHudOverlay';
 import TimeRangeSelector from '@/components/shared/TimeRangeSelector';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -29,11 +30,11 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip"
-import { isValid, formatDistanceToNow } from 'date-fns';
+import { isValid, format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { fetcher } from '@/lib/fetcher';
 import { useApiKeyStore } from '@/store/api-key-store';
-import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse, DashboardAnalysisScope, DashboardAnalysisTriggerSource, BehaviorAnalysisResponseDto } from '@/types/api';
+import { WalletSummaryData, DashboardAnalysisRequest, DashboardAnalysisResponse, DashboardAnalysisScope, DashboardAnalysisTriggerSource, BehaviorAnalysisResponseDto, WalletDailyPnlResponse } from '@/types/api';
 import { McapDistributionBar } from '@/components/shared/McapDistributionBar';
 import { createCacheKey } from '@/lib/swr-config';
 import { useCredits } from '@/hooks/useCredits';
@@ -650,6 +651,19 @@ export default function WalletProfileLayout({
     behaviorKey,
     ([url]) => fetcher(url),
     { revalidateOnFocus: false, revalidateOnReconnect: false, refreshInterval: 0 }
+  );
+
+  const dailyPnlKey = useMemo(() => {
+    if (!walletAddress || !startDate || !endDate) return null;
+    const start = format(startDate, 'yyyy-MM-dd');
+    const end = format(endDate, 'yyyy-MM-dd');
+    return `/wallets/${walletAddress}/pnl-daily?startDate=${start}&endDate=${end}`;
+  }, [walletAddress, startDate, endDate]);
+
+  const { data: dailyPnlData } = useSWR<WalletDailyPnlResponse>(
+    dailyPnlKey,
+    fetcher,
+    { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
 
   // Each component will handle its own data loading
@@ -1293,10 +1307,14 @@ export default function WalletProfileLayout({
                   walletAddress={walletAddress}
                   triggerAnalysis={handleTriggerAnalysis}
                   isAnalyzingGlobal={isAnalyzing}
+                  periodPnlSol={dailyPnlData?.summary?.totalRealizedPnlSol ?? null}
                   walletSummary={walletSummary}
                   summaryError={summaryError}
                   summaryIsLoading={!walletSummary && !summaryError}
                 />
+              </div>
+              <div className="min-w-0 flex-1 rounded-xl border bg-card px-3 py-2">
+                <PnlCurvePanel walletAddress={walletAddress} />
               </div>
               {/* HUD — natural size, not stretched */}
               <WalletHudOverlay

@@ -358,13 +358,40 @@ export class DailyAggregationService {
     startDate: string,
     endDate: string,
   ) {
-    return this.db.walletDailyPnl.findMany({
+    const fetchRows = async () => this.db.walletDailyPnl.findMany({
       where: {
         walletAddress,
         date: { gte: startDate, lte: endDate },
       },
       orderBy: { date: 'asc' },
     });
+
+    let rows = await fetchRows();
+    const existingDates = new Set(rows.map((row) => row.date));
+
+    const startTs = Math.floor(new Date(`${startDate}T00:00:00.000Z`).getTime() / 1000);
+    const endTs = Math.floor(new Date(`${endDate}T23:59:59.999Z`).getTime() / 1000);
+
+    const swapsInRange = await this.db.swapAnalysisInput.findMany({
+      where: {
+        walletAddress,
+        timestamp: { gte: startTs, lte: endTs },
+      },
+      select: { timestamp: true },
+    });
+
+    const activeDates = new Set(swapsInRange.map((swap) => toUtcDate(swap.timestamp)));
+    const missingActiveDates = [...activeDates].filter((date) => !existingDates.has(date));
+
+    if (missingActiveDates.length > 0) {
+      logger.info(
+        `[DailyAgg] Backfilling ${missingActiveDates.length} missing active day(s) for ${walletAddress} between ${startDate} and ${endDate}`,
+      );
+      await this.recomputeDays(walletAddress, missingActiveDates);
+      rows = await fetchRows();
+    }
+
+    return rows;
   }
 
   /**
