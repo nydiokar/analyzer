@@ -380,7 +380,7 @@ Base path: `/api/v1/`
 
 | Type | Module | Processor | Trigger | Scope |
 |------|--------|-----------|---------|-------|
-| `dashboard-analysis` | AnalysesModule | DashboardAnalysisProcessor | `POST /analyses/wallets/dashboard-analysis` | flash/working/deep (flash default) |
+| `dashboard-analysis` | AnalysesModule | DashboardAnalysisProcessor | `POST /analyses/wallets/dashboard-analysis` | flash/working/deep (deep default) |
 | `pnl-analysis` | PnlAnalysisModule | PnlAnalysisProcessor | auto-triggered by dashboard | internal |
 | `behavior-analysis` | BehaviorModule | BehaviorAnalysisProcessor | auto-triggered by dashboard | internal |
 | `similarity-analysis` | SimilarityModule | SimilarityAnalysisProcessor | `POST /analyses/similarity/queue` | predefined (all 3) |

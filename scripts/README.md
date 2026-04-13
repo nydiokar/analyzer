@@ -23,6 +23,7 @@ Scripts for system administration, data management, and operational tasks.
 - `debug-mapper.ts` - Debug and map data structures and relationships
 - `inspect-analysis-result.ts` - Inspects specific token and wallet in terms of FIFO and pnl
 - `validate-fifo-inputs.ts` - Validates if FIFO is performing as expected and debugs tokens
+- `review-tracked-wallets.ts` - Read-only analyst review export for a user's tracked wallets with cohort-relative hold/entry/exit metrics
 
 ## Usage
 Most scripts support command-line arguments. Run with `--help` for options:
@@ -30,4 +31,6 @@ Most scripts support command-line arguments. Run with `--help` for options:
 ```bash
 npx ts-node scripts/manage-users.ts --help
 npx ts-node scripts/clean-logs.ts stats
+npx ts-node -r tsconfig-paths/register scripts/review-tracked-wallets.ts --user <userId> --sort composite --limit 20
+npx ts-node -r tsconfig-paths/register scripts/review-tracked-wallets.ts --user <userId> --format html --out /tmp/tracked-wallet-review.html
 ```

@@ -21,6 +21,20 @@ interface SignatureInfo {
     blockTime?: number | null;
 }
 
+interface HeadSignatureCheckResult {
+  signatures: SignatureInfo[];
+  canReuseInMainFetch: boolean;
+  continueBeforeSignature?: string | null;
+}
+
+interface SignatureDiscoveryRange {
+  signatureCount: number;
+  newestSignature?: string;
+  newestTimestamp?: number;
+  oldestSignature?: string;
+  oldestTimestamp?: number;
+}
+
 // Logger instance for this module
 const logger = createLogger('HeliusApiClient');
 
@@ -194,7 +208,8 @@ export class HeliusApiClient {
   private async getSignaturesViaRpcPage(
     address: string,
     limit: number,
-    before?: string | null
+    before?: string | null,
+    until?: string | null,
   ): Promise<SignatureInfo[]> {
     // Cap limit to Helius RPC maximum
     const cappedLimit = Math.min(limit, 1000);
@@ -207,7 +222,8 @@ export class HeliusApiClient {
             address,
             {
                 limit: cappedLimit,
-                before: before || undefined 
+                before: before || undefined,
+                until: until || undefined,
             }
         ]
     };
@@ -222,7 +238,7 @@ export class HeliusApiClient {
 
             // Check for RPC-level errors within the response body
             if (response.data.error) {
-                logger.warn(`Attempt ${attempt}: RPC call returned an error`, { rpcError: response.data.error, address, limit, before });
+                logger.warn(`Attempt ${attempt}: RPC call returned an error`, { rpcError: response.data.error, address, limit, before, until });
                 // Treat RPC errors like server errors for retry purposes
                 throw new Error(`RPC Error: ${response.data.error.message || JSON.stringify(response.data.error)}`);
             }
@@ -247,11 +263,11 @@ export class HeliusApiClient {
             // Log the failure
             const logLevel = retries === 0 ? 'debug' : 'warn'; 
             logger[logLevel](`Attempt ${attempt} failed: Error fetching RPC signatures page`, { 
-                error: this.sanitizeError(error), address, limit, before, status 
+                error: this.sanitizeError(error), address, limit, before, until, status 
             });
 
             if (attempt > MAX_RETRIES) {
-                logger.error('Max retries reached fetching RPC signatures page. Aborting.', { address, limit, before });
+                logger.error('Max retries reached fetching RPC signatures page. Aborting.', { address, limit, before, until });
                 throw new Error(`Failed to fetch RPC signatures for ${address} after ${MAX_RETRIES + 1} attempts: ${error}`);
             }
 
@@ -628,6 +644,74 @@ export class HeliusApiClient {
     };
   }
 
+  async getIncrementalHeadSignatures(
+    address: string,
+    newestProcessedTimestamp?: number,
+    stopAtSignature?: string,
+  ): Promise<HeadSignatureCheckResult> {
+    const rpcLimit = this.RPC_SIGNATURE_LIMIT;
+    const filterNewerThanTimestamp = (signatures: SignatureInfo[]): SignatureInfo[] => {
+      if (newestProcessedTimestamp === undefined) {
+        return signatures;
+      }
+
+      return signatures.filter(
+        (info) => typeof info.blockTime === 'number' && info.blockTime > newestProcessedTimestamp,
+      );
+    };
+
+    if (HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures && !this.disableV2TxForAddressForProcess) {
+      try {
+        const filters: any = {};
+
+        if (newestProcessedTimestamp !== undefined) {
+          filters.blockTime = { gt: newestProcessedTimestamp };
+          if (HELIUS_V2_CONFIG.txForAddressUseStatusSucceededForNewer) {
+            filters.status = 'succeeded';
+          }
+        }
+
+        if (stopAtSignature) {
+          filters.signature = { lt: stopAtSignature };
+        }
+
+        const v2Result = await this.getTransactionsForAddressSignatures(address, {
+          limit: rpcLimit,
+          sortOrder: newestProcessedTimestamp !== undefined ? 'asc' : 'desc',
+          filters: Object.keys(filters).length > 0 ? filters : undefined,
+        });
+
+        const signatures = filterNewerThanTimestamp(v2Result.signatures);
+        return {
+          signatures,
+          canReuseInMainFetch: signatures.length === v2Result.signatures.length && !v2Result.paginationToken,
+        };
+      } catch (v2Error: any) {
+        const errorMsg = String(v2Error?.message || '').toLowerCase();
+        const isHardFail = errorMsg.includes('method not found') ||
+          errorMsg.includes('invalid param') ||
+          errorMsg.includes('rpc error');
+
+        if (isHardFail && !this.loggedV2TxForAddressDisableOnce) {
+          this.loggedV2TxForAddressDisableOnce = true;
+          this.disableV2TxForAddressForProcess = true;
+          logger.warn(`Helius getTransactionsForAddress V2 disabled for this process due to hard failure: ${v2Error?.message}. Falling back to legacy getSignaturesForAddress.`);
+        } else {
+          throw v2Error;
+        }
+      }
+    }
+
+    const signatures = filterNewerThanTimestamp(
+      await this.getSignaturesViaRpcPage(address, rpcLimit, null, stopAtSignature),
+    );
+    return {
+      signatures,
+      canReuseInMainFetch: true,
+      continueBeforeSignature: signatures.length > 0 ? signatures[signatures.length - 1].signature : null,
+    };
+  }
+
   /**
    * Fetches full, parsed transaction details from Helius for a batch of signatures.
    * Implements retry logic with exponential backoff for rate limits (429) and server errors (5xx).
@@ -760,6 +844,9 @@ export class HeliusApiClient {
     phase2InternalConcurrency: number = HELIUS_CONFIG.INTERNAL_CONCURRENCY,
     onProgress?: (progress: number) => void,
     onTransactionBatch?: (batch: HeliusTransaction[]) => Promise<void>, // stream processing callback
+    prefetchedHeadSignatures?: SignatureInfo[],
+    prefetchedContinueBeforeSignature?: string | null,
+    onSignatureDiscoveryRange?: (range: SignatureDiscoveryRange) => void | Promise<void>,
   ): Promise<HeliusTransaction[]> {
     // NOTE: Signature discovery only includes transactions where `address` appears in account keys.
     // SPL transfers can involve a wallet only via its token account (ATA), so those signatures
@@ -782,7 +869,7 @@ export class HeliusApiClient {
       totalSignaturesFetched: 0,
     };
 
-    let lastRpcSignature: string | null = null; // For legacy path: last signature for 'before' parameter
+    let lastRpcSignature: string | null = prefetchedContinueBeforeSignature ?? null; // For legacy path: last signature for 'before' parameter
     let v2PaginationToken: string | undefined = undefined; // For V2 path: pagination token
     let hasMoreSignatures = true;
     let fetchedSignaturesCount = 0;
@@ -790,6 +877,54 @@ export class HeliusApiClient {
     const signatureSafetyLimit = maxSignatures !== null
       ? maxSignatures * HELIUS_CONFIG.SIGNATURE_FETCH_SAFETY_MULTIPLIER
       : null;
+
+    const applyBatchStopChecks = (signatureInfos: SignatureInfo[]): void => {
+      if (signatureInfos.length === 0) {
+        return;
+      }
+
+      allRpcSignaturesInfo.push(...signatureInfos);
+      fetchedSignaturesCount += signatureInfos.length;
+      telemetry.totalSignaturesFetched += signatureInfos.length;
+
+      if (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess) {
+        lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
+      }
+
+      if (stopAtSignature) {
+        const stopIndex = signatureInfos.findIndex(info => info.signature === stopAtSignature);
+        if (stopIndex !== -1) {
+          logger.debug(`Found stopAtSignature (${stopAtSignature}) in the current batch at index ${stopIndex}. Stopping signature fetch.`);
+          hasMoreSignatures = false;
+        }
+      }
+
+      if (
+        newestProcessedTimestamp !== undefined &&
+        signatureInfos.some((info) => typeof info.blockTime === 'number' && info.blockTime <= newestProcessedTimestamp)
+      ) {
+        logger.debug(
+          `Reached newestProcessedTimestamp (${newestProcessedTimestamp}) while fetching signatures for ${address}. Stopping pagination early.`,
+        );
+        hasMoreSignatures = false;
+      }
+
+      if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures) {
+        logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}) (stopAtSignature=${stopAtSignature ?? 'none'}). Stopping pagination.`);
+        hasMoreSignatures = false;
+      } else if (signatureSafetyLimit !== null && fetchedSignaturesCount >= signatureSafetyLimit) {
+        logger.warn(`RPC signature fetch for ${address} exceeded safety cap of ${signatureSafetyLimit} (maxSignatures=${maxSignatures}, stopAtSignature=${stopAtSignature ?? 'none'}). Stopping pagination to avoid runaway fetch.`);
+        hasMoreSignatures = false;
+      } else if (signatureInfos.length < rpcLimit && (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess)) {
+        logger.debug('Last page of RPC signatures reached (received less than limit).');
+        hasMoreSignatures = false;
+      }
+    };
+
+    if (prefetchedHeadSignatures && prefetchedHeadSignatures.length > 0) {
+      telemetry.pageCount++;
+      applyBatchStopChecks(prefetchedHeadSignatures);
+    }
 
     try {
       while (hasMoreSignatures) {
@@ -847,47 +982,17 @@ export class HeliusApiClient {
             }
 
             // Fall back to legacy method
-            signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
+            signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature, stopAtSignature);
             telemetry.pageCount++;
           }
         } else {
           // Use legacy method
-          signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature);
+          signatureInfos = await this.getSignaturesViaRpcPage(address, rpcLimit, lastRpcSignature, stopAtSignature);
           telemetry.pageCount++;
         }
 
         if (signatureInfos.length > 0) {
-            allRpcSignaturesInfo.push(...signatureInfos);
-            fetchedSignaturesCount += signatureInfos.length;
-            telemetry.totalSignaturesFetched += signatureInfos.length;
-
-            // For legacy path, update lastRpcSignature to the last signature in the batch
-            if (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess) {
-              lastRpcSignature = signatureInfos[signatureInfos.length - 1].signature;
-            }
-
-            // Check if we need to stop based on stopAtSignature
-            if (stopAtSignature) {
-                const stopIndex = signatureInfos.findIndex(info => info.signature === stopAtSignature);
-                if (stopIndex !== -1) {
-                    logger.debug(`Found stopAtSignature (${stopAtSignature}) in the current batch at index ${stopIndex}. Stopping signature fetch.`);
-                    hasMoreSignatures = false;
-                }
-            }
-
-            // IMPORTANT: This condition stops PAGINATION, not processing of already fetched signatures.
-            // We will apply a hard limit AFTER this loop if maxSignatures is set.
-            if (maxSignatures !== null && fetchedSignaturesCount >= maxSignatures) {
-                logger.debug(`RPC fetcher has retrieved ${fetchedSignaturesCount} signatures, meeting conceptual target related to maxSignatures (${maxSignatures}) (stopAtSignature=${stopAtSignature ?? 'none'}). Stopping pagination.`);
-                hasMoreSignatures = false;
-            } else if (signatureSafetyLimit !== null && fetchedSignaturesCount >= signatureSafetyLimit) {
-                logger.warn(`RPC signature fetch for ${address} exceeded safety cap of ${signatureSafetyLimit} (maxSignatures=${maxSignatures}, stopAtSignature=${stopAtSignature ?? 'none'}). Stopping pagination to avoid runaway fetch.`);
-                hasMoreSignatures = false;
-            } else if (signatureInfos.length < rpcLimit && (!HELIUS_V2_CONFIG.enableTransactionsForAddressSignatures || this.disableV2TxForAddressForProcess)) {
-                // For legacy path only - V2 uses paginationToken to determine continuation
-                logger.debug('Last page of RPC signatures reached (received less than limit).');
-                hasMoreSignatures = false;
-            }
+            applyBatchStopChecks(signatureInfos);
         } else {
             logger.debug('Last page of RPC signatures reached (received 0 items).');
             hasMoreSignatures = false;
@@ -921,6 +1026,38 @@ export class HeliusApiClient {
 
     const uniqueSignatures = Array.from(new Set(allRpcSignaturesInfo.map(s => s.signature)));
     logger.debug(`Total unique signatures from RPC after potential maxSignatures slicing: ${uniqueSignatures.length}`);
+
+    if (allRpcSignaturesInfo.length > 0 && onSignatureDiscoveryRange) {
+      let newestSignature = allRpcSignaturesInfo[0]?.signature;
+      let oldestSignature = allRpcSignaturesInfo[allRpcSignaturesInfo.length - 1]?.signature;
+      let newestTimestamp: number | undefined = undefined;
+      let oldestTimestamp: number | undefined = undefined;
+
+      for (const info of allRpcSignaturesInfo) {
+        const blockTime = typeof info.blockTime === 'number' ? info.blockTime : undefined;
+        if (blockTime === undefined) {
+          continue;
+        }
+
+        if (newestTimestamp === undefined || blockTime > newestTimestamp) {
+          newestTimestamp = blockTime;
+          newestSignature = info.signature;
+        }
+
+        if (oldestTimestamp === undefined || blockTime < oldestTimestamp) {
+          oldestTimestamp = blockTime;
+          oldestSignature = info.signature;
+        }
+      }
+
+      await onSignatureDiscoveryRange({
+        signatureCount: uniqueSignatures.length,
+        newestSignature,
+        newestTimestamp,
+        oldestSignature,
+        oldestTimestamp,
+      });
+    }
 
     // === Check Cache to Identify Signatures to Fetch ===
     logger.debug(`Checking database cache existence for ${uniqueSignatures.length} signatures...`);
@@ -1062,14 +1199,13 @@ export class HeliusApiClient {
 
     // --- Timestamp Filtering (Incremental Logic & Until Logic) ---
     let filteredTransactions = allTransactions;
-    // If stopAtSignature is provided, rely on signature boundary and skip strict timestamp filter
-    if (newestProcessedTimestamp !== undefined && !stopAtSignature) {
+    if (newestProcessedTimestamp !== undefined) {
         const countBefore = filteredTransactions.length;
         filteredTransactions = filteredTransactions.filter(tx => tx.timestamp > newestProcessedTimestamp);
         const countAfter = filteredTransactions.length;
         logger.debug(`Filtered by newestProcessedTimestamp (${newestProcessedTimestamp}): ${countBefore} -> ${countAfter} transactions.`);
     } else {
-        logger.debug('No newestProcessedTimestamp provided or stopAtSignature present, skipping timestamp filter.');
+        logger.debug('No newestProcessedTimestamp provided, skipping timestamp filter.');
     }
     
     // --- Until Timestamp Filtering ---

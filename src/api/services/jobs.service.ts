@@ -228,13 +228,8 @@ export class JobsService {
         ? dto.targetSignatureCount ?? undefined
         : dto.targetSignatureCount ?? scopeDefaults.targetSignatureCount ?? undefined;
 
-    const queueWorkingAfter = scope === 'flash' ? dto.queueWorkingAfter ?? true : false;
-    const queueDeepAfter =
-      scope === 'flash'
-        ? dto.queueDeepAfter ?? false
-        : scope === 'working'
-          ? dto.queueDeepAfter ?? true
-          : false;
+    const queueWorkingAfter = false;
+    const queueDeepAfter = false;
 
     const timeoutMinutes =
       dto.timeoutMinutes ?? scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES;

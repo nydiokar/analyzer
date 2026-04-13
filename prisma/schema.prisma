@@ -10,6 +10,8 @@ datasource db {
 model Wallet {
   address                      String                  @id @unique
   firstProcessedTimestamp      Int?
+  oldestProcessedSignature     String?
+  olderHistorySatisfiedTarget  Int?
   newestProcessedSignature     String?
   newestProcessedTimestamp     Int?
   lastSuccessfulFetchTimestamp DateTime?

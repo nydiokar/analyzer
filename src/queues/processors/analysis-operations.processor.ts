@@ -523,28 +523,37 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
 
       await job.updateProgress(10);
       const walletStatuses = await this.databaseService.getWalletsStatus([walletAddress]);
-      const needsSync =
+      const isStaleOrMissing =
         walletStatuses.statuses[0].status === 'STALE' ||
         walletStatuses.statuses[0].status === 'MISSING' ||
         job.data.forceRefresh;
+      const needsSync = isStaleOrMissing;
 
       await job.updateProgress(15);
-      const syncOptions: SyncOptions = {
-        limit: 100,
-        fetchAll: scope === 'deep' || needsSync || !!job.data.forceRefresh,
-        skipApi: false,
-        fetchOlder: scope !== 'flash',
-        maxSignatures: effectiveTargetSignatures,
-        smartFetch: true,
-        onProgress: (progress) => {
-          const syncProgress = 15 + Math.floor(progress * 0.3);
-          job.updateProgress(Math.min(syncProgress, 40));
-        },
-      };
+      const syncOptions: SyncOptions | undefined = needsSync
+        ? {
+            limit: 100,
+            fetchAll: scope === 'deep' || isStaleOrMissing || !!job.data.forceRefresh,
+            skipApi: false,
+            fetchOlder: scope !== 'flash',
+            maxSignatures: effectiveTargetSignatures,
+            smartFetch: true,
+            onProgress: (progress) => {
+              const syncProgress = 15 + Math.floor(progress * 0.3);
+              job.updateProgress(Math.min(syncProgress, 40));
+            },
+          }
+        : undefined;
 
-      this.logger.debug(
-        `Syncing wallet data for ${walletAddress} [scope=${scope}, fetchOlder=${syncOptions.fetchOlder}, maxSignatures=${syncOptions.maxSignatures}]`,
-      );
+      if (syncOptions) {
+        this.logger.debug(
+          `Syncing wallet data for ${walletAddress} [scope=${scope}, fetchOlder=${syncOptions.fetchOlder}, maxSignatures=${syncOptions.maxSignatures}]`,
+        );
+      } else {
+        this.logger.debug(
+          `Skipping wallet sync for ${walletAddress} [scope=${scope}] because wallet data is fresh`,
+        );
+      }
       await this.walletPreparationService.prepareWallet(walletAddress, syncOptions);
       await job.updateProgress(50);
 
@@ -834,63 +843,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     forceRefresh: boolean;
     userId?: string;
   }): Promise<string | null> {
-    if (params.scope === 'flash') {
-      return null;
-    }
-
-    const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[params.scope];
-    if (!scopeDefaults) {
-      return null;
-    }
-
-    const latestRun = await this.databaseService.getLatestDashboardAnalysisRun(params.walletAddress, params.scope);
-    if (latestRun && scopeDefaults.freshnessMinutes) {
-      const ageMinutes = (Date.now() - new Date(latestRun.runTimestamp).getTime()) / 60000;
-      if (ageMinutes < scopeDefaults.freshnessMinutes) {
-        this.logger.debug(
-          `Skipping follow-up ${params.scope} analysis for ${params.walletAddress} — fresh within ${scopeDefaults.freshnessMinutes}m`,
-        );
-        return null;
-      }
-    }
-
-    const requestId = `${params.parentRequestId}-${params.scope}-${Math.random().toString(36).slice(2, 8)}`;
-    const historyWindowDays = params.scope === 'deep' ? undefined : scopeDefaults.historyWindowDays;
-    const targetSignatureCount = scopeDefaults.targetSignatureCount;
-
-    const priority =
-      params.scope === 'working'
-        ? JobPriority.HIGH
-        : params.scope === 'deep'
-          ? JobPriority.NORMAL
-          : JobPriority.CRITICAL;
-
-    const jobData: DashboardWalletAnalysisJobData = {
-      walletAddress: params.walletAddress,
-      userId: params.userId,
-      requestId,
-      analysisScope: params.scope,
-      triggerSource: 'system',
-      historyWindowDays,
-      targetSignatureCount,
-      forceRefresh: params.forceRefresh,
-      enrichMetadata: params.scope === 'deep',
-      queueWorkingAfter: false,
-      queueDeepAfter: params.scope === 'working',
-      failureThreshold: 0.8,
-      timeoutMinutes: scopeDefaults.timeoutMinutes ?? DASHBOARD_JOB_CONFIG.DEFAULT_TIMEOUT_MINUTES,
-    };
-
-    const job = await this.analysisQueueService.addDashboardWalletAnalysisJob(jobData, {
-      priority,
-      delay: 0,
-    });
-
     this.logger.debug(
-      `Queued follow-up ${params.scope} analysis job ${job.id} for wallet ${params.walletAddress} (parent=${params.parentRequestId})`,
+      `Follow-up dashboard analysis chaining is disabled. Skipping ${params.scope} for ${params.walletAddress} (parent=${params.parentRequestId})`,
     );
-
-    return job.id ?? null;
+    return null;
   }
 
   // TTL for holder-profiles results stored in Redis (matches similarity job TTL).

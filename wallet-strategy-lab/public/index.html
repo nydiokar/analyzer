@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wallet Strategy Lab</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orbit bg-orbit-left"></div>
+    <div class="bg-orbit bg-orbit-right"></div>
+
+    <main class="shell">
+      <section class="hero">
+        <div class="eyebrow">Private operator UI</div>
+        <h1>Wallet Strategy Lab</h1>
+        <p>
+          A standalone, local viewer for the exact wallet sell-strategy analysis.
+          It is separate from the public dashboard and only reads the backend strategy payload.
+        </p>
+
+        <form id="wallet-form" class="wallet-form">
+          <label for="wallet-input">Wallet address</label>
+          <div class="input-row">
+            <input id="wallet-input" name="wallet" autocomplete="off" spellcheck="false" placeholder="Paste a Solana wallet address" />
+            <button type="submit">Load strategy</button>
+          </div>
+          <div class="quick-picks">
+            <button type="button" data-wallet="BPoHE1RJMmtUQ8Z7HqBJ7wpFMZFFR7DTogVsPHePLR5P">Target wallet</button>
+            <button type="button" data-wallet="11111111111111111111111111111111">Sample</button>
+          </div>
+          <div id="status-line" class="status-line">Ready.</div>
+        </form>
+      </section>
+
+      <section id="summary-grid" class="grid four-up hidden"></section>
+
+      <section class="panels">
+        <article class="panel panel-wide">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">Outcome sequence</div>
+              <h2>Win/loss cadence by token</h2>
+            </div>
+            <div id="gap-summary" class="inline-note"></div>
+          </div>
+          <div id="sequence-strip" class="sequence-strip"></div>
+          <div id="gap-chart" class="gap-chart"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">Pattern</div>
+              <h2>Gap distribution</h2>
+            </div>
+          </div>
+          <div id="gap-bars" class="bars"></div>
+        </article>
+      </section>
+
+      <section class="panels">
+        <article class="panel panel-wide panel-ranking">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">Token ranking</div>
+              <h2>Profitable and losing tokens</h2>
+            </div>
+            <div class="inline-note">Click a token to inspect its ladder.</div>
+          </div>
+          <div id="token-list" class="token-list"></div>
+        </article>
+
+        <article class="panel panel-detail">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">Drilldown</div>
+              <h2>Selected token</h2>
+            </div>
+          </div>
+          <div id="token-detail" class="token-detail empty">
+            Select a token to inspect its sells.
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+  </html>

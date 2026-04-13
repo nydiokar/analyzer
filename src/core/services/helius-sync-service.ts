@@ -72,6 +72,64 @@ export class HeliusSyncService {
         this.smartFetchService = smartFetchService || new SmartFetchService();
     }
 
+    private async updateWalletDiscoveryRange(
+      walletAddress: string,
+      direction: 'newer' | 'older',
+      range?: {
+        newestSignature?: string;
+        newestTimestamp?: number;
+        oldestSignature?: string;
+        oldestTimestamp?: number;
+      },
+    ): Promise<void> {
+      if (!range) {
+        return;
+      }
+
+      const currentWallet = await this.databaseService.getWallet(walletAddress);
+      const updateData: Partial<Omit<Wallet, 'address'>> = {};
+
+      if (
+        direction === 'newer' &&
+        range.newestSignature &&
+        range.newestTimestamp !== undefined &&
+        (
+          !currentWallet ||
+          currentWallet.newestProcessedTimestamp === null ||
+          range.newestTimestamp > currentWallet.newestProcessedTimestamp ||
+          (
+            range.newestTimestamp === currentWallet.newestProcessedTimestamp &&
+            currentWallet.newestProcessedSignature !== range.newestSignature
+          )
+        )
+      ) {
+        updateData.newestProcessedTimestamp = range.newestTimestamp;
+        updateData.newestProcessedSignature = range.newestSignature;
+      }
+
+      if (
+        direction === 'older' &&
+        range.oldestSignature &&
+        range.oldestTimestamp !== undefined &&
+        (
+          !currentWallet ||
+          currentWallet.firstProcessedTimestamp === null ||
+          range.oldestTimestamp < currentWallet.firstProcessedTimestamp ||
+          (
+            range.oldestTimestamp === currentWallet.firstProcessedTimestamp &&
+            currentWallet.oldestProcessedSignature !== range.oldestSignature
+          )
+        )
+      ) {
+        updateData.firstProcessedTimestamp = range.oldestTimestamp;
+        updateData.oldestProcessedSignature = range.oldestSignature;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await this.databaseService.updateWallet(walletAddress, updateData);
+      }
+    }
+
     /**
      * Synchronizes Helius transaction data for a given wallet with the database.
      * Handles incremental fetching, smart fetching, and saving intermediate records.
@@ -213,25 +271,70 @@ export class HeliusSyncService {
             logger.debug(`[Sync] SmartFetch Phase 1 (Newer): Fetching for ${walletAddress} since sig: ${stopAtSignatureForNewer}, ts: ${newestProcessedTimestampForNewer}. API client call will be capped by ${capForNewerFetch ?? 'Helius default/internal cap'}.`);
             options.onProgress?.(10, 'Fetching newer transactions...');
             let newerTransactionsFetchedCount = 0;
-            const newerTransactions = await this.heliusClient.getAllTransactionsForAddress(
-               walletAddress, 
-               options.limit, 
-               capForNewerFetch, 
-               stopAtSignatureForNewer, 
-               newestProcessedTimestampForNewer, 
-               undefined,
-               HELIUS_CONFIG.INTERNAL_CONCURRENCY,
-               (progress) => options.onProgress?.(10 + (progress * 0.4), 'Fetching newer transactions...'),
-               async (batch: HeliusTransaction[]) => {
-                   await this.processAndSaveTransactions(walletAddress, batch, true, options, mappingStatsAccumulator, walletTransactionCounters);
-                   newerTransactionsFetchedCount += batch.length;
-                   const currentCount = walletTransactionCounters.get(walletAddress) || 0;
-                   if (currentCount % 500 === 0 || currentCount <= 200) {
-                       // logger.debug(`[Sync] Phase 1 progress: ${newerTransactionsFetchedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
-                   }
-               },
-           );
-           newerTransactionsFetchedCount = newerTransactionsFetchedCount || newerTransactions.length;
+            let prefetchedHeadSignatures: any[] | undefined = undefined;
+            let prefetchedContinueBeforeSignature: string | null | undefined = undefined;
+            let shouldSkipNewerFetch = false;
+            let newerDiscoveryRange:
+              | {
+                  signatureCount: number;
+                  newestSignature?: string;
+                  newestTimestamp?: number;
+                  oldestSignature?: string;
+                  oldestTimestamp?: number;
+                }
+              | undefined = undefined;
+
+            if (stopAtSignatureForNewer || newestProcessedTimestampForNewer !== undefined) {
+                const headCheck = await this.heliusClient.getIncrementalHeadSignatures(
+                    walletAddress,
+                    newestProcessedTimestampForNewer,
+                    stopAtSignatureForNewer,
+                );
+
+                if (headCheck.signatures.length === 0) {
+                    logger.debug(`[Sync] SmartFetch Phase 1 (Newer): No signatures newer than cursor for ${walletAddress}. Skipping newer fetch.`);
+                    options.onProgress?.(50, 'No newer transactions found.');
+                    shouldSkipNewerFetch = true;
+                } else {
+                    prefetchedHeadSignatures = headCheck.canReuseInMainFetch ? headCheck.signatures : undefined;
+                    prefetchedContinueBeforeSignature = headCheck.canReuseInMainFetch
+                        ? headCheck.continueBeforeSignature
+                        : undefined;
+                }
+            }
+
+            if (prefetchedHeadSignatures === undefined && stopAtSignatureForNewer && newestProcessedTimestampForNewer !== undefined) {
+                // Head check on V2 found potential new signatures but could not safely seed pagination.
+                // Continue with the normal incremental path below.
+            }
+
+            const newerTransactions = shouldSkipNewerFetch
+                ? []
+                : await this.heliusClient.getAllTransactionsForAddress(
+                    walletAddress, 
+                    options.limit, 
+                    capForNewerFetch, 
+                    stopAtSignatureForNewer, 
+                    newestProcessedTimestampForNewer, 
+                    undefined,
+                    HELIUS_CONFIG.INTERNAL_CONCURRENCY,
+                    (progress) => options.onProgress?.(10 + (progress * 0.4), 'Fetching newer transactions...'),
+                    async (batch: HeliusTransaction[]) => {
+                        await this.processAndSaveTransactions(walletAddress, batch, true, options, mappingStatsAccumulator, walletTransactionCounters);
+                        newerTransactionsFetchedCount += batch.length;
+                        const currentCount = walletTransactionCounters.get(walletAddress) || 0;
+                        if (currentCount % 500 === 0 || currentCount <= 200) {
+                            // logger.debug(`[Sync] Phase 1 progress: ${newerTransactionsFetchedCount} txs fetched → ${currentCount} processed & saved for ${walletAddress}`);
+                        }
+                    },
+                    prefetchedHeadSignatures,
+                    prefetchedContinueBeforeSignature,
+                    (range) => {
+                        newerDiscoveryRange = range;
+                    },
+                );
+            newerTransactionsFetchedCount = newerTransactionsFetchedCount || newerTransactions.length;
+            await this.updateWalletDiscoveryRange(walletAddress, 'newer', newerDiscoveryRange);
            logger.debug(`[Sync] SmartFetch Phase 1 (Newer): ✅ Completed processing ${newerTransactionsFetchedCount} newer transactions for ${walletAddress}.`);
            options.onProgress?.(50, 'Newer transactions processed...');
         } catch (fetchError) {
@@ -254,24 +357,39 @@ export class HeliusSyncService {
                 const countAfterNewerFetch = await this.getDbTransactionCount(walletAddress);
                 logger.debug(`[Sync] SmartFetch: DB count for ${walletAddress} after fetching newer is ${countAfterNewerFetch}. Target is ${options.maxSignatures}.`);
 
-                if (countAfterNewerFetch < options.maxSignatures) {
+                const olderHistorySatisfiedTarget = walletState?.olderHistorySatisfiedTarget ?? null;
+
+                if (
+                    countAfterNewerFetch < options.maxSignatures &&
+                    !(olderHistorySatisfiedTarget !== null && olderHistorySatisfiedTarget >= options.maxSignatures)
+                ) {
                     const remainingSignaturesToFetchForOlder = options.maxSignatures - countAfterNewerFetch;
                     logger.debug(`[Sync] SmartFetch Phase 2 (Older): Current count ${countAfterNewerFetch} is less than target ${options.maxSignatures}. Still need ${remainingSignaturesToFetchForOlder} older transactions.`);
                     
                     const updatedWalletStateAfterPhase1 = await this.databaseService.getWallet(walletAddress);
                     const oldestProcessedTimestamp = updatedWalletStateAfterPhase1?.firstProcessedTimestamp ?? undefined;
+                    const oldestProcessedSignature = updatedWalletStateAfterPhase1?.oldestProcessedSignature ?? undefined;
                     
-                    logger.debug(`[Sync] SmartFetch Phase 2 (Older): Attempting to fetch ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress}, older than ts: ${oldestProcessedTimestamp}.`);
+                    logger.debug(`[Sync] SmartFetch Phase 2 (Older): Attempting to fetch ${remainingSignaturesToFetchForOlder} older transactions for ${walletAddress}, older than sig: ${oldestProcessedSignature}, ts: ${oldestProcessedTimestamp}.`);
                     options.onProgress?.(55, 'Fetching older transactions...');
                     try {
                         let totalOlderProcessedCount = 0;
+                        let olderDiscoveryRange:
+                          | {
+                              signatureCount: number;
+                              newestSignature?: string;
+                              newestTimestamp?: number;
+                              oldestSignature?: string;
+                              oldestTimestamp?: number;
+                            }
+                          | undefined = undefined;
                         const olderTransactions = await this.heliusClient.getAllTransactionsForAddress(
                             walletAddress, 
                             options.limit, 
                             remainingSignaturesToFetchForOlder,
+                            oldestProcessedSignature,
                             undefined,
-                            undefined,
-                            oldestProcessedTimestamp,
+                            oldestProcessedSignature ? undefined : oldestProcessedTimestamp,
                             HELIUS_CONFIG.INTERNAL_CONCURRENCY,
                             (progress) => options.onProgress?.(55 + (progress * 0.4), 'Fetching older transactions...'),
                             async (batch: HeliusTransaction[]) => {
@@ -282,8 +400,20 @@ export class HeliusSyncService {
                                     // logger.debug(`[Sync] Phase 2 progress: ${totalOlderProcessedCount} older txs fetched → ${currentCount} total processed & saved for ${walletAddress}`);
                                 }
                             },
+                            undefined,
+                            undefined,
+                            (range) => {
+                                olderDiscoveryRange = range;
+                            },
                         );
                         totalOlderProcessedCount = totalOlderProcessedCount || olderTransactions.length;
+                        await this.updateWalletDiscoveryRange(walletAddress, 'older', olderDiscoveryRange);
+                        if ((olderDiscoveryRange?.signatureCount ?? 0) < remainingSignaturesToFetchForOlder) {
+                            await this.databaseService.updateWallet(walletAddress, {
+                                olderHistorySatisfiedTarget: options.maxSignatures,
+                            });
+                            logger.debug(`[Sync] SmartFetch Phase 2 (Older): Marked older history satisfied for target ${options.maxSignatures} on ${walletAddress} after discovering ${olderDiscoveryRange?.signatureCount ?? 0} signatures (< requested ${remainingSignaturesToFetchForOlder}).`);
+                        }
                         const finalTotalCount = walletTransactionCounters.get(walletAddress) || 0;
                         logger.debug(`[Sync] SmartFetch Phase 2 (Older): ✅ Completed processing ${totalOlderProcessedCount} older transactions for ${walletAddress}. Total: ${finalTotalCount} transactions.`);
                         options.onProgress?.(95, 'Older transactions processed...');
@@ -301,6 +431,8 @@ export class HeliusSyncService {
                         }
                         logger.error(`[Sync] SmartFetch Phase 2 (Older): Failed to fetch/process older transactions for ${walletAddress}:`, { fetchError });
                     }
+                } else if (olderHistorySatisfiedTarget !== null && olderHistorySatisfiedTarget >= options.maxSignatures) {
+                   logger.debug(`[Sync] SmartFetch Phase 2 (Older): Older history already satisfied for target ${options.maxSignatures} on ${walletAddress}. Skipping older fetch.`);
                 } else {
                    logger.debug(`[Sync] SmartFetch Phase 2 (Older): DB count (${countAfterNewerFetch}) already meets or exceeds target ${options.maxSignatures}. Skipping older fetch for ${walletAddress}.`);
                 }
@@ -509,11 +641,21 @@ export class HeliusSyncService {
 
         const currentWallet = await this.databaseService.getWallet(walletAddress);
 
-        // Update firstProcessedTimestamp if the current batch's oldest is older than known, or if never set
+        // Update firstProcessedTimestamp/oldestProcessedSignature if the current batch's oldest is older than known, or if never set
         if (batchMinTimestamp !== Infinity && 
             (!currentWallet || currentWallet.firstProcessedTimestamp === null || batchMinTimestamp < currentWallet.firstProcessedTimestamp)) {
             updateData.firstProcessedTimestamp = batchMinTimestamp;
-            // Potentially update oldestProcessedSignature if your Wallet model has it and it's useful
+            if (batchOldestSignature) {
+                updateData.oldestProcessedSignature = batchOldestSignature;
+            }
+        } else if (
+            batchMinTimestamp !== Infinity &&
+            batchOldestSignature &&
+            currentWallet &&
+            batchMinTimestamp === currentWallet.firstProcessedTimestamp &&
+            currentWallet.oldestProcessedSignature !== batchOldestSignature
+        ) {
+            updateData.oldestProcessedSignature = batchOldestSignature;
         }
         
         // Update newestProcessedTimestamp if the current batch's newest is newer than known, or if never set

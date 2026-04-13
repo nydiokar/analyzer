@@ -381,14 +381,8 @@ export class AnalysesController {
         ? dto.targetSignatureCount ?? undefined
         : dto.targetSignatureCount ?? scopeDefaults.targetSignatureCount ?? undefined;
 
-    const queueWorkingAfter =
-      scope === 'flash' ? (dto.queueWorkingAfter ?? true) : false;
-    const queueDeepAfter =
-      scope === 'flash'
-        ? (dto.queueDeepAfter ?? false)
-        : scope === 'working'
-          ? (dto.queueDeepAfter ?? true)
-          : false;
+    const queueWorkingAfter = false;
+    const queueDeepAfter = false;
 
     try {
       const freshnessMinutes = scopeDefaults.freshnessMinutes ?? 0;

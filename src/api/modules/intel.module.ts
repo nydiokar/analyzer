@@ -16,7 +16,7 @@ import { QueueModule } from '../../queues/queue.module';
  *
  * Reuses service modules already wired elsewhere in the app.
  * QueueModule provides AnalysisOperationsQueue + RedisLockService so
- * GET /intel/wallet/:addr can auto-queue flash analysis on cache miss.
+ * GET /intel/wallet/:addr can auto-queue deep analysis on cache miss.
  */
 @Module({
   imports: [

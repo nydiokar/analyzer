@@ -126,7 +126,7 @@ class IntelTokenHoldersDeepRequestDto extends IntelTokenHoldersRequestDto {
  * - status "skipped"→ 422  → throw HttpException → interceptor skips → 0cr           ✓ known wallet, nothing to do
  * - invalid address → 400  → throw BadRequest   → interceptor skips → 0cr           ✓ guard or handler rejects
  *
- * GET /intel/wallet/:addr synchronous hold: connection is held open up to 30s awaiting the flash
+ * GET /intel/wallet/:addr synchronous hold: connection is held open up to 30s awaiting the deep
  * analysis. On completion a 200 is returned and credits are charged once. A 202 is only thrown
  * if the analysis exceeds 30s — the prepaidJobId in the response allows one free re-call.
  */
@@ -230,7 +230,7 @@ export class IntelController {
    * 5 credits — aggregated wallet intel (summary + HUD + behavior + PnL).
    *
    * If data exists in DB: returns it immediately (status: "ok", HTTP 200).
-   * If missing/not analyzed: auto-queues flash analysis (status: "queued", HTTP 202).
+   * If missing/not analyzed: auto-queues deep analysis (status: "queued", HTTP 202).
    *   → Poll GET /api/v1/jobs/:jobId, then call this endpoint again.
    * If known system wallet: returns HTTP 422, no credits charged.
    *
@@ -299,7 +299,7 @@ export class IntelController {
       const ageMin = Math.round((Date.now() - summary.updatedAt.getTime()) / 60000);
       this.logger.log(`Intel wallet ${addr}: data is stale (${ageMin}min old), auto-queuing refresh`);
     } else {
-      this.logger.log(`Intel wallet ${addr}: no data found, auto-queuing flash analysis`);
+      this.logger.log(`Intel wallet ${addr}: no data found, auto-queuing deep analysis`);
     }
 
     try {
@@ -506,14 +506,14 @@ export class IntelController {
    * 1 credit — compact HUD metrics only.
    *
    * If HUD data exists: returns it immediately (1cr charged).
-   * If missing: holds connection, runs flash analysis synchronously (up to 30s),
+   * If missing: holds connection, runs deep analysis synchronously (up to 30s),
    * returns 200 + HUD on completion (1cr charged). Only falls back to 202 if >30s.
    */
   @Get('wallet/:addr/hud')
   @RequireCredits(1)
   @ApiOperation({
     summary: 'Wallet HUD metrics (1cr)',
-    description: 'Returns compact heads-up-display metrics. Auto-queues flash analysis if wallet is unknown — returns 202, poll monitoringUrl, then call again.',
+    description: 'Returns compact heads-up-display metrics. Auto-queues deep analysis if wallet is unknown — returns 202, poll monitoringUrl, then call again.',
   })
   @ApiParam({ name: 'addr', description: 'Solana wallet address' })
   @ApiResponse({ status: 200, description: 'Wallet HUD metrics', type: WalletHudDto })
@@ -526,8 +526,8 @@ export class IntelController {
 
     if (hud) return hud;
 
-    // HUD missing — auto-queue flash analysis, same logic as getWalletIntel.
-    this.logger.log(`Intel HUD ${addr}: no data, auto-queuing flash analysis`);
+    // HUD missing — auto-queue deep analysis, same logic as getWalletIntel.
+    this.logger.log(`Intel HUD ${addr}: no data, auto-queuing deep analysis`);
 
     try {
       const registryEntry = getKnownWallet(addr);
@@ -617,7 +617,7 @@ export class IntelController {
         priority: JobPriority.CRITICAL,
       });
 
-      this.logger.log(`Intel HUD ${addr}: queued flash analysis job ${hudJob.id} — awaiting completion`);
+      this.logger.log(`Intel HUD ${addr}: queued deep analysis job ${hudJob.id} — awaiting completion`);
 
       const hudOutcome = await this.awaitJob(hudJob);
       if (hudOutcome === 'completed') {
@@ -1282,7 +1282,7 @@ Returns:
    *
    * For each wallet:
    *   - HUD in Redis cache (fresh) → returned immediately in `huds` map
-   *   - HUD missing or wallet not analyzed → auto-queues flash analysis → jobId in `queued`
+   *   - HUD missing or wallet not analyzed → auto-queues deep analysis → jobId in `queued`
    *   - Known system wallet → listed in `skipped`
    *
    * 5cr charged once for the whole batch regardless of how many wallets are ready.
@@ -1294,7 +1294,7 @@ Returns:
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
     summary: 'Batch HUD for up to 30 wallets (5cr)',
-    description: `Returns HUD metrics for each wallet. Missing or stale wallets are auto-queued for flash analysis.
+    description: `Returns HUD metrics for each wallet. Missing or stale wallets are auto-queued for deep analysis.
 
 **Response shape:**
 - \`huds\`: map of address → HUD for wallets with fresh data
