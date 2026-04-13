@@ -27,7 +27,7 @@ That's it. The MCP handles the API calls, async jobs, and polling automatically.
 
 Claude Code (one command):
 ```bash
-claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp
+claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y "@sova-intel/mcp"
 ```
 
 Claude Desktop — add to `claude_desktop_config.json`:

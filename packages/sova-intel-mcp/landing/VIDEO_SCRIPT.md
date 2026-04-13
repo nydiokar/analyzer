@@ -19,7 +19,7 @@ Run `/mcp` or show the MCP panel to confirm `sova-intel` is NOT listed yet.
 
 **Type in terminal:**
 ```
-claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp
+claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y "@sova-intel/mcp"
 ```
 
 Let it run. You'll see the install output scroll.

@@ -118,7 +118,7 @@ function CopyButton({ text }: { text: string }) {
 const CONFIGS = {
   codex: {
     label: 'Codex',
-    command: 'codex mcp add sova-intel --env SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp',
+    command: 'codex mcp add sova-intel --env SOVA_API_KEY=ak_your_key -- npx -y "@sova-intel/mcp"',
     render: (
       <span>
         <span className="text-violet-400">codex</span>
@@ -126,14 +126,16 @@ const CONFIGS = {
         <span className="text-sky-300">SOVA_API_KEY</span>
         {'='}
         <span className="text-emerald-300">ak_your_key</span>
-        {' -- npx -y @sova-intel/mcp'}
+        {' -- npx -y "'}
+        <span className="text-emerald-300">@sova-intel/mcp</span>
+        {'"'}
       </span>
     ),
     hint: null,
   },
   cline: {
     label: 'Cline',
-    command: 'cline mcp add sova-intel --env SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp',
+    command: 'cline mcp add sova-intel --env SOVA_API_KEY=ak_your_key -- npx -y "@sova-intel/mcp"',
     render: (
       <span>
         <span className="text-violet-400">cline</span>
@@ -141,7 +143,9 @@ const CONFIGS = {
         <span className="text-sky-300">SOVA_API_KEY</span>
         {'='}
         <span className="text-emerald-300">ak_your_key</span>
-        {' -- npx -y @sova-intel/mcp'}
+        {' -- npx -y "'}
+        <span className="text-emerald-300">@sova-intel/mcp</span>
+        {'"'}
       </span>
     ),
     hint: (
@@ -152,7 +156,7 @@ const CONFIGS = {
   },
   claudecode: {
     label: 'Claude Code',
-    command: 'claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y @sova-intel/mcp',
+    command: 'claude mcp add sova-intel -e SOVA_API_KEY=ak_your_key -- npx -y "@sova-intel/mcp"',
     render: (
       <span>
         <span className="text-violet-400">claude</span>
@@ -160,7 +164,9 @@ const CONFIGS = {
         <span className="text-sky-300">SOVA_API_KEY</span>
         {'='}
         <span className="text-emerald-300">ak_your_key</span>
-        {' -- npx -y @sova-intel/mcp'}
+        {' -- npx -y "'}
+        <span className="text-emerald-300">@sova-intel/mcp</span>
+        {'"'}
       </span>
     ),
     hint: (
