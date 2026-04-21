@@ -74,6 +74,8 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
           this.server.emit('reaction.updated', payload);
         } else if (channel === 'message-events:read-state') {
           this.server.emit('message.read-state', payload);
+        } else if (channel === 'message-events:token-added') {
+          this.server.emit('token.added', payload);
         }
       } catch (e) {
         this.logger.warn('Failed to parse message event', e as any);
@@ -124,6 +126,10 @@ export class MessageGateway implements OnGatewayInit, OnGatewayConnection, OnGat
 
   async publishReadState(event: any) {
     await this.publishWithRetry('message-events:read-state', event);
+  }
+
+  async publishTokenAdded(event: any) {
+    await this.publishWithRetry('message-events:token-added', event);
   }
 }
 

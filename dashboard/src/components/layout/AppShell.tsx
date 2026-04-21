@@ -18,6 +18,7 @@ import { useCredits } from '@/hooks/useCredits';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Star, Menu, Send, Coins } from 'lucide-react';
+import { TokensNotificationBell } from '@/components/layout/TokensNotificationBell';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import Image from 'next/image';
@@ -281,6 +282,9 @@ export function AppShell({ children }: AppShellProps) {
                 >
                   <Star className="h-4 w-4" />
                 </Button>
+
+                {/* Tokens activity bell — analyst/admin only */}
+                <TokensNotificationBell enabled={isAuthenticated && !!(user?.isAnalyst || user?.isAdmin)} />
 
                 {/* Credit balance chip — visible when authenticated */}
                 {isAuthenticated && balance !== null && (

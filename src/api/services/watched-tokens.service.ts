@@ -203,12 +203,16 @@ export class WatchedTokensService {
     return prisma.$transaction(async (tx) => {
       const client = tx as any;
       if (on) {
-        await client.watchedToken.upsert({
+        const existing = await client.watchedToken.findUnique({
           where: { tokenAddress_list: { tokenAddress, list: 'FAVORITES' } },
-          update: {},
-          create: { tokenAddress, list: 'FAVORITES', createdBy: userId ?? null },
+          select: { tokenAddress: true },
         });
-        return { ok: true, watched: true };
+        if (!existing) {
+          await client.watchedToken.create({
+            data: { tokenAddress, list: 'FAVORITES', createdBy: userId ?? null },
+          });
+        }
+        return { ok: true, watched: true, isNew: !existing };
       } else {
         const existed = await client.watchedToken.findUnique({ where: { tokenAddress_list: { tokenAddress, list: 'FAVORITES' } } });
         if (existed) {

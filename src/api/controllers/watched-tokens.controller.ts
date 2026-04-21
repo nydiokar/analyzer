@@ -2,6 +2,7 @@ import { Controller, Get, Query, Post, Body, Param, ValidationPipe, Req } from '
 import { User } from '@prisma/client';
 import { WatchedTokensService } from '../services/watched-tokens.service';
 import { IsAnalyst } from '../shared/decorators/analyst.decorator';
+import { MessageGateway } from '../shared/message.gateway';
 
 interface AuthenticatedRequest extends Request {
   user?: User;
@@ -10,7 +11,10 @@ interface AuthenticatedRequest extends Request {
 @Controller('watched-tokens')
 @IsAnalyst()
 export class WatchedTokensController {
-  constructor(private readonly svc: WatchedTokensService) {}
+  constructor(
+    private readonly svc: WatchedTokensService,
+    private readonly messageGateway: MessageGateway,
+  ) {}
 
   @Get()
   async list(@Query('list') list?: 'FAVORITES' | 'GRADUATION' | 'HOLDSTRONG') {
@@ -33,7 +37,16 @@ export class WatchedTokensController {
     @Body('on') on: boolean,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.svc.setWatched(tokenAddress, on === undefined ? true : !!on, req.user?.id);
+    const isOn = on === undefined ? true : !!on;
+    const result = await this.svc.setWatched(tokenAddress, isOn, req.user?.id);
+    if (isOn && result.isNew) {
+      try {
+        await this.messageGateway.publishTokenAdded({ tokenAddress, addedBy: req.user?.id ?? null, addedAt: new Date().toISOString() });
+      } catch {
+        // non-critical, swallow
+      }
+    }
+    return result;
   }
 }
 
