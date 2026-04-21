@@ -27,34 +27,87 @@ import type { CreditTransaction, CreditPack } from '@/types/api';
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-function getTxConfig(tx: CreditTransaction): { label: string; icon: React.ReactNode; color: string } {
+function formatEndpointReason(reason: string): string {
+  const endpointLabelMap: Record<string, string> = {
+    'AnalysesController.queueHolderProfilesAnalysis': 'Holder Profiles',
+    'AnalysesController.queueSimilarityAnalysis': 'Similarity Analysis',
+    'AnalysesController.queueDashboardWalletAnalysis': 'Dashboard Analysis',
+    'AnalysesController.queueWalletHolderProfile': 'Wallet Profile',
+    'IntelController.queueTokenHolders': 'Token Holder Profiles',
+    'IntelController.queueTokenHoldersAgent': 'Token Holder Profiles (Agent)',
+    'IntelController.queueWalletSimilarity': 'Wallet Similarity',
+    'IntelController.queueWalletSimilarityAgent': 'Wallet Similarity (Agent)',
+    'IntelController.queueTokenHoldersDeep': 'Deep Token Analysis',
+  };
+
+  if (endpointLabelMap[reason]) {
+    return endpointLabelMap[reason];
+  }
+
+  const [, handlerName = reason] = reason.split('.');
+  const cleaned = handlerName
+    .replace(/^(queue|get|poll)/, '')
+    .replace(/(Analysis|Agent)$/g, ' $1')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim();
+
+  return cleaned || reason;
+}
+
+function getReasonLabel(reason: string): string {
+  if (reason.startsWith('endpoint:')) {
+    return formatEndpointReason(reason.slice('endpoint:'.length));
+  }
+
+  if (reason.startsWith('refund:')) {
+    const refundedReason = reason.slice('refund:'.length);
+    return `${formatEndpointReason(refundedReason)} Refund`;
+  }
+
+  return reason;
+}
+
+function getTxConfig(tx: CreditTransaction): { label: string; detail: string; icon: React.ReactNode; color: string } {
   if (tx.reason.startsWith('refund:')) {
-    const refundLabelMap: Record<string, string> = {
-      'refund:AnalysisOperationsProcessor.holderProfilesCacheOnly': 'Holder Profiles Refund',
-      'refund:AnalysesController.queueSimilarityAnalysis': 'Similarity Refund',
-      'refund:AnalysesController.queueHolderProfilesAnalysis': 'Holder Profiles Refund',
+    return {
+      label: getReasonLabel(tx.reason),
+      detail: tx.reason,
+      icon: <ArrowUpCircle className="h-4 w-4" />,
+      color: 'text-yellow-400',
     };
-    const label = refundLabelMap[tx.reason] ?? 'Refund';
-    return { label, icon: <ArrowUpCircle className="h-4 w-4" />, color: 'text-yellow-400' };
   }
 
   if (tx.delta > 0) {
     if (tx.reason === 'signup_bonus') {
-      return { label: 'Signup Bonus', icon: <Gift className="h-4 w-4" />, color: 'text-blue-400' };
+      return {
+        label: 'Signup Bonus',
+        detail: tx.reason,
+        icon: <Gift className="h-4 w-4" />,
+        color: 'text-blue-400',
+      };
     }
     if (tx.reason === 'x402_payment') {
-      return { label: 'Agent Payment (X402)', icon: <Zap className="h-4 w-4" />, color: 'text-purple-400' };
+      return {
+        label: 'Agent Payment (X402)',
+        detail: tx.reason,
+        icon: <Zap className="h-4 w-4" />,
+        color: 'text-purple-400',
+      };
     }
-    return { label: 'Credit Purchase', icon: <ArrowUpCircle className="h-4 w-4" />, color: 'text-green-400' };
+    return {
+      label: 'Credit Purchase',
+      detail: tx.reason,
+      icon: <ArrowUpCircle className="h-4 w-4" />,
+      color: 'text-green-400',
+    };
   }
-  const labelMap: Record<string, string> = {
-    'endpoint:AnalysesController.queueHolderProfilesAnalysis': 'Holder Profiles',
-    'endpoint:AnalysesController.queueSimilarityAnalysis': 'Similarity Analysis',
-    'endpoint:AnalysesController.queueDashboardWalletAnalysis': 'Dashboard Analysis',
-    'endpoint:AnalysesController.queueWalletHolderProfile': 'Wallet Profile',
+
+  return {
+    label: getReasonLabel(tx.reason),
+    detail: tx.reason,
+    icon: <ArrowDownCircle className="h-4 w-4" />,
+    color: 'text-red-400',
   };
-  const label = labelMap[tx.reason] ?? 'Analysis';
-  return { label, icon: <ArrowDownCircle className="h-4 w-4" />, color: 'text-red-400' };
 }
 
 function formatDate(iso: string) {
@@ -298,9 +351,14 @@ export default function CreditsPage() {
                     const isCredit = tx.delta > 0;
                     return (
                       <div key={tx.id} className="flex items-center justify-between py-3 gap-3">
-                        <div className={`flex items-center gap-2 shrink-0 ${config.color}`}>
-                          {config.icon}
-                          <span className="text-sm font-medium text-foreground">{config.label}</span>
+                        <div className={`flex items-start gap-2 min-w-0 ${config.color}`}>
+                          <span className="shrink-0 pt-0.5">{config.icon}</span>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-foreground truncate">{config.label}</div>
+                            <div className="text-[11px] text-muted-foreground font-mono truncate">
+                              {config.detail}
+                            </div>
+                          </div>
                         </div>
                         <span className="text-xs text-muted-foreground flex-1 text-right mr-2 truncate">
                           {formatDate(tx.createdAt)}
