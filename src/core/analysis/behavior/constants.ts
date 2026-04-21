@@ -349,7 +349,7 @@ export const VELOCITY_SCORE = {
 export const BEHAVIOR_ANALYSIS_CONFIG = {
   // Token lifecycle completion criteria
   HISTORICAL_PATTERN: {
-    MINIMUM_COMPLETED_CYCLES: 1,        // Accept tokens with at least 1 complete buy-sell cycle
+    MINIMUM_COMPLETED_CYCLES: 5,        // Minimum exits for reliable speed classification (matches MINIMUM_DATA.tokensWithCompletedCycles)
     MAXIMUM_DATA_AGE_DAYS: 10000,       // Include all historical data, no time limit
     MIN_VALID_HOLD_HOURS: 0.0001,       // ~0.36 seconds minimum (prevents true zero/corruption)
     MAX_VALID_HOLD_HOURS: 18760,        // 1 year maximum
