@@ -923,6 +923,7 @@ export class WalletsController {
         signature: row.signature,
         timestamp: row.timestamp,
         direction: row.direction,
+        interactionType: row.interactionType,
         amount: row.amount,
         associatedSolValue: row.associatedSolValue,
         tokenPriceUsd: row.tokenPriceUsd ?? null,

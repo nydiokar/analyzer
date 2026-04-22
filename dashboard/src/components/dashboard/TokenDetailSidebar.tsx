@@ -21,23 +21,53 @@ interface TokenDetailSidebarProps {
   walletAddress: string;
 }
 
-function computeHoldingDuration(
-  firstTs: number | null | undefined,
-  lastTs: number | null | undefined,
-  hasBalance: boolean
-): string {
-  if (!firstTs) return '—';
-  const endTs = hasBalance ? Math.floor(Date.now() / 1000) : (lastTs ?? firstTs);
-  const seconds = endTs - firstTs;
+// Duration from a timestamp to now (or to endTs if provided)
+function formatDuration(startTs: number, endTs?: number): string {
+  const seconds = (endTs ?? Math.floor(Date.now() / 1000)) - startTs;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
   return `${Math.floor(seconds / 86400)}d`;
 }
 
+// Derive holding duration from trade list.
+// For open positions: time since the last cycle opened.
+// For closed positions: duration of the last closed cycle.
+function computeCurrentHoldingDuration(
+  trades: TokenTradeItemDto[],
+  hasBalance: boolean
+): string {
+  // trades come newest-first from API; reverse to walk chronologically
+  const chron = [...trades].reverse();
+  let balance = 0;
+  let cycleOpenTs: number | null = null;
+  let lastCycleDuration: string | null = null;
+
+  for (const t of chron) {
+    const wasZero = balance <= 0;
+    if (t.direction === 'in') {
+      balance += t.amount;
+    } else {
+      balance = Math.max(0, balance - t.amount);
+    }
+    if (wasZero && balance > 0) {
+      cycleOpenTs = t.timestamp;
+    }
+    if (!wasZero && balance <= 0 && cycleOpenTs != null) {
+      lastCycleDuration = formatDuration(cycleOpenTs, t.timestamp);
+      cycleOpenTs = null;
+    }
+  }
+
+  if (hasBalance && cycleOpenTs != null) return formatDuration(cycleOpenTs);
+  if (!hasBalance && lastCycleDuration) return lastCycleDuration;
+  return '—';
+}
+
 function formatTokenAmount(n: number): string {
+  if (n === 0) return '0';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  if (n < 0.0001) return n.toExponential(2);
+  if (n < 0.001) return '~0';
   return n.toFixed(4);
 }
 
@@ -48,6 +78,17 @@ function formatMcap(v: number | null | undefined): string {
   return `$${v.toFixed(0)}`;
 }
 
+function formatSol(v: number | null | undefined): string {
+  if (v == null) return '—';
+  if (Math.abs(v) < 0.001) return '~0';
+  return v.toFixed(3);
+}
+
+function formatPct(pnl: number | null | undefined, basis: number | null | undefined): string | null {
+  if (pnl == null || !basis || basis === 0) return null;
+  return `${pnl >= 0 ? '+' : ''}${((pnl / basis) * 100).toFixed(1)}%`;
+}
+
 function formatRelativeTime(timestampSeconds: number): string {
   const seconds = Math.floor(Date.now() / 1000) - timestampSeconds;
   if (seconds < 60) return `${seconds}s ago`;
@@ -56,70 +97,104 @@ function formatRelativeTime(timestampSeconds: number): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function formatSol(v: number | null | undefined): string {
-  if (v == null) return '—';
-  return v.toFixed(3);
-}
+// --- Sub-components ---
 
-interface StatCardProps {
+interface PnlCardProps {
   label: string;
   value: number | null | undefined;
-  suffix?: string;
-  subValue?: string;
-  positive?: boolean | null;
+  pct?: string | null;
 }
 
-function StatCard({ label, value, suffix, subValue, positive }: StatCardProps) {
-  const colorClass =
-    positive === true
-      ? 'text-green-500'
-      : positive === false
-      ? 'text-red-500'
-      : 'text-foreground';
+function PnlCard({ label, value, pct }: PnlCardProps) {
+  const isPositive = value != null && value > 0;
+  const isNegative = value != null && value < 0;
+  const valueColor = isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-foreground';
+
   return (
-    <div className="rounded-md border border-border bg-muted/30 p-3">
-      <p className="text-xs text-muted-foreground mb-1">{label}</p>
-      <p className={cn('text-base font-semibold', colorClass)}>
-        {value == null ? '—' : value.toFixed(3)}
-        {suffix && value != null && <span className="text-xs font-normal text-muted-foreground ml-1">{suffix}</span>}
-      </p>
-      {subValue && <p className="text-xs text-muted-foreground mt-0.5">{subValue}</p>}
+    <div className="rounded-lg border border-border bg-muted/20 p-3 flex flex-col gap-0.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex items-baseline gap-1.5">
+        <span className={cn('text-base font-semibold', valueColor)}>
+          {value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(3)}`}
+        </span>
+        {value != null && (
+          <span className={cn('text-xs font-normal', valueColor)}>SOL</span>
+        )}
+      </div>
+      {pct && (
+        <span className={cn('text-xs font-medium', valueColor)}>{pct}</span>
+      )}
     </div>
   );
 }
 
 interface MetricItemProps {
   label: string;
-  value: React.ReactNode;
+  children: React.ReactNode;
 }
 
-function MetricItem({ label, value }: MetricItemProps) {
+function MetricItem({ label, children }: MetricItemProps) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium">{value ?? '—'}</span>
+      <span className="text-sm font-medium">{children ?? '—'}</span>
     </div>
   );
 }
 
-function DirectionBadge({ direction }: { direction: string }) {
-  if (direction === 'buy') {
-    return <Badge className="bg-green-500/15 text-green-500 border-green-500/30 text-xs px-1.5 py-0">buy</Badge>;
+function classifyTrade(direction: string, solValue: number): 'buy' | 'sell' | 'transfer' {
+  if (solValue <= 0) return 'transfer';
+  return direction === 'in' ? 'buy' : 'sell';
+}
+
+function DirectionBadge({ kind }: { kind: 'buy' | 'sell' | 'transfer' }) {
+  if (kind === 'buy') {
+    return (
+      <Badge className="bg-green-500/15 text-green-500 border-green-500/30 text-xs px-2 py-0 w-16 justify-center">
+        Buy
+      </Badge>
+    );
   }
-  if (direction === 'sell') {
-    return <Badge className="bg-red-500/15 text-red-500 border-red-500/30 text-xs px-1.5 py-0">sell</Badge>;
+  if (kind === 'sell') {
+    return (
+      <Badge className="bg-red-500/15 text-red-500 border-red-500/30 text-xs px-2 py-0 w-16 justify-center">
+        Sell
+      </Badge>
+    );
   }
-  return <Badge variant="outline" className="text-muted-foreground text-xs px-1.5 py-0">transfer</Badge>;
+  return (
+    <Badge variant="outline" className="text-muted-foreground text-xs px-2 py-0 w-16 justify-center">
+      Transfer
+    </Badge>
+  );
 }
 
 function TradeRow({ trade }: { trade: TokenTradeItemDto }) {
+  const kind = classifyTrade(trade.direction, trade.associatedSolValue);
+  const isBuy = kind === 'buy';
+  const isSell = kind === 'sell';
+  const solColorClass = isBuy ? 'text-green-500' : isSell ? 'text-red-500' : 'text-muted-foreground';
+
+  const rowClass = isBuy
+    ? 'border-b border-border/50 last:border-0 bg-green-500/5 hover:bg-green-500/10'
+    : isSell
+    ? 'border-b border-border/50 last:border-0 bg-red-500/5 hover:bg-red-500/10'
+    : 'border-b border-border/50 last:border-0 hover:bg-muted/30';
+
   return (
-    <tr className="border-b border-border/50 last:border-0">
-      <td className="py-2 pr-2"><DirectionBadge direction={trade.direction} /></td>
-      <td className="py-2 pr-2 text-xs text-right">{formatMcap(trade.marketCapUsd)}</td>
-      <td className="py-2 pr-2 text-xs text-right">{formatTokenAmount(trade.amount)}</td>
-      <td className="py-2 pr-2 text-xs text-right">◎ {trade.associatedSolValue.toFixed(3)}</td>
-      <td className="py-2 pr-2 text-xs text-muted-foreground text-right">{formatRelativeTime(trade.timestamp)}</td>
+    <tr className={rowClass}>
+      <td className="py-2 pr-3"><DirectionBadge kind={kind} /></td>
+      <td className="py-2 pr-3 text-xs text-right">{formatMcap(trade.marketCapUsd)}</td>
+      <td className="py-2 pr-3 text-xs text-right">{formatTokenAmount(trade.amount)}</td>
+      <td className={cn('py-2 pr-3 text-xs text-right font-medium', solColorClass)}>
+        {trade.associatedSolValue.toFixed(3)} SOL
+      </td>
+      <td
+        className="py-2 pr-3 text-xs text-muted-foreground text-right whitespace-nowrap cursor-default"
+        title={new Date(trade.timestamp * 1000).toLocaleString()}
+      >
+        {formatRelativeTime(trade.timestamp)}
+      </td>
       <td className="py-2 text-right">
         <a
           href={`https://solscan.io/tx/${trade.signature}`}
@@ -134,12 +209,13 @@ function TradeRow({ trade }: { trade: TokenTradeItemDto }) {
   );
 }
 
+// --- Main component ---
+
 export function TokenDetailSidebar({ open, onClose, tokenData, walletAddress }: TokenDetailSidebarProps) {
   const swrKey = open && tokenData
-    ? `/api/v1/wallets/${walletAddress}/token-trades/${tokenData.tokenAddress}`
+    ? `/wallets/${walletAddress}/token-trades/${tokenData.tokenAddress}`
     : null;
 
-  // isValidating covers the revalidation case (switching tokens while drawer is open)
   const { data: tradeHistory, isLoading, isValidating, error: tradeError } = useSWR<TokenTradeHistoryDto>(
     swrKey,
     fetcher
@@ -154,30 +230,41 @@ export function TokenDetailSidebar({ open, onClose, tokenData, walletAddress }: 
     ));
   }, [tradeHistory]);
 
+  const hasBalance = (tokenData?.currentUiBalance ?? 0) > 0;
+
   const holdingDuration = useMemo(() => {
-    if (!tokenData) return '—';
-    return computeHoldingDuration(
-      tokenData.firstTransferTimestamp,
-      tokenData.lastTransferTimestamp,
-      (tokenData.currentUiBalance ?? 0) > 0
-    );
-  }, [tokenData]);
+    if (!tradeHistory?.trades?.length) {
+      // Fallback: first→last timestamps while data loads
+      if (!tokenData?.firstTransferTimestamp) return '—';
+      if (!hasBalance) return '—';
+      return formatDuration(tokenData.firstTransferTimestamp);
+    }
+    return computeCurrentHoldingDuration(tradeHistory.trades, hasBalance);
+  }, [tradeHistory, tokenData, hasBalance]);
 
-  const roi = useMemo(() => {
-    if (!tokenData?.totalPnlSol || !tokenData?.totalSolSpent || tokenData.totalSolSpent === 0) return null;
-    return ((tokenData.totalPnlSol / tokenData.totalSolSpent) * 100).toFixed(1) + '%';
-  }, [tokenData]);
+  const totalPnlPct = useMemo(
+    () => formatPct(tokenData?.totalPnlSol, tokenData?.totalSolSpent),
+    [tokenData]
+  );
+  const realizedPct = useMemo(
+    () => formatPct(tokenData?.realizedPnlSol, tokenData?.totalSolSpent),
+    [tokenData]
+  );
+  const unrealizedPct = useMemo(
+    () => formatPct(tokenData?.unrealizedPnlSol, tokenData?.totalSolSpent),
+    [tokenData]
+  );
 
-  const tokenMeta = tokenData
-    ? {
-        name: tokenData.onchainName ?? tokenData.name ?? undefined,
-        symbol: tokenData.onchainSymbol ?? tokenData.symbol ?? undefined,
-        imageUrl: tokenData.onchainImageUrl ?? tokenData.imageUrl ?? undefined,
-        onchainName: tokenData.onchainName ?? undefined,
-        onchainSymbol: tokenData.onchainSymbol ?? undefined,
-        onchainImageUrl: tokenData.onchainImageUrl ?? undefined,
-      }
-    : undefined;
+  const tokenMeta = tokenData ? {
+    name: tokenData.onchainName ?? tokenData.name ?? undefined,
+    symbol: tokenData.onchainSymbol ?? tokenData.symbol ?? undefined,
+    imageUrl: tokenData.onchainImageUrl ?? tokenData.imageUrl ?? undefined,
+    onchainName: tokenData.onchainName ?? undefined,
+    onchainSymbol: tokenData.onchainSymbol ?? undefined,
+    onchainImageUrl: tokenData.onchainImageUrl ?? undefined,
+    marketCapUsd: tokenData.marketCapUsd ?? undefined,
+    priceUsd: tokenData.priceUsd ?? undefined,
+  } : undefined;
 
   const dialogLabel = tokenData
     ? `Token detail: ${tokenData.onchainSymbol ?? tokenData.symbol ?? tokenData.tokenAddress}`
@@ -190,26 +277,20 @@ export function TokenDetailSidebar({ open, onClose, tokenData, walletAddress }: 
         <DialogPrimitive.Content
           aria-label={dialogLabel}
           className={cn(
-            'fixed inset-y-0 right-0 z-50 flex flex-col w-[520px] max-w-full',
+            'fixed inset-y-0 right-0 z-50 flex flex-col w-[600px] max-w-full',
             'bg-background border-l border-border shadow-xl',
             'data-[state=open]:animate-in data-[state=open]:slide-in-from-right',
             'data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right',
             'duration-200 focus:outline-none'
           )}
         >
-          {/* Visually hidden title for screen readers */}
           <DialogPrimitive.Title className="sr-only">{dialogLabel}</DialogPrimitive.Title>
 
           {/* Header */}
           <div className="flex items-center gap-3 p-4 border-b border-border shrink-0">
             <div className="flex-1 min-w-0">
               {tokenData ? (
-                <TokenBadge
-                  mint={tokenData.tokenAddress}
-                  metadata={tokenMeta}
-                  variant="inline"
-                  size="m"
-                />
+                <TokenBadge mint={tokenData.tokenAddress} metadata={tokenMeta} variant="inline" size="m" />
               ) : (
                 <Skeleton className="h-8 w-48" />
               )}
@@ -230,61 +311,73 @@ export function TokenDetailSidebar({ open, onClose, tokenData, walletAddress }: 
 
           <ScrollArea className="flex-1 overflow-hidden">
             <div className="p-4 space-y-4">
-              {/* 2×2 P&L summary grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <StatCard
+
+              {/* P&L section */}
+              <div className="space-y-2">
+                {/* Total P&L — full width, prominent */}
+                <PnlCard
                   label="Total P&L"
                   value={tokenData?.totalPnlSol}
-                  suffix="SOL"
-                  subValue={roi ?? undefined}
-                  positive={tokenData?.totalPnlSol != null ? tokenData.totalPnlSol > 0 : null}
+                  pct={totalPnlPct}
                 />
-                <StatCard
-                  label="Realized"
-                  value={tokenData?.realizedPnlSol}
-                  suffix="SOL"
-                  positive={tokenData?.realizedPnlSol != null ? tokenData.realizedPnlSol > 0 : null}
-                />
-                <StatCard
-                  label="Unrealized"
-                  value={tokenData?.unrealizedPnlSol}
-                  suffix="SOL"
-                  positive={tokenData?.unrealizedPnlSol != null ? tokenData.unrealizedPnlSol > 0 : null}
-                />
-                <StatCard
-                  label="Current Value"
-                  value={tokenData?.currentHoldingsValueSol}
-                  suffix="SOL"
-                />
+                {/* Realized / Unrealized side by side */}
+                <div className="grid grid-cols-2 gap-2">
+                  <PnlCard
+                    label="Realized"
+                    value={tokenData?.realizedPnlSol}
+                    pct={realizedPct}
+                  />
+                  <PnlCard
+                    label="Unrealized"
+                    value={tokenData?.unrealizedPnlSol}
+                    pct={unrealizedPct}
+                  />
+                </div>
               </div>
 
-              {/* 3-column metrics grid */}
-              <div className="grid grid-cols-3 gap-x-4 gap-y-3">
-                <MetricItem
-                  label="Balance"
-                  value={tokenData?.currentUiBalance != null ? formatTokenAmount(tokenData.currentUiBalance) : '—'}
-                />
-                <MetricItem
-                  label="Cost Basis"
-                  value={tokenData?.currentHoldingsCostBasisSol != null ? `◎ ${formatSol(tokenData.currentHoldingsCostBasisSol)}` : '—'}
-                />
-                <MetricItem label="Holding" value={holdingDuration} />
-                <MetricItem label="Receives" value={tokenData?.transferCountIn ?? '—'} />
-                <MetricItem label="Sends" value={tokenData?.transferCountOut ?? '—'} />
-                <MetricItem
-                  label="SOL In / Out"
-                  value={tokenData ? `◎ ${formatSol(tokenData.totalSolSpent)} / ${formatSol(tokenData.totalSolReceived)}` : '—'}
-                />
-                <MetricItem label="Avg Entry MC" value={formatMcap(tradeHistory?.avgEntryMcap)} />
-                <MetricItem label="Avg Exit MC" value={formatMcap(tradeHistory?.avgExitMcap)} />
-                <MetricItem
-                  label="MC Range"
-                  value={
-                    tradeHistory?.entryMcapP25Usd != null || tradeHistory?.entryMcapP75Usd != null
-                      ? `${formatMcap(tradeHistory?.entryMcapP25Usd)}–${formatMcap(tradeHistory?.entryMcapP75Usd)}`
-                      : '—'
-                  }
-                />
+              {/* Metrics grid */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                <MetricItem label="Balance">
+                  <span>
+                    {tokenData?.currentUiBalance != null ? formatTokenAmount(tokenData.currentUiBalance) : '—'}
+                    {tokenData?.currentHoldingsValueSol != null && (
+                      <span className="text-muted-foreground font-normal text-xs ml-1.5">
+                        ({tokenData.currentHoldingsValueSol.toFixed(3)} SOL)
+                      </span>
+                    )}
+                  </span>
+                </MetricItem>
+                <MetricItem label="Holding Duration">
+                  {holdingDuration}
+                </MetricItem>
+                <MetricItem label="Open Cost">
+                  {tokenData?.currentHoldingsCostBasisSol != null
+                    ? `${formatSol(tokenData.currentHoldingsCostBasisSol)} SOL`
+                    : '—'}
+                </MetricItem>
+                <MetricItem label="Avg MC B/S">
+                  <span>
+                    <span className="text-green-500">{formatMcap(tradeHistory?.avgEntryMcap)}</span>
+                    <span className="text-muted-foreground mx-1">/</span>
+                    <span className="text-red-500">{formatMcap(tradeHistory?.avgExitMcap)}</span>
+                  </span>
+                </MetricItem>
+                <MetricItem label="Bought">
+                  <span>
+                    <span className="text-green-500">{formatSol(tokenData?.totalSolSpent)} SOL</span>
+                    <span className="text-muted-foreground text-xs ml-1">
+                      / {tokenData?.transferCountIn ?? '—'} TXs
+                    </span>
+                  </span>
+                </MetricItem>
+                <MetricItem label="Sold">
+                  <span>
+                    <span className="text-red-500">{formatSol(tokenData?.totalSolReceived)} SOL</span>
+                    <span className="text-muted-foreground text-xs ml-1">
+                      / {tokenData?.transferCountOut ?? '—'} TXs
+                    </span>
+                  </span>
+                </MetricItem>
               </div>
 
               <Separator />
@@ -307,17 +400,18 @@ export function TokenDetailSidebar({ open, onClose, tokenData, walletAddress }: 
                     <thead>
                       <tr className="border-b border-border">
                         <th className="pb-2 text-left text-xs text-muted-foreground font-medium">Type</th>
-                        <th className="pb-2 text-right text-xs text-muted-foreground font-medium">MCAP</th>
+                        <th className="pb-2 text-right text-xs text-muted-foreground font-medium">MC</th>
                         <th className="pb-2 text-right text-xs text-muted-foreground font-medium">Amount</th>
-                        <th className="pb-2 text-right text-xs text-muted-foreground font-medium">SOL</th>
+                        <th className="pb-2 text-right text-xs text-muted-foreground font-medium">Total SOL</th>
                         <th className="pb-2 text-right text-xs text-muted-foreground font-medium">Time</th>
-                        <th className="pb-2 text-right text-xs text-muted-foreground font-medium">Tx</th>
+                        <th className="pb-2 text-right text-xs text-muted-foreground font-medium"></th>
                       </tr>
                     </thead>
                     <tbody>{tradeRows}</tbody>
                   </table>
                 )}
               </div>
+
             </div>
           </ScrollArea>
         </DialogPrimitive.Content>

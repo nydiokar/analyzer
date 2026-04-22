@@ -2145,7 +2145,7 @@ export class DatabaseService {
         try {
             const inputs = await this.prismaClient.swapAnalysisInput.findMany({
                 where: { walletAddress, mint },
-                orderBy: { timestamp: 'asc' },
+                orderBy: { timestamp: 'desc' },
             });
             this.logger.debug(`Found ${inputs.length} SwapAnalysisInput records for ${walletAddress} / ${mint}.`);
             return inputs;

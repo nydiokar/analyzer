@@ -7,8 +7,11 @@ export class TokenTradeItemDto {
   @ApiProperty({ description: 'Unix timestamp (seconds) of the trade', type: Number })
   timestamp: number;
 
-  @ApiProperty({ description: 'Trade direction', enum: ['buy', 'sell', 'transfer'] })
+  @ApiProperty({ description: 'Raw flow direction: "in" or "out"' })
   direction: string;
+
+  @ApiProperty({ description: 'Transaction type from chain: SWAP, TRANSFER, UNKNOWN, etc.' })
+  interactionType: string;
 
   @ApiProperty({ description: 'Token units traded', type: Number })
   amount: number;

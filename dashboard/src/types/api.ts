@@ -503,6 +503,7 @@ export interface TokenTradeItemDto {
   signature: string;
   timestamp: number;
   direction: string;
+  interactionType: string;
   amount: number;
   associatedSolValue: number;
   tokenPriceUsd: number | null;
