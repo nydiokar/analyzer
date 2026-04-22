@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { DatabaseService } from './database.service';
 import { TokenInfoService } from './token-info.service';
 import { prisma } from '../../core/services/database-service';
@@ -6,7 +7,7 @@ import {
   classifyMcap,
   timestampToDateKey,
   buildSolPriceMap,
-  appendTodaySolPrice,
+  backfillSolPrices,
 } from '../../core/services/market-context-standalone';
 
 @Injectable()
@@ -19,11 +20,58 @@ export class MarketContextService {
   ) {}
 
   // ---------------------------------------------------------------------------
-  // SOL price cache - delegates to standalone shared functions
+  // SOL price cache
   // ---------------------------------------------------------------------------
 
+  /**
+   * Write (or refresh) today's SOL price in SolDailyPrice.
+   * Always upserts — called both on startup and by the scheduled cron so the
+   * stored value stays fresh throughout the day.
+   * Primary: CoinGecko via TokenInfoService (same source as live prices).
+   * Fallback: DeFiLlama backfill for today + recent gap sweep.
+   */
   async appendTodaySolPrice(): Promise<void> {
-    await appendTodaySolPrice(prisma);
+    const dateKey = timestampToDateKey(Math.floor(Date.now() / 1000));
+
+    let price: number | null = null;
+    try {
+      price = await this.tokenInfoService.getSolPrice();
+    } catch (err) {
+      this.logger.warn(`[SOL Daily] CoinGecko fetch failed, will try DeFiLlama backfill: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    if (price !== null && price > 0) {
+      await prisma.solDailyPrice.upsert({
+        where: { date: dateKey },
+        update: { priceUsd: price },
+        create: { date: dateKey, priceUsd: price },
+      });
+      this.logger.log(`[SOL Daily] Refreshed price for ${dateKey}: $${price.toFixed(2)}`);
+    } else {
+      // CoinGecko failed — fall back to DeFiLlama for today + recent gap sweep
+      this.logger.warn('[SOL Daily] CoinGecko unavailable, falling back to DeFiLlama backfill');
+      await backfillSolPrices(prisma, 7);
+    }
+  }
+
+  /**
+   * Cron: refresh today's SOL price and patch any gaps in the last 30 days.
+   * Runs every 3 hours (8× per day) so intraday price stays reasonably current
+   * and any missed days are caught quickly before enrichment queues them as deferred.
+   */
+  @Cron('0 0 */3 * * *')
+  async scheduledSolPriceRefresh(): Promise<void> {
+    this.logger.log('[SOL Cron] Refreshing SOL price');
+    try {
+      await this.appendTodaySolPrice();
+      // Scan last 30 days for gaps and fill them — this is what catches the DeFiLlama outage scenario
+      const filled = await backfillSolPrices(prisma, 30);
+      if (filled > 0) {
+        this.logger.warn(`[SOL Cron] Backfilled ${filled} missing day(s) in last 30 days`);
+      }
+    } catch (err) {
+      this.logger.error(`[SOL Cron] Failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // ---------------------------------------------------------------------------

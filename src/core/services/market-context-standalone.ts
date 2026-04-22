@@ -169,14 +169,45 @@ function dateDiffDays(dateA: string, dateB: string): number {
 // ---------------------------------------------------------------------------
 
 async function fetchSolPriceAtTimestamp(unixTimestamp: number): Promise<number | null> {
-  const url = `${DEFILLAMA_BASE}/prices/historical/${unixTimestamp}/coingecko:solana`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.warn(`DeFiLlama returned ${res.status} for timestamp ${unixTimestamp}`);
-    return null;
+  // Primary: DeFiLlama historical prices
+  try {
+    const url = `${DEFILLAMA_BASE}/prices/historical/${unixTimestamp}/coingecko:solana`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json() as { coins?: Record<string, { price?: number }> };
+      const price = data.coins?.['coingecko:solana']?.price ?? null;
+      if (price !== null && price > 0) return price;
+    } else {
+      console.warn(`[SOL] DeFiLlama returned ${res.status} for timestamp ${unixTimestamp}`);
+    }
+  } catch (err) {
+    console.warn(`[SOL] DeFiLlama fetch error for timestamp ${unixTimestamp}:`, err);
   }
-  const data = await res.json() as { coins?: Record<string, { price?: number }> };
-  return data.coins?.['coingecko:solana']?.price ?? null;
+
+  // Fallback: CoinGecko historical price endpoint
+  try {
+    const d = new Date(unixTimestamp * 1000);
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
+    const dateStr = `${dd}-${mm}-${yyyy}`;
+    const url = `https://api.coingecko.com/api/v3/coins/solana/history?date=${dateStr}&localization=false`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (res.ok) {
+      const data = await res.json() as { market_data?: { current_price?: { usd?: number } } };
+      const price = data.market_data?.current_price?.usd ?? null;
+      if (price !== null && price > 0) {
+        console.log(`[SOL] CoinGecko fallback for ${dateStr}: $${price.toFixed(2)}`);
+        return price;
+      }
+    } else {
+      console.warn(`[SOL] CoinGecko returned ${res.status} for date ${dateStr}`);
+    }
+  } catch (err) {
+    console.warn(`[SOL] CoinGecko fallback error for timestamp ${unixTimestamp}:`, err);
+  }
+
+  return null;
 }
 
 export async function appendTodaySolPrice(prisma: PrismaClient): Promise<void> {
@@ -226,23 +257,44 @@ async function ensureSolPriceCoverage(
 ): Promise<void> {
   if (unixTimestamps.length === 0) return;
 
-  const oldestTimestamp = Math.min(...unixTimestamps);
-  const oldestNeededDate = timestampToDateKey(oldestTimestamp);
-  const oldestCached = await prisma.solDailyPrice.findFirst({
-    orderBy: { date: 'asc' },
-    select: { date: true },
-  });
-
-  if (oldestCached && oldestCached.date <= oldestNeededDate) {
-    return;
+  // Collect every unique date needed (plus ±fallback window so nearest-day lookup always has data).
+  // Never include future dates — historical APIs return 400 for them; today's price is handled
+  // separately by appendTodaySolPrice / the cron.
+  const todayKey = timestampToDateKey(Math.floor(Date.now() / 1000));
+  const neededDates = new Set<string>();
+  for (const ts of unixTimestamps) {
+    for (let offset = -MAX_SOL_PRICE_FALLBACK_DAYS; offset <= MAX_SOL_PRICE_FALLBACK_DAYS; offset++) {
+      const dateKey = timestampToDateKey(ts + offset * ONE_DAY);
+      if (dateKey <= todayKey) neededDates.add(dateKey);
+    }
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  const lookbackDays = Math.ceil((now - oldestTimestamp) / ONE_DAY) + MAX_SOL_PRICE_FALLBACK_DAYS;
-  console.log(
-    `[SOL] Cache coverage missing for ${oldestNeededDate}. Backfilling ${lookbackDays} day(s) before enrichment...`,
-  );
-  await backfillSolPrices(prisma, lookbackDays);
+  const existing = await prisma.solDailyPrice.findMany({
+    where: { date: { in: [...neededDates] } },
+    select: { date: true },
+  });
+  const existingSet = new Set(existing.map(r => r.date));
+  const missing = [...neededDates].filter(d => !existingSet.has(d)).sort();
+
+  if (missing.length === 0) return;
+
+  console.log(`[SOL] Missing prices for ${missing.length} date(s): ${missing.join(', ')}. Fetching now...`);
+
+  for (const dateKey of missing) {
+    const timestamp = Math.floor(new Date(dateKey + 'T12:00:00Z').getTime() / 1000);
+    const price = await fetchSolPriceAtTimestamp(timestamp);
+    if (price !== null) {
+      await prisma.solDailyPrice.upsert({
+        where: { date: dateKey },
+        update: { priceUsd: price },
+        create: { date: dateKey, priceUsd: price },
+      });
+      console.log(`  SOL ${dateKey}: $${price.toFixed(2)}`);
+    } else {
+      console.warn(`[SOL] Could not fetch price for ${dateKey} from any source`);
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
 }
 
 /**
