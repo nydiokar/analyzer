@@ -2137,6 +2137,24 @@ export class DatabaseService {
         }
     }
 
+    async getSwapAnalysisInputsForToken(
+        walletAddress: string,
+        mint: string
+    ): Promise<SwapAnalysisInput[]> {
+        this.logger.debug(`Fetching SwapAnalysisInputs for ${walletAddress}, mint ${mint}`);
+        try {
+            const inputs = await this.prismaClient.swapAnalysisInput.findMany({
+                where: { walletAddress, mint },
+                orderBy: { timestamp: 'asc' },
+            });
+            this.logger.debug(`Found ${inputs.length} SwapAnalysisInput records for ${walletAddress} / ${mint}.`);
+            return inputs;
+        } catch (error) {
+            this.logger.error(`Error fetching SwapAnalysisInputs for ${walletAddress} / ${mint}`, { error });
+            throw error;
+        }
+    }
+
     /**
      * Returns the subset of signatures that already have at least one persisted
      * SwapAnalysisInput row for the given wallet. Used to decide whether a cached

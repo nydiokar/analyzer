@@ -43,6 +43,7 @@ import { CreateNoteDto } from '../shared/dto/create-note.dto';
 import { UpdateNoteDto } from '../shared/dto/update-note.dto';
 import { WalletSearchQueryDto } from '../shared/dto/wallet-search-query.dto';
 import { WalletSearchResultsDto, WalletSearchResultItemDto } from '../shared/dto/wallet-search-result.dto';
+import { TokenTradeHistoryDto, TokenTradeItemDto } from '../shared/dto/token-trade-history.dto';
 import { getErrorMessage } from 'core/utils/error-utils';
 @ApiTags('Wallets')
 @Controller('wallets')
@@ -890,6 +891,63 @@ export class WalletsController {
       this.tokenInfoService.triggerTokenInfoEnrichment(tokenAddresses, userId);
     } catch (error) {
       this.logger.error(`Background enrichment process for wallet ${walletAddress} failed: ${getErrorMessage(error)}`);
+    }
+  }
+
+  @Get(':walletAddress/token-trades/:tokenAddress')
+  @ApiOperation({ summary: 'Get full trade history for a wallet × token pair' })
+  @ApiParam({ name: 'walletAddress', description: 'The Solana wallet address', type: String })
+  @ApiParam({ name: 'tokenAddress', description: 'The token mint address', type: String })
+  @ApiResponse({ status: 200, description: 'Trade history and mcap aggregates retrieved successfully.', type: TokenTradeHistoryDto })
+  @ApiResponse({ status: 403, description: 'Forbidden.' })
+  @ApiResponse({ status: 500, description: 'Internal server error.' })
+  async getTokenTradeHistory(
+    @Param('walletAddress') walletAddress: string,
+    @Param('tokenAddress') tokenAddress: string,
+    @Req() req: Request & { user?: any },
+  ): Promise<TokenTradeHistoryDto> {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new ForbiddenException('User could not be identified.');
+    }
+
+    try {
+      const [swapInputs, analysisResults] = await Promise.all([
+        this.databaseService.getSwapAnalysisInputsForToken(walletAddress, tokenAddress),
+        this.databaseService.getAnalysisResults({ where: { walletAddress, tokenAddress }, take: 1 }),
+      ]);
+
+      const ar = analysisResults[0] ?? null;
+
+      const trades: TokenTradeItemDto[] = swapInputs.map((row) => ({
+        signature: row.signature,
+        timestamp: row.timestamp,
+        direction: row.direction,
+        amount: row.amount,
+        associatedSolValue: row.associatedSolValue,
+        tokenPriceUsd: row.tokenPriceUsd ?? null,
+        marketCapUsd: row.marketCapUsd ?? null,
+        mcapBucket: row.mcapBucket ?? null,
+        feeAmount: row.feeAmount ?? null,
+        enrichedAt: row.enrichedAt ? row.enrichedAt.toISOString() : null,
+      }));
+
+      return {
+        walletAddress,
+        tokenAddress,
+        trades,
+        avgEntryMcap: ar?.avgEntryMcap ?? null,
+        avgExitMcap: ar?.avgExitMcap ?? null,
+        typicalEntryMcapUsd: ar?.typicalEntryMcapUsd ?? null,
+        entryMcapP25Usd: ar?.entryMcapP25Usd ?? null,
+        entryMcapP75Usd: ar?.entryMcapP75Usd ?? null,
+        typicalExitMcapUsd: ar?.typicalExitMcapUsd ?? null,
+        exitMcapP25Usd: ar?.exitMcapP25Usd ?? null,
+        exitMcapP75Usd: ar?.exitMcapP75Usd ?? null,
+      };
+    } catch (error) {
+      this.logger.error(`Error fetching token trade history for ${walletAddress} / ${tokenAddress}: ${getErrorMessage(error)}`);
+      throw new InternalServerErrorException('Failed to retrieve token trade history.');
     }
   }
 

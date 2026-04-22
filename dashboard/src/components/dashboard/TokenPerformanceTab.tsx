@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 import { Button as UiButton } from "@/components/ui/button";
 import { fetcher } from '@/lib/fetcher';
 import { TokenBadge } from "@/components/shared/TokenBadge";
+import { TokenDetailSidebar } from './TokenDetailSidebar';
 
 export interface TokenPerformanceTabProps {
   walletAddress: string;
@@ -391,6 +392,8 @@ function TokenPerformanceTab({
   const [minTradesToggle, setMinTradesToggle] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [spamFilter, setSpamFilter] = useState<string>('all');
+  const [selectedToken, setSelectedToken] = useState<TokenPerformanceDataDto | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // TanStack Table state - use props or default to Last Active (most recent first)
   const [sortBy, setSortBy] = useState(defaultSortBy);
@@ -816,7 +819,14 @@ const handleSort = useCallback((columnId: string) => {
     return (
       <TableBody>
         {tableRows.map((row) => (
-          <TableRow key={row.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+          <TableRow
+            key={row.id}
+            className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 cursor-pointer"
+            onClick={() => {
+              setSelectedToken(row.original);
+              setSidebarOpen(true);
+            }}
+          >
             {row.getVisibleCells().map((cell) => (
               <TableCell
                 key={cell.id}
@@ -824,6 +834,7 @@ const handleSort = useCallback((columnId: string) => {
                   "overflow-hidden",
                   (cell.column.columnDef.meta as any)?.className
                 )}
+                onClick={cell.column.id === 'tokenAddress' ? (e) => e.stopPropagation() : undefined}
               >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </TableCell>
@@ -1013,6 +1024,12 @@ const handleSort = useCallback((columnId: string) => {
 
       </div>
     </Card>
+    <TokenDetailSidebar
+      open={sidebarOpen}
+      onClose={() => setSidebarOpen(false)}
+      tokenData={selectedToken}
+      walletAddress={walletAddress}
+    />
     </div>
   );
 }

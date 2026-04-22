@@ -393,6 +393,7 @@ export class TokenPerformanceService {
         volume24h: tokenInfo?.volume24h,
         priceUsd: tokenInfo?.priceUsd,
         dexscreenerUpdatedAt: tokenInfo?.dexscreenerUpdatedAt?.toISOString(),
+        currentHoldingsCostBasisSol: fifoHoldingsCostBasisSol,
         // Unrealized P&L calculations
         currentHoldingsValueUsd,
         currentHoldingsValueSol,

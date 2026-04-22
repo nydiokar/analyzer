@@ -56,6 +56,9 @@ export class TokenPerformanceDataDto {
   @ApiProperty({ description: 'Decimals for the current balance fields', type: Number, nullable: true, required: false })
   balanceDecimals?: number | null;
 
+  @ApiProperty({ description: 'FIFO cost basis of current holdings in SOL', type: Number, nullable: true, required: false })
+  currentHoldingsCostBasisSol?: number | null;
+
   @ApiProperty({ description: 'Timestamp when this specific token balance was part of a WalletState fetch', type: String, format: 'date-time', nullable: true, required: false })
   balanceFetchedAt?: string | null; // Store as ISO string in DTO
 

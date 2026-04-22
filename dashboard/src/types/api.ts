@@ -499,6 +499,33 @@ export interface ExitTimingTokensResponse {
   count: number;
 }
 
+export interface TokenTradeItemDto {
+  signature: string;
+  timestamp: number;
+  direction: string;
+  amount: number;
+  associatedSolValue: number;
+  tokenPriceUsd: number | null;
+  marketCapUsd: number | null;
+  mcapBucket: string | null;
+  feeAmount: number | null;
+  enrichedAt: string | null;
+}
+
+export interface TokenTradeHistoryDto {
+  walletAddress: string;
+  tokenAddress: string;
+  trades: TokenTradeItemDto[];
+  avgEntryMcap: number | null;
+  avgExitMcap: number | null;
+  typicalEntryMcapUsd: number | null;
+  entryMcapP25Usd: number | null;
+  entryMcapP75Usd: number | null;
+  typicalExitMcapUsd: number | null;
+  exitMcapP25Usd: number | null;
+  exitMcapP75Usd: number | null;
+}
+
 // --- Wallet HUD (Heads-Up Display) Types ---
 
 /**

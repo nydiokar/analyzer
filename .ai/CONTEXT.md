@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `main` | **Last Updated:** 2026-04-04 | **Status:** `@sova-intel/mcp@0.1.0` published; post-publish live verification still pending.
+**Branch:** `main` | **Last Updated:** 2026-04-22 | **Status:** `@sova-intel/mcp@0.1.0` published; token detail sidebar feature planned and ready for implementation.
 
 ---
 
@@ -31,6 +31,46 @@
 ---
 
 ## Recent Activity
+
+### April 22, 2026 — Token Detail Sidebar: Implemented ✅
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| TDS-1 | ✅ FEAT | **[TDS-1]** Added `getSwapAnalysisInputsForToken(walletAddress, mint)` to `database-service.ts` — direct prismaClient call, `WHERE walletAddress AND mint ORDER BY timestamp ASC`, same structural pattern as `getSwapAnalysisInputs`. | 🟢 S | `src/core/services/database-service.ts` |
+| TDS-2 | ✅ FEAT | **[TDS-2]** Created `token-trade-history.dto.ts` with `TokenTradeItemDto` + `TokenTradeHistoryDto`. All nullable fields decorated with `nullable: true, required: false`. Pattern matches `token-performance-data.dto.ts`. | 🟢 S | `src/api/shared/dto/token-trade-history.dto.ts` |
+| TDS-3 | ✅ FEAT | **[TDS-3]** Added `GET :walletAddress/token-trades/:tokenAddress` to `WalletsController`. Runs `getSwapAnalysisInputsForToken` + `getAnalysisResults` in parallel, maps to `TokenTradeHistoryDto`. Auth: userId check → ForbiddenException (lightweight, no activity logging — omitted intentionally to match simpler handlers like `getExitTimingTokens`). | 🟡 M | `src/api/controllers/wallets.controller.ts` |
+| TDS-4 | ✅ FEAT | **[TDS-4]** Added `TokenTradeItemDto` + `TokenTradeHistoryDto` interfaces to `dashboard/src/types/api.ts`. | 🟢 S | `dashboard/src/types/api.ts` |
+| TDS-5 | ✅ FEAT | **[TDS-5]** Created `TokenDetailSidebar.tsx`. Uses `DialogPrimitive.Content` directly (not `DialogContent` wrapper) for right-side drawer. SWR-fetches trade history only when open + tokenData present. Summary stats from `tokenData` prop. Trade history table with direction badge, MCAP, amount, SOL, relative time, Solscan link. Full null safety on all nullable fields. | 🟡 M | `dashboard/src/components/dashboard/TokenDetailSidebar.tsx` |
+| TDS-6 | ✅ FEAT | **[TDS-6]** Wired `TokenDetailSidebar` into `TokenPerformanceTab.tsx`. Added `selectedToken` + `sidebarOpen` state. TableRow made clickable with `cursor-pointer`; `tokenAddress` cell gets `e.stopPropagation()` to prevent TokenBadge button conflict. Sidebar mounted outside `<Card>`. | 🟢 S | `dashboard/src/components/dashboard/TokenPerformanceTab.tsx` |
+
+**Key deviations from plan:**
+- Activity logging omitted on TDS-3 endpoint — consistent with `getExitTimingTokens` and `getWalletClassification` patterns in the same controller; lighter endpoints skip logging.
+- SWR key uses array `[url]` + `([url]) => fetcher(url)` — matches `ReviewerLogTab.tsx` pattern in this codebase (not bare string key).
+
+**Verification:** Both `npx tsc --noEmit` (backend + dashboard) pass with zero errors after all 6 tasks.
+
+---
+
+### April 22, 2026 — Token Detail Sidebar: Full Planning Pass
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| TDS-0 | 📌 PLAN | **[TOKEN-DETAIL-SIDEBAR]** Full-stack planning pass for click-to-detail token trade drawer on Token Performance table. Two investigation sweeps + hostile review corrected 8 wrong assumptions from initial pass. Final plan is dispatch-ready with zero open ambiguities. Spec: `.ai/context/TOKEN_DETAIL_SIDEBAR_PLAN_2026-04-22.md` | 🟡 M | `prisma/schema.prisma`, `src/core/services/database-service.ts`, `src/api/controllers/wallets.controller.ts`, `src/api/shared/dto/token-trade-history.dto.ts`, `dashboard/src/components/dashboard/TokenDetailSidebar.tsx`, `dashboard/src/components/dashboard/TokenPerformanceTab.tsx`, `dashboard/src/types/api.ts` |
+
+**Key decisions & confirmed facts:**
+- Data split: summary stats come from `TokenPerformanceDataDto` already in table memory (no re-fetch); only trade history + mcap aggregates require the new endpoint.
+- New endpoint: `GET /api/v1/wallets/:walletAddress/token-trades/:tokenAddress` — runs two indexed queries (`SwapAnalysisInput` by `mint`, `AnalysisResult` by `tokenAddress`) and returns both in one response.
+- **`SwapAnalysisInput` uses `mint` field, `AnalysisResult` uses `tokenAddress`** — same value, different column names. Conflating them returns zero rows silently.
+- `avgEntryMcap`, `avgExitMcap`, and mcap percentile fields exist in DB but are NOT in the current `TokenPerformanceDataDto` — must come from new endpoint.
+- No `Sheet` component in project. `DialogContent` wrapper cannot be repositioned via Tailwind overrides (center-position classes baked into `cn()` base). Use `DialogPrimitive.Content` directly from `@radix-ui/react-dialog` + `DialogPortal` + `DialogOverlay` from `dialog.tsx`.
+- `marketCapUsd`, `tokenPriceUsd`, `solPriceUsd` on `SwapAnalysisInput` are nullable in practice — enrichment is async and may never complete for old txs. All UI cells must show "—" for null.
+- `transferCountIn`/`Out` are NOT pure buy/sell counts — include airdrops and wallet transfers. Label as "Receives"/"Sends" or derive true buy/sell count from `direction` field in trade history rows.
+- Holding duration for open positions (`currentUiBalance > 0`): use `Date.now()` as end, not `lastTransferTimestamp`.
+- `DialogContent` auto-injects a close `<X>` button — using it directly would duplicate our custom header close. Compose from primitives to avoid this.
+- `DatabaseService` already injected in `WalletsController` — no module changes needed.
+- `ScrollArea` confirmed at `dashboard/src/components/ui/scroll-area.tsx`.
+
+---
 
 ### April 4, 2026 — sova-intel-mcp Published
 
