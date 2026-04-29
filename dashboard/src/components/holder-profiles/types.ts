@@ -43,7 +43,8 @@ export interface HolderProfile {
   knownType?: KnownWalletType;          // BURN, LP, JUPITER, RAYDIUM, etc.
   knownLabel?: string;                  // Display label (e.g., "🔥 Burn Address")
   analysisSkipped?: boolean;            // true when wallet is known non-trader
-  // Smart fallback metrics (typical → realized → current)
+  // Completed-cycle metrics with current-holding fallback only when no exits exist.
+  // Mixed realized/current timing is exposed separately via typicalHoldTime*.
   medianHoldTimeHours: number | null;
   avgHoldTimeHours: number | null;
   dailyFlipRatio: number | null;

@@ -2457,12 +2457,10 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       });
 
       const medianHoldTimeHours =
-        typicalHoldTime.median ??
         realizedMedianHoldTimeHours ??
         currentHoldMedianHours ??
         null;
       const avgHoldTimeHours =
-        typicalHoldTime.average ??
         realizedAverageHoldTimeHours ??
         currentHoldAverageHours ??
         null;
