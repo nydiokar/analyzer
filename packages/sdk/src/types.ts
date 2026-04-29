@@ -237,10 +237,16 @@ export interface DeepJobAcceptedResponse {
 export interface SimilarityPairResult {
   walletA: string;
   walletB: string;
+  /** Combined score: binaryScore * 0.6 + capitalScore * 0.4 */
+  similarityScore: number;
   /** Jaccard (binary token overlap) similarity score */
   binaryScore: number;
   /** Capital-weighted similarity score */
   capitalScore: number;
+  /** Fraction of walletA's binary token portfolio shared with walletB */
+  overlapPctA: number;
+  /** Fraction of walletB's binary token portfolio shared with walletA */
+  overlapPctB: number;
   sharedTokens: { mint: string }[];
   capitalAllocation: Record<string, { weightA: number; weightB: number }>;
   binarySharedTokenCount: number;

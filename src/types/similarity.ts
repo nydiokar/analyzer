@@ -60,8 +60,11 @@ export interface GlobalMetrics {
 export interface CombinedPairwiseSimilarity {
     walletA: string;
     walletB: string;
+    similarityScore: number;
     binaryScore: number;
     capitalScore: number;
+    overlapPctA: number;
+    overlapPctB: number;
     sharedTokens: { mint: string }[];
     capitalAllocation: Record<string, { weightA: number; weightB: number }>;
     

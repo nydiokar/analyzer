@@ -14,10 +14,10 @@ function makeSingleSimilarityResult(vectorType: 'binary' | 'capital') {
         walletA,
         walletB,
         similarityScore: vectorType === 'binary' ? 0.5 : 0.7,
-        sharedTokens: [], // OK; API reduces over this for capitalAllocation.
-        sharedTokenCount: 0,
-        uniqueTokenCountA: 1,
-        uniqueTokenCountB: 1,
+        sharedTokens: [{ mint: 'M_SHARED', weightA: 1, weightB: 1 }],
+        sharedTokenCount: 1,
+        uniqueTokenCountA: 4,
+        uniqueTokenCountB: 2,
       },
     ],
     clusters: [],
@@ -98,6 +98,21 @@ describe('SimilarityApiService.runAnalysis', () => {
     assert.deepEqual(calls, ['binary', 'capital']);
     assert.equal(res.vectorTypeUsed, 'combined');
     assert.ok(Array.isArray(res.pairwiseSimilarities));
+    assert.equal(res.pairwiseSimilarities[0]?.similarityScore, 0.58);
+    assert.equal(res.pairwiseSimilarities[0]?.overlapPctA, 0.25);
+    assert.equal(res.pairwiseSimilarities[0]?.overlapPctB, 0.5);
+    assert.equal(res.globalMetrics.averageSimilarity, 0.58);
+    assert.deepEqual(res.globalMetrics.mostSimilarPairs, [
+      {
+        walletA: walletAddresses[0],
+        walletB: walletAddresses[1],
+        similarityScore: 0.58,
+        sharedTokens: [],
+        sharedTokenCount: 1,
+        uniqueTokenCountA: 4,
+        uniqueTokenCountB: 2,
+      },
+    ]);
   });
 
   it('throws if fewer than 2 wallets have transaction data after filters', async () => {
@@ -128,4 +143,3 @@ describe('SimilarityApiService.runAnalysis', () => {
     );
   });
 });
-

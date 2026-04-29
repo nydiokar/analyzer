@@ -10,8 +10,11 @@ function makeResult(overrides: Partial<CombinedSimilarityResult['pairwiseSimilar
       {
         walletA: 'So8fSnLT',
         walletB: 'ACp9B9',
+        similarityScore: 0.083,
         binaryScore: 0.083,
         capitalScore: 0.083,
+        overlapPctA: 0.051,
+        overlapPctB: 0.036,
         sharedTokens: [],
         capitalAllocation: {},
         binarySharedTokenCount: 38,

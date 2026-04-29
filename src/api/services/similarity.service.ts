@@ -12,6 +12,18 @@ import { getKnownWallet } from '../../config/known-wallets';
 
 const logger = createLogger('SimilarityApiService');
 
+function roundSimilarityScore(value: number): number {
+    return Math.round(value * 1000) / 1000;
+}
+
+function calculateCombinedSimilarityScore(binaryScore: number, capitalScore: number): number {
+    return roundSimilarityScore(binaryScore * 0.6 + capitalScore * 0.4);
+}
+
+function calculateOverlapPct(sharedTokenCount: number, tokenCount: number): number {
+    return tokenCount > 0 ? roundSimilarityScore(sharedTokenCount / tokenCount) : 0;
+}
+
 @Injectable()
 export class SimilarityApiService {
     private readonly logger = new Logger(SimilarityApiService.name);
@@ -127,37 +139,65 @@ export class SimilarityApiService {
                 }
             }
 
+            const pairwiseSimilarities = binaryResults.pairwiseSimilarities.map(binaryPair => {
+                const capitalPair = capitalResults.pairwiseSimilarities.find(p =>
+                    (p.walletA === binaryPair.walletA && p.walletB === binaryPair.walletB) ||
+                    (p.walletA === binaryPair.walletB && p.walletB === binaryPair.walletA)
+                );
+
+                const binaryScore = binaryPair.similarityScore;
+                const capitalScore = capitalPair?.similarityScore || 0;
+                const similarityScore = calculateCombinedSimilarityScore(binaryScore, capitalScore);
+                const capitalAllocation = capitalPair?.sharedTokens.reduce((acc, token) => {
+                    acc[token.mint] = { weightA: token.weightA, weightB: token.weightB };
+                    return acc;
+                }, {} as Record<string, { weightA: number; weightB: number }>);
+
+                return {
+                    walletA: binaryPair.walletA,
+                    walletB: binaryPair.walletB,
+                    similarityScore,
+                    binaryScore,
+                    capitalScore,
+                    overlapPctA: calculateOverlapPct(binaryPair.sharedTokenCount, binaryPair.uniqueTokenCountA),
+                    overlapPctB: calculateOverlapPct(binaryPair.sharedTokenCount, binaryPair.uniqueTokenCountB),
+                    sharedTokens: binaryPair.sharedTokens.map(t => ({ mint: t.mint })),
+                    capitalAllocation: capitalAllocation || {},
+
+                    binarySharedTokenCount: binaryPair.sharedTokenCount,
+                    binaryUniqueTokenCountA: binaryPair.uniqueTokenCountA,
+                    binaryUniqueTokenCountB: binaryPair.uniqueTokenCountB,
+
+                    capitalSharedTokenCount: capitalPair?.sharedTokenCount || 0,
+                    capitalUniqueTokenCountA: capitalPair?.uniqueTokenCountA || 0,
+                    capitalUniqueTokenCountB: capitalPair?.uniqueTokenCountB || 0,
+                };
+            });
+            const averageSimilarity = pairwiseSimilarities.length > 0
+                ? roundSimilarityScore(
+                    pairwiseSimilarities.reduce((sum, pair) => sum + pair.similarityScore, 0) / pairwiseSimilarities.length,
+                )
+                : 0;
+            const mostSimilarPairs = [...pairwiseSimilarities]
+                .sort((a, b) => b.similarityScore - a.similarityScore)
+                .slice(0, 5)
+                .map(pair => ({
+                    walletA: pair.walletA,
+                    walletB: pair.walletB,
+                    similarityScore: pair.similarityScore,
+                    sharedTokens: [],
+                    sharedTokenCount: pair.binarySharedTokenCount,
+                    uniqueTokenCountA: pair.binaryUniqueTokenCountA,
+                    uniqueTokenCountB: pair.binaryUniqueTokenCountB,
+                }));
+
             const combinedResults: CombinedSimilarityResult = {
                 vectorTypeUsed: 'combined',
-                pairwiseSimilarities: binaryResults.pairwiseSimilarities.map(binaryPair => {
-                    const capitalPair = capitalResults.pairwiseSimilarities.find(p =>
-                        (p.walletA === binaryPair.walletA && p.walletB === binaryPair.walletB) ||
-                        (p.walletA === binaryPair.walletB && p.walletB === binaryPair.walletA)
-                    );
-
-                    const capitalAllocation = capitalPair?.sharedTokens.reduce((acc, token) => {
-                        acc[token.mint] = { weightA: token.weightA, weightB: token.weightB };
-                        return acc;
-                    }, {} as Record<string, { weightA: number; weightB: number }>);
-
-                    return {
-                        walletA: binaryPair.walletA,
-                        walletB: binaryPair.walletB,
-                        binaryScore: binaryPair.similarityScore,
-                        capitalScore: capitalPair?.similarityScore || 0,
-                        sharedTokens: binaryPair.sharedTokens.map(t => ({ mint: t.mint })),
-                        capitalAllocation: capitalAllocation || {},
-
-                        binarySharedTokenCount: binaryPair.sharedTokenCount,
-                        binaryUniqueTokenCountA: binaryPair.uniqueTokenCountA,
-                        binaryUniqueTokenCountB: binaryPair.uniqueTokenCountB,
-
-                        capitalSharedTokenCount: capitalPair?.sharedTokenCount || 0,
-                        capitalUniqueTokenCountA: capitalPair?.uniqueTokenCountA || 0,
-                        capitalUniqueTokenCountB: capitalPair?.uniqueTokenCountB || 0,
-                    };
-                }),
-                globalMetrics: binaryResults.globalMetrics,
+                pairwiseSimilarities,
+                globalMetrics: {
+                    averageSimilarity,
+                    mostSimilarPairs,
+                },
                 uniqueTokensPerWallet: combinedUniqueTokens,
                 sharedTokenCountsMatrix: capitalResults.sharedTokenCountsMatrix,
                 jaccardSimilarityMatrix: capitalResults.jaccardSimilarityMatrix,

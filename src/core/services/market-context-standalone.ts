@@ -169,7 +169,40 @@ function dateDiffDays(dateA: string, dateB: string): number {
 // ---------------------------------------------------------------------------
 
 async function fetchSolPriceAtTimestamp(unixTimestamp: number): Promise<number | null> {
-  // Primary: DeFiLlama historical prices
+  const dateKey = timestampToDateKey(unixTimestamp);
+  const todayKey = timestampToDateKey(Math.floor(Date.now() / 1000));
+
+  // For today or future: historical APIs return 400. Use current-price endpoints instead.
+  if (dateKey >= todayKey) {
+    try {
+      const res = await fetch(`${DEFILLAMA_BASE}/prices/current/coingecko:solana`);
+      if (res.ok) {
+        const data = await res.json() as { coins?: Record<string, { price?: number }> };
+        const price = data.coins?.['coingecko:solana']?.price ?? null;
+        if (price !== null && price > 0) return price;
+      }
+    } catch (err) {
+      console.warn(`[SOL] DeFiLlama current-price error:`, err);
+    }
+
+    try {
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+      if (res.ok) {
+        const data = await res.json() as { solana?: { usd?: number } };
+        const price = data.solana?.usd ?? null;
+        if (price !== null && price > 0) {
+          console.log(`[SOL] CoinGecko live price for ${dateKey}: $${price.toFixed(2)}`);
+          return price;
+        }
+      }
+    } catch (err) {
+      console.warn(`[SOL] CoinGecko live-price error:`, err);
+    }
+
+    return null;
+  }
+
+  // Past dates: DeFiLlama historical, then CoinGecko historical as fallback
   try {
     const url = `${DEFILLAMA_BASE}/prices/historical/${unixTimestamp}/coingecko:solana`;
     const res = await fetch(url);
@@ -178,13 +211,12 @@ async function fetchSolPriceAtTimestamp(unixTimestamp: number): Promise<number |
       const price = data.coins?.['coingecko:solana']?.price ?? null;
       if (price !== null && price > 0) return price;
     } else {
-      console.warn(`[SOL] DeFiLlama returned ${res.status} for timestamp ${unixTimestamp}`);
+      console.warn(`[SOL] DeFiLlama returned ${res.status} for ${dateKey}`);
     }
   } catch (err) {
-    console.warn(`[SOL] DeFiLlama fetch error for timestamp ${unixTimestamp}:`, err);
+    console.warn(`[SOL] DeFiLlama fetch error for ${dateKey}:`, err);
   }
 
-  // Fallback: CoinGecko historical price endpoint
   try {
     const d = new Date(unixTimestamp * 1000);
     const dd = String(d.getUTCDate()).padStart(2, '0');
@@ -197,14 +229,14 @@ async function fetchSolPriceAtTimestamp(unixTimestamp: number): Promise<number |
       const data = await res.json() as { market_data?: { current_price?: { usd?: number } } };
       const price = data.market_data?.current_price?.usd ?? null;
       if (price !== null && price > 0) {
-        console.log(`[SOL] CoinGecko fallback for ${dateStr}: $${price.toFixed(2)}`);
+        console.log(`[SOL] CoinGecko historical fallback for ${dateStr}: $${price.toFixed(2)}`);
         return price;
       }
     } else {
       console.warn(`[SOL] CoinGecko returned ${res.status} for date ${dateStr}`);
     }
   } catch (err) {
-    console.warn(`[SOL] CoinGecko fallback error for timestamp ${unixTimestamp}:`, err);
+    console.warn(`[SOL] CoinGecko historical error for ${dateKey}:`, err);
   }
 
   return null;
