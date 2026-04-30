@@ -1594,7 +1594,9 @@ Returns:
     sections.push('timestamp_iso,token_symbol,token_address,type,amount,sol_value,usd_value,price_usd,mcap_usd,fee_sol,tx_hash');
     for (const { mint, row } of allTrades) {
       const sym = symbolMap.get(mint) ?? mint.slice(0, 8);
-      const type = row.direction === 'in' ? 'buy' : 'sell';
+      const type = row.interactionType === 'TRANSFER'
+        ? (row.direction === 'in' ? 'transfer-in' : 'transfer-out')
+        : (row.direction === 'in' ? 'buy' : 'sell');
       const ts = new Date(row.timestamp * 1000).toISOString();
       const usdValue = row.usdValue != null ? row.usdValue.toFixed(4) : '';
       const priceUsd = row.tokenPriceUsd != null ? row.tokenPriceUsd.toFixed(8) : '';
