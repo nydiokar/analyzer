@@ -13,6 +13,7 @@ function makeSwapInput(params: {
   direction: 'in' | 'out';
   amount: number;
   associatedSolValue: number;
+  interactionType?: string;
 }): SwapAnalysisInput {
   return {
     id: 0,
@@ -24,7 +25,7 @@ function makeSwapInput(params: {
     direction: params.direction,
     associatedSolValue: params.associatedSolValue,
     associatedUsdcValue: null,
-    interactionType: 'SWAP',
+    interactionType: params.interactionType ?? 'SWAP',
     feeAmount: 0,
     feePercentage: null,
     solPriceUsd: null,
@@ -62,12 +63,12 @@ describe('PnL FIFO regression – partial sells', () => {
     );
   });
 
-  it('SwapAnalyzer should treat transfer-out as zero-proceeds disposal', () => {
+  it('SwapAnalyzer should not realize transfer-out as zero-proceeds disposal', () => {
     const analyzer = new SwapAnalyzer();
 
     const inputs: SwapAnalysisInput[] = [
       makeSwapInput({ signature: 'sig-1', timestamp: 1, direction: 'in', amount: 100, associatedSolValue: 100 }),
-      makeSwapInput({ signature: 'sig-2', timestamp: 2, direction: 'out', amount: 100, associatedSolValue: 0 }),
+      makeSwapInput({ signature: 'sig-2', timestamp: 2, direction: 'out', amount: 100, associatedSolValue: 0, interactionType: 'TRANSFER' }),
     ];
 
     const { results } = analyzer.analyze(inputs, WALLET);
@@ -77,8 +78,37 @@ describe('PnL FIFO regression – partial sells', () => {
     const netPnl = result!.netSolProfitLoss;
     assert.ok(netPnl !== null && netPnl !== undefined, 'Expected non-null netSolProfitLoss');
     assert.ok(
-      approxEqual(netPnl, -100),
-      `Expected transfer-out PnL of -100 SOL, got ${netPnl}`,
+      approxEqual(netPnl, 0),
+      `Expected transfer-out not to realize PnL, got ${netPnl}`,
+    );
+    assert.ok(
+      approxEqual(result!.totalSolReceived, 0),
+      `Expected transfer-out not to count as sale proceeds, got ${result!.totalSolReceived}`,
+    );
+  });
+
+  it('SwapAnalyzer should keep later swap sells matched when bare transfers happened first', () => {
+    const analyzer = new SwapAnalyzer();
+
+    const inputs: SwapAnalysisInput[] = [
+      makeSwapInput({ signature: 'sig-1', timestamp: 1, direction: 'in', amount: 100, associatedSolValue: 10 }),
+      makeSwapInput({ signature: 'sig-2', timestamp: 2, direction: 'out', amount: 100, associatedSolValue: 0, interactionType: 'TRANSFER' }),
+      makeSwapInput({ signature: 'sig-3', timestamp: 3, direction: 'in', amount: 10, associatedSolValue: 1 }),
+      makeSwapInput({ signature: 'sig-4', timestamp: 4, direction: 'out', amount: 10, associatedSolValue: 5 }),
+    ];
+
+    const { results } = analyzer.analyze(inputs, WALLET);
+    const result = results.find(r => r.tokenAddress === TOKEN_MINT);
+
+    assert.ok(result, 'Expected analysis result for test token');
+    assert.strictEqual(result!.hasIncompleteHistory, false);
+    assert.ok(
+      approxEqual(result!.realizedPnlSol ?? 0, 4),
+      `Expected later swap sell to realize 4 SOL, got ${result!.realizedPnlSol}`,
+    );
+    assert.ok(
+      approxEqual(result!.totalSolReceived, 5),
+      `Expected only swap proceeds to count as received SOL, got ${result!.totalSolReceived}`,
     );
   });
 

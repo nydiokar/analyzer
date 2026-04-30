@@ -24,6 +24,13 @@ export interface FifoSwapInput {
   interactionType?: string;
 }
 
+export function isEconomicTradeInput(input: Pick<FifoSwapInput, 'interactionType'>): boolean {
+  const interactionType = input.interactionType?.toUpperCase() ?? '';
+  return interactionType !== 'TRANSFER' &&
+    interactionType !== 'CREATE_ORDER' &&
+    interactionType !== 'CANCEL_ORDER';
+}
+
 function sortSwapInputs(inputs: FifoSwapInput[]): FifoSwapInput[] {
   return [...inputs].sort((a, b) => {
     if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
@@ -44,7 +51,6 @@ export function buildFifoLotsForToken(
 
   const ordered = sortSwapInputs(inputs);
 
-  // FIFO treats transfers with no associated value as non-economic (zero cost basis).
   const VALUE_EPSILON = 1e-9;
 
   // Tolerance configuration for FIFO completion detection
@@ -70,8 +76,6 @@ export function buildFifoLotsForToken(
     } else {
       effectiveSolValue = 0;
     }
-    const isNonEconomicTransfer = effectiveSolValue <= VALUE_EPSILON;
-
     if (input.direction === 'in') {
       lots.push({
         amountBought: normalizedAmount,
@@ -80,6 +84,10 @@ export function buildFifoLotsForToken(
         purchaseTimestamp: input.timestamp,
         sourceSignature: input.signature,
       });
+      continue;
+    }
+
+    if (!isEconomicTradeInput(input) || effectiveSolValue <= VALUE_EPSILON) {
       continue;
     }
 

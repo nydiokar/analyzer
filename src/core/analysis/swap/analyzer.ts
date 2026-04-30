@@ -1,7 +1,7 @@
 import { createLogger } from 'core/utils/logger';
 import { OnChainAnalysisResult } from '@/types/helius-api';
 import { SwapAnalysisInput } from '@prisma/client';
-import { buildFifoLotsForToken, FifoLot } from './fifo-lot-tracker';
+import { buildFifoLotsForToken, FifoLot, isEconomicTradeInput } from './fifo-lot-tracker';
 
 // Logger instance for this module
 const logger = createLogger('SwapAnalyzer');
@@ -113,6 +113,7 @@ export class SwapAnalyzer {
         }
         const currentFeeAmount = input.feeAmount || 0;
         const tokenAmount = Math.abs(input.amount || 0);
+        const isEconomicTrade = isEconomicTradeInput(input);
 
         const hasEconomicValue = Math.abs(input.associatedSolValue || 0) > 0 ||
             Math.abs(input.associatedUsdcValue ?? 0) > 0;
@@ -138,10 +139,12 @@ export class SwapAnalyzer {
         if (input.direction === 'in') {
             currentAnalysis.totalAmountIn! += tokenAmount; 
             currentAnalysis.transferCountIn!++;
-            currentAnalysis.totalSolSpent! += solValueToConsider; // Gross SOL spent
-            currentAnalysis.totalFeesPaidInSol! += currentFeeAmount; 
+            if (isEconomicTrade) {
+                currentAnalysis.totalSolSpent! += solValueToConsider; // Gross SOL spent
+                currentAnalysis.totalFeesPaidInSol! += currentFeeAmount;
+            }
             
-            if (isStablecoin) {
+            if (isStablecoin && isEconomicTrade) {
                 const flow = stablecoinFlows.get(splMint)!;
                 flow.totalSolSpent += solValueToConsider;
                 flow.totalAmountIn += tokenAmount;
@@ -150,10 +153,12 @@ export class SwapAnalyzer {
         } else { // direction === 'out'
             currentAnalysis.totalAmountOut! += tokenAmount; 
             currentAnalysis.transferCountOut!++;
-            currentAnalysis.totalSolReceived! += solValueToConsider; // Gross SOL received
-            currentAnalysis.totalFeesPaidInSol! += currentFeeAmount; 
+            if (isEconomicTrade) {
+                currentAnalysis.totalSolReceived! += solValueToConsider; // Gross SOL received
+                currentAnalysis.totalFeesPaidInSol! += currentFeeAmount;
+            }
             
-            if (isStablecoin) {
+            if (isStablecoin && isEconomicTrade) {
                 const flow = stablecoinFlows.get(splMint)!;
                 flow.totalSolReceived += solValueToConsider;
                 flow.totalAmountOut += tokenAmount;
