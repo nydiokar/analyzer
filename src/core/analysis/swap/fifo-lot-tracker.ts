@@ -76,6 +76,11 @@ export function buildFifoLotsForToken(
     } else {
       effectiveSolValue = 0;
     }
+
+    if (!isEconomicTradeInput(input)) {
+      continue;
+    }
+
     if (input.direction === 'in') {
       lots.push({
         amountBought: normalizedAmount,
@@ -87,7 +92,8 @@ export function buildFifoLotsForToken(
       continue;
     }
 
-    if (!isEconomicTradeInput(input) || effectiveSolValue <= VALUE_EPSILON) {
+    if (effectiveSolValue <= VALUE_EPSILON) {
+      hasIncompleteHistory = true;
       continue;
     }
 

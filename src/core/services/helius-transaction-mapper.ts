@@ -1541,10 +1541,16 @@ export function mapHeliusTransactionsToIntermediateRecords(
              }
           } // End of burn/fee heuristic check
 
-            // Non-economic order placement/cancel should not carry economic value.
-            if (interactionType === 'CREATE_ORDER' || interactionType === 'CANCEL_ORDER') {
+            // Non-economic token movements should not carry economic value.
+            if (
+                (interactionType === 'TRANSFER' && !hasLiquidityProgramInteraction(tx)) ||
+                interactionType === 'CREATE_ORDER' ||
+                interactionType === 'CANCEL_ORDER'
+            ) {
                 associatedSolValue = 0;
                 associatedUsdcValue = 0;
+                associatedSolValueSource = 'none';
+                associatedUsdcValueSource = 'none';
             }
 
             // Duplicate value-assignment guard (actual enforcement)

@@ -1978,8 +1978,22 @@ export class DatabaseService {
         // Get all distinct signatures from the input batch
         const distinctInputSignatures = Array.from(new Set(inputs.map(i => i.signature)));
 
+        type ExistingSwapAnalysisInputEntry = {
+            id: number;
+            signature: string;
+            mint: string;
+            direction: string;
+            amount: number;
+            timestamp: number;
+            associatedSolValue: number;
+            associatedUsdcValue: number | null;
+            interactionType: string;
+            feeAmount: number | null;
+            feePercentage: number | null;
+        };
+
         // Declare existingDbEntries here to be accessible in the later loop
-        let existingDbEntries: { signature: string; mint: string; direction: string; amount: number; }[] = [];
+        let existingDbEntries: ExistingSwapAnalysisInputEntry[] = [];
 
         if (distinctInputSignatures.length > 0) {
             // this.logger.debug(`[DB] Distinct signatures for findMany: ${JSON.stringify(distinctInputSignatures.slice(0, 5))}${distinctInputSignatures.length > 5 ? '...' : ''}`);
@@ -1989,11 +2003,18 @@ export class DatabaseService {
                 where: {
                     signature: { in: distinctInputSignatures }
                 },
-                select: { // Select only the fields part of the unique constraint
+                select: {
+                    id: true,
                     signature: true,
                     mint: true,
                     direction: true,
-                    amount: true
+                    amount: true,
+                    timestamp: true,
+                    associatedSolValue: true,
+                    associatedUsdcValue: true,
+                    interactionType: true,
+                    feeAmount: true,
+                    feePercentage: true,
                 }
             });
 
@@ -2012,33 +2033,96 @@ export class DatabaseService {
         //    - Duplicates already in the DB
         //    - Duplicates within the incoming batch itself
         const uniqueNewRecordsToInsert: Prisma.SwapAnalysisInputCreateInput[] = [];
+        const existingRecordsToUpdate: Array<{
+            id: number;
+            data: Prisma.SwapAnalysisInputUpdateInput;
+        }> = [];
         // Map to track records being added in *this batch* to avoid intra-batch duplicates
         const batchRecordTracker = new Map<string, Set<string>>();
+        const existingRecordBySignatureAndKey = new Map<string, ExistingSwapAnalysisInputEntry>();
+        for (const entry of existingDbEntries) {
+            const key = `${entry.signature}-${entry.mint.toLowerCase()}-${entry.direction.toLowerCase()}-${entry.amount.toFixed(9)}`;
+            existingRecordBySignatureAndKey.set(key, entry);
+        }
+
+        const nullableNumbersEqual = (a: number | null | undefined, b: number | null | undefined): boolean => {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            return Math.abs(a - b) <= 1e-12;
+        };
 
         for (const record of inputs) {
+            const sanitizedRecord = sanitizePrismaInput(record);
             // Standardize amount for key generation
-            const recordKey = `${record.mint.toLowerCase()}-${record.direction.toLowerCase()}-${record.amount.toFixed(9)}`;
+            const recordKey = `${sanitizedRecord.mint.toLowerCase()}-${sanitizedRecord.direction.toLowerCase()}-${sanitizedRecord.amount.toFixed(9)}`;
+            const existingRecordLookupKey = `${sanitizedRecord.signature}-${recordKey}`;
+            const existingRecord = existingRecordBySignatureAndKey.get(existingRecordLookupKey);
 
             // Check if this exact record (sig + key) exists in DB
-            if (existingRecordsDetails.has(record.signature) && existingRecordsDetails.get(record.signature)!.has(recordKey)) {
+            if (existingRecordsDetails.has(sanitizedRecord.signature) && existingRecordsDetails.get(sanitizedRecord.signature)!.has(recordKey)) {
+                if (existingRecord) {
+                    const associatedUsdcValue = sanitizedRecord.associatedUsdcValue ?? null;
+                    const feeAmount = sanitizedRecord.feeAmount ?? null;
+                    const feePercentage = sanitizedRecord.feePercentage ?? null;
+                    const hasMappedFieldChange =
+                        existingRecord.timestamp !== sanitizedRecord.timestamp ||
+                        !nullableNumbersEqual(existingRecord.associatedSolValue, sanitizedRecord.associatedSolValue) ||
+                        !nullableNumbersEqual(existingRecord.associatedUsdcValue, associatedUsdcValue) ||
+                        existingRecord.interactionType !== sanitizedRecord.interactionType ||
+                        !nullableNumbersEqual(existingRecord.feeAmount, feeAmount) ||
+                        !nullableNumbersEqual(existingRecord.feePercentage, feePercentage);
+
+                    if (hasMappedFieldChange) {
+                        existingRecordsToUpdate.push({
+                            id: existingRecord.id,
+                            data: {
+                                timestamp: sanitizedRecord.timestamp,
+                                associatedSolValue: sanitizedRecord.associatedSolValue,
+                                associatedUsdcValue,
+                                interactionType: sanitizedRecord.interactionType,
+                                feeAmount,
+                                feePercentage,
+                                solPriceUsd: null,
+                                usdValue: null,
+                                tokenPriceUsd: null,
+                                marketCapUsd: null,
+                                mcapBucket: null,
+                                enrichedAt: null,
+                            },
+                        });
+                    }
+                }
                 continue; // Already in DB
             }
 
             // Check if this exact record (sig + key) is already added in this current batch
-            if (batchRecordTracker.has(record.signature) && batchRecordTracker.get(record.signature)!.has(recordKey)) {
+            if (batchRecordTracker.has(sanitizedRecord.signature) && batchRecordTracker.get(sanitizedRecord.signature)!.has(recordKey)) {
                 // this.logger.warn(`[DB] Duplicate SwapAnalysisInput within incoming batch (sig: ${record.signature}, key: ${recordKey}). Skipping.`);
                 continue; // Duplicate within this batch
             }
 
-            // Sanitize record to remove null bytes and invalid UTF-8 characters
-            const sanitizedRecord = sanitizePrismaInput(record);
-
             // If not a duplicate, add to list and track it for this batch
             uniqueNewRecordsToInsert.push(sanitizedRecord);
-            if (!batchRecordTracker.has(record.signature)) {
-                batchRecordTracker.set(record.signature, new Set<string>());
+            if (!batchRecordTracker.has(sanitizedRecord.signature)) {
+                batchRecordTracker.set(sanitizedRecord.signature, new Set<string>());
             }
-            batchRecordTracker.get(record.signature)!.add(recordKey);
+            batchRecordTracker.get(sanitizedRecord.signature)!.add(recordKey);
+        }
+
+        if (existingRecordsToUpdate.length > 0) {
+            const updateChunkSize = 500;
+            for (let i = 0; i < existingRecordsToUpdate.length; i += updateChunkSize) {
+                const updateChunk = existingRecordsToUpdate.slice(i, i + updateChunkSize);
+                await this.prismaClient.$transaction(
+                    updateChunk.map(({ id, data }) =>
+                        this.prismaClient.swapAnalysisInput.update({
+                            where: { id },
+                            data,
+                        }),
+                    ),
+                );
+            }
+            this.logger.debug(`[DB] Updated ${existingRecordsToUpdate.length} existing SwapAnalysisInput records with changed mapper output.`);
         }
         
         // this.logger.debug(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
@@ -2059,7 +2143,7 @@ export class DatabaseService {
                 if (result.count >= 100) {
                     this.logger.debug(`[DB] createMany successful. Inserted ${result.count} records.`);
                 }
-                return result;
+                return { count: result.count + existingRecordsToUpdate.length };
             } catch (error) {
                 // The fallback path: if the batch fails due to a unique constraint violation...
                 if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -2082,7 +2166,7 @@ export class DatabaseService {
                         }
                     }
                     this.logger.debug(`[DB] Iterative fallback complete. Successfully inserted: ${successfulInserts}, Skipped duplicates: ${skippedDuplicatesCount}`);
-                    return { count: successfulInserts };
+                    return { count: successfulInserts + existingRecordsToUpdate.length };
 
                 } else {
                     // If it's a different kind of error, we should log it and re-throw it.
@@ -2093,7 +2177,7 @@ export class DatabaseService {
 
         } else {
             this.logger.debug('[DB] No unique new SwapAnalysisInput records to add after filtering.');
-            return { count: 0 };
+            return { count: existingRecordsToUpdate.length };
         }
     }
 

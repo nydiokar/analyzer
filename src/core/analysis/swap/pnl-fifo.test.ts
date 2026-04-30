@@ -112,6 +112,29 @@ describe('PnL FIFO regression – partial sells', () => {
     );
   });
 
+  it('SwapAnalyzer should not treat transferred-in unknown basis as pure profit', () => {
+    const analyzer = new SwapAnalyzer();
+
+    const inputs: SwapAnalysisInput[] = [
+      makeSwapInput({ signature: 'sig-1', timestamp: 1, direction: 'in', amount: 100, associatedSolValue: 0, interactionType: 'TRANSFER' }),
+      makeSwapInput({ signature: 'sig-2', timestamp: 2, direction: 'out', amount: 100, associatedSolValue: 5 }),
+    ];
+
+    const { results } = analyzer.analyze(inputs, WALLET);
+    const result = results.find(r => r.tokenAddress === TOKEN_MINT);
+
+    assert.ok(result, 'Expected analysis result for test token');
+    assert.strictEqual(result!.hasIncompleteHistory, true);
+    assert.ok(
+      approxEqual(result!.realizedPnlSol ?? 0, 0),
+      `Expected unknown-basis sale not to realize fake profit, got ${result!.realizedPnlSol}`,
+    );
+    assert.ok(
+      approxEqual(result!.totalSolReceived, 5),
+      `Expected sale proceeds to remain visible in gross received SOL, got ${result!.totalSolReceived}`,
+    );
+  });
+
   it('PnlAnalysisService total PnL should match (received + holdings - spent) for partial exit', async () => {
     process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://user:pass@localhost:5432/db';
     const { PnlAnalysisService } = await import('../../services/pnl-analysis-service');
