@@ -142,35 +142,42 @@ function MetricItem({ label, children }: MetricItemProps) {
   );
 }
 
-function classifyTrade(direction: string, solValue: number): 'buy' | 'sell' | 'transfer' {
-  if (solValue <= 0) return 'transfer';
+function classifyTrade(interactionType: string, direction: string): 'buy' | 'sell' | 'transfer-in' | 'transfer-out' {
+  if (interactionType === 'TRANSFER') return direction === 'in' ? 'transfer-in' : 'transfer-out';
   return direction === 'in' ? 'buy' : 'sell';
 }
 
-function DirectionBadge({ kind }: { kind: 'buy' | 'sell' | 'transfer' }) {
+function DirectionBadge({ kind }: { kind: 'buy' | 'sell' | 'transfer-in' | 'transfer-out' }) {
   if (kind === 'buy') {
     return (
-      <Badge className="bg-green-500/15 text-green-500 border-green-500/30 text-xs px-2 py-0 w-16 justify-center">
+      <Badge className="bg-green-500/15 text-green-500 border-green-500/30 text-xs px-2 py-0 w-24 justify-center">
         Buy
       </Badge>
     );
   }
   if (kind === 'sell') {
     return (
-      <Badge className="bg-red-500/15 text-red-500 border-red-500/30 text-xs px-2 py-0 w-16 justify-center">
+      <Badge className="bg-red-500/15 text-red-500 border-red-500/30 text-xs px-2 py-0 w-24 justify-center">
         Sell
       </Badge>
     );
   }
+  if (kind === 'transfer-in') {
+    return (
+      <Badge variant="outline" className="text-blue-400 border-blue-400/40 text-xs px-2 py-0 w-24 justify-center">
+        Transfer In
+      </Badge>
+    );
+  }
   return (
-    <Badge variant="outline" className="text-muted-foreground text-xs px-2 py-0 w-16 justify-center">
-      Transfer
+    <Badge variant="outline" className="text-muted-foreground text-xs px-2 py-0 w-24 justify-center">
+      Transfer Out
     </Badge>
   );
 }
 
 function TradeRow({ trade }: { trade: TokenTradeItemDto }) {
-  const kind = classifyTrade(trade.direction, trade.associatedSolValue);
+  const kind = classifyTrade(trade.interactionType, trade.direction);
   const isBuy = kind === 'buy';
   const isSell = kind === 'sell';
   const solColorClass = isBuy ? 'text-green-500' : isSell ? 'text-red-500' : 'text-muted-foreground';
