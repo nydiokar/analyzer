@@ -8,32 +8,46 @@ import { EvmChain } from '../types/evm-api';
 async function main() {
   const walletAddress = process.argv[2];
   const chain = (process.argv[3] ?? 'ethereum') as EvmChain;
+  // How many receipts to enrich with full logs (for value extraction). Keep low on free tier.
+  const enrichLimit = parseInt(process.argv[4] ?? '20');
 
   if (!walletAddress) {
-    console.error('Usage: pnpm demo:evm-wallet <WALLET_ADDRESS> [ethereum|arbitrum|base]');
+    console.error('Usage: pnpm demo:evm-wallet <WALLET_ADDRESS> [ethereum|arbitrum|base] [enrichLimit=20]');
     process.exit(1);
   }
 
-  const alchemyApiKey = process.env.ALCHEMY_API_KEY;
-  if (!alchemyApiKey) {
+  if (!process.env.ALCHEMY_API_KEY) {
     console.error('ALCHEMY_API_KEY not set in .env');
     process.exit(1);
   }
 
-  const client = new EvmApiClient({ alchemyApiKey });
+  const client = new EvmApiClient({ alchemyApiKey: process.env.ALCHEMY_API_KEY });
 
+  // Step 1: Fetch recent transfers (2 RPC calls total regardless of wallet size)
   console.log(`\nFetching transfers for ${walletAddress} on ${chain}...`);
-  const transfers = await client.getTransfersForAddress(walletAddress, chain, { maxCount: 200 });
-  console.log(`  ${transfers.length} token transfer events found`);
+  const transfers = await client.getTransfersForAddress(walletAddress, chain, { maxCount: 100 });
+  console.log(`  ${transfers.length} transfer events`);
 
   const txHashes = client.extractTxHashes(transfers);
   console.log(`  ${txHashes.length} unique transactions`);
 
-  console.log(`\nFetching full tx data + logs...`);
-  const transactions = await client.getTransactionsWithLogs(txHashes, chain, 5);
-  console.log(`  ${transactions.length} transactions fetched`);
+  // Step 2: Build transactions from transfer data (no extra RPC calls)
+  let transactions = client.buildTransactionsFromTransfers(transfers, walletAddress);
+  transactions = transactions.map(tx => ({ ...tx, chain }));
 
-  console.log(`\nMapping to SwapAnalysisInput...`);
+  // Step 3: Enrich a limited number with full receipts (for DEX log parsing + value extraction)
+  // Only needed for accurate ETH value — 1 RPC call per tx, rate-limited
+  const toEnrich = transactions.slice(0, enrichLimit);
+  if (toEnrich.length > 0) {
+    console.log(`\nEnriching ${toEnrich.length} transactions with receipts (250ms delay each)...`);
+    const enriched = await client.enrichWithReceipts(toEnrich, chain, 250);
+    // Replace enriched txs in the full list
+    const enrichedMap = new Map(enriched.map(tx => [tx.hash, tx]));
+    transactions = transactions.map(tx => enrichedMap.get(tx.hash) ?? tx);
+  }
+
+  // Step 4: Map to SwapAnalysisInput records
+  console.log(`\nMapping ${transactions.length} transactions...`);
   const { records, stats } = mapEvmTransactionsToSwapInputs(transactions, walletAddress, chain);
 
   console.log(`
@@ -67,6 +81,7 @@ async function main() {
   ETH spent:    ${totalOut.toFixed(6)}
   Net:          ${(totalIn - totalOut).toFixed(6)}
   Tokens:       ${uniqueTokens}
+  (note: ETH values only filled for first ${enrichLimit} txs with full log enrichment)
 `);
 }
 

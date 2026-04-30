@@ -22,7 +22,8 @@ export interface FetchTransactionsOptions {
   maxCount?: number;
 }
 
-interface AlchemyTransferItem {
+// Alchemy alchemy_getAssetTransfers item — already contains transfer metadata
+export interface AlchemyTransferItem {
   blockNum: string;
   uniqueId: string;
   hash: string;
@@ -32,9 +33,9 @@ interface AlchemyTransferItem {
   asset: string | null;
   category: string;
   rawContract: {
-    value: string | null;
-    address: string | null;
-    decimal: string | null;
+    value: string | null;  // hex-encoded raw amount
+    address: string | null; // token contract address
+    decimal: string | null; // hex-encoded decimals
   };
   metadata?: { blockTimestamp?: string };
 }
@@ -45,21 +46,14 @@ interface AlchemyRpcResponse<T> {
   result: T;
 }
 
-// Alchemy alchemy_getTransactionReceipts returns receipts with logs per block
-interface AlchemyReceiptResult {
-  receipts: AlchemyReceipt[] | null;
-}
-
 interface AlchemyReceipt {
   transactionHash: string;
-  transactionIndex: string;
-  blockHash: string;
-  blockNumber: string;
   from: string;
   to: string | null;
   gasUsed: string;
   effectiveGasPrice: string;
   status: string;
+  blockNumber: string;
   logs: AlchemyLog[];
 }
 
@@ -71,6 +65,9 @@ interface AlchemyLog {
   transactionHash: string;
   blockNumber: string;
 }
+
+// Delay helper for rate limiting
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 @Injectable()
 export class EvmApiClient {
@@ -95,80 +92,67 @@ export class EvmApiClient {
     return client;
   }
 
-  private async rpcCall<T>(chain: EvmChain, method: string, params: unknown[]): Promise<T> {
+  private async rpcCall<T>(chain: EvmChain, method: string, params: unknown[], retries = 3): Promise<T> {
     const client = this.getClient(chain);
-    const response = await client.post<AlchemyRpcResponse<T>>('', {
-      jsonrpc: '2.0',
-      id: 1,
-      method,
-      params,
-    });
-    return response.data.result;
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const response = await client.post<AlchemyRpcResponse<T>>('', {
+          jsonrpc: '2.0',
+          id: 1,
+          method,
+          params,
+        });
+        return response.data.result;
+      } catch (err: any) {
+        if (err?.response?.status === 429) {
+          const wait = 1000 * 2 ** attempt; // 1s, 2s, 4s
+          logger.warn(`Rate limited, waiting ${wait}ms before retry ${attempt + 1}/${retries}`);
+          await sleep(wait);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`RPC call ${method} failed after ${retries} retries`);
   }
 
   /**
    * Fetch ERC-20 transfers for a wallet using alchemy_getAssetTransfers.
+   * The response already contains token address, amount, from, to — sufficient
+   * for building SwapAnalysisInput without additional per-tx RPC calls.
    */
   async getTransfersForAddress(
     walletAddress: string,
     chain: EvmChain,
     options: FetchTransactionsOptions = {},
   ): Promise<AlchemyTransferItem[]> {
-    const maxCount = options.maxCount ?? 1000;
+    const maxCount = options.maxCount ?? 100;
     const allTransfers: AlchemyTransferItem[] = [];
-    let pageKeyTo: string | undefined;
-    let pageKeyFrom: string | undefined;
-    let doneToFetch = false;
-    let doneFromFetch = false;
+    const seen = new Set<string>();
 
     const baseParams = {
-      fromBlock: options.fromBlock ? `0x${options.fromBlock.toString(16)}` : '0x0',
+      fromBlock: '0x0',
       toBlock: 'latest',
       category: ['erc20'],
       withMetadata: true,
-      maxCount: '0x3e8', // 1000
+      maxCount: `0x${Math.min(maxCount, 1000).toString(16)}`,
       order: 'desc',
     };
 
-    const seen = new Set<string>();
+    // Fetch incoming and outgoing in parallel
+    const [toResult, fromResult] = await Promise.all([
+      this.rpcCall<{ transfers: AlchemyTransferItem[]; pageKey?: string }>(
+        chain, 'alchemy_getAssetTransfers', [{ ...baseParams, toAddress: walletAddress }],
+      ),
+      this.rpcCall<{ transfers: AlchemyTransferItem[]; pageKey?: string }>(
+        chain, 'alchemy_getAssetTransfers', [{ ...baseParams, fromAddress: walletAddress }],
+      ),
+    ]);
 
-    while ((!doneToFetch || !doneFromFetch) && allTransfers.length < maxCount) {
-      const calls: Promise<{ transfers: AlchemyTransferItem[]; pageKey?: string }>[] = [];
-
-      if (!doneToFetch) {
-        calls.push(this.rpcCall(chain, 'alchemy_getAssetTransfers', [{
-          ...baseParams,
-          toAddress: walletAddress,
-          ...(pageKeyTo ? { pageKey: pageKeyTo } : {}),
-        }]));
-      }
-      if (!doneFromFetch) {
-        calls.push(this.rpcCall(chain, 'alchemy_getAssetTransfers', [{
-          ...baseParams,
-          fromAddress: walletAddress,
-          ...(pageKeyFrom ? { pageKey: pageKeyFrom } : {}),
-        }]));
-      }
-
-      const results = await Promise.all(calls);
-      let resultIdx = 0;
-
-      if (!doneToFetch) {
-        const r = results[resultIdx++];
-        for (const t of r?.transfers ?? []) {
-          if (!seen.has(t.uniqueId)) { allTransfers.push(t); seen.add(t.uniqueId); }
-        }
-        pageKeyTo = r?.pageKey;
-        if (!pageKeyTo) doneToFetch = true;
-      }
-
-      if (!doneFromFetch) {
-        const r = results[resultIdx++];
-        for (const t of r?.transfers ?? []) {
-          if (!seen.has(t.uniqueId)) { allTransfers.push(t); seen.add(t.uniqueId); }
-        }
-        pageKeyFrom = r?.pageKey;
-        if (!pageKeyFrom) doneFromFetch = true;
+    for (const t of [...(toResult?.transfers ?? []), ...(fromResult?.transfers ?? [])]) {
+      if (!seen.has(t.uniqueId)) {
+        allTransfers.push(t);
+        seen.add(t.uniqueId);
       }
     }
 
@@ -176,53 +160,120 @@ export class EvmApiClient {
   }
 
   /**
-   * Fetch full tx data + logs for a batch of hashes.
-   * Uses alchemy_getTransactionReceipts (block-level batch) when possible,
-   * falling back to per-tx eth_getTransactionReceipt.
+   * Fetch transaction receipts (with logs) for a list of tx hashes.
+   * Uses sequential requests with a small delay to respect free-tier rate limits.
+   * Only needed for DEX event parsing (value extraction) — not for basic classification.
    */
-  async getTransactionsWithLogs(
+  async getReceiptsForHashes(
     txHashes: string[],
     chain: EvmChain,
-    concurrency = 10,
-  ): Promise<EvmTransaction[]> {
-    // Group hashes by block so we can batch per block
-    // Since we don't have block numbers yet, fetch receipts individually
-    // but in parallel batches
-    const results: EvmTransaction[] = [];
-    const chunks: string[][] = [];
+    delayMs = 200,
+  ): Promise<Map<string, AlchemyReceipt>> {
+    const results = new Map<string, AlchemyReceipt>();
 
-    for (let i = 0; i < txHashes.length; i += concurrency) {
-      chunks.push(txHashes.slice(i, i + concurrency));
-    }
-
-    for (const chunk of chunks) {
-      const txs = await Promise.all(chunk.map(h => this.fetchTxWithReceipt(h, chain)));
-      results.push(...txs.filter((t): t is EvmTransaction => t !== null));
+    for (const hash of txHashes) {
+      try {
+        const receipt = await this.rpcCall<AlchemyReceipt | null>(
+          chain, 'eth_getTransactionReceipt', [hash],
+        );
+        if (receipt) results.set(hash.toLowerCase(), receipt);
+        if (delayMs > 0) await sleep(delayMs);
+      } catch (err) {
+        logger.warn(`Failed to fetch receipt for ${hash}: ${err}`);
+      }
     }
 
     return results;
   }
 
   /**
-   * Fetch a single tx: transaction data + receipt (2 calls, parallel).
-   * Block timestamp is taken from the transfer metadata when available
-   * to avoid a 3rd RPC call per tx.
+   * Build EvmTransaction objects from Alchemy transfer items + optional receipts.
+   *
+   * The canonical approach for EVM transaction parsing:
+   * 1. alchemy_getAssetTransfers gives us all ERC-20 movements (token, amount, direction)
+   * 2. Group by tx hash — all transfers in the same tx = one logical operation
+   * 3. If a tx has transfers of 2+ distinct tokens involving the wallet → SWAP
+   * 4. Fetch receipt only for swaps (to get DEX event logs for value extraction)
+   *
+   * This minimises RPC calls: O(unique_swaps) receipts instead of O(all_txs).
    */
-  private async fetchTxWithReceipt(txHash: string, chain: EvmChain): Promise<EvmTransaction | null> {
-    try {
-      const [txData, receipt] = await Promise.all([
-        this.rpcCall<Record<string, string> | null>(chain, 'eth_getTransactionByHash', [txHash]),
-        this.rpcCall<AlchemyReceipt | null>(chain, 'eth_getTransactionReceipt', [txHash]),
-      ]);
+  buildTransactionsFromTransfers(
+    transfers: AlchemyTransferItem[],
+    walletAddress: string,
+  ): EvmTransaction[] {
+    const walletLower = walletAddress.toLowerCase();
 
-      if (!txData || !receipt) return null;
+    // Group transfers by tx hash
+    const byHash = new Map<string, AlchemyTransferItem[]>();
+    for (const t of transfers) {
+      const hash = t.hash.toLowerCase();
+      if (!byHash.has(hash)) byHash.set(hash, []);
+      byHash.get(hash)!.push(t);
+    }
 
-      // Get block timestamp — use a separate call only if needed
-      const blockTimestamp = await this.rpcCall<{ timestamp: string }>(
-        chain, 'eth_getBlockByNumber', [txData['blockNumber'], false],
-      ).then(b => parseInt(b?.timestamp ?? '0', 16)).catch(() => 0);
+    const transactions: EvmTransaction[] = [];
 
-      const logs: EvmLog[] = (receipt.logs ?? []).map(l => ({
+    for (const [hash, txTransfers] of byHash) {
+      const first = txTransfers[0];
+      const timestamp = first.metadata?.blockTimestamp
+        ? Math.floor(new Date(first.metadata.blockTimestamp).getTime() / 1000)
+        : 0;
+
+      // Synthesise ERC-20 Transfer logs from the asset transfer items
+      // topic0 = ERC-20 Transfer signature
+      const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+      const logs: EvmLog[] = txTransfers
+        .filter(t => t.rawContract.address) // only ERC-20 transfers with contract address
+        .map((t, i) => {
+          const fromPad = `0x${(t.from ?? '').replace('0x', '').padStart(64, '0')}`;
+          const toPad = `0x${(t.to ?? '').replace('0x', '').padStart(64, '0')}`;
+          // rawContract.value is hex-encoded raw token amount
+          const rawAmount = t.rawContract.value ?? '0x0';
+          return {
+            address: (t.rawContract.address ?? '').toLowerCase(),
+            topics: [TRANSFER_TOPIC, fromPad, toPad],
+            data: rawAmount.startsWith('0x') ? rawAmount : `0x${rawAmount}`,
+            logIndex: i,
+            transactionHash: hash,
+            blockNumber: parseInt(first.blockNum, 16),
+          } satisfies EvmLog;
+        });
+
+      transactions.push({
+        hash,
+        blockNumber: parseInt(first.blockNum, 16),
+        timestamp,
+        from: (first.from ?? '').toLowerCase(),
+        to: '',   // not available from asset transfers; filled in by receipt if fetched
+        nativeValue: 0n,
+        gasUsed: 0n,
+        gasPrice: 0n,
+        success: true, // alchemy_getAssetTransfers only returns successful txs
+        logs,
+        chain: 'ethereum', // filled properly by caller
+      });
+    }
+
+    return transactions;
+  }
+
+  /**
+   * Enrich transactions with receipt data (logs from DEX events, gas info).
+   * Only call this for transactions you need full log data on.
+   */
+  async enrichWithReceipts(
+    transactions: EvmTransaction[],
+    chain: EvmChain,
+    delayMs = 250,
+  ): Promise<EvmTransaction[]> {
+    const hashes = transactions.map(t => t.hash);
+    const receipts = await this.getReceiptsForHashes(hashes, chain, delayMs);
+
+    return transactions.map(tx => {
+      const receipt = receipts.get(tx.hash);
+      if (!receipt) return tx;
+
+      const logs: EvmLog[] = receipt.logs.map(l => ({
         address: l.address.toLowerCase(),
         topics: l.topics,
         data: l.data,
@@ -232,25 +283,62 @@ export class EvmApiClient {
       }));
 
       return {
-        hash: txHash.toLowerCase(),
-        blockNumber: parseInt(txData['blockNumber'], 16),
-        timestamp: blockTimestamp,
-        from: (txData['from'] ?? '').toLowerCase(),
-        to: txData['to'] ? txData['to'].toLowerCase() : '',
-        nativeValue: BigInt(txData['value'] ?? '0x0'),
+        ...tx,
+        to: receipt.to?.toLowerCase() ?? '',
         gasUsed: BigInt(receipt.gasUsed ?? '0x0'),
-        gasPrice: BigInt(receipt.effectiveGasPrice ?? txData['gasPrice'] ?? '0x0'),
+        gasPrice: BigInt(receipt.effectiveGasPrice ?? '0x0'),
         success: receipt.status === '0x1',
-        logs,
-        chain,
+        logs, // full logs replace synthesised ones
       };
-    } catch (err) {
-      logger.warn(`Failed to fetch tx ${txHash}: ${err}`);
-      return null;
-    }
+    });
   }
 
   extractTxHashes(transfers: AlchemyTransferItem[]): string[] {
     return [...new Set(transfers.map(t => t.hash.toLowerCase()))];
+  }
+
+  // Legacy method kept for debug script compatibility
+  async getTransactionsWithLogs(
+    txHashes: string[],
+    chain: EvmChain,
+    concurrency = 3,
+  ): Promise<EvmTransaction[]> {
+    const results: EvmTransaction[] = [];
+    for (let i = 0; i < txHashes.length; i += concurrency) {
+      const chunk = txHashes.slice(i, i + concurrency);
+      for (const hash of chunk) {
+        try {
+          const receipt = await this.rpcCall<AlchemyReceipt | null>(
+            chain, 'eth_getTransactionReceipt', [hash],
+          );
+          if (!receipt) continue;
+          const logs: EvmLog[] = receipt.logs.map(l => ({
+            address: l.address.toLowerCase(),
+            topics: l.topics,
+            data: l.data,
+            logIndex: parseInt(l.logIndex, 16),
+            transactionHash: l.transactionHash,
+            blockNumber: parseInt(l.blockNumber, 16),
+          }));
+          results.push({
+            hash: hash.toLowerCase(),
+            blockNumber: parseInt(receipt.blockNumber, 16),
+            timestamp: 0,
+            from: receipt.from.toLowerCase(),
+            to: receipt.to?.toLowerCase() ?? '',
+            nativeValue: 0n,
+            gasUsed: BigInt(receipt.gasUsed ?? '0x0'),
+            gasPrice: BigInt(receipt.effectiveGasPrice ?? '0x0'),
+            success: receipt.status === '0x1',
+            logs,
+            chain,
+          });
+          await sleep(300); // conservative delay for free tier
+        } catch (err) {
+          logger.warn(`Failed to fetch tx ${hash}: ${err}`);
+        }
+      }
+    }
+    return results;
   }
 }
