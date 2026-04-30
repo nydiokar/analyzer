@@ -18,12 +18,14 @@ export interface PendingJob {
   //                on completion: format HolderProfilesResult and send holder table
   // 'similarity' — /compare command
   //                on completion: format raw job result and send comparison
-  type: 'profile' | 'analysis' | 'holders' | 'similarity';
+  // 'trades'     — /trades <wallet> command — queues deep analysis if wallet is fresh
+  //                on completion: fetch CSV from /intel/wallet/:addr/trades.csv and send as attachment
+  type: 'profile' | 'analysis' | 'holders' | 'similarity' | 'trades';
   sender: string;
   txHash: string;
   threadId?: string;
   queuedAt: number;
-  walletAddress?: string;  // required for 'profile' and 'analysis'
+  walletAddress?: string;  // required for 'profile', 'analysis', and 'trades'
   tokenMint?: string;       // required for 'holders'
   tokenName?: string;       // optional display name for 'holders'
   tokenSymbol?: string;     // optional display symbol for 'holders'
@@ -127,6 +129,17 @@ export class DeferredJobs {
       // Fetch it fresh now that analysis has completed and cache is invalidated.
       const hud = await this.analyzer.getWalletHud(job.walletAddress!);
       text = formatWalletProfile(job.walletAddress!, hud);
+    } else if (job.type === 'trades') {
+      // Deep analysis completed — now fetch the full trade history CSV
+      const csv = await this.analyzer.getWalletTradesCsv(job.walletAddress!);
+      const lineCount = csv.split('\n').length - 1;
+      const short = `${job.walletAddress!.slice(0, 4)}..${job.walletAddress!.slice(-4)}`;
+      text = `Trade history for ${short} — ${lineCount} trades exported.`;
+      attachment = {
+        content: csv,
+        contentType: 'text/csv',
+        filename: `trades-${job.walletAddress!.slice(0, 8)}.csv`,
+      };
     } else if (job.type === 'holders') {
       // holder-profiles job — result is HolderProfilesResult resolved from Redis pointer
       text = formatHolderProfilesResult(result as HolderProfilesResult, job.tokenName, job.tokenSymbol);
@@ -174,7 +187,7 @@ export class DeferredJobs {
       : job.tokenMint
         ? `token ${job.tokenMint.slice(0, 6)}..${job.tokenMint.slice(-4)}`
         : 'your wallets';
-    const context = job.type === 'similarity' ? 'Comparison' : job.type === 'holders' ? 'Holder analysis' : 'Analysis';
+    const context = job.type === 'similarity' ? 'Comparison' : job.type === 'holders' ? 'Holder analysis' : job.type === 'trades' ? 'Trade export' : 'Analysis';
     await this.pft.sendMessage({
       recipient: job.sender,
       message: `${context} for ${addr} failed: ${error}\n\nPlease try again.`,
@@ -192,7 +205,9 @@ export class DeferredJobs {
     const timeoutMin = Math.round(config.JOB_TIMEOUT_MS / 60000);
     const hint = job.type === 'holders'
       ? `\n\nTry again — the token may have many unanalyzed holders.`
-      : `\n\nTry again with /analyze ${job.walletAddress ?? '<address>'} to force a fresh run.`;
+      : job.type === 'trades'
+        ? `\n\nTry again with /trades ${job.walletAddress ?? '<address>'}.`
+        : `\n\nTry again with /analyze ${job.walletAddress ?? '<address>'} to force a fresh run.`;
     await this.pft.sendMessage({
       recipient: job.sender,
       message: `Analysis for ${addr} timed out after ${timeoutMin} minutes.${hint}`,

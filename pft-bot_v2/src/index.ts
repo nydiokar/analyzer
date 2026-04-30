@@ -22,6 +22,7 @@ async function main(): Promise<void> {
       { command: '/profile', description: 'Quick wallet behavioral profile', example: '/profile <wallet_address>', min_cost_drops: '5000000' },
       { command: '/analyze', description: 'Deep analysis (2-15 min)', example: '/analyze <wallet_address>', min_cost_drops: '20000000' },
       { command: '/compare', description: 'Compare wallet behavior', example: '/compare <addr1> <addr2>', min_cost_drops: '30000000' },
+      { command: '/trades', description: 'Full trade history CSV export', example: '/trades <wallet_address>', min_cost_drops: '5000000' },
     ],
   });
 

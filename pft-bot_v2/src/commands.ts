@@ -101,7 +101,7 @@ export async function handleCommand(
         return await handleCompare(parsed.args, sender, txHash, analyzer, deferred, threadId);
 
       case '/trades':
-        return await handleTrades(parsed.args[0], analyzer);
+        return await handleTrades(parsed.args[0], sender, txHash, analyzer, deferred, threadId);
 
       default:
         return { text: HELP_TEXT };
@@ -257,18 +257,60 @@ async function handleAnalyze(
 
 async function handleTrades(
   address: string,
+  sender: string,
+  txHash: string,
   analyzer: AnalyzerClient,
+  deferred: DeferredJobs,
+  threadId?: string,
 ): Promise<CommandResult> {
   const short = `${address.slice(0, 4)}..${address.slice(-4)}`;
-  const csv = await analyzer.getWalletTradesCsv(address);
-  const lineCount = csv.split('\n').length - 1; // subtract header
+
+  // Try to fetch CSV directly — succeeds if wallet is already analyzed
+  try {
+    const csv = await analyzer.getWalletTradesCsv(address);
+    const lineCount = csv.split('\n').length - 1;
+    return {
+      text: `Trade history for ${short} — ${lineCount} trades exported.`,
+      attachment: {
+        content: csv,
+        contentType: 'text/csv',
+        filename: `trades-${address.slice(0, 8)}.csv`,
+      },
+    };
+  } catch {
+    // 404 means wallet not yet analyzed — fall through to queue
+  }
+
+  // Wallet not analyzed — queue deep analysis, defer CSV delivery
+  const result = await analyzer.queueDashboardAnalysis(address, 'deep', {
+    queueWorkingAfter: false,
+    queueDeepAfter: false,
+    forceRefresh: false,
+  });
+
+  if (result.skipped && result.skipReason?.startsWith('known-')) {
+    const isLp = result.skipReason.includes('lp') || result.skipReason.includes('liquidity');
+    const label = isLp ? 'liquidity pool' : 'system wallet';
+    return { text: `${short} is a known ${label} — trade history is not available for this address.` };
+  }
+
+  if (!result.jobId) {
+    return { text: `Could not queue analysis for ${short}. Please try again.` };
+  }
+
+  deferred.addJob({
+    jobId: result.jobId,
+    type: 'trades',
+    sender,
+    txHash,
+    threadId,
+    queuedAt: Date.now(),
+    walletAddress: address,
+  });
+
+  const running = result.alreadyRunning ? ' (already in progress)' : '';
   return {
-    text: `Trade history for ${short} — ${lineCount} trades exported.`,
-    attachment: {
-      content: csv,
-      contentType: 'text/csv',
-      filename: `trades-${address.slice(0, 8)}.csv`,
-    },
+    text: `${short} hasn't been analyzed yet. Running deep analysis${running} — I'll send the trade CSV when ready (${result.estimatedProcessingTime}).`,
   };
 }
 
