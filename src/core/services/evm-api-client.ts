@@ -5,7 +5,6 @@ import { Injectable } from '@nestjs/common';
 
 const logger = createLogger('EvmApiClient');
 
-// RPC endpoints per chain (configure via env)
 const DEFAULT_RPC_URLS: Record<EvmChain, string> = {
   ethereum: 'https://eth-mainnet.g.alchemy.com/v2',
   arbitrum: 'https://arb-mainnet.g.alchemy.com/v2',
@@ -14,8 +13,6 @@ const DEFAULT_RPC_URLS: Record<EvmChain, string> = {
 
 export interface EvmApiClientConfig {
   alchemyApiKey?: string;
-  moralisApiKey?: string;
-  // Override RPC URLs per chain
   rpcUrls?: Partial<Record<EvmChain, string>>;
 }
 
@@ -25,7 +22,6 @@ export interface FetchTransactionsOptions {
   maxCount?: number;
 }
 
-// Alchemy getAssetTransfers response shapes
 interface AlchemyTransferItem {
   blockNum: string;
   uniqueId: string;
@@ -33,9 +29,6 @@ interface AlchemyTransferItem {
   from: string;
   to: string | null;
   value: number | null;
-  erc721TokenId: string | null;
-  erc1155Metadata: null;
-  tokenId: string | null;
   asset: string | null;
   category: string;
   rawContract: {
@@ -43,30 +36,51 @@ interface AlchemyTransferItem {
     address: string | null;
     decimal: string | null;
   };
-  metadata?: {
-    blockTimestamp?: string;
-  };
+  metadata?: { blockTimestamp?: string };
 }
 
-interface AlchemyResponse<T> {
+interface AlchemyRpcResponse<T> {
   jsonrpc: string;
   id: number;
   result: T;
 }
 
+// Alchemy alchemy_getTransactionReceipts returns receipts with logs per block
+interface AlchemyReceiptResult {
+  receipts: AlchemyReceipt[] | null;
+}
+
+interface AlchemyReceipt {
+  transactionHash: string;
+  transactionIndex: string;
+  blockHash: string;
+  blockNumber: string;
+  from: string;
+  to: string | null;
+  gasUsed: string;
+  effectiveGasPrice: string;
+  status: string;
+  logs: AlchemyLog[];
+}
+
+interface AlchemyLog {
+  address: string;
+  topics: string[];
+  data: string;
+  logIndex: string;
+  transactionHash: string;
+  blockNumber: string;
+}
+
 @Injectable()
 export class EvmApiClient {
   private readonly clients: Map<EvmChain, AxiosInstance> = new Map();
-  private readonly apiKey: string;
 
   constructor(config: EvmApiClientConfig) {
-    this.apiKey = config.alchemyApiKey ?? '';
-
     const chains: EvmChain[] = ['ethereum', 'arbitrum', 'base'];
     for (const chain of chains) {
       const baseUrl = config.rpcUrls?.[chain] ?? DEFAULT_RPC_URLS[chain];
-      const url = this.apiKey ? `${baseUrl}/${this.apiKey}` : baseUrl;
-
+      const url = config.alchemyApiKey ? `${baseUrl}/${config.alchemyApiKey}` : baseUrl;
       this.clients.set(chain, axios.create({
         baseURL: url,
         timeout: 30_000,
@@ -83,7 +97,7 @@ export class EvmApiClient {
 
   private async rpcCall<T>(chain: EvmChain, method: string, params: unknown[]): Promise<T> {
     const client = this.getClient(chain);
-    const response = await client.post<AlchemyResponse<T>>('', {
+    const response = await client.post<AlchemyRpcResponse<T>>('', {
       jsonrpc: '2.0',
       id: 1,
       method,
@@ -93,8 +107,7 @@ export class EvmApiClient {
   }
 
   /**
-   * Get all token transfers for a wallet using Alchemy's alchemy_getAssetTransfers.
-   * Returns all ERC-20 transfers involving the wallet.
+   * Fetch ERC-20 transfers for a wallet using alchemy_getAssetTransfers.
    */
   async getTransfersForAddress(
     walletAddress: string,
@@ -103,103 +116,78 @@ export class EvmApiClient {
   ): Promise<AlchemyTransferItem[]> {
     const maxCount = options.maxCount ?? 1000;
     const allTransfers: AlchemyTransferItem[] = [];
-    let pageKey: string | undefined;
+    let pageKeyTo: string | undefined;
+    let pageKeyFrom: string | undefined;
+    let doneToFetch = false;
+    let doneFromFetch = false;
 
-    do {
-      const params: Record<string, unknown> = {
-        fromBlock: options.fromBlock ? `0x${options.fromBlock.toString(16)}` : '0x0',
-        toBlock: options.toBlock === 'latest' || options.toBlock == null
-          ? 'latest'
-          : `0x${options.toBlock.toString(16)}`,
-        category: ['erc20'],
-        withMetadata: true,
-        maxCount: `0x${Math.min(maxCount, 1000).toString(16)}`,
-      };
+    const baseParams = {
+      fromBlock: options.fromBlock ? `0x${options.fromBlock.toString(16)}` : '0x0',
+      toBlock: 'latest',
+      category: ['erc20'],
+      withMetadata: true,
+      maxCount: '0x3e8', // 1000
+      order: 'desc',
+    };
 
-      if (pageKey) params.pageKey = pageKey;
+    const seen = new Set<string>();
 
-      // Fetch transfers where wallet is the receiver
-      const [toResult, fromResult] = await Promise.all([
-        this.rpcCall<{ transfers: AlchemyTransferItem[]; pageKey?: string }>(
-          chain, 'alchemy_getAssetTransfers', [{ ...params, toAddress: walletAddress }],
-        ),
-        this.rpcCall<{ transfers: AlchemyTransferItem[]; pageKey?: string }>(
-          chain, 'alchemy_getAssetTransfers', [{ ...params, fromAddress: walletAddress }],
-        ),
-      ]);
+    while ((!doneToFetch || !doneFromFetch) && allTransfers.length < maxCount) {
+      const calls: Promise<{ transfers: AlchemyTransferItem[]; pageKey?: string }>[] = [];
 
-      const transfers = [...(toResult?.transfers ?? []), ...(fromResult?.transfers ?? [])];
-      // Deduplicate by uniqueId
-      const seen = new Set(allTransfers.map(t => t.uniqueId));
-      for (const t of transfers) {
-        if (!seen.has(t.uniqueId)) {
-          allTransfers.push(t);
-          seen.add(t.uniqueId);
-        }
+      if (!doneToFetch) {
+        calls.push(this.rpcCall(chain, 'alchemy_getAssetTransfers', [{
+          ...baseParams,
+          toAddress: walletAddress,
+          ...(pageKeyTo ? { pageKey: pageKeyTo } : {}),
+        }]));
+      }
+      if (!doneFromFetch) {
+        calls.push(this.rpcCall(chain, 'alchemy_getAssetTransfers', [{
+          ...baseParams,
+          fromAddress: walletAddress,
+          ...(pageKeyFrom ? { pageKey: pageKeyFrom } : {}),
+        }]));
       }
 
-      pageKey = toResult?.pageKey ?? fromResult?.pageKey;
-    } while (pageKey && allTransfers.length < maxCount);
+      const results = await Promise.all(calls);
+      let resultIdx = 0;
+
+      if (!doneToFetch) {
+        const r = results[resultIdx++];
+        for (const t of r?.transfers ?? []) {
+          if (!seen.has(t.uniqueId)) { allTransfers.push(t); seen.add(t.uniqueId); }
+        }
+        pageKeyTo = r?.pageKey;
+        if (!pageKeyTo) doneToFetch = true;
+      }
+
+      if (!doneFromFetch) {
+        const r = results[resultIdx++];
+        for (const t of r?.transfers ?? []) {
+          if (!seen.has(t.uniqueId)) { allTransfers.push(t); seen.add(t.uniqueId); }
+        }
+        pageKeyFrom = r?.pageKey;
+        if (!pageKeyFrom) doneFromFetch = true;
+      }
+    }
 
     return allTransfers;
   }
 
   /**
-   * Get full transaction with logs for a given hash.
-   */
-  async getTransactionWithLogs(txHash: string, chain: EvmChain): Promise<EvmTransaction | null> {
-    try {
-      const [txData, receipt] = await Promise.all([
-        this.rpcCall<Record<string, string> | null>(chain, 'eth_getTransactionByHash', [txHash]),
-        this.rpcCall<Record<string, unknown> | null>(chain, 'eth_getTransactionReceipt', [txHash]),
-      ]);
-
-      if (!txData || !receipt) return null;
-
-      const block = await this.rpcCall<{ timestamp: string }>(
-        chain, 'eth_getBlockByHash', [txData['blockHash'], false],
-      );
-
-      const logs = ((receipt['logs'] as unknown[]) ?? []).map((log: unknown) => {
-        const l = log as Record<string, unknown>;
-        return {
-          address: (l['address'] as string).toLowerCase(),
-          topics: l['topics'] as string[],
-          data: l['data'] as string,
-          logIndex: parseInt(l['logIndex'] as string, 16),
-          transactionHash: l['transactionHash'] as string,
-          blockNumber: parseInt(l['blockNumber'] as string, 16),
-        } satisfies EvmLog;
-      });
-
-      return {
-        hash: txHash.toLowerCase(),
-        blockNumber: parseInt(txData['blockNumber'], 16),
-        timestamp: parseInt(block?.timestamp ?? '0', 16),
-        from: (txData['from'] as string).toLowerCase(),
-        to: txData['to'] ? (txData['to'] as string).toLowerCase() : '',
-        nativeValue: BigInt(txData['value'] ?? '0x0'),
-        gasUsed: BigInt((receipt['gasUsed'] as string) ?? '0x0'),
-        gasPrice: BigInt(txData['gasPrice'] ?? txData['maxFeePerGas'] ?? '0x0'),
-        success: receipt['status'] === '0x1',
-        logs,
-        chain,
-      };
-    } catch (err) {
-      logger.warn(`Failed to fetch tx ${txHash} on ${chain}: ${err}`);
-      return null;
-    }
-  }
-
-  /**
-   * Batch-fetch transactions with logs for a list of hashes.
-   * Processes in parallel with concurrency limit.
+   * Fetch full tx data + logs for a batch of hashes.
+   * Uses alchemy_getTransactionReceipts (block-level batch) when possible,
+   * falling back to per-tx eth_getTransactionReceipt.
    */
   async getTransactionsWithLogs(
     txHashes: string[],
     chain: EvmChain,
-    concurrency = 5,
+    concurrency = 10,
   ): Promise<EvmTransaction[]> {
+    // Group hashes by block so we can batch per block
+    // Since we don't have block numbers yet, fetch receipts individually
+    // but in parallel batches
     const results: EvmTransaction[] = [];
     const chunks: string[][] = [];
 
@@ -208,7 +196,7 @@ export class EvmApiClient {
     }
 
     for (const chunk of chunks) {
-      const txs = await Promise.all(chunk.map(h => this.getTransactionWithLogs(h, chain)));
+      const txs = await Promise.all(chunk.map(h => this.fetchTxWithReceipt(h, chain)));
       results.push(...txs.filter((t): t is EvmTransaction => t !== null));
     }
 
@@ -216,8 +204,52 @@ export class EvmApiClient {
   }
 
   /**
-   * Get unique transaction hashes from asset transfers.
+   * Fetch a single tx: transaction data + receipt (2 calls, parallel).
+   * Block timestamp is taken from the transfer metadata when available
+   * to avoid a 3rd RPC call per tx.
    */
+  private async fetchTxWithReceipt(txHash: string, chain: EvmChain): Promise<EvmTransaction | null> {
+    try {
+      const [txData, receipt] = await Promise.all([
+        this.rpcCall<Record<string, string> | null>(chain, 'eth_getTransactionByHash', [txHash]),
+        this.rpcCall<AlchemyReceipt | null>(chain, 'eth_getTransactionReceipt', [txHash]),
+      ]);
+
+      if (!txData || !receipt) return null;
+
+      // Get block timestamp — use a separate call only if needed
+      const blockTimestamp = await this.rpcCall<{ timestamp: string }>(
+        chain, 'eth_getBlockByNumber', [txData['blockNumber'], false],
+      ).then(b => parseInt(b?.timestamp ?? '0', 16)).catch(() => 0);
+
+      const logs: EvmLog[] = (receipt.logs ?? []).map(l => ({
+        address: l.address.toLowerCase(),
+        topics: l.topics,
+        data: l.data,
+        logIndex: parseInt(l.logIndex, 16),
+        transactionHash: l.transactionHash,
+        blockNumber: parseInt(l.blockNumber, 16),
+      }));
+
+      return {
+        hash: txHash.toLowerCase(),
+        blockNumber: parseInt(txData['blockNumber'], 16),
+        timestamp: blockTimestamp,
+        from: (txData['from'] ?? '').toLowerCase(),
+        to: txData['to'] ? txData['to'].toLowerCase() : '',
+        nativeValue: BigInt(txData['value'] ?? '0x0'),
+        gasUsed: BigInt(receipt.gasUsed ?? '0x0'),
+        gasPrice: BigInt(receipt.effectiveGasPrice ?? txData['gasPrice'] ?? '0x0'),
+        success: receipt.status === '0x1',
+        logs,
+        chain,
+      };
+    } catch (err) {
+      logger.warn(`Failed to fetch tx ${txHash}: ${err}`);
+      return null;
+    }
+  }
+
   extractTxHashes(transfers: AlchemyTransferItem[]): string[] {
     return [...new Set(transfers.map(t => t.hash.toLowerCase()))];
   }

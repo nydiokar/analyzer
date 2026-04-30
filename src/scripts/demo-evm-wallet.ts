@@ -1,10 +1,6 @@
-/**
- * Demo script: ingest an EVM wallet and print a summary.
- *
- * Usage:
- *   npx ts-node src/scripts/demo-evm-wallet.ts 0x1234...abcd [ethereum|arbitrum|base]
- */
-import 'reflect-metadata';
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import { EvmApiClient } from '../core/services/evm-api-client';
 import { mapEvmTransactionsToSwapInputs } from '../core/services/evm-transaction-mapper';
 import { EvmChain } from '../types/evm-api';
@@ -14,64 +10,67 @@ async function main() {
   const chain = (process.argv[3] ?? 'ethereum') as EvmChain;
 
   if (!walletAddress) {
-    console.error('Usage: ts-node demo-evm-wallet.ts <WALLET_ADDRESS> [chain]');
+    console.error('Usage: pnpm demo:evm-wallet <WALLET_ADDRESS> [ethereum|arbitrum|base]');
     process.exit(1);
   }
 
   const alchemyApiKey = process.env.ALCHEMY_API_KEY;
   if (!alchemyApiKey) {
-    console.warn('⚠ ALCHEMY_API_KEY not set — requests may be rate limited.');
+    console.error('ALCHEMY_API_KEY not set in .env');
+    process.exit(1);
   }
 
   const client = new EvmApiClient({ alchemyApiKey });
 
-  console.log(`\n📡 Fetching transfers for ${walletAddress} on ${chain}...\n`);
+  console.log(`\nFetching transfers for ${walletAddress} on ${chain}...`);
   const transfers = await client.getTransfersForAddress(walletAddress, chain, { maxCount: 200 });
-  console.log(`  Found ${transfers.length} token transfer events`);
+  console.log(`  ${transfers.length} token transfer events found`);
 
   const txHashes = client.extractTxHashes(transfers);
-  console.log(`  Unique transactions: ${txHashes.length}`);
+  console.log(`  ${txHashes.length} unique transactions`);
 
-  console.log(`\n🔍 Fetching full transaction data (with logs)...\n`);
-  const transactions = await client.getTransactionsWithLogs(txHashes, chain, 3);
-  console.log(`  Fetched ${transactions.length} transactions`);
+  console.log(`\nFetching full tx data + logs...`);
+  const transactions = await client.getTransactionsWithLogs(txHashes, chain, 5);
+  console.log(`  ${transactions.length} transactions fetched`);
 
-  console.log(`\n⚙️  Mapping to SwapAnalysisInput...\n`);
+  console.log(`\nMapping to SwapAnalysisInput...`);
   const { records, stats } = mapEvmTransactionsToSwapInputs(transactions, walletAddress, chain);
 
-  console.log('=== Mapping Stats ===');
-  console.log(`  Transactions received:  ${stats.transactionsReceived}`);
-  console.log(`  Transactions processed: ${stats.transactionsProcessed}`);
-  console.log(`  Transactions skipped:   ${stats.transactionsSkipped}`);
-  console.log(`  Swaps detected:         ${stats.swapsDetected}`);
-  console.log(`  Transfers detected:     ${stats.transfersDetected}`);
-  console.log(`  Unknown skipped:        ${stats.unknownSkipped}`);
-  console.log(`  Records generated:      ${stats.inputsGenerated}`);
+  console.log(`
+--- Stats ---
+  received:   ${stats.transactionsReceived}
+  processed:  ${stats.transactionsProcessed}
+  skipped:    ${stats.transactionsSkipped}
+  swaps:      ${stats.swapsDetected}
+  transfers:  ${stats.transfersDetected}
+  unknown:    ${stats.unknownSkipped}
+  records:    ${stats.inputsGenerated}`);
 
   if (records.length > 0) {
-    console.log('\n=== Sample Records (first 5) ===');
-    for (const r of records.slice(0, 5)) {
-      console.log(`  [${r.direction.toUpperCase()}] ${r.mint.slice(0, 10)}... | ${r.amount.toFixed(4)} | ETH value: ${r.associatedSolValue.toFixed(6)} | type: ${r.interactionType}`);
+    console.log('\n--- Sample records (first 10) ---');
+    for (const r of records.slice(0, 10)) {
+      const dir = r.direction === 'in' ? ' IN' : 'OUT';
+      const token = (r.mint as string).slice(0, 12);
+      const amt = (r.amount as number).toFixed(4);
+      const eth = (r.associatedSolValue as number).toFixed(6);
+      console.log(`  [${dir}] ${token}  amt=${amt}  eth=${eth}  ${r.interactionType}`);
     }
   }
 
-  const totalNativeIn = records
-    .filter(r => r.direction === 'in')
-    .reduce((sum, r) => sum + r.associatedSolValue, 0);
-  const totalNativeOut = records
-    .filter(r => r.direction === 'out')
-    .reduce((sum, r) => sum + r.associatedSolValue, 0);
-
-  console.log('\n=== Portfolio Summary ===');
-  console.log(`  Total native value received: ${totalNativeIn.toFixed(4)} ETH`);
-  console.log(`  Total native value spent:    ${totalNativeOut.toFixed(4)} ETH`);
-  console.log(`  Net:                         ${(totalNativeIn - totalNativeOut).toFixed(4)} ETH`);
-
+  const totalIn = records.filter(r => r.direction === 'in').reduce((s, r) => s + (r.associatedSolValue as number), 0);
+  const totalOut = records.filter(r => r.direction === 'out').reduce((s, r) => s + (r.associatedSolValue as number), 0);
   const uniqueTokens = new Set(records.map(r => r.mint)).size;
-  console.log(`  Unique tokens interacted:    ${uniqueTokens}`);
+
+  console.log(`
+--- Summary ---
+  ETH received: ${totalIn.toFixed(6)}
+  ETH spent:    ${totalOut.toFixed(6)}
+  Net:          ${(totalIn - totalOut).toFixed(6)}
+  Tokens:       ${uniqueTokens}
+`);
 }
 
 main().catch(err => {
-  console.error('Fatal error:', err);
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });
