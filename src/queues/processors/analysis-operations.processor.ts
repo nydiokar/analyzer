@@ -2413,7 +2413,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           medianHoldTimeHours: null,
           avgHoldTimeHours: null,
           dailyFlipRatio: null,
-          behaviorType: historicalPattern?.behaviorType ?? null,
+          behaviorType: null,
           exitPattern: historicalPattern?.exitPattern ?? null,
           dataQualityTier: 'INSUFFICIENT' as const,
           completedCycleCount: historicalPattern?.completedCycleCount ?? 0,
@@ -2456,14 +2456,8 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
         percentCurrentValue: percentValueInCurrentHoldings,
       });
 
-      const medianHoldTimeHours =
-        realizedMedianHoldTimeHours ??
-        currentHoldMedianHours ??
-        null;
-      const avgHoldTimeHours =
-        realizedAverageHoldTimeHours ??
-        currentHoldAverageHours ??
-        null;
+      const medianHoldTimeHours = realizedMedianHoldTimeHours ?? null;
+      const avgHoldTimeHours = realizedAverageHoldTimeHours ?? null;
       const includesCurrentHoldings =
         (currentHoldMedianHours !== null || currentHoldAverageHours !== null) &&
         typicalHoldTime.source !== 'EXITED';
@@ -2484,10 +2478,9 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           )
         : 'BRONZE' as const; // Current holdings data = lower quality
 
-      // Fallback classification for holders with no exits
-      const behaviorType =
-        historicalPattern?.behaviorType ??
-        ((currentHoldingsCount ?? 0) > 0 ? 'HODLER' : null);
+      const behaviorType = hasEnoughExitedData
+        ? (historicalPattern?.behaviorType ?? null)
+        : null;
 
       return {
         walletAddress,

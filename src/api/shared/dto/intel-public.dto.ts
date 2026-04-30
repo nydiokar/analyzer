@@ -49,6 +49,9 @@ export class IntelWalletBehaviorDto {
   @ApiProperty({ nullable: true })
   medianHoldTimeHours: number | null;
 
+  @ApiProperty({ nullable: true, description: 'Median time currently-held tokens have been held so far (not a completed-cycle metric)' })
+  currentHoldMedianHours: number | null;
+
   @ApiProperty({ nullable: true })
   buySellRatio: number | null;
 

@@ -43,6 +43,7 @@ export interface AgentHolderProfile {
   behaviorType: string | null;
   exitPattern: string | null;
   medianHoldTimeHours: number | null;
+  currentHoldMedianHours: number | null;
   dataQualityTier: string;
   confidence: number;
   completedCycleCount: number;
@@ -116,6 +117,7 @@ export function buildAgentHolderProfile(profile: HolderProfile): AgentHolderProf
     behaviorType: profile.behaviorType,
     exitPattern: profile.exitPattern,
     medianHoldTimeHours: profile.medianHoldTimeHours,
+    currentHoldMedianHours: profile.currentHoldMedianHours ?? null,
     dataQualityTier: profile.dataQualityTier,
     confidence: profile.confidence,
     completedCycleCount: profile.completedCycleCount,

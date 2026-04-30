@@ -196,9 +196,14 @@ export class IntelController {
       behavior: behavior
         ? {
             tradingStyle: behavior.tradingStyle ?? null,
-            speedCategory: behavior.speedCategory ?? null,
+            speedCategory: behavior.historicalPattern?.completedCycleCount
+              ? (behavior.speedCategory ?? null)
+              : null,
             avgHoldTimeHours: behavior.averageFlipDurationHours ?? null,
-            medianHoldTimeHours: behavior.medianHoldTime ?? null,
+            medianHoldTimeHours: behavior.historicalPattern?.completedCycleCount
+              ? (behavior.historicalPattern?.medianCompletedHoldTimeHours ?? behavior.medianHoldTime ?? null)
+              : null,
+            currentHoldMedianHours: behavior.medianCurrentHoldingDurationHours ?? null,
             buySellRatio: behavior.buySellRatio ?? null,
             exitPattern: behavior.historicalPattern?.exitPattern ?? null,
             avgEntryMcapUsd: behavior.avgEntryMcap ?? null,

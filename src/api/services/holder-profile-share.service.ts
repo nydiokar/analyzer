@@ -44,6 +44,7 @@ export interface ShareSnapshot {
     | 'supplyPercent'
     | 'behaviorType'
     | 'medianHoldTimeHours'
+    | 'currentHoldMedianHours'
     | 'avgHoldTimeHours'
     | 'walletRealizedPnlSol'
     | 'solBalance'
@@ -105,6 +106,7 @@ export class HolderProfileShareService {
       supplyPercent: p.supplyPercent,
       behaviorType: p.behaviorType,
       medianHoldTimeHours: p.medianHoldTimeHours,
+      currentHoldMedianHours: p.currentHoldMedianHours ?? null,
       avgHoldTimeHours: p.avgHoldTimeHours,
       walletRealizedPnlSol: p.walletRealizedPnlSol,
       solBalance: p.solBalance,
