@@ -40,6 +40,10 @@ export function parseCommand(message: string): ParsedCommand {
       if (args.length < 2) return { command: '/compare', args, raw: trimmed };
       return { command: '/compare', args: args.slice(0, 30), raw: trimmed };
 
+    case '/trades':
+      if (args.length < 1) return { command: '/trades', args: [], raw: trimmed };
+      return { command: '/trades', args: [args[0]], raw: trimmed };
+
     default:
       return { command: 'unknown', args: [], raw: trimmed };
   }
@@ -70,6 +74,7 @@ export async function handleCommand(
       '/profile': '/profile <wallet_address>',
       '/analyze': '/analyze <wallet_address>',
       '/compare': '/compare <address1> <address2> [address3...]',
+      '/trades': '/trades <wallet_address>',
     };
     return {
       text: `Missing address.\nUsage: ${examples[parsed.command] ?? parsed.command}\n\nAddresses must be valid Solana base58 (32-44 characters).`,
@@ -94,6 +99,9 @@ export async function handleCommand(
 
       case '/compare':
         return await handleCompare(parsed.args, sender, txHash, analyzer, deferred, threadId);
+
+      case '/trades':
+        return await handleTrades(parsed.args[0], analyzer);
 
       default:
         return { text: HELP_TEXT };
@@ -244,6 +252,23 @@ async function handleAnalyze(
   const running = result.alreadyRunning ? ' (already in progress)' : '';
   return {
     text: `Deep analysis queued for ${short}${running}.\nEstimated: ${result.estimatedProcessingTime}. I'll send the results when ready.`,
+  };
+}
+
+async function handleTrades(
+  address: string,
+  analyzer: AnalyzerClient,
+): Promise<CommandResult> {
+  const short = `${address.slice(0, 4)}..${address.slice(-4)}`;
+  const csv = await analyzer.getWalletTradesCsv(address);
+  const lineCount = csv.split('\n').length - 1; // subtract header
+  return {
+    text: `Trade history for ${short} — ${lineCount} trades exported.`,
+    attachment: {
+      content: csv,
+      contentType: 'text/csv',
+      filename: `trades-${address.slice(0, 8)}.csv`,
+    },
   };
 }
 

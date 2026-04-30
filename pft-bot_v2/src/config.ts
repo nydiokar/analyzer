@@ -34,6 +34,7 @@ export const COMMAND_PRICES: Record<string, number> = {
   '/profile': parseInt(optional('PRICE_PROFILE', '500'), 10),
   '/analyze': parseInt(optional('PRICE_ANALYZE', '3000'), 10),
   '/compare': parseInt(optional('PRICE_COMPARE', '3000'), 10),
+  '/trades': parseInt(optional('PRICE_TRADES', '500'), 10),
 };
 
 export const HELP_TEXT = `Available commands:
@@ -42,6 +43,7 @@ export const HELP_TEXT = `Available commands:
 /profile <address> — Wallet profile, instant if analyzed (${COMMAND_PRICES['/profile']} PFT)
 /analyze <address> — Force fresh deep analysis (${COMMAND_PRICES['/analyze']} PFT)
 /compare <a1> <a2> — Compare wallets (${COMMAND_PRICES['/compare']} PFT)
+/trades <address>  — Full trade history CSV export (${COMMAND_PRICES['/trades']} PFT)
 
 Send a command with the required PFT amount to get results.`;
 

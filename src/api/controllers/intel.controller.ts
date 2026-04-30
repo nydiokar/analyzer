@@ -15,8 +15,10 @@ import {
   UsePipes,
   ValidationPipe,
   Req,
+  Res,
   Inject,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiBody, ApiOperation, ApiParam, ApiProperty, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { User } from '@prisma/client';
@@ -1459,5 +1461,104 @@ Returns:
       requestId,
       jobId: String(job.id),
     };
+  }
+
+  /**
+   * GET /intel/wallet/:addr/trades.csv
+   * 3 credits — full trade history for a wallet as a CSV file.
+   *
+   * Each row is one swap/transfer event across all tokens.
+   * Tokens are filtered only by meaningful SOL activity (>=0.01 SOL) —
+   * no spam heuristics applied so nothing genuine gets dropped.
+   * Compatible with pft_portfolio CSV ingestion schema.
+   */
+  @Get('wallet/:addr/trades.csv')
+  @RequireCredits(3)
+  @ApiOperation({
+    summary: 'Wallet trade history CSV export (3cr)',
+    description:
+      'Returns a downloadable CSV of every swap/transfer event for the wallet, one row per trade. ' +
+      'Tokens are included if they had at least 0.01 SOL of activity — no spam heuristics that could drop genuine tokens. ' +
+      'Columns: timestamp_iso, token_symbol, token_address, direction, amount, sol_value, usd_value, price_usd, mcap_usd, fee_sol, tx_hash.',
+  })
+  @ApiParam({ name: 'addr', description: 'Solana wallet address' })
+  @ApiResponse({ status: 200, description: 'text/csv file — one row per trade' })
+  @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
+  @ApiResponse({ status: 404, description: 'No data — call GET /intel/wallet/:addr first to trigger analysis' })
+  async exportWalletTradesCsv(
+    @Param('addr') addr: string,
+    @Res() res: Response,
+  ) {
+    if (!isValidSolanaAddress(addr)) {
+      throw new BadRequestException(`Invalid Solana address: ${addr}`);
+    }
+
+    this.logger.log(`Intel trades CSV request: ${addr}`);
+
+    // Fetch all tokens with meaningful activity — no pagination, no spam filter
+    const tokenPage = await this.tokenPerformanceService.getPaginatedTokenPerformance(addr, {
+      page: 1,
+      pageSize: 10000,
+      spamFilter: undefined,
+    } as any);
+
+    if (tokenPage.total === 0) {
+      throw new NotFoundException(
+        `No token data found for wallet ${addr}. Call GET /api/v1/intel/wallet/:addr first to trigger analysis.`,
+      );
+    }
+
+    // Build a symbol lookup from token performance data
+    const symbolMap = new Map<string, string>();
+    for (const t of tokenPage.data) {
+      const sym = t.onchainSymbol ?? t.symbol ?? t.tokenAddress.slice(0, 8);
+      symbolMap.set(t.tokenAddress, sym);
+    }
+
+    const tokenAddresses = tokenPage.data.map(t => t.tokenAddress);
+
+    // Fetch individual trades for each token in parallel (same query the drawer uses)
+    const tradesByToken = await Promise.all(
+      tokenAddresses.map(mint =>
+        this.databaseService.getSwapAnalysisInputsForToken(addr, mint).then(rows => ({ mint, rows })),
+      ),
+    );
+
+    // Build CSV
+    const header = 'timestamp_iso,token_symbol,token_address,direction,amount,sol_value,usd_value,price_usd,mcap_usd,fee_sol,tx_hash';
+    const csvRows: string[] = [header];
+
+    for (const { mint, rows } of tradesByToken) {
+      const symbol = symbolMap.get(mint) ?? mint.slice(0, 8);
+      for (const row of rows) {
+        const ts = new Date(row.timestamp * 1000).toISOString();
+        const usdValue = row.usdValue != null ? row.usdValue.toFixed(4) : '';
+        const priceUsd = row.tokenPriceUsd != null ? row.tokenPriceUsd.toFixed(8) : '';
+        const mcapUsd = row.marketCapUsd != null ? row.marketCapUsd.toFixed(0) : '';
+        const feeSol = row.feeAmount != null ? row.feeAmount.toFixed(9) : '';
+        const csvLine = [
+          ts,
+          `"${symbol.replace(/"/g, '""')}"`,
+          mint,
+          row.direction,
+          row.amount.toFixed(6),
+          row.associatedSolValue.toFixed(9),
+          usdValue,
+          priceUsd,
+          mcapUsd,
+          feeSol,
+          row.signature,
+        ].join(',');
+        csvRows.push(csvLine);
+      }
+    }
+
+    // Sort all rows by timestamp ascending
+    const dataRows = csvRows.slice(1).sort((a, b) => a.localeCompare(b));
+    const csv = [header, ...dataRows].join('\n');
+
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="trades-${addr.slice(0, 8)}.csv"`);
+    res.send(csv);
   }
 }

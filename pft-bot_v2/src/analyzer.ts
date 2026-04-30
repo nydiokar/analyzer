@@ -310,4 +310,11 @@ export class AnalyzerClient {
     });
     return data;
   }
+
+  async getWalletTradesCsv(address: string): Promise<string> {
+    const { data } = await this.http.get<string>(`/intel/wallet/${address}/trades.csv`, {
+      responseType: 'text',
+    });
+    return data;
+  }
 }
