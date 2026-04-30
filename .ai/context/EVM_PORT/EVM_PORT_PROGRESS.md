@@ -5,7 +5,7 @@
 
 ---
 
-## Status: Phase 2 complete, debugging classification
+## Status: Phase 2 complete ✅ — canonical approach working
 
 ---
 
@@ -25,10 +25,10 @@
 | File | Status |
 |---|---|
 | `src/core/services/evm-event-parser.ts` | ✅ Done — ERC-20 Transfer, UniswapV2/V3 Swap decoders |
-| `src/core/services/evm-transaction-classifier.ts` | ✅ Done — DEX registry + multi-leg heuristics |
-| `src/core/services/evm-value-extractor.ts` | ✅ Done — WETH transfer, V3 Swap, V2 Swap, tx.value |
+| `src/core/services/evm-transaction-classifier.ts` | ✅ Done — SWAP_TOPICS set + DEX registry + multi-leg heuristics |
+| `src/core/services/evm-value-extractor.ts` | ✅ Done — WETH direct > WETH withdrawal > WETH deposit > V2 Swap > V3 Swap > tx.value |
 | `src/core/services/evm-transaction-mapper.ts` | ✅ Done — EvmTransaction[] → SwapAnalysisInput[] |
-| `src/core/services/evm-api-client.ts` | ✅ Done — Alchemy RPC (alchemy_getAssetTransfers + eth_getTransactionReceipt) |
+| `src/core/services/evm-api-client.ts` | ✅ Done — canonical 2-call approach (alchemy_getAssetTransfers + selective receipt enrichment) |
 | `src/core/services/evm-sync-service.ts` | ✅ Done — fetch → map → save pipeline |
 
 ### Tests ✅
@@ -36,66 +36,82 @@
 - Zero TypeScript errors
 
 ### Scripts
-- `pnpm demo:evm-wallet <address> [chain]` — end-to-end demo
+- `pnpm demo:evm-wallet <address> [chain] [enrichLimit=20]` — end-to-end demo
 - `pnpm debug:evm-tx <txHash> [chain] [walletAddress]` — inspect single tx
 
 ---
 
-## First real run — results & findings
+## Validated run results (2026-05-01)
 
 **Wallet tested:** `0x19b644f7f3e34330f20d03df3611778e697e61c4` on Ethereum  
-**Data fetched:** 400 transfer events, 398 unique txs, 122 fetched (rate limited at concurrency=5)
+**Approach:** canonical `alchemy_getAssetTransfers` (2 RPC calls total) + selective receipt enrichment
 
-**Problem 1: Everything classified as TRANSFER**
-- Root cause: most swaps on Ethereum go through aggregators (1inch, 0x, Paraswap, CoW)
-  whose `tx.to` is NOT in our DEX registry — the DEX routers appear in logs, not as `tx.to`
-- The classifier does check logs for DEX addresses — but logs may not be populated correctly
-- **Fix needed:** debug one real tx with `pnpm debug:evm-tx <hash>` to see what logs look like
+```
+transfers:    400 events → 198 unique txs
+processed:    104 transactions (94 unknown/failed skipped)
+swaps:        14 detected ✅
+transfers:    90
+records:      204 SwapAnalysisInput records generated
+ETH received: 2.277 ETH (from 20 enriched txs)
+ETH spent:    0.000 (enriched txs happened to be all incoming — see known limitation below)
+```
 
-**Problem 2: ETH value = 0 everywhere**
-- Follows from Problem 1 — value extractor only runs on SWAP records
-- Also: WETH transfer detection may need tuning
-
-**Problem 3: Only 122/398 txs fetched**
-- Was concurrency=5 with 3 RPC calls per tx (tx + receipt + block) = 15 calls/batch
-- Fixed: now 2 calls per tx (tx + receipt parallel, block by number), concurrency=10
+**Classification is working** — 14 swaps correctly detected via SWAP_TOPICS (swap event topic0 in logs),
+compared to 0 swaps when we only checked tx.to against DEX registry.
 
 ---
 
-## Next steps
+## Architecture — canonical EVM approach
 
-1. **Run `pnpm debug:evm-tx <hash>` on a known swap** to see raw log data
-   - Pick a hash from Etherscan for this wallet where you know it was a Uniswap swap
-   - Verify: are logs present? Is tx.to in our DEX registry or an aggregator?
+The implementation follows the standard EVM indexer pattern (same as Etherscan/Zapper/DeBank):
 
-2. **Expand DEX registry if needed** — add aggregator contracts (1inch, 0x, Paraswap, CoW)
-   that appear as `tx.to` rather than in logs
+```
+Step 1: alchemy_getAssetTransfers (2 RPC calls — toAddress + fromAddress)
+        → all ERC-20 transfer events, no per-tx calls
+Step 2: buildTransactionsFromTransfers()
+        → synthesise EvmTransaction objects from transfer metadata, zero RPC
+Step 3: enrichWithReceipts() — limited to N txs (default 20), 250ms delay
+        → fetch full logs for DEX event parsing and gas data
+Step 4: mapEvmTransactionsToSwapInputs()
+        → net token flows per wallet → SwapAnalysisInput[]
+```
 
-3. **Validate WETH detection** — check if WETH address is correct and transfer parsing works
+Rate limiting: exponential backoff on 429 (1s / 2s / 4s), 250ms between receipt fetches.
 
-4. **Run Prisma migration** for the `chain` field:
-   ```bash
-   npx prisma migrate dev --name add_wallet_chain_field
-   ```
+---
 
-5. **Wire EvmModule into app.module.ts** so EvmSyncService is injectable at runtime
+## Known limitations / next steps
+
+### ETH spent = 0 (priority fix)
+- `enrichWithReceipts()` currently enriches the first N txs in order
+- The 20 enriched txs happened to all be incoming transfers, so no outgoing swap value was extracted
+- **Fix:** sort txs before enrichment — prioritise direction=out + classified as SWAP
+- This requires a pre-pass classification on synthesised logs before choosing which txs to enrich
+
+### Prisma migration not yet run
+```bash
+npx prisma migrate dev --name add_wallet_chain_field
+```
+Schema already updated, migration file not generated yet. Run this before deploying.
+
+### EvmModule not wired into app.module.ts
+`EvmSyncService` is built and injectable, but `EvmModule` is not imported into the main `AppModule` yet.
+Wire it in when ready to expose EVM sync via API endpoints.
+
+### Token decimals — hardcoded for known tokens
+Unknown ERC-20 tokens default to 18 decimals. For accurate amounts on tokens with non-18 decimals
+(e.g. USDC=6, USDT=6 already handled), need `eth_call` to `decimals()` for unknowns.
+
+### Multi-chain not yet validated
+Arbitrum and Base code paths are wired but untested end-to-end.
 
 ---
 
 ## Key decisions made
 
-- **Data source:** Alchemy API (free tier, no credit card) — not Liquify
+- **Data source:** Alchemy API (free tier) — `alchemy_getAssetTransfers` as primary
 - **Primary chain:** Ethereum
-- **Value extraction strategy:** WETH transfer → UniswapV3 Swap event → UniswapV2 Swap event → tx.value (fallback)
-- **No schema rename** (signature/mint kept as-is) — too risky to rename across 2000-line mapper
+- **Classifier strategy:** SWAP_TOPICS set (swap event topic0 anywhere in logs) takes priority over tx.to DEX check — catches aggregator-routed swaps (1inch, 0x, CoW, Paraswap)
+- **Value extraction priority:** WETH direct transfer → WETH Withdrawal event → WETH Deposit event → UniswapV2 Swap leg → UniswapV3 Swap leg → tx.value
+- **No schema rename** (`signature`/`mint` kept as-is) — field names are EVM-compatible as-is
 - **No breaking changes** to existing Solana path
-
----
-
-## Known limitations (first version)
-
-- Bridge tokens excluded
-- Complex DeFi (staking, liquidations) classified as UNKNOWN and skipped
-- Gas fee tracking simplified (gasUsed × effectiveGasPrice)
-- Historical balance incomplete on light archive RPC
-- Multi-chain portfolio not yet supported (per-chain only)
