@@ -1465,24 +1465,25 @@ Returns:
 
   /**
    * GET /intel/wallet/:addr/trades.csv
-   * 3 credits — full trade history for a wallet as a CSV file.
+   * 3 credits — full portfolio snapshot + trade history for a wallet as a CSV file.
    *
-   * Each row is one swap/transfer event across all tokens.
-   * Tokens are filtered only by meaningful SOL activity (>=0.01 SOL) —
-   * no spam heuristics applied so nothing genuine gets dropped.
-   * Compatible with pft_portfolio CSV ingestion schema.
+   * Three sections (CMC-style):
+   *   SUMMARY  — one row of wallet-level aggregates
+   *   HOLDINGS — one row per token with P&L (like CMC overview)
+   *   TRADES   — one row per swap, buy/sell instead of in/out
+   *
+   * Tokens included if they had >=0.01 SOL of activity — no spam heuristics.
    */
   @Get('wallet/:addr/trades.csv')
   @RequireCredits(3)
   @ApiOperation({
-    summary: 'Wallet trade history CSV export (3cr)',
+    summary: 'Wallet portfolio + trade history CSV export (3cr)',
     description:
-      'Returns a downloadable CSV of every swap/transfer event for the wallet, one row per trade. ' +
-      'Tokens are included if they had at least 0.01 SOL of activity — no spam heuristics that could drop genuine tokens. ' +
-      'Columns: timestamp_iso, token_symbol, token_address, direction, amount, sol_value, usd_value, price_usd, mcap_usd, fee_sol, tx_hash.',
+      'Three-section CSV: SUMMARY (wallet-level P&L aggregates), HOLDINGS (per-token positions like CMC overview), ' +
+      'TRADES (individual swaps with buy/sell type). Compatible with pft_portfolio ingestion schema.',
   })
   @ApiParam({ name: 'addr', description: 'Solana wallet address' })
-  @ApiResponse({ status: 200, description: 'text/csv file — one row per trade' })
+  @ApiResponse({ status: 200, description: 'text/csv — three-section portfolio export' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   @ApiResponse({ status: 404, description: 'No data — call GET /intel/wallet/:addr first to trigger analysis' })
   async exportWalletTradesCsv(
@@ -1508,57 +1509,115 @@ Returns:
       );
     }
 
-    // Build a symbol lookup from token performance data
+    const tokens = tokenPage.data;
+
+    // Build symbol lookup
     const symbolMap = new Map<string, string>();
-    for (const t of tokenPage.data) {
-      const sym = t.onchainSymbol ?? t.symbol ?? t.tokenAddress.slice(0, 8);
-      symbolMap.set(t.tokenAddress, sym);
+    for (const t of tokens) {
+      symbolMap.set(t.tokenAddress, t.onchainSymbol ?? t.symbol ?? t.tokenAddress.slice(0, 8));
     }
 
-    const tokenAddresses = tokenPage.data.map(t => t.tokenAddress);
-
-    // Fetch individual trades for each token in parallel (same query the drawer uses)
+    // Fetch individual trades for all tokens in parallel
     const tradesByToken = await Promise.all(
-      tokenAddresses.map(mint =>
-        this.databaseService.getSwapAnalysisInputsForToken(addr, mint).then(rows => ({ mint, rows })),
+      tokens.map(t =>
+        this.databaseService.getSwapAnalysisInputsForToken(addr, t.tokenAddress)
+          .then(rows => ({ mint: t.tokenAddress, rows })),
       ),
     );
 
-    // Build CSV
-    const header = 'timestamp_iso,token_symbol,token_address,direction,amount,sol_value,usd_value,price_usd,mcap_usd,fee_sol,tx_hash';
-    const csvRows: string[] = [header];
-
+    // Flatten and sort trades by timestamp ascending
+    interface TradeRow { mint: string; row: (typeof tradesByToken)[0]['rows'][0]; }
+    const allTrades: TradeRow[] = [];
     for (const { mint, rows } of tradesByToken) {
-      const symbol = symbolMap.get(mint) ?? mint.slice(0, 8);
-      for (const row of rows) {
-        const ts = new Date(row.timestamp * 1000).toISOString();
-        const usdValue = row.usdValue != null ? row.usdValue.toFixed(4) : '';
-        const priceUsd = row.tokenPriceUsd != null ? row.tokenPriceUsd.toFixed(8) : '';
-        const mcapUsd = row.marketCapUsd != null ? row.marketCapUsd.toFixed(0) : '';
-        const feeSol = row.feeAmount != null ? row.feeAmount.toFixed(9) : '';
-        const csvLine = [
-          ts,
-          `"${symbol.replace(/"/g, '""')}"`,
-          mint,
-          row.direction,
-          row.amount.toFixed(6),
-          row.associatedSolValue.toFixed(9),
-          usdValue,
-          priceUsd,
-          mcapUsd,
-          feeSol,
-          row.signature,
-        ].join(',');
-        csvRows.push(csvLine);
-      }
+      for (const row of rows) allTrades.push({ mint, row });
+    }
+    allTrades.sort((a, b) => a.row.timestamp - b.row.timestamp);
+
+    // Derive wallet-level summary from token performance data
+    const asOf = new Date().toISOString();
+    const totalRealizedPnlSol = tokens.reduce((s, t) => s + (t.realizedPnlSol ?? 0), 0);
+    const totalUnrealizedPnlSol = tokens.reduce((s, t) => s + (t.unrealizedPnlSol ?? 0), 0);
+    const netPnlSol = totalRealizedPnlSol + totalUnrealizedPnlSol;
+    const profitableTokens = tokens.filter(t => (t.realizedPnlSol ?? 0) > 0).length;
+    const totalTokensTraded = tokens.length;
+    const winRate = totalTokensTraded > 0 ? (profitableTokens / totalTokensTraded) : 0;
+    const allTimestamps = allTrades.map(t => t.row.timestamp);
+    const activeFrom = allTimestamps.length > 0 ? new Date(Math.min(...allTimestamps) * 1000).toISOString() : '';
+    const activeTo = allTimestamps.length > 0 ? new Date(Math.max(...allTimestamps) * 1000).toISOString() : '';
+
+    const sections: string[] = [];
+
+    // ── SECTION 1: SUMMARY ──────────────────────────────────────────────────
+    sections.push('# SUMMARY');
+    sections.push('wallet,as_of,realized_pnl_sol,unrealized_pnl_sol,net_pnl_sol,win_rate_pct,tokens_traded,profitable_tokens,total_trades,active_from,active_to');
+    sections.push([
+      addr,
+      asOf,
+      totalRealizedPnlSol.toFixed(6),
+      totalUnrealizedPnlSol.toFixed(6),
+      netPnlSol.toFixed(6),
+      (winRate * 100).toFixed(1),
+      totalTokensTraded,
+      profitableTokens,
+      allTrades.length,
+      activeFrom,
+      activeTo,
+    ].join(','));
+
+    // ── SECTION 2: HOLDINGS ─────────────────────────────────────────────────
+    sections.push('');
+    sections.push('# HOLDINGS');
+    sections.push('token_symbol,token_address,amount,avg_buy_price_sol,realized_pnl_sol,unrealized_pnl_sol,total_pnl_sol,first_trade,last_trade');
+    for (const t of tokens) {
+      const sym = symbolMap.get(t.tokenAddress)!;
+      const totalSolSpent = t.totalSolSpent ?? 0;
+      const totalAmountIn = t.totalAmountIn ?? 0;
+      const avgBuyPriceSol = totalAmountIn > 0 ? (totalSolSpent / totalAmountIn) : 0;
+      const firstTrade = t.firstTransferTimestamp ? new Date(t.firstTransferTimestamp * 1000).toISOString() : '';
+      const lastTrade = t.lastTransferTimestamp ? new Date(t.lastTransferTimestamp * 1000).toISOString() : '';
+      sections.push([
+        `"${sym.replace(/"/g, '""')}"`,
+        t.tokenAddress,
+        (t.currentUiBalance ?? 0).toFixed(6),
+        avgBuyPriceSol.toFixed(9),
+        (t.realizedPnlSol ?? 0).toFixed(6),
+        (t.unrealizedPnlSol ?? 0).toFixed(6),
+        (t.totalPnlSol ?? 0).toFixed(6),
+        firstTrade,
+        lastTrade,
+      ].join(','));
     }
 
-    // Sort all rows by timestamp ascending
-    const dataRows = csvRows.slice(1).sort((a, b) => a.localeCompare(b));
-    const csv = [header, ...dataRows].join('\n');
+    // ── SECTION 3: TRADES ───────────────────────────────────────────────────
+    sections.push('');
+    sections.push('# TRADES');
+    sections.push('timestamp_iso,token_symbol,token_address,type,amount,sol_value,usd_value,price_usd,mcap_usd,fee_sol,tx_hash');
+    for (const { mint, row } of allTrades) {
+      const sym = symbolMap.get(mint) ?? mint.slice(0, 8);
+      const type = row.direction === 'in' ? 'buy' : 'sell';
+      const ts = new Date(row.timestamp * 1000).toISOString();
+      const usdValue = row.usdValue != null ? row.usdValue.toFixed(4) : '';
+      const priceUsd = row.tokenPriceUsd != null ? row.tokenPriceUsd.toFixed(8) : '';
+      const mcapUsd = row.marketCapUsd != null ? row.marketCapUsd.toFixed(0) : '';
+      const feeSol = row.feeAmount != null ? row.feeAmount.toFixed(9) : '';
+      sections.push([
+        ts,
+        `"${sym.replace(/"/g, '""')}"`,
+        mint,
+        type,
+        row.amount.toFixed(6),
+        row.associatedSolValue.toFixed(9),
+        usdValue,
+        priceUsd,
+        mcapUsd,
+        feeSol,
+        row.signature,
+      ].join(','));
+    }
 
+    const csv = sections.join('\n');
     res.set('Content-Type', 'text/csv; charset=utf-8');
-    res.set('Content-Disposition', `attachment; filename="trades-${addr.slice(0, 8)}.csv"`);
+    res.set('Content-Disposition', `attachment; filename="portfolio-${addr.slice(0, 8)}.csv"`);
     res.send(csv);
   }
 }
