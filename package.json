@@ -15,6 +15,8 @@
     "build:watch": "tsc --watch",
     "verify": "tsc --noEmit",
     "test:unit": "node --test -r ts-node/register -r tsconfig-paths/register src/core/services/helius-sync-service.leak.test.ts src/core/services/helius-transaction-mapper.test.ts src/api/services/similarity.service.test.ts",
+    "test:evm": "node --test -r ts-node/register -r tsconfig-paths/register src/core/services/evm-transaction-classifier.spec.ts src/core/services/evm-event-parser.spec.ts",
+    "demo:evm-wallet": "ts-node -r tsconfig-paths/register src/scripts/demo-evm-wallet.ts",
     "pm2:start:backend": "npx tsc && pm2 start ecosystem.backend.config.js --env production",
     "bot:start": "pm2 start ecosystem.config.js --only sova-tg-bot",
     "bot:stop": "pm2 stop sova-tg-bot",

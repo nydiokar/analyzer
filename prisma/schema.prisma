@@ -9,6 +9,7 @@ datasource db {
 
 model Wallet {
   address                      String                  @id @unique
+  chain                        String                  @default("solana") // "solana" | "ethereum" | "arbitrum" | "base"
   firstProcessedTimestamp      Int?
   oldestProcessedSignature     String?
   olderHistorySatisfiedTarget  Int?
