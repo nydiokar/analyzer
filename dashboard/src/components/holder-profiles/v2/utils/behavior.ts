@@ -44,14 +44,14 @@ const BEHAVIOR_META: Record<string, BehaviorMeta> = {
     key: 'SNIPER',
     label: 'Sniper',
     description: 'Instant exits executed in seconds; often bot-driven or arb focused.',
-    timeframe: '< 10 seconds',
+    timeframe: '< 1 minute',
     palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.SNIPER.hex),
   },
   SCALPER: {
     key: 'SCALPER',
     label: 'Scalper',
     description: 'High-frequency flips targeting tiny moves with tight stops.',
-    timeframe: '< 1 minute',
+    timeframe: '1-5 minutes',
     palette: createPaletteFromHex(SPEED_CATEGORY_COLORS.SCALPER.hex),
   },
   MOMENTUM: {
