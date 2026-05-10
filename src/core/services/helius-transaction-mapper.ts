@@ -1449,9 +1449,27 @@ export function mapHeliusTransactionsToIntermediateRecords(
                                     mappingStats.associatedValueFromNetChange++;
                                 }
                                 else if (wsolIsSignificant && !stableIsPrimary) {
-                                    associatedSolValue = actualWsolMovement;
-                                    associatedSolValueSource = 'total-movement';
-                                    mappingStats.associatedValueFromTotalMovement++;
+                                    // Detect Jupiter referral-fee-as-wSOL pattern:
+                                    // When a swap routes through native SOL (not wSOL), Jupiter sometimes
+                                    // pays a small referral fee in wSOL. The wSOL movement is the fee, not
+                                    // the swap value. Two conditions must both be true to override:
+                                    //   1. wSOL net balance change ≈ 0 (ephemeral — opened & closed same tx),
+                                    //      meaning native SOL was the real exchange medium, not wSOL.
+                                    //   2. wSOL movement is < 10% of net SOL change, confirming it's a
+                                    //      peripheral fee rather than the primary swap input.
+                                    // This combination avoids false positives on genuine wSOL-to-token swaps
+                                    // (where wsolChange ≈ -swap_amount, so condition 1 fails) and on swaps
+                                    // with large Jito tips (where condition 2 fails unless tip >> swap amount).
+                                    const wsolIsEphemeral = Math.abs(wsolChange) < SOL_SIGNIFICANCE_THRESHOLD;
+                                    if (netSolIsSignificant && wsolIsEphemeral && actualWsolMovement < absSolChange * 0.1) {
+                                        associatedSolValue = absSolChange;
+                                        associatedSolValueSource = 'net-change';
+                                        mappingStats.associatedValueFromNetChange++;
+                                    } else {
+                                        associatedSolValue = actualWsolMovement;
+                                        associatedSolValueSource = 'total-movement';
+                                        mappingStats.associatedValueFromTotalMovement++;
+                                    }
                                 }
                                 // Priority 2: Stable movement (USDC/USDT/USD1 - clear economic value)
                                 // Also fires when stableIsPrimary — stable is the true settled denomination
