@@ -40,6 +40,9 @@ export class EvmSyncService {
     const startMs = Date.now();
     const maxTransactions = options.maxTransactions ?? 500;
     const enrichLimit = options.enrichLimit ?? 50;
+    // Normalise to lowercase — EVM addresses are hex (case-insensitive).
+    // This ensures wallet row and SwapAnalysisInput.walletAddress always match.
+    walletAddress = walletAddress.toLowerCase();
 
     logger.info(`Starting EVM sync for ${walletAddress} on ${chain}`);
 
@@ -96,9 +99,9 @@ export class EvmSyncService {
     // Step 5: Save to database
     let savedCount = 0;
     try {
-      // Upsert wallet first — SwapAnalysisInput has a FK to Wallet.address,
-      // so the wallet row must exist before inputs can be inserted.
+      // Upsert wallet first so the row exists with the correct chain set.
       await this.databaseService.updateWallet(walletAddress, {
+        chain,
         lastSuccessfulFetchTimestamp: new Date(),
       });
 

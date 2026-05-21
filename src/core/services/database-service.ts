@@ -1787,12 +1787,15 @@ export class DatabaseService {
         payloadData.newestProcessedTimestamp = Number(data.newestProcessedTimestamp);
       }
       if (data.lastSuccessfulFetchTimestamp !== undefined && data.lastSuccessfulFetchTimestamp !== null) {
-        const tsDate = data.lastSuccessfulFetchTimestamp instanceof Date 
-            ? data.lastSuccessfulFetchTimestamp 
+        const tsDate = data.lastSuccessfulFetchTimestamp instanceof Date
+            ? data.lastSuccessfulFetchTimestamp
             : new Date(data.lastSuccessfulFetchTimestamp);
         if (!isNaN(tsDate.getTime())) {
             payloadData.lastSuccessfulFetchTimestamp = tsDate;
         }
+      }
+      if (data.chain !== undefined && data.chain !== null) {
+        payloadData.chain = String(data.chain);
       }
 
       const upsertOptions = {
