@@ -46,6 +46,7 @@ export const DEX_PROGRAMS_BY_CHAIN: Record<string, Record<string, DexInfo>> = {
     '0xba12222222228d8ba445958a75a0704d566bf2c8': { name: 'BalancerV2Vault', type: 'balancer', feeBps: 0 },
     // 1inch
     '0x1111111254eeb25477b68fb85ed929f73a960582': { name: '1inchV5AggregationRouter', type: 'other', feeBps: 0 },
+    '0x111111125421ca6dc452d289314280a0f8842a65': { name: '1inchV6AggregationRouter', type: 'other', feeBps: 0 },
   },
   base: {
     // Uniswap V3
@@ -55,6 +56,7 @@ export const DEX_PROGRAMS_BY_CHAIN: Record<string, Record<string, DexInfo>> = {
     '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43': { name: 'AerodromeRouter', type: 'uniswap-v2', feeBps: 5 },
     // 1inch
     '0x1111111254eeb25477b68fb85ed929f73a960582': { name: '1inchV5AggregationRouter', type: 'other', feeBps: 0 },
+    '0x111111125421ca6dc452d289314280a0f8842a65': { name: '1inchV6AggregationRouter', type: 'other', feeBps: 0 },
     // Balancer
     '0xba12222222228d8ba445958a75a0704d566bf2c8': { name: 'BalancerV2Vault', type: 'balancer', feeBps: 0 },
   },

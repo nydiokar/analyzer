@@ -32,18 +32,12 @@ function getDecimals(tokenAddress: string, tokenDecimalsMap?: Map<string, number
 
 function rawToUiAmount(raw: bigint, decimals: number): number {
   if (raw === 0n) return 0;
-  return Number(raw) / 10 ** decimals;
-}
-
-// Parse hex raw amount from log data field
-function parseRawAmount(data: string): bigint {
-  const clean = data.startsWith('0x') ? data.slice(2) : data;
-  if (!clean || clean === '0') return 0n;
-  try {
-    return BigInt('0x' + clean.slice(0, 64).padStart(64, '0'));
-  } catch {
-    return 0n;
-  }
+  // Avoid Number(bigint) precision loss for large amounts — divide in bigint space first.
+  // Same pattern as weiToEth: split at the decimal point, convert each half separately.
+  const divisor = BigInt(10 ** decimals);
+  const whole = raw / divisor;
+  const remainder = raw % divisor;
+  return Number(whole) + Number(remainder) / 10 ** decimals;
 }
 
 export interface MappingStats {

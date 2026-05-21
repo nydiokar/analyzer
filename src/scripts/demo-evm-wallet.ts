@@ -3,8 +3,8 @@ dotenv.config();
 
 import { EvmApiClient } from '../core/services/evm-api-client';
 import { mapEvmTransactionsToSwapInputs } from '../core/services/evm-transaction-mapper';
-import { classifyEvmTransaction } from '../core/services/evm-transaction-classifier';
-import { EvmChain, EvmTransaction } from '../types/evm-api';
+import { selectTransactionsForEnrichment } from '../core/services/evm-sync-service';
+import { EvmChain } from '../types/evm-api';
 
 async function main() {
   const walletAddress = process.argv[2];
@@ -79,34 +79,6 @@ async function main() {
   Unique tokens: ${uniqueTokens}
   Enriched: ${toEnrich.length} txs (outgoing swaps prioritised)
 `);
-}
-
-/**
- * Prioritises outgoing swaps for receipt enrichment so ETH spent is populated.
- * Pre-classifies using synthesised logs — no extra RPC calls needed.
- */
-function selectTransactionsForEnrichment(
-  transactions: EvmTransaction[],
-  walletAddress: string,
-  chain: string,
-  limit: number,
-): EvmTransaction[] {
-  if (transactions.length <= limit) return transactions;
-
-  const walletLower = walletAddress.toLowerCase();
-
-  const scored = transactions.map(tx => {
-    const { classification } = classifyEvmTransaction(tx.to, tx.logs, walletLower, chain);
-    if (classification !== 'SWAP') return { tx, score: 0 };
-    const hasOut = tx.logs.some(l => {
-      const from = l.topics[1]?.slice(-40);
-      return from && `0x${from}` === walletLower;
-    });
-    return { tx, score: hasOut ? 2 : 1 };
-  });
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit).map(s => s.tx);
 }
 
 main().catch(err => {

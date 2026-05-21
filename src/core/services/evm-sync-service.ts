@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EvmApiClient, AlchemyTransferItem } from './evm-api-client';
+import { EvmApiClient } from './evm-api-client';
 import { mapEvmTransactionsToSwapInputs, MappingStats, TOKEN_DECIMALS_CACHE } from './evm-transaction-mapper';
 import { classifyEvmTransaction } from './evm-transaction-classifier';
 import { DatabaseService } from 'api/services/database.service';
@@ -169,7 +169,7 @@ export class EvmSyncService {
  * This fixes the "ETH spent = 0" issue where naively enriching the first N txs
  * would only hit incoming transfers and miss the outgoing swap receipts.
  */
-function selectTransactionsForEnrichment(
+export function selectTransactionsForEnrichment(
   transactions: EvmTransaction[],
   walletAddress: string,
   chain: string,

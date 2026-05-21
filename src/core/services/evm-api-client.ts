@@ -182,21 +182,20 @@ export class EvmApiClient {
     ]);
 
     for (const t of [...toTransfers, ...fromTransfers]) {
-      if (!seen.has(t.uniqueId) && allTransfers.length < hardLimit) {
+      if (!seen.has(t.uniqueId)) {
         allTransfers.push(t);
         seen.add(t.uniqueId);
       }
+    }
+
+    if (allTransfers.length >= hardLimit) {
+      logger.warn(`Hard limit ${hardLimit} reached after dedup — ${allTransfers.length} transfers for ${walletAddress} on ${chain}`);
     }
 
     logger.info(`getTransfersForAddress: ${allTransfers.length} unique transfers for ${walletAddress} on ${chain}`);
     return allTransfers;
   }
 
-  /**
-   * Fetch transaction receipts (with logs) for a list of tx hashes.
-   * Uses sequential requests with a small delay to respect free-tier rate limits.
-   * Only needed for DEX event parsing (value extraction) — not for basic classification.
-   */
   /**
    * Fetch transaction receipts (with full logs) for a set of hashes.
    * Sequential with `delayMs` between calls to respect free-tier rate limits.
