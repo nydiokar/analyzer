@@ -38,7 +38,7 @@ import { McapDistributionBar } from '@/components/shared/McapDistributionBar';
 import { createCacheKey } from '@/lib/swr-config';
 import { useCredits } from '@/hooks/useCredits';
 import { useFavorites } from '@/hooks/useFavorites';
-import { isValidSolanaAddress } from '@/lib/solana-utils';
+import { isValidSolanaAddress, isValidWalletAddress, detectChain, chainLabel, chainNativeToken } from '@/lib/solana-utils';
 import { useJobProgress, UseJobProgressCallbacks } from '@/hooks/useJobProgress';
 import { JobProgressData, JobCompletionData, JobFailedData, JobQueueToStartData } from '@/types/websockets';
 import {
@@ -629,6 +629,13 @@ export default function WalletProfileLayout({
     }
   );
 
+  // Chain comes from the API (wallet.chain in DB) — authoritative for Arbitrum/Base disambiguation.
+  // Fall back to address-format detection only before the first API response arrives.
+  const addressChain = detectChain(walletAddress);
+  const chain = (walletSummary?.chain ?? addressChain) as typeof addressChain;
+  const isEvmWallet = chain !== null && chain !== 'solana';
+  const nativeToken: 'SOL' | 'ETH' = walletSummary?.nativeToken ?? (isEvmWallet ? 'ETH' : 'SOL');
+
   // Behavior data — fetched at layout level so McapDistributionBar renders above the tabs.
   // Key must exactly match BehavioralPatternsTab (array form + same date params) so SWR deduplicates.
   let behaviorKey: [string] | null = null;
@@ -787,9 +794,16 @@ export default function WalletProfileLayout({
         enrichMetadata?: boolean;
       },
     ) => {
-      if (!isValidSolanaAddress(walletAddress)) {
+      if (!isValidWalletAddress(walletAddress)) {
         toast.error("Invalid Wallet Address", {
-          description: "The address in the URL is not a valid Solana wallet address.",
+          description: "The address in the URL is not a valid wallet address.",
+        });
+        return;
+      }
+
+      if (isEvmWallet) {
+        toast.info("EVM Wallet", {
+          description: `This is an ${chainLabel(chain)} wallet. Use the admin sync endpoint to ingest data.`,
         });
         return;
       }
@@ -935,7 +949,7 @@ export default function WalletProfileLayout({
       if (!walletSummary || !walletAddress) {
         return false;
       }
-      if (!isValidSolanaAddress(walletAddress)) {
+      if (!isValidWalletAddress(walletAddress) || isEvmWallet) {
         return false;
       }
       if (isDemoAccount) {
@@ -994,9 +1008,16 @@ export default function WalletProfileLayout({
   }, [walletAddress, hasInitialTokenSnapshot, shouldAutoTriggerFlash, triggerDashboardScope]);
 
   const handleTriggerAnalysis = useCallback(async () => {
-    if (!isValidSolanaAddress(walletAddress)) {
+    if (!isValidWalletAddress(walletAddress)) {
       toast.error("Invalid Wallet Address", {
-        description: "The address in the URL is not a valid Solana wallet address.",
+        description: "The address in the URL is not a valid wallet address.",
+      });
+      return;
+    }
+
+    if (isEvmWallet) {
+      toast.info("EVM Wallet", {
+        description: `${chainLabel(chain)} wallets are synced via the admin sync endpoint.`,
       });
       return;
     }
@@ -1124,6 +1145,14 @@ export default function WalletProfileLayout({
 
 
   const ExpandedAnalysisControl = () => {
+    if (isEvmWallet) {
+      return (
+        <Badge variant="outline" className="text-xs px-2 py-1 border-blue-500/30 text-blue-400/70">
+          EVM — data synced via admin
+        </Badge>
+      );
+    }
+
     const deepState = scopeStates.deep;
     const deepBusy = deepState.status === 'running' || deepState.status === 'queued';
     const ctaBusy = isAnalyzing;
@@ -1224,6 +1253,13 @@ export default function WalletProfileLayout({
                   </>
                 )}
 
+                {/* Chain badge for EVM wallets */}
+                {isEvmWallet && (
+                  <Badge variant="outline" className="text-xs font-mono px-2 py-0.5 border-blue-500/40 text-blue-400">
+                    {chainLabel(chain)}
+                  </Badge>
+                )}
+
                 {/* Bot icon inline */}
                 {isValidData && walletSummary?.classification === 'high_frequency' && (
                   <TooltipProvider delayDuration={100}>
@@ -1249,7 +1285,7 @@ export default function WalletProfileLayout({
           </div>
 
           {/* Low-credits staleness banner */}
-          {creditBalance !== null && creditBalance < 5 && isDataStale && !isAnalyzing && !isDemoAccount && walletAddress && (
+          {!isEvmWallet && creditBalance !== null && creditBalance < 5 && isDataStale && !isAnalyzing && !isDemoAccount && walletAddress && (
             <div className="flex items-center justify-between gap-3 mb-3 px-3 py-2 rounded-md border border-yellow-500/30 bg-yellow-500/5 text-sm">
               <div className="flex items-center gap-2 text-yellow-400">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
@@ -1290,6 +1326,7 @@ export default function WalletProfileLayout({
                   walletAddress={walletAddress}
                   triggerAnalysis={handleTriggerAnalysis}
                   isAnalyzingGlobal={isAnalyzing}
+                  nativeToken={nativeToken}
                   walletSummary={walletSummary}
                   summaryError={summaryError}
                   summaryIsLoading={!walletSummary && !summaryError}
@@ -1346,7 +1383,25 @@ export default function WalletProfileLayout({
           </TabsList>
         </div>
 
+        {/* EVM wallet — no data synced yet */}
+        {isEvmWallet && walletSummary?.status === 'unanalyzed' && (
+          <div className="flex flex-col items-center justify-center gap-4 py-16 px-6 text-center">
+            <div className="flex items-center justify-center h-12 w-12 rounded-full bg-blue-500/10 text-blue-400">
+              <AlertCircle className="h-6 w-6" />
+            </div>
+            <div className="space-y-1">
+              <p className="font-semibold text-sm">{chainLabel(chain)} wallet — not yet synced</p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                No data found for this wallet. An admin must sync it via{' '}
+                <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">POST /jobs/wallets/evm-sync</code>{' '}
+                before analysis is available.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Tab Content - flows naturally with page scroll */}
+        {(!isEvmWallet || walletSummary?.status !== 'unanalyzed') && (
         <div className="w-full">
 
           <LazyTabContent value="token-performance" activeTab={activeTab} className="mt-0 p-0" defer={true}>
@@ -1370,6 +1425,7 @@ export default function WalletProfileLayout({
             <MemoizedReviewerLogTab walletAddress={walletAddress} />
           </LazyTabContent>
         </div>
+        )}
     </Tabs>
 
       {/* Quick Add Modal */}

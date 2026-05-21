@@ -65,6 +65,22 @@ export const isValidSolanaAddress = (address: string): boolean => {
   return decoded !== null && decoded.length === 32;
 };
 
+export const isValidEvmAddress = (address: string): boolean => {
+  if (!address || typeof address !== 'string') return false;
+  return /^0x[0-9a-fA-F]{40}$/.test(address.trim());
+};
+
+export const isValidWalletAddress = (address: string): boolean =>
+  isValidSolanaAddress(address) || isValidEvmAddress(address);
+
+export type WalletChain = 'solana' | 'ethereum' | 'arbitrum' | 'base';
+
+export const detectChain = (address: string): WalletChain | null => {
+  if (isValidSolanaAddress(address)) return 'solana';
+  if (isValidEvmAddress(address)) return 'ethereum'; // default EVM chain; callers can override via ?chain= param
+  return null;
+};
+
 @Injectable()
 export class SolanaAddressPipe implements PipeTransform<string> {
   transform(value: string, metadata: ArgumentMetadata): string {
@@ -73,4 +89,4 @@ export class SolanaAddressPipe implements PipeTransform<string> {
     }
     return value;
   }
-} 
+}

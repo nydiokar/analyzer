@@ -8,11 +8,24 @@ export class WalletSummaryResponse {
   })
   status: 'ok' | 'unanalyzed' | 'restricted';
 
-  @ApiProperty({ 
-    description: 'The Solana wallet address.',
-    example: 'Dez...yc1' 
+  @ApiProperty({
+    description: 'The wallet address.',
+    example: 'Dez...yc1'
   })
   walletAddress: string;
+
+  @ApiPropertyOptional({
+    description: 'The chain this wallet belongs to.',
+    example: 'solana',
+    enum: ['solana', 'ethereum', 'arbitrum', 'base'],
+  })
+  chain?: 'solana' | 'ethereum' | 'arbitrum' | 'base' | null;
+
+  @ApiPropertyOptional({
+    description: 'The native token symbol for this chain (SOL, ETH).',
+    example: 'SOL',
+  })
+  nativeToken?: 'SOL' | 'ETH' | null;
 
   @ApiPropertyOptional({
     description: 'Known wallet type from registry (if applicable).',

@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `main` | **Last Updated:** 2026-04-22 | **Status:** `@sova-intel/mcp@0.1.0` published; token detail sidebar feature planned and ready for implementation.
+**Branch:** `feature/evm-ingestion` (pending merge) | **Last Updated:** 2026-05-22 | **Status:** EVM ingestion + analysis pipeline complete; chain-agnostic refactor identified as next priority.
 
 ---
 
@@ -8,10 +8,11 @@
 
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
-| MCP-8 | **[sova-intel-mcp] Post-publish end-to-end smoke test** — install published MCP in Claude Desktop or Claude Code, run `wallet_hud` live | 🔴 NOW |
-| MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🔴 |
+| EVM-1 | **[EVM-CHAIN-AGNOSTIC] Refactor analysis pipeline to be genuinely chain-agnostic** — `NativeBalanceFetcher` interface, field renames, remove `skipBalanceFetch` flag. READ `.ai/context/EVM_PORT/EVM_CHAIN_AGNOSTIC_REFACTOR.md` before starting. | 🔴 NOW |
+| MCP-8 | **[sova-intel-mcp] Post-publish end-to-end smoke test** — install published MCP in Claude Desktop or Claude Code, run `wallet_hud` live | 🟡 |
+| MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🟡 |
 | MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |
-| GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
+| GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | ⚪ |
 | GUIDE-1 | **Finish wallet intelligence guide** (`documentation/agent-wallet-intelligence-guide.md`) | ⚪ |
 | X-1 | **Finish sova-x wallets/tokens opening work** | ⚪ |
 
@@ -31,6 +32,31 @@
 ---
 
 ## Recent Activity
+
+### May 22, 2026 — EVM Integration: Analysis Pipeline Wired + Chain-Aware API/Frontend ✅
+
+**Branch:** `feature/evm-ingestion` — merge-ready  
+**⚠️ ARCHITECTURAL DEBT IDENTIFIED — read `.ai/context/EVM_PORT/EVM_CHAIN_AGNOSTIC_REFACTOR.md` before continuing EVM work.**
+
+The current implementation works end-to-end but uses `skipBalanceFetch: true` as a bypass instead of a proper chain-agnostic abstraction. `PnlAnalysisService` still injects `HeliusApiClient` directly. EVM unrealized PnL is always 0 as a result.
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| EVM-A | ✅ FEAT | **[EVM-ANALYSIS-WIRE]** `EvmSyncService.syncWalletData()` Step 7 — after saving `SwapAnalysisInput` records, runs full analysis pipeline: PnL → behavior → HUD invalidation. Services are optional in constructor so standalone scripts still work. `analysisRan: boolean` added to `EvmSyncResult`. | 🟡 M | `src/core/services/evm-sync-service.ts`, `src/api/integrations/evm.module.ts` |
+| EVM-B | ✅ FEAT | **[EVM-CHAIN-API]** `WalletSummaryResponse` + `wallets.controller.ts` — `chain` and `nativeToken` fields added, populated from `wallet.chain` DB column. Both `unanalyzed` and `ok` responses include chain context. | 🟢 S | `src/api/shared/dto/wallet-summary-response.dto.ts`, `src/api/controllers/wallets.controller.ts` |
+| EVM-C | ✅ FEAT | **[EVM-ADDRESS-VALIDATORS]** `isValidEvmAddress`, `isValidWalletAddress`, `detectChain`, `WalletChain` added to backend pipe and dashboard utils. All controllers + search flows now accept `0x` addresses. | 🟢 S | `src/api/shared/solana-address.pipe.ts`, `dashboard/src/lib/solana-utils.ts` |
+| EVM-D | ✅ FEAT | **[EVM-FRONTEND-CHAIN-AWARE]** `WalletProfileLayout` derives chain from API response (not address guess) — correct for Arbitrum/Base which share `0x` format. Shows chain badge, suppresses Solana analysis triggers for EVM wallets, shows "not yet synced" empty state. `AccountSummaryCard` accepts `nativeToken` prop, replaces hardcoded `SOL` labels. | 🟡 M | `dashboard/src/components/layout/WalletProfileLayout.tsx`, `dashboard/src/components/dashboard/AccountSummaryCard.tsx`, `dashboard/src/components/shared/WalletSearch.tsx`, `dashboard/src/components/layout/QuickAddForm.tsx` |
+| EVM-E | ✅ FIX | **[EVM-CONTROLLER-GUARDS]** `intel.controller` returns `404/not_synced` for unsynced EVM wallets (instead of queuing Solana analysis). `analyses.controller` returns `{ skipped: true, skipReason: 'evm-wallet' }` instead of 400. | 🟢 S | `src/api/controllers/intel.controller.ts`, `src/api/controllers/analyses.controller.ts` |
+
+**Key architectural debt (not fixed — tracked as EVM-1):**
+- `PnlAnalysisService` injects `HeliusApiClient` directly — should inject `NativeBalanceFetcher` interface
+- `skipBalanceFetch: true` is a workaround flag, not an abstraction
+- Field names `totalSolSpent`, `realizedPnlSol`, `associatedSolValue`, `currentSolBalance` lie about their content for EVM
+- `src/types/helius-api.ts` file name implies Solana — should be `analysis-types.ts`
+- EVM unrealized PnL is always 0 (no balance fetch)
+- No EVM token metadata enrichment (USD values null for EVM tokens)
+
+---
 
 ### April 22, 2026 — Token Detail Sidebar: Implemented ✅
 

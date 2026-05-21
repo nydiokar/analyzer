@@ -5,7 +5,7 @@ import { DatabaseService } from '../services/database.service';
 import { SimilarityAnalysisRequestDto } from '../shared/dto/similarity-analysis.dto';
 import { WalletStatusRequestDto, WalletStatusResponseDto } from '../shared/dto/wallet-status.dto';
 import { DashboardAnalysisRequestDto, DashboardAnalysisResponseDto, DashboardAnalysisScope } from '../shared/dto/dashboard-analysis.dto';
-import { isValidSolanaAddress } from '../shared/solana-address.pipe';
+import { isValidSolanaAddress, isValidEvmAddress } from '../shared/solana-address.pipe';
 import { SimilarityOperationsQueue } from '../../queues/queues/similarity-operations.queue';
 import { EnrichmentOperationsQueue } from '../../queues/queues/enrichment-operations.queue';
 import { AnalysisOperationsQueue } from '../../queues/queues/analysis-operations.queue';
@@ -363,8 +363,19 @@ export class AnalysesController {
       `Received dashboard analysis request for wallet ${dto.walletAddress} [scope=${scope}, trigger=${triggerSource}]`,
     );
 
+    if (isValidEvmAddress(dto.walletAddress)) {
+      // EVM wallets don't use the Solana analysis queue. The frontend should route
+      // to EVM sync instead. Return skipped so the dashboard doesn't 400-error.
+      return {
+        skipped: true,
+        skipReason: 'evm-wallet',
+        walletAddress: dto.walletAddress,
+        alreadyRunning: false,
+      } as any;
+    }
+
     if (!isValidSolanaAddress(dto.walletAddress)) {
-      throw new BadRequestException(`Invalid Solana address: ${dto.walletAddress}`);
+      throw new BadRequestException(`Invalid wallet address: ${dto.walletAddress}`);
     }
 
     const scopeDefaults = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS[scope];

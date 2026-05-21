@@ -25,7 +25,7 @@ interface AccountSummaryCardProps {
   className?: string;
   triggerAnalysis?: () => void;
   isAnalyzingGlobal?: boolean;
-  // NEW: Add data props from parent
+  nativeToken?: 'SOL' | 'ETH';
   walletSummary?: WalletSummaryData;
   summaryError?: any;
   summaryIsLoading?: boolean;
@@ -58,6 +58,7 @@ export default function AccountSummaryCard({
   className,
   triggerAnalysis,
   isAnalyzingGlobal,
+  nativeToken = 'SOL',
   walletSummary: data,
   summaryError: error,
   summaryIsLoading: isLoading,
@@ -266,7 +267,7 @@ export default function AccountSummaryCard({
           )}>
             {formatPnl(data.latestPnl ?? null)}
           </span>
-          <span className="text-xs text-muted-foreground">SOL</span>
+          <span className="text-xs text-muted-foreground">{nativeToken}</span>
         </div>
         {data.latestPnlUsd !== null && data.latestPnlUsd !== undefined && (
           <p className="text-xs text-muted-foreground mt-0.5">{formatUsdValue(data.latestPnlUsd)}</p>
@@ -279,7 +280,7 @@ export default function AccountSummaryCard({
           <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-1">Balance</p>
           <div className="flex items-baseline gap-1.5">
             <span className="text-base font-semibold tabular-nums leading-none">{data.currentSolBalance?.toFixed(1) ?? "N/A"}</span>
-            <span className="text-xs text-muted-foreground">SOL</span>
+            <span className="text-xs text-muted-foreground">{nativeToken}</span>
           </div>
           {data.currentSolBalanceUsd !== null && (
             <p className="text-xs text-muted-foreground mt-0.5">{formatUsdValue(data.currentSolBalanceUsd)}</p>

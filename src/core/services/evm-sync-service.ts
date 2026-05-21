@@ -4,6 +4,9 @@ import { EvmApiClient } from './evm-api-client';
 import { mapEvmTransactionsToSwapInputs, MappingStats, TOKEN_DECIMALS_CACHE } from './evm-transaction-mapper';
 import { classifyEvmTransaction } from './evm-transaction-classifier';
 import { DatabaseService } from 'api/services/database.service';
+import { PnlAnalysisService } from 'api/services/pnl-analysis.service';
+import { BehaviorService } from 'api/services/behavior.service';
+import { WalletHudService } from 'api/services/wallet-hud.service';
 import { EvmChain, EvmTransaction } from '@/types/evm-api';
 import { createLogger } from 'core/utils/logger';
 
@@ -23,6 +26,7 @@ export interface EvmSyncResult {
   stats: MappingStats;
   savedCount: number;
   durationMs: number;
+  analysisRan: boolean;
 }
 
 @Injectable()
@@ -30,6 +34,10 @@ export class EvmSyncService {
   constructor(
     private readonly evmApiClient: EvmApiClient,
     private readonly databaseService: DatabaseService,
+    // Optional: not available in standalone scripts — only injected via NestJS DI.
+    private readonly pnlAnalysisService?: PnlAnalysisService,
+    private readonly behaviorService?: BehaviorService,
+    private readonly walletHudService?: WalletHudService,
   ) {}
 
   async syncWalletData(
@@ -84,6 +92,7 @@ export class EvmSyncService {
         },
         savedCount: 0,
         durationMs: Date.now() - startMs,
+        analysisRan: false,
       };
     }
 
@@ -120,7 +129,7 @@ export class EvmSyncService {
     logger.info(`Mapped ${records.length} swap/transfer records`);
 
     if (options.skipSave || records.length === 0) {
-      return { walletAddress, chain, stats, savedCount: 0, durationMs: Date.now() - startMs };
+      return { walletAddress, chain, stats, savedCount: 0, durationMs: Date.now() - startMs, analysisRan: false };
     }
 
     // Step 6: Save to database
@@ -154,7 +163,39 @@ export class EvmSyncService {
       throw err;
     }
 
-    return { walletAddress, chain, stats, savedCount, durationMs: Date.now() - startMs };
+    // Step 7: Run analysis pipeline — same layers as the Solana queue processor.
+    // PnL first (writes WalletPnlSummary), then behavior (writes WalletBehaviorProfile),
+    // then invalidate HUD cache so the next read is fresh.
+    // Services are optional: not injected when running as a standalone script.
+    let analysisRan = false;
+    if (this.pnlAnalysisService && this.behaviorService && this.walletHudService) {
+      try {
+        logger.info(`Running PnL analysis for ${walletAddress} (${chain})`);
+        const pnlResult = await this.pnlAnalysisService.analyzeWalletPnl(walletAddress, undefined, {
+          skipBalanceFetch: true, // EVM balance is tracked separately — skip Helius SOL balance call
+        });
+
+        if (pnlResult) {
+          logger.info(`PnL analysis complete for ${walletAddress}: realizedPnl=${pnlResult.realizedPnl}`);
+
+          const behaviorConfig = this.behaviorService.getDefaultBehaviorAnalysisConfig();
+          const behaviorResult = await this.behaviorService.getWalletBehavior(walletAddress, behaviorConfig);
+          if (behaviorResult) {
+            logger.info(`Behavior analysis complete for ${walletAddress}: ${behaviorResult.tradingStyle}`);
+          }
+
+          await this.walletHudService.invalidateCache(walletAddress);
+          analysisRan = true;
+        }
+      } catch (err) {
+        // Don't throw — ingestion succeeded. Log and surface in result so caller knows.
+        logger.error(`Post-sync analysis failed for ${walletAddress}: ${String(err)}`);
+      }
+    } else {
+      logger.info(`Analysis services not available (standalone mode) — skipping post-sync analysis for ${walletAddress}`);
+    }
+
+    return { walletAddress, chain, stats, savedCount, durationMs: Date.now() - startMs, analysisRan };
   }
 }
 

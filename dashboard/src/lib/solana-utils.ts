@@ -68,6 +68,38 @@ export function isValidSolanaAddress(address: string): boolean {
   return !!decoded && decoded.length === 32;
 }
 
+export function isValidEvmAddress(address: string): boolean {
+  if (!address || typeof address !== 'string') return false;
+  return /^0x[0-9a-fA-F]{40}$/.test(address.trim());
+}
+
+export function isValidWalletAddress(address: string): boolean {
+  return isValidSolanaAddress(address) || isValidEvmAddress(address);
+}
+
+export type WalletChain = 'solana' | 'ethereum' | 'arbitrum' | 'base';
+
+export function detectChain(address: string): WalletChain | null {
+  if (isValidSolanaAddress(address)) return 'solana';
+  if (isValidEvmAddress(address)) return 'ethereum';
+  return null;
+}
+
+export function chainNativeToken(chain: WalletChain | null): string {
+  if (!chain || chain === 'solana') return 'SOL';
+  return 'ETH';
+}
+
+export function chainLabel(chain: WalletChain | null): string {
+  switch (chain) {
+    case 'solana': return 'Solana';
+    case 'ethereum': return 'Ethereum';
+    case 'arbitrum': return 'Arbitrum';
+    case 'base': return 'Base';
+    default: return 'Unknown';
+  }
+}
+
 /**
  * Shortens a Solana address for display purposes.
  * e.g., "So11111111111111111111111111111111111111112" -> "So11...1112"
@@ -78,4 +110,4 @@ export function isValidSolanaAddress(address: string): boolean {
 export const shortenAddress = (address: string, chars = 4): string => {
   if (!address) return '';
   return address.length < chars * 2 ? address : `${address.slice(0, chars)}...${address.slice(-chars)}`;
-}; 
+};

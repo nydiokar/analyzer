@@ -167,11 +167,16 @@ export class WalletsController {
       // 2. Fetch the main persisted PNL Summary for overall KPIs.
       const overallPnlSummary = await this.databaseService.getWalletPnlSummaryWithRelations(walletAddress);
 
+      const walletChain = (wallet?.chain ?? 'solana') as 'solana' | 'ethereum' | 'arbitrum' | 'base';
+      const nativeToken: 'SOL' | 'ETH' = walletChain === 'solana' ? 'SOL' : 'ETH';
+
       if (!overallPnlSummary) {
         this.logger.warn(`No WalletPnlSummary found for wallet: ${walletAddress}. Returning 'unanalyzed' state.`);
         const response = {
           status: 'unanalyzed' as const,
           walletAddress: walletAddress,
+          chain: walletChain,
+          nativeToken,
           knownType: wallet?.knownType ?? null,
           knownLabel: wallet?.knownLabel ?? null,
         };
@@ -247,6 +252,8 @@ export class WalletsController {
       const response: WalletSummaryResponse = {
         status: 'ok' as const,
         walletAddress,
+        chain: walletChain,
+        nativeToken,
         knownType: wallet?.knownType ?? null,
         knownLabel: wallet?.knownLabel ?? null,
         lastAnalyzedAt: lastAnalyzedAt.toISOString(),

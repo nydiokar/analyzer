@@ -2,11 +2,17 @@ import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from 'api/modules/database.module';
 import { DatabaseService } from 'api/services/database.service';
+import { PnlAnalysisModule } from 'api/modules/pnl-analysis.module';
+import { PnlAnalysisService } from 'api/services/pnl-analysis.service';
+import { BehaviorModule } from 'api/modules/behavior.module';
+import { BehaviorService } from 'api/services/behavior.service';
+import { WalletHudModule } from 'api/modules/wallet-hud.module';
+import { WalletHudService } from 'api/services/wallet-hud.service';
 import { EvmApiClient } from 'core/services/evm-api-client';
 import { EvmSyncService } from 'core/services/evm-sync-service';
 
 @Module({
-  imports: [ConfigModule, DatabaseModule],
+  imports: [ConfigModule, DatabaseModule, PnlAnalysisModule, BehaviorModule, WalletHudModule],
   providers: [
     {
       provide: EvmApiClient,
@@ -24,10 +30,16 @@ import { EvmSyncService } from 'core/services/evm-sync-service';
     },
     {
       provide: EvmSyncService,
-      useFactory: (evmApiClient: EvmApiClient, databaseService: DatabaseService) => {
-        return new EvmSyncService(evmApiClient, databaseService);
+      useFactory: (
+        evmApiClient: EvmApiClient,
+        databaseService: DatabaseService,
+        pnlAnalysisService: PnlAnalysisService,
+        behaviorService: BehaviorService,
+        walletHudService: WalletHudService,
+      ) => {
+        return new EvmSyncService(evmApiClient, databaseService, pnlAnalysisService, behaviorService, walletHudService);
       },
-      inject: [EvmApiClient, DatabaseService],
+      inject: [EvmApiClient, DatabaseService, PnlAnalysisService, BehaviorService, WalletHudService],
     },
   ],
   exports: [EvmApiClient, EvmSyncService],

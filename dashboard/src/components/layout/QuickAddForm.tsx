@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Plus, X, ArrowRight, AlertCircle } from 'lucide-react';
 import { getCollectionColorFilled } from '@/lib/color-utils';
-import { isValidSolanaAddress } from '@/lib/solana-utils';
+import { isValidWalletAddress } from '@/lib/solana-utils';
 import { WALLET_NICKNAME_MAX } from '@/lib/constants';
 
 interface QuickAddFormProps {
@@ -62,8 +62,8 @@ const QuickAddForm = React.memo(({
         setAddressError('Wallet address is required');
         return;
       }
-      if (!isValidSolanaAddress(trimmedAddress)) {
-        setAddressError('Invalid Solana address format');
+      if (!isValidWalletAddress(trimmedAddress)) {
+        setAddressError('Invalid wallet address format');
         return;
       }
     }
@@ -147,7 +147,7 @@ const QuickAddForm = React.memo(({
             {isAddressEditable ? (
               <div className="space-y-1">
                 <Input
-                  placeholder="Enter Solana wallet address..."
+                  placeholder="Solana or EVM (0x...) wallet address..."
                   value={formData.walletAddress}
                   onChange={handleWalletAddressChange}
                   className={`h-9 font-mono text-xs ${addressError ? 'border-red-500' : ''}`}

@@ -64,7 +64,7 @@ import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, WALLET_CLASSIF
 import { JobPriority, QueueNames } from '../../queues/config/queue.config';
 import { JobEventsBridgeService } from '../../queues/services/job-events-bridge.service';
 import { getKnownWallet, isAnalysisBlockingType } from '../../config/known-wallets';
-import { isValidSolanaAddress } from '../shared/solana-address.pipe';
+import { isValidSolanaAddress, isValidEvmAddress, isValidWalletAddress } from '../shared/solana-address.pipe';
 
 class BatchHudRequestDto {
   @ApiProperty({
@@ -255,20 +255,21 @@ export class IntelController {
 **HTTP 202 — status "queued":** Analysis timed out (>30s). 0cr charged. Poll \`monitoringUrl\` for completion, then call again with \`X-Prepaid-Job-Id: {prepaidJobId}\` header — no second payment required.
 **HTTP 422 — status "skipped":** Known system/program wallet, not eligible for analysis. 0cr charged.`,
   })
-  @ApiParam({ name: 'addr', description: 'Solana wallet address' })
+  @ApiParam({ name: 'addr', description: 'Solana or EVM wallet address' })
   @ApiResponse({ status: 200, description: 'Aggregated wallet intel', type: IntelWalletProfileResponseDto })
   @ApiResponse({ status: 202, description: 'Analysis queued — poll monitoringUrl then call again', type: IntelWalletQueuedResponseDto })
-  @ApiResponse({ status: 400, description: 'Invalid Solana address' })
+  @ApiResponse({ status: 400, description: 'Invalid wallet address' })
   @ApiResponse({ status: 402, description: 'Insufficient credits or X402 payment required' })
   @ApiResponse({ status: 422, description: 'Known system wallet — not eligible for analysis, 0cr charged' })
   async getWalletIntel(
     @Param('addr') addr: string,
     @Req() req: Request & { user?: User },
   ) {
-    // Validate address before any DB work — same as AnalysesController
-    if (!isValidSolanaAddress(addr)) {
-      throw new BadRequestException(`Invalid Solana address: ${addr}`);
+    if (!isValidWalletAddress(addr)) {
+      throw new BadRequestException(`Invalid wallet address: ${addr}`);
     }
+
+    const isEvm = isValidEvmAddress(addr);
 
     this.logger.log(`Intel wallet request: ${addr}`);
 
@@ -299,6 +300,20 @@ export class IntelController {
 
       // HTTP 200 — CreditInterceptor fires, 5cr deducted. Data delivered.
       return this.buildIntelResponse(addr, summary!, hud, pnlOverview, behavior);
+    }
+
+    // EVM wallets: no Solana analysis queue. Return 404 if no data has been synced yet —
+    // the caller must POST /jobs/wallets/evm-sync first (or use the dashboard sync CTA).
+    if (isEvm) {
+      throw new HttpException(
+        {
+          status: 'not_synced',
+          walletAddress: addr,
+          chain: 'ethereum',
+          message: 'No EVM data found for this wallet. Sync the wallet first via POST /jobs/wallets/evm-sync.',
+        },
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     // Data is missing or stale (older than 30 min) — run pre-queue checks then queue.

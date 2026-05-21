@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { fetcher } from '@/lib/fetcher';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardAnalysisResponse } from '@/types/api';
-import { isValidSolanaAddress } from '@/lib/solana-utils';
+import { isValidWalletAddress, isValidEvmAddress } from '@/lib/solana-utils';
 import { debounce } from 'lodash';
 
 const DEBOUNCE_DELAY = 300;
@@ -116,9 +116,11 @@ export function WalletSearch() {
     }
   };
 
+  const trimmedQuery = query.trim();
+  const isEvmQuery = isValidEvmAddress(trimmedQuery);
   const canTriggerAnalysis =
-    query.trim() &&
-    isValidSolanaAddress(query.trim()) &&
+    trimmedQuery &&
+    isValidWalletAddress(trimmedQuery) &&
     !isSearching &&
     searchResults.length === 0;
 
@@ -179,8 +181,12 @@ export function WalletSearch() {
           {canTriggerAnalysis && (
             <CommandGroup heading="Actions">
               <CommandItem
-                value={`analyze-${query}`}
-                onSelect={() => handleTriggerAnalysis(query.trim())}
+                value={`analyze-${trimmedQuery}`}
+                onSelect={() =>
+                  isEvmQuery
+                    ? handleSelectWallet(trimmedQuery)
+                    : handleTriggerAnalysis(trimmedQuery)
+                }
                 disabled={isAnalyzing}
                 className="cursor-pointer"
               >
@@ -192,7 +198,11 @@ export function WalletSearch() {
                 ) : (
                   <>
                     <DownloadCloud className="mr-2 h-4 w-4" />
-                    <span>Import & Analyze: {query.substring(0, 6)}...{query.substring(query.length - 4)}</span>
+                    <span>
+                      {isEvmQuery
+                        ? `View EVM wallet: ${trimmedQuery.substring(0, 6)}...${trimmedQuery.substring(trimmedQuery.length - 4)}`
+                        : `Import & Analyze: ${trimmedQuery.substring(0, 6)}...${trimmedQuery.substring(trimmedQuery.length - 4)}`}
+                    </span>
                   </>
                 )}
               </CommandItem>

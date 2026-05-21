@@ -26,6 +26,8 @@ export interface BehaviorMetrics {
 export interface WalletSummaryData {
   status?: 'ok' | 'unanalyzed' | 'restricted';
   walletAddress: string;
+  chain?: 'solana' | 'ethereum' | 'arbitrum' | 'base' | null;
+  nativeToken?: 'SOL' | 'ETH' | null;
   knownType?: string | null; // Backend sends as string, WalletBadge accepts string | KnownWalletType
   knownLabel?: string | null;
   isFavorite: boolean;
