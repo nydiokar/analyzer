@@ -1797,6 +1797,9 @@ export class DatabaseService {
       if (data.chain !== undefined && data.chain !== null) {
         payloadData.chain = String(data.chain);
       }
+      if (data.lastSyncedBlock !== undefined && data.lastSyncedBlock !== null) {
+        payloadData.lastSyncedBlock = Number(data.lastSyncedBlock);
+      }
 
       const upsertOptions = {
         where: { address: walletAddress },

@@ -1,11 +1,11 @@
 # EVM Port — Implementation Progress
 
 **Branch:** `feature/evm-ingestion`  
-**Last updated:** 2026-05-21
+**Last updated:** 2026-05-22
 
 ---
 
-## Status: Phase 4 complete — branch is merge-ready
+## Status: Phase 5 in progress — token decimals + incremental sync done
 
 ---
 
@@ -104,21 +104,32 @@ ETH spent:    0 (confirmed correct — wallet is mostly a token receiver, no ETH
 
 ## Known limitations / next steps
 
-### Token decimals — hardcoded for known tokens
-Unknown ERC-20 tokens default to 18 decimals. For accurate amounts on tokens with non-18 decimals
-(e.g. USDC=6, USDT=6 already handled), need `eth_call` to `decimals()` for unknowns.
-
-### Multi-chain not yet validated
-Arbitrum and Base code paths are wired but untested end-to-end.
+### Remaining
+- Open PR to main once merge prep is reviewed
 
 ### Phase 3 next steps
 - ✅ Validate ETH spent is populated — confirmed working with Uniswap Universal Router (1.80 ETH spent)
 - ✅ SwapAnalyzer stablecoins extended for EVM (USDC/USDT/DAI on ETH/ARB/Base)
 - ✅ Behavior analyzer exclusion list extended for EVM (WETH + stablecoins)
-- ⚠️ Arbitrum/Base: 403 error — Alchemy API key needs Arbitrum/Base enabled in dashboard
+- ✅ Arbitrum: end-to-end validated — 9 transfers, 3 swaps, DB save, PnL, behavior all pass
+- ✅ Base: end-to-end validated — 18 transfers, 5 swaps, DB save clean
+- ✅ eth_call decimals fallback validated live: 1 unknown token on Arbitrum, 2 on Base resolved via eth_call
 - ✅ DB save validated: 396 rows saved, wallet row created with chain='ethereum'
 - ✅ PnL analysis validated: 396 txs → 6 tokens, 0.15 SOL net PnL, 102ms, no errors
 - ✅ Behavior analysis validated: runs without errors, speedCategory/holdTime/uniqueTokens populated
+
+### Phase 5 — token decimals + incremental sync (2026-05-22)
+- ✅ **Token decimals resolved from Alchemy metadata** — `rawContract.decimal` parsed in `extractDecimalsFromTransfers()` (zero extra RPC calls for Alchemy-annotated tokens)
+- ✅ **eth_call decimals() fallback** — `fetchTokenDecimals()` on `EvmApiClient` with in-memory cache; called only for tokens Alchemy didn't annotate
+- ✅ **`resolveTokenDecimals()`** — combined pipeline: Alchemy metadata → static cache → eth_call; called in `syncWalletData` before mapping
+- ✅ **WBTC added to static cache** (8 decimals)
+- ✅ **`tokenDecimalsMap` threaded through** `mapEvmTransactionsToSwapInputs` → `buildRecords` → `getDecimals`
+- ✅ **Incremental sync** — `lastSyncedBlock Int?` added to `Wallet` model; `syncWalletData` reads `lastSyncedBlock+1` from DB as `fromBlock` when no override provided; after save, writes new `lastSyncedBlock` to wallet row
+- ✅ **Prisma migration applied** — `20260521211048_add_wallet_last_synced_block`
+- ✅ **`updateWallet` extended** to handle `lastSyncedBlock`
+- ✅ **Incremental sync cross-chain bug fixed** — `lastSyncedBlock` only used when `wallet.chain === chain`; prevents Arbitrum block numbers leaking into a Base sync
+- ✅ **17/17 tests pass** (5 new `evm-api-client.spec.ts` tests added for decimal extraction)
+- ✅ **Zero TS errors**
 
 ### Phase 4 — code review fixes + docs (2026-05-22)
 - ✅ `buildTransactionsFromTransfers` chain hardcode fixed — now takes `chain` param, no more `.map` workaround

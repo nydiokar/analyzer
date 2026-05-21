@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EvmApiClient } from './evm-api-client';
-import { mapEvmTransactionsToSwapInputs, MappingStats } from './evm-transaction-mapper';
+import { EvmApiClient, AlchemyTransferItem } from './evm-api-client';
+import { mapEvmTransactionsToSwapInputs, MappingStats, TOKEN_DECIMALS_CACHE } from './evm-transaction-mapper';
 import { classifyEvmTransaction } from './evm-transaction-classifier';
 import { DatabaseService } from 'api/services/database.service';
 import { EvmChain, EvmTransaction } from '@/types/evm-api';
@@ -46,9 +46,23 @@ export class EvmSyncService {
 
     logger.info(`Starting EVM sync for ${walletAddress} on ${chain}`);
 
+    // Incremental sync: use lastSyncedBlock from DB unless caller overrides fromBlock.
+    // Only apply if the wallet's stored chain matches the current chain — block numbers
+    // are chain-specific, so a block from Arbitrum must not be used as a fromBlock on Base.
+    let fromBlock = options.fromBlock;
+    if (fromBlock === undefined && !options.skipSave) {
+      try {
+        const existing = await this.databaseService.getWallet(walletAddress);
+        if (existing?.lastSyncedBlock && existing.chain === chain) {
+          fromBlock = existing.lastSyncedBlock + 1;
+          logger.info(`Incremental sync: starting from block ${fromBlock} (lastSyncedBlock=${existing.lastSyncedBlock})`);
+        }
+      } catch { /* wallet not in DB yet — full sync */ }
+    }
+
     // Step 1: Fetch all ERC-20 transfers (2 RPC calls regardless of wallet size)
     const transfers = await this.evmApiClient.getTransfersForAddress(walletAddress, chain, {
-      fromBlock: options.fromBlock,
+      fromBlock,
       toBlock: options.toBlock,
       maxCount: maxTransactions,
     });
@@ -73,11 +87,24 @@ export class EvmSyncService {
       };
     }
 
-    // Step 2: Build EvmTransaction objects from transfer metadata (zero extra RPC calls)
+    // Step 2: Resolve token decimals — Alchemy already returns decimals in transfer
+    // metadata so this is free for most tokens; eth_call fallback for the remainder.
+    const tokenDecimalsMap = await this.evmApiClient.resolveTokenDecimals(
+      transfers, chain, TOKEN_DECIMALS_CACHE,
+    );
+    logger.info(`Resolved decimals for ${tokenDecimalsMap.size} tokens`);
+
+    // Step 3: Build EvmTransaction objects from transfer metadata (zero extra RPC calls)
     const transactions = this.evmApiClient.buildTransactionsFromTransfers(transfers, walletAddress, chain);
     logger.info(`Built ${transactions.length} transactions from transfers`);
 
-    // Step 3: Smart enrichment — prioritize outgoing swaps so value extraction
+    // Track the highest block number seen so we can resume from here next time
+    const highestBlock = transfers.reduce(
+      (max, t) => Math.max(max, parseInt(t.blockNum, 16)),
+      0,
+    );
+
+    // Step 4: Smart enrichment — prioritize outgoing swaps so value extraction
     // has full logs for the txs that actually matter for PnL (not just incoming).
     const toEnrich = selectTransactionsForEnrichment(transactions, walletAddress, chain, enrichLimit);
     logger.info(`Enriching ${toEnrich.length} transactions with receipts (limit: ${enrichLimit})`);
@@ -88,21 +115,22 @@ export class EvmSyncService {
     const enrichedByHash = new Map(enriched.map(t => [t.hash, t]));
     const merged = transactions.map(t => enrichedByHash.get(t.hash) ?? t);
 
-    // Step 4: Map to SwapAnalysisInput records
-    const { records, stats } = mapEvmTransactionsToSwapInputs(merged, walletAddress, chain);
+    // Step 5: Map to SwapAnalysisInput records
+    const { records, stats } = mapEvmTransactionsToSwapInputs(merged, walletAddress, chain, tokenDecimalsMap);
     logger.info(`Mapped ${records.length} swap/transfer records`);
 
     if (options.skipSave || records.length === 0) {
       return { walletAddress, chain, stats, savedCount: 0, durationMs: Date.now() - startMs };
     }
 
-    // Step 5: Save to database
+    // Step 6: Save to database
     let savedCount = 0;
     try {
       // Upsert wallet first so the row exists with the correct chain set.
       await this.databaseService.updateWallet(walletAddress, {
         chain,
         lastSuccessfulFetchTimestamp: new Date(),
+        ...(highestBlock > 0 ? { lastSyncedBlock: highestBlock } : {}),
       });
 
       const createInputs: Prisma.SwapAnalysisInputCreateInput[] = records.map(r => ({

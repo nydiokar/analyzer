@@ -10,6 +10,7 @@ datasource db {
 model Wallet {
   address                      String                  @id @unique
   chain                        String                  @default("solana") // "solana" | "ethereum" | "arbitrum" | "base"
+  lastSyncedBlock              Int?                    // highest block number seen in last EVM sync
   firstProcessedTimestamp      Int?
   oldestProcessedSignature     String?
   olderHistorySatisfiedTarget  Int?

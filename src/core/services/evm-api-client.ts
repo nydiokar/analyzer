@@ -305,6 +305,96 @@ export class EvmApiClient {
     return [...new Set(transfers.map(t => t.hash.toLowerCase()))];
   }
 
+  /**
+   * Build a token→decimals map from Alchemy transfer items.
+   * Alchemy returns rawContract.decimal (hex) for every ERC-20 transfer — this
+   * covers the vast majority of tokens with zero extra RPC calls.
+   * Returns a map of lowercase token address → decimals.
+   */
+  extractDecimalsFromTransfers(transfers: AlchemyTransferItem[]): Map<string, number> {
+    const map = new Map<string, number>();
+    for (const t of transfers) {
+      const addr = t.rawContract.address?.toLowerCase();
+      if (!addr || map.has(addr)) continue;
+      const dec = t.rawContract.decimal;
+      if (dec && dec !== '0x' && dec !== '0x0') {
+        try {
+          map.set(addr, Number(BigInt(dec.startsWith('0x') ? dec : `0x${dec}`)));
+        } catch { /* skip malformed */ }
+      }
+    }
+    return map;
+  }
+
+  /**
+   * Fetch ERC-20 token decimals via eth_call to the contract's decimals() view function.
+   * Results are cached in-memory for the lifetime of this client instance.
+   * Use this only for tokens whose decimals aren't already known (e.g. not in Alchemy
+   * transfer metadata and not in the static TOKEN_DECIMALS_CACHE).
+   */
+  private readonly _decimalsCache = new Map<string, number>(); // "chain:address" → decimals
+
+  async fetchTokenDecimals(tokenAddress: string, chain: EvmChain): Promise<number> {
+    const key = `${chain}:${tokenAddress.toLowerCase()}`;
+    if (this._decimalsCache.has(key)) return this._decimalsCache.get(key)!;
+
+    try {
+      // decimals() selector: keccak256("decimals()") = 0x313ce567
+      const result = await this.rpcCall<string>(chain, 'eth_call', [
+        { to: tokenAddress, data: '0x313ce567' },
+        'latest',
+      ]);
+      if (result && result !== '0x') {
+        const decimals = Number(BigInt(result));
+        this._decimalsCache.set(key, decimals);
+        return decimals;
+      }
+    } catch (err) {
+      logger.warn(`Failed to fetch decimals for ${tokenAddress} on ${chain}: ${err}`);
+    }
+
+    // Fallback to 18 if call fails or returns empty
+    this._decimalsCache.set(key, 18);
+    return 18;
+  }
+
+  /**
+   * Resolve decimals for all tokens in a transfer list.
+   * First pass: use rawContract.decimal from Alchemy (free, already in response).
+   * Second pass: eth_call decimals() for any tokens Alchemy didn't annotate.
+   * Returns a complete map of lowercase token address → decimals.
+   */
+  async resolveTokenDecimals(
+    transfers: AlchemyTransferItem[],
+    chain: EvmChain,
+    knownDecimals: Record<string, number> = {},
+  ): Promise<Map<string, number>> {
+    const map = this.extractDecimalsFromTransfers(transfers);
+
+    // Seed with caller-supplied known values (static cache from mapper)
+    for (const [addr, dec] of Object.entries(knownDecimals)) {
+      map.set(addr.toLowerCase(), dec);
+    }
+
+    // For tokens still missing, fall back to eth_call
+    const uniqueAddresses = [...new Set(
+      transfers
+        .map(t => t.rawContract.address?.toLowerCase())
+        .filter((a): a is string => !!a),
+    )];
+
+    const missing = uniqueAddresses.filter(a => !map.has(a));
+    if (missing.length > 0) {
+      logger.info(`Fetching decimals via eth_call for ${missing.length} unknown tokens on ${chain}`);
+      await Promise.all(missing.map(async addr => {
+        const dec = await this.fetchTokenDecimals(addr, chain);
+        map.set(addr, dec);
+      }));
+    }
+
+    return map;
+  }
+
   // Legacy method kept for debug script compatibility
   async getTransactionsWithLogs(
     txHashes: string[],

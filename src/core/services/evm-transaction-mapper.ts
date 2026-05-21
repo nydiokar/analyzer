@@ -8,8 +8,9 @@ import { createLogger } from 'core/utils/logger';
 
 const logger = createLogger('EvmTransactionMapper');
 
-// Fallback decimals for known tokens; unknown tokens default to 18
-const TOKEN_DECIMALS_CACHE: Record<string, number> = {
+// Static fallback decimals for well-known tokens — used when Alchemy metadata
+// and eth_call both fail. Unknown tokens default to 18.
+export const TOKEN_DECIMALS_CACHE: Record<string, number> = {
   '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 6,  // USDC
   '0xff970a61a04b1ca14834a43f5de4533ebddb5f86': 6,  // USDC.e Arbitrum
   '0xaf88d065e77c8cc2239327c5edb3a432268e5831': 6,  // USDC Arbitrum
@@ -21,10 +22,12 @@ const TOKEN_DECIMALS_CACHE: Record<string, number> = {
   '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 18, // WETH
   '0x82af49447d8a07e3bd95bd0d56f35241523fbab1': 18, // WETH Arbitrum
   '0x4200000000000000000000000000000000000006': 18, // WETH Base
+  '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 8,  // WBTC
 };
 
-function getDecimals(tokenAddress: string): number {
-  return TOKEN_DECIMALS_CACHE[tokenAddress.toLowerCase()] ?? 18;
+function getDecimals(tokenAddress: string, tokenDecimalsMap?: Map<string, number>): number {
+  const addr = tokenAddress.toLowerCase();
+  return tokenDecimalsMap?.get(addr) ?? TOKEN_DECIMALS_CACHE[addr] ?? 18;
 }
 
 function rawToUiAmount(raw: bigint, decimals: number): number {
@@ -71,6 +74,7 @@ export function mapEvmTransactionsToSwapInputs(
   transactions: EvmTransaction[],
   walletAddress: string,
   chain: EvmChain,
+  tokenDecimalsMap?: Map<string, number>,
 ): EvmMappingResult {
   const records: Prisma.SwapAnalysisInputCreateManyInput[] = [];
   const stats: MappingStats = {
@@ -100,7 +104,7 @@ export function mapEvmTransactionsToSwapInputs(
       }
 
       const feeNative = tx.gasUsed > 0n ? extractFeeNative(tx.gasUsed, tx.gasPrice) : 0;
-      const newRecords = buildRecords(tx, transfers, walletLower, chain, classification, feeNative);
+      const newRecords = buildRecords(tx, transfers, walletLower, chain, classification, feeNative, tokenDecimalsMap);
 
       records.push(...newRecords);
       stats.inputsGenerated += newRecords.length;
@@ -125,6 +129,7 @@ function buildRecords(
   chain: EvmChain,
   classification: string,
   feeNative: number,
+  tokenDecimalsMap?: Map<string, number>,
 ): Prisma.SwapAnalysisInputCreateManyInput[] {
   const records: Prisma.SwapAnalysisInputCreateManyInput[] = [];
 
@@ -146,7 +151,7 @@ function buildRecords(
   const interactionType = isSwap ? 'SWAP' : 'TRANSFER';
 
   for (const [tokenAddress, flow] of flows) {
-    const decimals = getDecimals(tokenAddress);
+    const decimals = getDecimals(tokenAddress, tokenDecimalsMap);
     const isStable = isStablecoin(tokenAddress, chain);
     const type = isStable && isSwap ? 'SWAP_STABLE' : interactionType;
 
