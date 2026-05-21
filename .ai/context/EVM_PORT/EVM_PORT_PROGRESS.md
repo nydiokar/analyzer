@@ -116,8 +116,9 @@ Arbitrum and Base code paths are wired but untested end-to-end.
 - ✅ SwapAnalyzer stablecoins extended for EVM (USDC/USDT/DAI on ETH/ARB/Base)
 - ✅ Behavior analyzer exclusion list extended for EVM (WETH + stablecoins)
 - ⚠️ Arbitrum/Base: 403 error — Alchemy API key needs Arbitrum/Base enabled in dashboard
-- TODO: Run full DB save via `POST /jobs/wallets/evm-sync` and confirm savedCount > 0
-- TODO: Run PnL analysis service on saved EVM wallet records
+- ✅ DB save validated: 396 rows saved, wallet row created with chain='ethereum'
+- ✅ PnL analysis validated: 396 txs → 6 tokens, 0.15 SOL net PnL, 102ms, no errors
+- ✅ Behavior analysis validated: runs without errors, speedCategory/holdTime/uniqueTokens populated
 
 ---
 
