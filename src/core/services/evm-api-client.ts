@@ -70,6 +70,8 @@ interface AlchemyLog {
 // Delay helper for rate limiting
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
 @Injectable()
 export class EvmApiClient {
   private readonly clients: Map<EvmChain, AxiosInstance> = new Map();
@@ -239,8 +241,6 @@ export class EvmApiClient {
     walletAddress: string,
     chain: EvmChain = 'ethereum',
   ): EvmTransaction[] {
-    const walletLower = walletAddress.toLowerCase();
-
     // Group transfers by tx hash
     const byHash = new Map<string, AlchemyTransferItem[]>();
     for (const t of transfers) {
@@ -258,8 +258,6 @@ export class EvmApiClient {
         : 0;
 
       // Synthesise ERC-20 Transfer logs from the asset transfer items
-      // topic0 = ERC-20 Transfer signature
-      const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
       const logs: EvmLog[] = txTransfers
         .filter(t => t.rawContract.address) // only ERC-20 transfers with contract address
         .map((t, i) => {
@@ -269,7 +267,7 @@ export class EvmApiClient {
           const rawAmount = t.rawContract.value ?? '0x0';
           return {
             address: (t.rawContract.address ?? '').toLowerCase(),
-            topics: [TRANSFER_TOPIC, fromPad, toPad],
+            topics: [ERC20_TRANSFER_TOPIC, fromPad, toPad],
             data: rawAmount.startsWith('0x') ? rawAmount : `0x${rawAmount}`,
             logIndex: i,
             transactionHash: hash,
@@ -402,9 +400,11 @@ export class EvmApiClient {
   ): Promise<Map<string, number>> {
     const map = this.extractDecimalsFromTransfers(transfers);
 
-    // Seed with caller-supplied known values (static cache from mapper)
+    // Seed static cache as fallback — only for tokens Alchemy didn't annotate.
+    // Alchemy's on-chain value takes priority; static cache fills gaps only.
     for (const [addr, dec] of Object.entries(knownDecimals)) {
-      map.set(addr.toLowerCase(), dec);
+      const key = addr.toLowerCase();
+      if (!map.has(key)) map.set(key, dec);
     }
 
     // For tokens still missing, fall back to eth_call
@@ -435,12 +435,12 @@ export class EvmApiClient {
     const results: EvmTransaction[] = [];
     for (let i = 0; i < txHashes.length; i += concurrency) {
       const chunk = txHashes.slice(i, i + concurrency);
-      for (const hash of chunk) {
+      const chunkResults = await Promise.all(chunk.map(async hash => {
         try {
           const receipt = await this.rpcCall<AlchemyReceipt | null>(
             chain, 'eth_getTransactionReceipt', [hash],
           );
-          if (!receipt) continue;
+          if (!receipt) return null;
           const logs: EvmLog[] = receipt.logs.map(l => ({
             address: l.address.toLowerCase(),
             topics: l.topics,
@@ -449,7 +449,7 @@ export class EvmApiClient {
             transactionHash: l.transactionHash,
             blockNumber: parseInt(l.blockNumber, 16),
           }));
-          results.push({
+          return {
             hash: hash.toLowerCase(),
             blockNumber: parseInt(receipt.blockNumber, 16),
             timestamp: 0,
@@ -461,12 +461,14 @@ export class EvmApiClient {
             success: receipt.status === '0x1',
             logs,
             chain,
-          });
-          await sleep(300); // conservative delay for free tier
+          } satisfies EvmTransaction;
         } catch (err) {
           logger.warn(`Failed to fetch tx ${hash}: ${err}`);
+          return null;
         }
-      }
+      }));
+      results.push(...chunkResults.filter((r): r is EvmTransaction => r !== null));
+      if (i + concurrency < txHashes.length) await sleep(300);
     }
     return results;
   }

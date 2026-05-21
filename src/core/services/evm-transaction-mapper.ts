@@ -32,12 +32,12 @@ function getDecimals(tokenAddress: string, tokenDecimalsMap?: Map<string, number
 
 function rawToUiAmount(raw: bigint, decimals: number): number {
   if (raw === 0n) return 0;
-  // Avoid Number(bigint) precision loss for large amounts — divide in bigint space first.
-  // Same pattern as weiToEth: split at the decimal point, convert each half separately.
-  const divisor = BigInt(10 ** decimals);
+  // Avoid precision loss: BigInt(10 ** n) is lossy for n > 15 (float rounds).
+  // Use bigint exponentiation throughout to keep divisor exact.
+  const divisor = 10n ** BigInt(decimals);
   const whole = raw / divisor;
   const remainder = raw % divisor;
-  return Number(whole) + Number(remainder) / 10 ** decimals;
+  return Number(whole) + Number(remainder) / Number(divisor);
 }
 
 export interface MappingStats {
@@ -164,8 +164,8 @@ function buildRecords(
         direction: 'out',
         associatedSolValue: nativeValue,
         interactionType: type,
-        feeAmount: feeNative || null,
-        feePercentage: feeNative && nativeValue > 0 ? (feeNative / nativeValue) * 100 : null,
+        feeAmount: feeNative !== 0 ? feeNative : null,
+        feePercentage: feeNative !== 0 && nativeValue > 0 ? (feeNative / nativeValue) * 100 : null,
       });
     }
 
@@ -184,8 +184,8 @@ function buildRecords(
         direction: 'in',
         associatedSolValue: nativeValue,
         interactionType: type,
-        feeAmount: feeNative || null,
-        feePercentage: feeNative && nativeValue > 0 ? (feeNative / nativeValue) * 100 : null,
+        feeAmount: feeNative !== 0 ? feeNative : null,
+        feePercentage: feeNative !== 0 && nativeValue > 0 ? (feeNative / nativeValue) * 100 : null,
       });
     }
   }
