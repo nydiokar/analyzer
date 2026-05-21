@@ -36,6 +36,7 @@ model Wallet {
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
   kolProfile                   KolProfile?
+  walletDailyPnl               WalletDailyPnl[]
 
   @@index([classification])
   @@index([classificationConfidence])
@@ -901,4 +902,32 @@ model SolDailyPrice {
   date      String   @id // format: "YYYY-MM-DD" (UTC)
   priceUsd  Float // SOL/USD closing price for that day
   fetchedAt DateTime @default(now())
+}
+
+model WalletDailyPnl {
+  id                     Int      @id @default(autoincrement())
+  walletAddress          String
+  date                   String   // format: "YYYY-MM-DD"
+  tradeCount             Int
+  buyCount               Int
+  sellCount              Int
+  volumeSol              Float
+  feesSol                Float
+  realizedPnlSol         Float
+  profitableSellsCount   Int
+  totalSellsCount        Int
+  uniqueMintsTradedCount Int
+  newMintsEnteredCount   Int
+  volumeUsd              Float?
+  realizedPnlUsd         Float?
+  hasIncompleteEnrichment Boolean @default(false)
+  hasIncompleteHistory    Boolean @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  lastComputedAt         DateTime @default(now())
+  wallet                 Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([walletAddress, date])
+  @@index([walletAddress])
+  @@index([date])
 }

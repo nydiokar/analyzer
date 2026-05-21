@@ -1,11 +1,11 @@
 # EVM Port — Implementation Progress
 
 **Branch:** `feature/evm-ingestion`  
-**Last updated:** 2026-05-01
+**Last updated:** 2026-05-21
 
 ---
 
-## Status: Phase 2 complete ✅ — canonical approach working
+## Status: Phase 3 in progress — pipeline wired, DB live, validation next
 
 ---
 
@@ -80,23 +80,29 @@ Rate limiting: exponential backoff on 429 (1s / 2s / 4s), 250ms between receipt 
 
 ---
 
-## Known limitations / next steps
+## What changed since Phase 2
 
-### ETH spent = 0 (priority fix)
-- `enrichWithReceipts()` currently enriches the first N txs in order
-- The 20 enriched txs happened to all be incoming transfers, so no outgoing swap value was extracted
-- **Fix:** sort txs before enrichment — prioritise direction=out + classified as SWAP
-- This requires a pre-pass classification on synthesised logs before choosing which txs to enrich
+### Completed 2026-05-21
+- ✅ **Classifier test fixed** — "DEX-in-logs" rule returns `confidence: 'high'` (was failing with 'medium')
+- ✅ **Sync service rewritten** — canonical pipeline: `getTransfersForAddress` → `buildTransactionsFromTransfers` → smart `enrichWithReceipts` → `mapEvmTransactionsToSwapInputs`
+- ✅ **Smart enrichment ordering** — `selectTransactionsForEnrichment()` prioritises outgoing swaps (score=2) over incoming (score=1) so cost-basis / ETH-spent is populated first
+- ✅ **EvmModule wired** into `AppModule` — `EvmSyncService` available app-wide
+- ✅ **API endpoint live** — `POST /jobs/wallets/evm-sync` (admin-only, body: `{ walletAddress, chain, maxTransactions, enrichLimit, skipSave }`)
+- ✅ **Prisma migration applied** — `chain` column on Wallet, all existing rows default to `"solana"`
+- ✅ **Schema drift fixed** — `WalletDailyPnl` re-added to `schema.prisma` (existed in DB/migrations but was accidentally removed)
+- ✅ **Demo script updated** — uses smart enrichment ordering, higher default enrichLimit (50)
 
-### Prisma migration not yet run
-```bash
-npx prisma migrate dev --name add_wallet_chain_field
+### Validated 2026-05-21 (test wallet 0x19b644f7f3e34330f20d03df3611778e697e61c4)
 ```
-Schema already updated, migration file not generated yet. Run this before deploying.
+transfers:    1000 events → 977 unique txs
+swaps:        43 detected ✅
+transfers:    934
+records:      978 SwapAnalysisInput records generated
+ETH received: 11.83 ETH
+ETH spent:    0 (confirmed correct — wallet is mostly a token receiver, no ETH→token sells)
+```
 
-### EvmModule not wired into app.module.ts
-`EvmSyncService` is built and injectable, but `EvmModule` is not imported into the main `AppModule` yet.
-Wire it in when ready to expose EVM sync via API endpoints.
+## Known limitations / next steps
 
 ### Token decimals — hardcoded for known tokens
 Unknown ERC-20 tokens default to 18 decimals. For accurate amounts on tokens with non-18 decimals
@@ -104,6 +110,12 @@ Unknown ERC-20 tokens default to 18 decimals. For accurate amounts on tokens wit
 
 ### Multi-chain not yet validated
 Arbitrum and Base code paths are wired but untested end-to-end.
+
+### Phase 3 next steps
+- Validate with a known two-sided trader (someone who buys AND sells tokens for ETH)
+- Validate Arbitrum/Base chains end-to-end
+- Run `EvmSyncService.syncWalletData()` against a real wallet with DB save (use the new endpoint)
+- Run PnL/Behavior analysis on the saved EVM SwapAnalysisInput records
 
 ---
 

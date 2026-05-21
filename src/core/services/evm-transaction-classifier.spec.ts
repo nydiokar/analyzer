@@ -74,6 +74,6 @@ describe('classifyEvmTransaction', () => {
     ];
     const result = classifyEvmTransaction('0x0000000000000000000000000000000000000001', logs, WALLET, 'ethereum');
     assert.strictEqual(result.classification, 'SWAP');
-    assert.strictEqual(result.confidence, 'medium');
+    assert.strictEqual(result.confidence, 'high');
   });
 });

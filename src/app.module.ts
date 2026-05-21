@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ApiModule } from './api.module';
 import { ConfigModule } from '@nestjs/config'; // For .env variable support
 import { HeliusModule } from './api/integrations/helius.module'; // Import the global HeliusModule
+import { EvmModule } from './api/integrations/evm.module';
 import { DatabaseModule } from './api/modules/database.module'; // Import the global DatabaseModule
 import { UsersModule } from './api/modules/users.module';
 import { AuthModule } from './api/modules/auth.module'; // Import the new AuthModule
@@ -58,6 +59,7 @@ function getClientIp(request: RequestLike): string {
     }),
     DatabaseModule, // Import DatabaseModule (it's @Global, so its providers are available everywhere)
     HeliusModule, // Import HeliusModule (it's @Global, so its providers are available everywhere)
+    EvmModule,   // EVM ingestion — provides EvmApiClient + EvmSyncService
     AuthModule, // Import AuthModule for JWT and composite authentication
     QueueModule, // Add queue module for BullMQ integration
     CreditsModule, // Credit ledger — global, provides CreditsService everywhere

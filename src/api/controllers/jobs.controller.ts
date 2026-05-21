@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, Logger, Post, Body, HttpCode, Delete, UseGuards, ForbiddenException, Req, BadRequestException, SetMetadata } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { JobsService } from '../services/jobs.service';
+import { EvmSyncService } from '../../core/services/evm-sync-service';
 import { JobState } from 'bullmq';
 import {
   JobStatusResponseDto,
@@ -31,6 +32,7 @@ export class JobsController {
     private readonly jobsService: JobsService,
     private readonly deadLetterQueueService: DeadLetterQueueService,
     private readonly adminGuard: AdminGuard,
+    private readonly evmSyncService: EvmSyncService,
   ) {}
 
   // === DIRECT JOB SUBMISSION ENDPOINTS ===
@@ -123,6 +125,52 @@ export class JobsController {
   async submitDashboardAnalysisJob(@Req() req: Request & { user?: User }, @Body() dto: DashboardAnalysisJobRequestDto): Promise<JobSubmissionResponseDto> {
     this.assertAdmin(req.user);
     return this.jobsService.submitDashboardAnalysisJob(dto);
+  }
+
+  @Post('wallets/evm-sync')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Sync EVM wallet transactions',
+    description: 'Fetches and ingests EVM (Ethereum/Arbitrum/Base) wallet transactions via Alchemy. Admin only.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['walletAddress'],
+      properties: {
+        walletAddress: { type: 'string', example: '0x19b644f7f3e34330f20d03df3611778e697e61c4' },
+        chain: { type: 'string', enum: ['ethereum', 'arbitrum', 'base'], default: 'ethereum' },
+        maxTransactions: { type: 'number', default: 500 },
+        enrichLimit: { type: 'number', default: 50 },
+        skipSave: { type: 'boolean', default: false },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Sync completed' })
+  @ApiResponse({ status: 400, description: 'Invalid parameters' })
+  async syncEvmWallet(
+    @Req() req: Request & { user?: User },
+    @Body() body: {
+      walletAddress: string;
+      chain?: 'ethereum' | 'arbitrum' | 'base';
+      maxTransactions?: number;
+      enrichLimit?: number;
+      skipSave?: boolean;
+    },
+  ) {
+    this.assertAdmin(req.user);
+
+    const { walletAddress, chain = 'ethereum', maxTransactions, enrichLimit, skipSave } = body;
+
+    if (!walletAddress || !walletAddress.startsWith('0x') || walletAddress.length !== 42) {
+      throw new BadRequestException('walletAddress must be a valid 0x EVM address (42 chars)');
+    }
+
+    return this.evmSyncService.syncWalletData(walletAddress, chain, {
+      maxTransactions,
+      enrichLimit,
+      skipSave,
+    });
   }
 
   // === Existing Job Status Endpoints ===
