@@ -4,13 +4,29 @@ import { SwapAnalysisInput } from '@prisma/client';
 import { createLogger } from 'core/utils/logger';
 import { classifyHolderBehavior, classifyTradingSpeed, BEHAVIOR_ANALYSIS_CONFIG } from './constants'; // ✅ SINGLE SOURCE OF TRUTH
 
-// List of common utility token mints to exclude from behavioral analysis
+// Tokens excluded from behavioral analysis (stablecoins + native wrappers across all chains).
+// EVM addresses are stored lowercase (hex is case-insensitive).
 const EXCLUDED_TOKEN_MINTS: string[] = [
-  'So11111111111111111111111111111111111111112', // SOL / wSOL
+  // Solana
+  'So11111111111111111111111111111111111111112', // wSOL
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
-  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // USD1
-  // Add other quasi-native or stablecoin mints here if needed (e.g., JitoSOL, mSOL, other stables)
+  'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB',  // USD1
+  // Ethereum
+  '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // WETH
+  '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // USDC
+  '0xdac17f958d2ee523a2206206994597c13d831ec7', // USDT
+  '0x6b175474e89094c44da98b954eedeac495271d0f', // DAI
+  // Arbitrum
+  '0x82af49447d8a07e3bd95bd0d56f35241523fbab1', // WETH
+  '0xaf88d065e77c8cc2239327c5edb3a432268e5831', // USDC
+  '0xff970a61a04b1ca14834a43f5de4533ebddb5f86', // USDC.e
+  '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9', // USDT
+  '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1', // DAI
+  // Base
+  '0x4200000000000000000000000000000000000006', // WETH
+  '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', // USDC
+  '0x50c5725949a6f0c72e6c4a641f24049a917db0cb', // DAI
 ];
 
 // Create logger at module level? Or pass instance?
