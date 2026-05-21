@@ -8,7 +8,7 @@
 
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
-| EVM-1 | **[EVM-CHAIN-AGNOSTIC] Refactor analysis pipeline to be genuinely chain-agnostic** — `NativeBalanceFetcher` interface, field renames, remove `skipBalanceFetch` flag. READ `.ai/context/EVM_PORT/EVM_CHAIN_AGNOSTIC_REFACTOR.md` before starting. | 🔴 NOW |
+| EVM-1 | **[EVM-CHAIN-AGNOSTIC] Refactor analysis pipeline to be genuinely chain-agnostic** — `NativeBalanceFetcher` interface, field renames, remove `skipBalanceFetch` flag. Start at `.ai/context/EVM_PORT/EVM_PORT_INDEX.md` → then follow `EVM_CHAIN_AGNOSTIC_REFACTOR.md`. | 🔴 NOW |
 | MCP-8 | **[sova-intel-mcp] Post-publish end-to-end smoke test** — install published MCP in Claude Desktop or Claude Code, run `wallet_hud` live | 🟡 |
 | MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🟡 |
 | MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |
