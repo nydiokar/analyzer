@@ -96,6 +96,12 @@ export class EvmSyncService {
     // Step 5: Save to database
     let savedCount = 0;
     try {
+      // Upsert wallet first — SwapAnalysisInput has a FK to Wallet.address,
+      // so the wallet row must exist before inputs can be inserted.
+      await this.databaseService.updateWallet(walletAddress, {
+        lastSuccessfulFetchTimestamp: new Date(),
+      });
+
       const createInputs: Prisma.SwapAnalysisInputCreateInput[] = records.map(r => ({
         walletAddress: r.walletAddress as string,
         signature: r.signature as string,
@@ -112,10 +118,6 @@ export class EvmSyncService {
       const result = await this.databaseService.saveSwapAnalysisInputs(createInputs);
       savedCount = result.count;
       logger.info(`Saved ${savedCount} new records for ${walletAddress} on ${chain}`);
-
-      await this.databaseService.updateWallet(walletAddress, {
-        lastSuccessfulFetchTimestamp: new Date(),
-      });
     } catch (err) {
       logger.error(`Failed to save records for ${walletAddress}: ${String(err)}`);
       throw err;
