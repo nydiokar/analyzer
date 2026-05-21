@@ -94,7 +94,8 @@ export class EvmApiClient {
 
   private async rpcCall<T>(chain: EvmChain, method: string, params: unknown[], retries = 3): Promise<T> {
     const client = this.getClient(chain);
-    for (let attempt = 0; attempt < retries; attempt++) {
+    let attempt = 0;
+    while (true) {
       try {
         const response = await client.post<AlchemyRpcResponse<T>>('', {
           jsonrpc: '2.0',
@@ -104,16 +105,16 @@ export class EvmApiClient {
         });
         return response.data.result;
       } catch (err: any) {
-        if (err?.response?.status === 429) {
+        if (err?.response?.status === 429 && attempt < retries) {
           const wait = 1000 * 2 ** attempt; // 1s, 2s, 4s
           logger.warn(`Rate limited, waiting ${wait}ms before retry ${attempt + 1}/${retries}`);
           await sleep(wait);
+          attempt++;
           continue;
         }
         throw err;
       }
     }
-    throw new Error(`RPC call ${method} failed after ${retries} retries`);
   }
 
   /**
@@ -164,6 +165,11 @@ export class EvmApiClient {
    * Uses sequential requests with a small delay to respect free-tier rate limits.
    * Only needed for DEX event parsing (value extraction) — not for basic classification.
    */
+  /**
+   * Fetch transaction receipts (with full logs) for a set of hashes.
+   * Sequential with `delayMs` between calls to respect free-tier rate limits.
+   * Returns a map keyed by lowercase tx hash.
+   */
   async getReceiptsForHashes(
     txHashes: string[],
     chain: EvmChain,
@@ -200,6 +206,7 @@ export class EvmApiClient {
   buildTransactionsFromTransfers(
     transfers: AlchemyTransferItem[],
     walletAddress: string,
+    chain: EvmChain = 'ethereum',
   ): EvmTransaction[] {
     const walletLower = walletAddress.toLowerCase();
 
@@ -250,7 +257,7 @@ export class EvmApiClient {
         gasPrice: 0n,
         success: true, // alchemy_getAssetTransfers only returns successful txs
         logs,
-        chain: 'ethereum', // filled properly by caller
+        chain,
       });
     }
 
@@ -293,6 +300,7 @@ export class EvmApiClient {
     });
   }
 
+  /** Return a deduplicated list of lowercase tx hashes from a transfer list. */
   extractTxHashes(transfers: AlchemyTransferItem[]): string[] {
     return [...new Set(transfers.map(t => t.hash.toLowerCase()))];
   }

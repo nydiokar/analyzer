@@ -23,7 +23,8 @@ const WETH_DEPOSIT_TOPIC = '0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2
 
 function weiToEth(wei: bigint): number {
   if (wei === 0n) return 0;
-  return Number(wei) / 1e18;
+  // Avoid precision loss: Number(bigint) truncates at 2^53; divide in bigint space first
+  return Number(wei / 10n ** 9n) / 1e9;
 }
 
 function parseHexAmount(data: string): bigint {

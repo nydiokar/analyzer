@@ -74,7 +74,7 @@ export class EvmSyncService {
     }
 
     // Step 2: Build EvmTransaction objects from transfer metadata (zero extra RPC calls)
-    const transactions = this.evmApiClient.buildTransactionsFromTransfers(transfers, walletAddress);
+    const transactions = this.evmApiClient.buildTransactionsFromTransfers(transfers, walletAddress, chain);
     logger.info(`Built ${transactions.length} transactions from transfers`);
 
     // Step 3: Smart enrichment — prioritize outgoing swaps so value extraction

@@ -5,7 +5,7 @@
 
 ---
 
-## Status: Phase 3 in progress — pipeline wired, DB live, validation next
+## Status: Phase 4 complete — branch is merge-ready
 
 ---
 
@@ -119,6 +119,13 @@ Arbitrum and Base code paths are wired but untested end-to-end.
 - ✅ DB save validated: 396 rows saved, wallet row created with chain='ethereum'
 - ✅ PnL analysis validated: 396 txs → 6 tokens, 0.15 SOL net PnL, 102ms, no errors
 - ✅ Behavior analysis validated: runs without errors, speedCategory/holdTime/uniqueTokens populated
+
+### Phase 4 — code review fixes + docs (2026-05-22)
+- ✅ `buildTransactionsFromTransfers` chain hardcode fixed — now takes `chain` param, no more `.map` workaround
+- ✅ `weiToEth` precision fixed — `Number(wei / 10n**9n) / 1e9` prevents float truncation on large amounts
+- ✅ `rpcCall` retry loop fixed — `while(true)` + `attempt < retries` guard ensures all 3 retry slots are used
+- ✅ JSDoc added to `getReceiptsForHashes` and `extractTxHashes`
+- ✅ `README_EVM_MAPPER.md` written — architecture, files, chains, design decisions, scripts
 
 ---
 

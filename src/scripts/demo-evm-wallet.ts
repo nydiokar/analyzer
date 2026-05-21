@@ -32,8 +32,7 @@ async function main() {
   console.log(`  ${txHashes.length} unique transactions`);
 
   // Step 2: Build transactions from transfer metadata (zero extra RPC calls)
-  let transactions = client.buildTransactionsFromTransfers(transfers, walletAddress);
-  transactions = transactions.map(tx => ({ ...tx, chain }));
+  let transactions = client.buildTransactionsFromTransfers(transfers, walletAddress, chain);
 
   // Step 3: Smart enrichment — prioritise outgoing swaps first so ETH spent is populated
   const toEnrich = selectTransactionsForEnrichment(transactions, walletAddress, chain, enrichLimit);
