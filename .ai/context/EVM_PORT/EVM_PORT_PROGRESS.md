@@ -112,10 +112,12 @@ Unknown ERC-20 tokens default to 18 decimals. For accurate amounts on tokens wit
 Arbitrum and Base code paths are wired but untested end-to-end.
 
 ### Phase 3 next steps
-- Validate with a known two-sided trader (someone who buys AND sells tokens for ETH)
-- Validate Arbitrum/Base chains end-to-end
-- Run `EvmSyncService.syncWalletData()` against a real wallet with DB save (use the new endpoint)
-- Run PnL/Behavior analysis on the saved EVM SwapAnalysisInput records
+- ✅ Validate ETH spent is populated — confirmed working with Uniswap Universal Router (1.80 ETH spent)
+- ✅ SwapAnalyzer stablecoins extended for EVM (USDC/USDT/DAI on ETH/ARB/Base)
+- ✅ Behavior analyzer exclusion list extended for EVM (WETH + stablecoins)
+- ⚠️ Arbitrum/Base: 403 error — Alchemy API key needs Arbitrum/Base enabled in dashboard
+- TODO: Run full DB save via `POST /jobs/wallets/evm-sync` and confirm savedCount > 0
+- TODO: Run PnL analysis service on saved EVM wallet records
 
 ---
 
