@@ -19,7 +19,8 @@ export interface EvmApiClientConfig {
 export interface FetchTransactionsOptions {
   fromBlock?: number;
   toBlock?: number | 'latest';
-  maxCount?: number;
+  maxCount?: number;   // per-page page size sent to Alchemy (max 1000)
+  hardLimit?: number;  // total transfer ceiling across all pages (default 5000)
 }
 
 // Alchemy alchemy_getAssetTransfers item — already contains transfer metadata
@@ -119,6 +120,7 @@ export class EvmApiClient {
 
   /**
    * Fetch ERC-20 transfers for a wallet using alchemy_getAssetTransfers.
+   * Paginates via Alchemy's pageKey until all results are collected or hardLimit is reached.
    * The response already contains token address, amount, from, to — sufficient
    * for building SwapAnalysisInput without additional per-tx RPC calls.
    */
@@ -127,36 +129,66 @@ export class EvmApiClient {
     chain: EvmChain,
     options: FetchTransactionsOptions = {},
   ): Promise<AlchemyTransferItem[]> {
-    const maxCount = options.maxCount ?? 100;
+    const pageSize = Math.min(options.maxCount ?? 1000, 1000);
+    const hardLimit = options.hardLimit ?? 5000;
     const allTransfers: AlchemyTransferItem[] = [];
     const seen = new Set<string>();
 
+    const fromBlockHex = options.fromBlock !== undefined
+      ? `0x${options.fromBlock.toString(16)}`
+      : '0x0';
+    const toBlockVal = options.toBlock !== undefined
+      ? (typeof options.toBlock === 'number' ? `0x${options.toBlock.toString(16)}` : 'latest')
+      : 'latest';
+
     const baseParams = {
-      fromBlock: '0x0',
-      toBlock: 'latest',
+      fromBlock: fromBlockHex,
+      toBlock: toBlockVal,
       category: ['erc20'],
       withMetadata: true,
-      maxCount: `0x${Math.min(maxCount, 1000).toString(16)}`,
+      maxCount: `0x${pageSize.toString(16)}`,
       order: 'desc',
     };
 
-    // Fetch incoming and outgoing in parallel
-    const [toResult, fromResult] = await Promise.all([
-      this.rpcCall<{ transfers: AlchemyTransferItem[]; pageKey?: string }>(
-        chain, 'alchemy_getAssetTransfers', [{ ...baseParams, toAddress: walletAddress }],
-      ),
-      this.rpcCall<{ transfers: AlchemyTransferItem[]; pageKey?: string }>(
-        chain, 'alchemy_getAssetTransfers', [{ ...baseParams, fromAddress: walletAddress }],
-      ),
+    // Paginate both directions independently, then merge by uniqueId
+    const paginate = async (direction: 'toAddress' | 'fromAddress'): Promise<AlchemyTransferItem[]> => {
+      const collected: AlchemyTransferItem[] = [];
+      let pageKey: string | undefined;
+
+      do {
+        const params = pageKey
+          ? { ...baseParams, [direction]: walletAddress, pageKey }
+          : { ...baseParams, [direction]: walletAddress };
+
+        const result = await this.rpcCall<{ transfers: AlchemyTransferItem[]; pageKey?: string }>(
+          chain, 'alchemy_getAssetTransfers', [params],
+        );
+
+        collected.push(...(result?.transfers ?? []));
+        pageKey = result?.pageKey;
+
+        if (collected.length >= hardLimit) {
+          logger.warn(`Hard limit ${hardLimit} reached for ${direction} transfers on ${chain}`);
+          break;
+        }
+      } while (pageKey);
+
+      return collected;
+    };
+
+    const [toTransfers, fromTransfers] = await Promise.all([
+      paginate('toAddress'),
+      paginate('fromAddress'),
     ]);
 
-    for (const t of [...(toResult?.transfers ?? []), ...(fromResult?.transfers ?? [])]) {
-      if (!seen.has(t.uniqueId)) {
+    for (const t of [...toTransfers, ...fromTransfers]) {
+      if (!seen.has(t.uniqueId) && allTransfers.length < hardLimit) {
         allTransfers.push(t);
         seen.add(t.uniqueId);
       }
     }
 
+    logger.info(`getTransfersForAddress: ${allTransfers.length} unique transfers for ${walletAddress} on ${chain}`);
     return allTransfers;
   }
 
