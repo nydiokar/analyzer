@@ -299,15 +299,94 @@ Steps 1–7 can ship together. Step 8 is a separate feature. Step 9 is a breakin
 
 ---
 
+## Sync Service Unification — Decision
+
+The feasibility assessment envisioned a single polymorphic `SyncService` with a chain selector injected. What was built is two parallel services:
+
+- `HeliusSyncService` — Solana path
+- `EvmSyncService` — EVM path
+- `ingestion-selector.ts` — thin utility: `isEvmChain()`, `isSolanaChain()`, `detectChainFromAddress()`
+
+**This is intentional and correct for now.** The two services have fundamentally different fetch strategies (Helius push model vs. Alchemy transfer index + receipt enrichment), different pagination, and different enrichment steps. Forcing them into one class would create a worse abstraction than two clean services.
+
+**What a unified interface would look like if ever needed:**
+
+```typescript
+interface ChainSyncService {
+  syncWalletData(walletAddress: string, options?: SyncOptions): Promise<SyncResult>;
+  readonly chain: ChainType;
+}
+```
+
+Both services already satisfy this shape informally. If a registry or factory pattern is needed (e.g. for a multi-chain batch sync endpoint), implement `ChainSyncServiceRegistry` that maps `chain → service` — do not merge the service implementations.
+
+**Do NOT attempt to unify the two services during the chain-agnostic refactor.** They are already correctly separated at Layer 1. The refactor targets Layer 2 (`PnlAnalysisService` constructor) and the type/field naming layer only.
+
+---
+
+## `EthPriceService` — What Needs to Be Built
+
+The refactor's `EvmBalanceFetcher` needs an ETH/USD price to convert the raw ETH balance to `amountUsd`. The Solana path uses `DexscreenerService.getSolPrice()` (in `src/core/services/dexscreener-service.ts`) which:
+
+- Hits DexScreener `/dex/pairs/solana/{pairId}` with 4 high-volume SOL/USDC pairs as fallback sources
+- Caches the result in-memory for `CACHE_DURATION` ms
+- Returns `number` (USD price of 1 SOL)
+
+**For ETH, the equivalent already exists via DexScreener** — DexScreener has ETH/USDC pair data. Do **not** create a separate `EthPriceService` class. Instead:
+
+**Option A (recommended):** Extend `DexscreenerService` with `getEthPrice(): Promise<number>` using the same cache + multi-source pattern, targeting ETH/USDC pairs on Ethereum (e.g. Uniswap V3 ETH/USDC 0.05% pool).
+
+**Option B:** Make `DexscreenerService.getNativePrice(chain: ChainType): Promise<number>` — a single method that routes to the correct pair list by chain. Cleaner long-term if BSC or other chains are added.
+
+Either way, `EvmBalanceFetcher` receives the price service via constructor injection and calls `getEthPrice()` (or `getNativePrice('ethereum')`).
+
+**Until `EthPriceService` / `getEthPrice()` is built:**
+- `EvmBalanceFetcher.fetchBalance()` returns `{ amount: eth, amountUsd: null }` — omit the price lookup rather than crashing
+- This is acceptable: ETH balance will show in native units, USD conversion stays null
+
+**DexScreener ETH/USDC pair IDs to use (high volume, Uniswap V3 on Ethereum):**
+- `0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640` — ETH/USDC 0.05% (~$500M daily)
+- `0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8` — ETH/USDC 0.3%
+
+DexScreener API call pattern (same as SOL): `GET /dex/pairs/ethereum/{pairId}` → `response.data.pair.priceUsd`.
+
+---
+
 ## Reading This in a Future Session
 
-If you are an LLM starting a new session to continue this work:
+**You are starting work on the chain-agnostic refactor. Here is exactly what to do.**
 
-1. Read `.ai/CONTEXT.md` — check active task `EVM-1` status
-2. Read this file top-to-bottom — understand what the bypass looks like vs. what the abstraction requires
-3. Read `src/core/services/pnl-analysis-service.ts` — find `skipBalanceFetch` usages
-4. Read `src/types/helius-api.ts` — see all Solana-named fields that need renaming
-5. Start with Step 1 of the implementation order above
-6. Do NOT proceed with any EVM-related features (EVM market context, BSC support, user-facing sync trigger) until Steps 1–7 are complete — they build on the abstraction
+### Step 0 — Orient (read these files before touching code)
 
-The current code on `main` (after `feature/evm-ingestion` merges) passes all tests and works end-to-end for EVM wallets. But it is not the correct architecture. It is a working bypass. This document specifies the correct architecture.
+1. `src/core/services/pnl-analysis-service.ts` — lines 40–60: see `HeliusApiClient | null` constructor param and `skipBalanceFetch` option. This is what you are replacing.
+2. `src/types/helius-api.ts` — the full file. Every field named `*Sol*` in here needs renaming.
+3. `src/core/services/dexscreener-service.ts` lines 192–250 — `getSolPrice()` implementation. You will add `getEthPrice()` following the exact same pattern.
+4. `src/core/services/evm-sync-service.ts` — find the `skipBalanceFetch: true` call in Step 7. This is the line you will remove once `EvmBalanceFetcher` is wired.
+5. `src/api/integrations/evm.module.ts` — where you will provide `EvmBalanceFetcher`.
+
+### Step 1–7 execution order
+
+Follow the **Implementation Order** section above. Steps 1–7 are one PR. Do not mix in Step 8 (EVM market context) or Step 9 (API DTO renames) — they are separate PRs.
+
+### What you must NOT break
+
+- All existing Solana analysis paths — `PnlAnalysisService` with a `SolanaBalanceFetcher` must behave identically to today's `PnlAnalysisService` with a `HeliusApiClient`
+- The 19 EVM unit tests (`pnpm test:evm`) — run these before and after each step
+- Zero TypeScript errors — `npx tsc --noEmit` after every file change
+- `src/scripts/evm-save-wallet.ts` — standalone script, uses 2-arg `EvmSyncService` constructor; must still work
+
+### What "done" looks like
+
+- `skipBalanceFetch` option is gone from `pnl-analysis-service.ts`
+- `HeliusApiClient` is NOT imported in `pnl-analysis-service.ts`
+- `NativeBalanceFetcher` interface file exists at `src/core/interfaces/native-balance-fetcher.interface.ts`
+- `SolanaBalanceFetcher` and `EvmBalanceFetcher` both implement it
+- EVM wallets show a real ETH balance figure in `currentNativeBalance` (not always 0)
+- All tests pass, zero TS errors
+
+### What is intentionally NOT part of this refactor
+
+- Unifying `HeliusSyncService` and `EvmSyncService` into one class — **do not do this**
+- EVM token metadata / market cap enrichment — separate feature, tracked separately
+- API DTO field renames (`currentSolBalance` → `currentNativeBalance` on public API) — breaking change, separate PR with deprecation notice
+- BSC or any new chain — blocked on this refactor completing first
