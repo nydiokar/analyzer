@@ -2,17 +2,28 @@ import { createLogger } from 'core/utils/logger';
 import { OnChainAnalysisResult } from '@/types/helius-api';
 import { SwapAnalysisInput } from '@prisma/client';
 import { buildFifoLotsForToken, FifoLot, isEconomicTradeInput } from './fifo-lot-tracker';
+import { isStablecoin as isEvmStablecoin } from '@config/evm-stablecoins';
 
 // Logger instance for this module
 const logger = createLogger('SwapAnalyzer');
 
-// Constants can be moved here or to a central config
-const stablecoins = new Map<string, { name: string, decimals: number }>([
+// Solana stablecoins — exact-match (base58 is case-sensitive)
+const SOLANA_STABLECOINS = new Map<string, { name: string, decimals: number }>([
     ['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', { name: 'USDC', decimals: 6 }],
     ['Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', { name: 'USDT', decimals: 6 }],
     ['USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', { name: 'USD1', decimals: 6 }],
 ]);
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+function isStablecoin(mint: string): boolean {
+    if (mint.startsWith('0x')) {
+        // EVM: check all known EVM chains
+        return isEvmStablecoin(mint, 'ethereum') ||
+               isEvmStablecoin(mint, 'arbitrum') ||
+               isEvmStablecoin(mint, 'base');
+    }
+    return SOLANA_STABLECOINS.has(mint);
+}
 
 
 export class SwapAnalyzer {
@@ -76,10 +87,10 @@ export class SwapAnalyzer {
         if (timestamp > overallLastTimestamp) overallLastTimestamp = timestamp;
 
         const splMint = input.mint; // Field name from latest schema
-        const isStablecoin = stablecoins.has(splMint);
+        const isStable = isStablecoin(splMint);
 
         // Initialize stablecoin tracking if needed
-        if (isStablecoin && !stablecoinFlows.has(splMint)) {
+        if (isStable && !stablecoinFlows.has(splMint)) {
             stablecoinFlows.set(splMint, {
                 totalSolSpent: 0,
                 totalSolReceived: 0,
@@ -96,8 +107,8 @@ export class SwapAnalyzer {
                 totalAmountIn: 0, totalAmountOut: 0, totalSolSpent: 0,
                 totalSolReceived: 0, transferCountIn: 0, transferCountOut: 0,
                 timestamps: [], netSolProfitLoss: 0, totalFeesPaidInSol: 0,
-                isValuePreservation: isStablecoin,
-                preservationType: isStablecoin ? 'stablecoin' : undefined
+                isValuePreservation: isStable,
+                preservationType: isStable ? 'stablecoin' : undefined
             });
         }
         const currentAnalysis = analysisBySplMint.get(splMint)!;
@@ -144,21 +155,21 @@ export class SwapAnalyzer {
                 currentAnalysis.totalFeesPaidInSol! += currentFeeAmount;
             }
             
-            if (isStablecoin && isEconomicTrade) {
+            if (isStable && isEconomicTrade) {
                 const flow = stablecoinFlows.get(splMint)!;
                 flow.totalSolSpent += solValueToConsider;
                 flow.totalAmountIn += tokenAmount;
-                flow.netSolFlow -= solValueToConsider; 
+                flow.netSolFlow -= solValueToConsider;
             }
         } else { // direction === 'out'
-            currentAnalysis.totalAmountOut! += tokenAmount; 
+            currentAnalysis.totalAmountOut! += tokenAmount;
             currentAnalysis.transferCountOut!++;
             if (isEconomicTrade) {
                 currentAnalysis.totalSolReceived! += solValueToConsider; // Gross SOL received
                 currentAnalysis.totalFeesPaidInSol! += currentFeeAmount;
             }
-            
-            if (isStablecoin && isEconomicTrade) {
+
+            if (isStable && isEconomicTrade) {
                 const flow = stablecoinFlows.get(splMint)!;
                 flow.totalSolReceived += solValueToConsider;
                 flow.totalAmountOut += tokenAmount;
@@ -196,14 +207,14 @@ export class SwapAnalyzer {
         const netSolProfitLoss = (aggregatedData.totalSolReceived ?? 0) - (aggregatedData.totalSolSpent ?? 0) - (aggregatedData.totalFeesPaidInSol ?? 0);
         const netAmountChange = (aggregatedData.totalAmountIn ?? 0) - (aggregatedData.totalAmountOut ?? 0);
         
-        const isStablecoin = stablecoins.has(splMint);
+        const isStable = isStablecoin(splMint);
         let stablecoinSolValue = 0;
         let fifoRealizedPnlSol: number | null = null;
         let remainingCostBasisSol: number | null = null;
         let hasIncompleteHistory = false;
         let fifoLots: FifoLot[] = [];
         
-        if (isStablecoin && netAmountChange > 0) {
+        if (isStable && netAmountChange > 0) {
             const averageCostBasis = aggregatedData.totalSolSpent && aggregatedData.totalAmountIn
                 ? aggregatedData.totalSolSpent / aggregatedData.totalAmountIn : 0;
             stablecoinSolValue = netAmountChange * averageCostBasis;
@@ -216,7 +227,7 @@ export class SwapAnalyzer {
             logger.debug(`[SwapAnalyzer] Stablecoin ${splMint}: Net amount = ${netAmountChange.toFixed(2)}, Value = ${stablecoinSolValue.toFixed(2)} SOL, NetFlow = ${flow?.netSolFlow.toFixed(2) || 0} SOL`);
         }
 
-        if (!isStablecoin && splMint !== SOL_MINT) {
+        if (!isStable && splMint !== SOL_MINT) {
             const fifoInputs = fifoInputsByMint.get(splMint) || [];
             const fifoResult = buildFifoLotsForToken(
                 fifoInputs.map(input => ({
@@ -252,9 +263,9 @@ export class SwapAnalyzer {
             totalPnlSol: null,
             hasIncompleteHistory: hasIncompleteHistory,
             currentHoldingsCostBasisSol: remainingCostBasisSol,
-            estimatedPreservedValue: isStablecoin ? stablecoinSolValue : 0,
-            isValuePreservation: isStablecoin,
-            preservationType: isStablecoin ? 'stablecoin' : undefined,
+            estimatedPreservedValue: isStable ? stablecoinSolValue : 0,
+            isValuePreservation: isStable,
+            preservationType: isStable ? 'stablecoin' : undefined,
             transferCountIn: aggregatedData.transferCountIn ?? 0,
             transferCountOut: aggregatedData.transferCountOut ?? 0,
             firstTransferTimestamp: aggregatedData.timestamps!.length > 0 ? aggregatedData.timestamps![0] : 0,
@@ -269,7 +280,7 @@ export class SwapAnalyzer {
     // Filter out WSOL records from the final results
     const finalResults = finalResultsPreFilter.filter(r => r.tokenAddress !== SOL_MINT);
     for (const [mint] of fifoLotsByMint.entries()) {
-        if (stablecoins.has(mint)) {
+        if (isStablecoin(mint)) {
             fifoLotsByMint.delete(mint);
         }
     }

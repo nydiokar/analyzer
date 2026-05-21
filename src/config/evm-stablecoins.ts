@@ -1,10 +1,7 @@
-// EVM stablecoin addresses by chain (all lowercase for normalization)
+// EVM stablecoin addresses by chain (all lowercase for normalization).
+// Solana stablecoins are NOT included here — Solana addresses are case-sensitive base58
+// and are handled separately in SwapAnalyzer using exact-match Maps.
 export const STABLECOINS_BY_CHAIN: Record<string, Record<string, { name: string; decimals: number }>> = {
-  solana: {
-    'epjfwdd5aufqssqem2qn1xzybapC8g4weggkzwytdt1v': { name: 'USDC', decimals: 6 },
-    'es9vmfrzacermmjfrf4h2fyd4kconky11mccce8benwnyb': { name: 'USDT', decimals: 6 },
-    'usd1ttgy1n17neehllmeoaybftrbuserhqyiqzvemub': { name: 'USD1', decimals: 6 },
-  },
   ethereum: {
     '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': { name: 'USDC', decimals: 6 },
     '0xdac17f958d2ee523a2206206994597c13d831ec7': { name: 'USDT', decimals: 6 },
