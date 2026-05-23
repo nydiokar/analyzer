@@ -112,7 +112,7 @@ export function createServer(
 
   server.tool(
     "batch_wallet_hud",
-    "Batch HUD signal for up to 30 wallets (5cr flat). Returns available HUDs immediately; stale wallets are queued in the background (informational only).",
+    "Batch HUD signal for up to 30 wallets (1cr flat). Returns available HUDs immediately; stale wallets are queued in the background (informational only).",
     batchWalletHudSchema.shape,
     async (args) => {
       const c = guardedClient("batch_wallet_hud");
@@ -126,7 +126,7 @@ export function createServer(
 
   server.tool(
     "token_holder_profiles",
-    "Top-holder behavioral intelligence for a token (20cr). Returns agent-optimised result: aggregate behavior distribution, supply concentration, and per-holder profiles. Default entry point for token analysis.",
+    "Top-holder behavioral intelligence for a token (5cr). Returns agent-optimised result: aggregate behavior distribution, supply concentration, and per-holder profiles. Default entry point for token analysis.",
     tokenHolderProfilesSchema.shape,
     async (args) => {
       const c = guardedClient("token_holder_profiles");
@@ -140,7 +140,7 @@ export function createServer(
 
   server.tool(
     "wallet_similarity",
-    "Coordination analysis for 2–30 wallets (20cr). Returns a single coordinationScore (0–1), flagged pairs, and overlap metrics. Default entry point for coordination/sybil questions.",
+    "Coordination analysis for 2–30 wallets (5cr). Returns a single coordinationScore (0–1), flagged pairs, and overlap metrics. Default entry point for coordination/sybil questions.",
     walletSimilaritySchema.shape,
     async (args) => {
       const c = guardedClient("wallet_similarity");
@@ -154,7 +154,7 @@ export function createServer(
 
   server.tool(
     "deep_token_analysis",
-    "Bundled holder profiles + similarity for a token (35cr). Server discovers holders automatically. Returns full developer shapes — not agent-optimised. Use token_holder_profiles + wallet_similarity separately for compact results.",
+    "Bundled holder profiles + similarity for a token (10cr). Server discovers holders automatically. Returns full developer shapes — not agent-optimised. Use token_holder_profiles + wallet_similarity separately for compact results.",
     deepTokenAnalysisSchema.shape,
     async (args) => {
       const c = guardedClient("deep_token_analysis");

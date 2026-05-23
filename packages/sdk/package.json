@@ -1,6 +1,6 @@
 {
   "name": "@sova-intel/sdk",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "TypeScript SDK for the Sova Intel on-chain intelligence API — wallet profiles, PnL, holder maps, similarity scoring. Pay via API key or X402 (Solana USDC).",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",

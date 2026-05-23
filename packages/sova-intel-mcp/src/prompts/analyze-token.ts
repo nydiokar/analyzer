@@ -34,7 +34,7 @@ Call token_holder_profiles with:
   tokenMint: "${tokenMint}"
   topN: ${topN}
 
-This costs 20 credits and queues a background job.
+This costs 5 credits and queues a background job.
 
 **If the response has mode:"queued":**
   The job is still running. Call job_wait with the job envelope from the response:
@@ -53,7 +53,7 @@ This costs 20 credits and queues a background job.
 Call wallet_similarity with the wallet addresses collected from Step 1:
   wallets: [<list of wallet addresses from profiles>]
 
-This costs 20 credits. Apply the same job_wait pattern if the response has mode:"queued".
+This costs 5 credits. Apply the same job_wait pattern if the response has mode:"queued".
 
 **When mode:"completed":**
   Note data.coordinationScore (0–1 scale) and data.metadata.flaggedPairs.
@@ -83,7 +83,7 @@ Combine the two results into a structured report:
 ## Notes
 
 - Do not call deep_token_analysis for this workflow — it returns raw developer shapes, not the agent-optimised format.
-- Credit cost: 20cr (holder profiles) + 20cr (similarity) = 40cr total.
+- Credit cost: 5cr (holder profiles) + 5cr (similarity) = 10cr total.
 - If either step fails with a payment error, read sova://pricing for current credit costs.
 - If either step fails with a rate limit or server error, wait 10 seconds and retry once before reporting failure.
 `;

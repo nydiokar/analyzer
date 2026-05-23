@@ -45,7 +45,7 @@ Sova Intel is a comprehensive Solana wallet analysis platform with credit-based 
 ### Credit System
 
 - **Cost Model**: Static per endpoint (e.g., `@RequireCredits(5)`)
-- **Response on Insufficient Credits**: HTTP 402 `{ error: "insufficient_credits", balance: N, required: N }`
+- **Response on Insufficient Credits**: HTTP 402 `{ error: "credits_exhausted", message: "Account credits exhausted. Top up required.", balance: N, required: N }`
 - **Deduction Timing**: After handler succeeds (failed requests don't charge)
 - **Transaction Ledger**: Append-only `CreditTransaction` records; never mutate `CreditBalance` directly
 - **Signup Bonus**: `FREE_CREDITS_ON_SIGNUP` env var (default 100 credits)
@@ -444,7 +444,7 @@ Clients subscribe to `/jobs/events` (WebSocket) to receive real-time updates:
 
 ```json
 {
-  "error": "insufficient_credits",
+  "error": "credits_exhausted",
   "balance": 5,
   "required": 10,
   "message": "Insufficient credits. Current balance: 5, Required: 10"

@@ -16,24 +16,24 @@ export function tokenAnalysisPlaybookHandler(): string {
 
 Token analysis uses two agent-optimised tools in sequence:
 
-  1. token_holder_profiles (20cr) — behavioral profiles of top holders
-  2. wallet_similarity (20cr)     — coordination / sybil detection across those holders
+  1. token_holder_profiles (5cr) — behavioral profiles of top holders
+  2. wallet_similarity (5cr)     — coordination / sybil detection across those holders
 
-Total cost: 40 credits. Use this path when you need both behavioral and coordination data.
-Use deep_token_analysis (35cr) only if you need the raw developer-format payloads — it does
+Total cost: 10 credits. Use this path when you need both behavioral and coordination data.
+Use deep_token_analysis (10cr) only if you need the raw developer-format payloads — it does
 not return the agent-optimised aggregate or per-pair similarity flags.
 
 ## Tool reference
 
 | Tool                    | Credits | Output                                                      |
 |-------------------------|---------|-------------------------------------------------------------|
-| token_holder_profiles   | 20      | Aggregate behavior distribution, supply concentration,      |
+| token_holder_profiles   | 5       | Aggregate behavior distribution, supply concentration,      |
 |                         |         | per-holder profiles with behaviorType + PnL                 |
-| wallet_similarity       | 20      | coordinationScore 0–1, flagged pairs, per-pair overlap      |
-| deep_token_analysis     | 35      | Raw holder + similarity in developer format (not optimised) |
+| wallet_similarity       | 5       | coordinationScore 0–1, flagged pairs, per-pair overlap      |
+| deep_token_analysis     | 10      | Raw holder + similarity in developer format (not optimised) |
 | wallet_hud              | 1       | Single-wallet quick signal — not part of token analysis     |
 | wallet_profile          | 5       | Single-wallet full detail — escalation from wallet_hud      |
-| batch_wallet_hud        | 5 flat  | Up to 30 wallets HUD scan                                   |
+| batch_wallet_hud        | 1 flat  | Up to 30 wallets HUD scan                                   |
 | job_status              | 0       | Check queued job status (non-blocking)                      |
 | job_wait                | 0       | Resume queued job and retrieve result (blocking poll)       |
 

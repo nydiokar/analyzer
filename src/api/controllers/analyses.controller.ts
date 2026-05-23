@@ -624,7 +624,7 @@ export class AnalysesController {
       };
     } catch (error) {
       this.logger.error(`Failed to queue dashboard analysis: ${getErrorMessage(error)}`);
-      if (error instanceof BadRequestException) {
+      if (error instanceof HttpException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException('Failed to queue dashboard analysis job');

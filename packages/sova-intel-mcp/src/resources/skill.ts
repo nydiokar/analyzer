@@ -19,9 +19,9 @@ export async function skillResourceHandler(): Promise<string> {
       "Quick reference:",
       "- wallet_hud: cheapest wallet signal (1cr) — use first",
       "- wallet_profile: full wallet intelligence (5cr)",
-      "- token_holder_profiles: agent-optimised holder map (20cr)",
-      "- wallet_similarity: coordination detection (20cr)",
-      "- deep_token_analysis: bundled analysis (35cr) — not the default",
+      "- token_holder_profiles: agent-optimised holder map (5cr)",
+      "- wallet_similarity: coordination detection (5cr)",
+      "- deep_token_analysis: bundled analysis (10cr) — not the default",
     ].join("\n");
   }
 }

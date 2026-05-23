@@ -20,7 +20,7 @@ import { RedisLockService } from '../../queues/services/redis-lock.service';
 import { DatabaseService } from './database.service';
 import { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
 import { DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
-import { JobPriority } from '../../queues/config/queue.config';
+import { JobPriority, JobTimeouts } from '../../queues/config/queue.config';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import Redis from 'ioredis';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
@@ -293,7 +293,8 @@ export class JobsService {
       try {
         const job = await queue.getJob(jobId);
         if (job) {
-          return this.formatJobResponse(job, name);
+          const timeout = await this.getTimedOutJobOverride(job, name);
+          return this.formatJobResponse(job, name, timeout);
         }
       } catch (error) {
         this.logger.warn(`Error checking job ${jobId} in queue ${name}:`, getErrorMessage(error));
@@ -476,6 +477,7 @@ export class JobsService {
         if (job) {
           const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
                         job.processedOn ? 'active' : 'waiting';
+          const timeout = await this.getTimedOutJobOverride(job, name);
 
           // Handle progress type - BullMQ can return string, number, or object
           let progress: number | object = 0;
@@ -490,7 +492,7 @@ export class JobsService {
 
           return {
             jobId: job.id!,
-            status: state,
+            status: timeout?.status ?? state,
             progress,
           };
         }
@@ -521,6 +523,7 @@ export class JobsService {
         if (job) {
           const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
                         job.processedOn ? 'active' : 'waiting';
+          const timeout = await this.getTimedOutJobOverride(job, name);
 
           let result = job.returnvalue;
           // Resolve Redis pointer for any job type that uses the pointer pattern
@@ -544,9 +547,9 @@ export class JobsService {
 
           return {
             jobId: job.id!,
-            status: state,
+            status: timeout?.status ?? state,
             result,
-            error: job.failedReason,
+            error: timeout?.error ?? job.failedReason,
           };
         }
       } catch (error) {
@@ -653,7 +656,69 @@ export class JobsService {
     }
   }
 
-  private formatJobResponse(job: Job, queueName: string): JobStatusResponseDto {
+  private async getTimedOutJobOverride(
+    job: Job,
+    queueName: string,
+  ): Promise<{ status: 'failed'; error: string } | undefined> {
+    if (job.finishedOn || job.failedReason) {
+      return undefined;
+    }
+
+    const state = await job.getState();
+    if (state !== 'waiting' && state !== 'active' && state !== 'delayed') {
+      return undefined;
+    }
+
+    const timeoutMs = this.getMaxExpectedJobMs(job);
+    const elapsedMs = Date.now() - job.timestamp;
+    if (elapsedMs <= timeoutMs) {
+      return undefined;
+    }
+
+    const error = `Job exceeded max expected processing time (${Math.ceil(timeoutMs / 60000)} minutes)`;
+    try {
+      await job.moveToFailed(new Error(error), '', false);
+      this.logger.warn(`Timed out stale ${queueName} job ${job.id}: state=${state} elapsedMs=${elapsedMs}`);
+    } catch (moveError) {
+      this.logger.warn(
+        `Could not move stale ${queueName} job ${job.id} to failed; reporting failed to pollers: ${getErrorMessage(moveError)}`,
+      );
+    }
+
+    return { status: 'failed', error };
+  }
+
+  private getMaxExpectedJobMs(job: Job): number {
+    const timeoutMinutes = Number((job.data as { timeoutMinutes?: number } | undefined)?.timeoutMinutes);
+    if (Number.isFinite(timeoutMinutes) && timeoutMinutes > 0) {
+      return timeoutMinutes * 60 * 1000;
+    }
+
+    switch (job.name) {
+      case 'sync-wallet':
+        return JobTimeouts['sync-wallet'].timeout;
+      case 'analyze-pnl':
+        return JobTimeouts['analyze-pnl'].timeout;
+      case 'analyze-behavior':
+        return JobTimeouts['analyze-behavior'].timeout;
+      case 'dashboard-wallet-analysis':
+        return JobTimeouts['dashboard-wallet-analysis'].timeout;
+      case 'similarity-analysis-flow':
+        return JobTimeouts['calculate-similarity'].timeout;
+      case 'enrich-token-balances':
+        return JobTimeouts['enrich-token-balances'].timeout;
+      case 'analyze-holder-profiles':
+        return 30 * 60 * 1000;
+      default:
+        return 30 * 60 * 1000;
+    }
+  }
+
+  private formatJobResponse(
+    job: Job,
+    queueName: string,
+    override?: { status: 'failed'; error: string },
+  ): JobStatusResponseDto {
     const state = job.finishedOn ? (job.failedReason ? 'failed' : 'completed') : 
                   job.processedOn ? 'active' : 'waiting';
 
@@ -673,11 +738,11 @@ export class JobsService {
       id: job.id!,
       name: job.name,
       queue: queueName,
-      status: state,
+      status: override?.status ?? state,
       progress,
       data: job.data,
       result: job.returnvalue,
-      error: job.failedReason,
+      error: override?.error ?? job.failedReason,
       createdAt: new Date(job.timestamp),
       processedAt: job.processedOn ? new Date(job.processedOn) : undefined,
       finishedAt: job.finishedOn ? new Date(job.finishedOn) : undefined,

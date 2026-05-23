@@ -40,7 +40,7 @@ Returns all of the above plus `summary` (realizedPnl, tradeCount, solBalance), `
 
 Returns `{ data: [{ tokenAddress, realizedPnlSol, unrealizedPnlSol, roi, totalSolSpent, winRate }], total, page, pageSize }`
 
-**Batch HUD — up to 30 wallets** (5cr flat):
+**Batch HUD — up to 30 wallets** (1cr flat):
 
 ```bash
 curl -X POST https://api.sova-intel.com/api/v1/intel/wallets/batch-hud \
@@ -58,7 +58,7 @@ Returns: `{ huds: { "ADDR_1": { behaviorCode, winRate, ... } }, queued: [{ walle
 
 **Use this endpoint.** Same analysis as `/holders` but the result is purpose-built for agent consumption: aggregate-first, ~10× smaller payload, no debug fields.
 
-**20cr — async** — POST, returns HTTP 202:
+**5cr — async** — POST, returns HTTP 202:
 
 ```bash
 curl -X POST https://api.sova-intel.com/api/v1/intel/token/TOKEN_MINT/holders/agent \
@@ -115,7 +115,7 @@ Result shape:
 
 **Use this endpoint.** Same analysis as `/similarity` but returns a single `coordinationScore`, filtered pairs only, and coordination flags. Purpose-built for agent decisions.
 
-**20cr — async** — POST, returns HTTP 202:
+**5cr — async** — POST, returns HTTP 202:
 
 ```bash
 curl -X POST https://api.sova-intel.com/api/v1/intel/wallets/similarity/agent \
@@ -159,9 +159,9 @@ Result shape:
 
 ---
 
-## Bundled deep analysis (35cr)
+## Bundled deep analysis (10cr)
 
-Holder profiles + similarity in one call, server discovers holders itself. 35cr vs 40cr for the two-step manual flow.
+Holder profiles + similarity in one call, server discovers holders itself. 10cr total.
 
 ```bash
 curl -X POST https://api.sova-intel.com/api/v1/intel/token/TOKEN_MINT/holders/deep \
@@ -186,9 +186,9 @@ Polling: wait for `holderProfiles.jobId` to complete, then poll `similarity.resu
 
 Available but verbose — use the `/agent` variants above for agent workflows.
 
-`POST /intel/token/:mint/holders` (20cr) → `{ jobId, requestId, monitoringUrl }` → poll → `GET /jobs/result/by-key?key=holder-profiles:result:JOB_ID`
+`POST /intel/token/:mint/holders` (5cr) → `{ jobId, requestId, monitoringUrl }` → poll → `GET /jobs/result/by-key?key=holder-profiles:result:JOB_ID`
 
-`POST /intel/wallets/similarity` (20cr) → `{ jobId, requestId, monitoringUrl }` → poll → `GET /jobs/result/by-key?key=similarity:result:REQUEST_ID`
+`POST /intel/wallets/similarity` (5cr) → `{ jobId, requestId, monitoringUrl }` → poll → `GET /jobs/result/by-key?key=similarity:result:REQUEST_ID`
 
 Full result shapes are documented at https://docs.sova-intel.com/endpoints/batch-token.
 

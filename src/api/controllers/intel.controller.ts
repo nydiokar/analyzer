@@ -39,6 +39,7 @@ import { DatabaseService } from '../services/database.service';
 import { BehaviorService } from '../services/behavior.service';
 import { PnlOverviewService } from '../services/pnl-overview.service';
 import { TokenPerformanceService } from '../services/token-performance.service';
+import { CreditsService } from '../services/credits.service';
 import { TokenPerformanceQueryDto } from '../shared/dto/token-performance-query.dto';
 import { WalletHudDto } from '../shared/dto/wallet-hud.dto';
 import {
@@ -124,7 +125,7 @@ class IntelTokenHoldersDeepRequestDto extends IntelTokenHoldersRequestDto {
  * Credit charging contract (CreditInterceptor fires on handler `return`, skips on `throw`):
  * - status "ok"     → 200  → handler returns    → interceptor fires → Ncr deducted  ✓ data delivered
  * - status "queued" → 202  → throw HttpException → interceptor skips → 0cr           ✓ timeout fallback only
- * - status "queued" → 202  → handler returns    → interceptor fires → Ncr deducted  ✓ POST endpoints: pay on acceptance
+ * - async POST jobs → 202  → precharged before queue admission → interceptor skips duplicate deduction
  * - status "skipped"→ 422  → throw HttpException → interceptor skips → 0cr           ✓ known wallet, nothing to do
  * - invalid address → 400  → throw BadRequest   → interceptor skips → 0cr           ✓ guard or handler rejects
  *
@@ -147,6 +148,7 @@ export class IntelController {
     private readonly similarityOperationsQueue: SimilarityOperationsQueue,
     private readonly redisLockService: RedisLockService,
     private readonly jobEventsBridgeService: JobEventsBridgeService,
+    private readonly creditsService: CreditsService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {}
 
@@ -648,7 +650,7 @@ export class IntelController {
 
   /**
    * POST /intel/token/:mint/holders
-   * 20 credits — queue holder-profiles analysis for a token's top holders.
+   * 5 credits — queue holder-profiles analysis for a token's top holders.
    *
    * Queues an analyze-holder-profiles job (mode: 'token') via the same AnalysisOperationsQueue
    * and processor as POST /analyses/holder-profiles. Fetches top N holders from Helius,
@@ -656,22 +658,22 @@ export class IntelController {
    * Similarity is NOT auto-chained by the processor — poll the job, then fire
    * POST /intel/wallets/batch-hud or POST /analyses/similarity/queue separately.
    *
-   * Static @RequireCredits(20) → X402 works automatically for autonomous agents.
+   * Static @RequireCredits(5) → X402 works automatically for autonomous agents.
    *
-   * Credit contract: handler always returns (never throws on success path) → HTTP 202
-   * with @HttpCode(202) → CreditInterceptor fires → 20cr deducted on job acceptance.
+   * Credit contract: after validation, credits are atomically deducted before queue admission.
+   * If credits are exhausted, HTTP 402 returns before any job is created.
    */
   @Post('token/:mint/holders')
-  @RequireCredits(20)
+  @RequireCredits(5)
   @HttpCode(202)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
-    summary: 'Queue holder-profiles analysis for a token (20cr)',
+    summary: 'Queue holder-profiles analysis for a token (5cr)',
     description: `Queues holder-profiles analysis for the top N holders of a token mint.
 
 **Always returns HTTP 202** — the job runs asynchronously. Poll \`monitoringUrl\` for completion. Job result is stored in Redis under \`holder-profiles:result:{jobId}\` (15-min TTL), retrievable via \`GET /api/v1/jobs/result/by-key\`.
 
-20cr deducted on job acceptance. No charge if the mint address is invalid (400).`,
+5cr deducted before queue admission. No charge if the mint address is invalid (400).`,
   })
   @ApiParam({ name: 'mint', description: 'Solana token mint address' })
   @ApiBody({ type: IntelTokenHoldersRequestDto })
@@ -693,6 +695,7 @@ export class IntelController {
     }
 
     this.logger.log(`Intel holder-profiles request: mint=${mint} topN=${topN}`);
+    await this.prechargeCreditsForQueue(req, 5, 'precharge:IntelController.queueTokenHolders');
 
     const requestId = `intel-holders-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -711,13 +714,14 @@ export class IntelController {
         delay: 0,
       });
     } catch (queueError) {
+      await this.refundPrechargedCredits(req, 5, 'refund:IntelController.queueTokenHolders');
       this.logger.error(`Intel holder-profiles: failed to queue job for ${mint}: ${queueError}`);
       throw new InternalServerErrorException('Failed to queue holder-profiles job');
     }
 
     this.logger.log(`Intel holder-profiles: queued job ${job.id} for mint=${mint} topN=${topN}`);
 
-    // HTTP 202 — CreditInterceptor fires on return → 20cr deducted.
+    // HTTP 202 — credits were atomically deducted before queue admission.
     return {
       status: 'queued' as const,
       tokenMint: mint,
@@ -731,11 +735,11 @@ export class IntelController {
   }
 
   @Post('wallets/similarity')
-  @RequireCredits(20)
+  @RequireCredits(5)
   @HttpCode(202)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
-    summary: 'Queue standalone similarity analysis (20cr)',
+    summary: 'Queue standalone similarity analysis (5cr)',
     description: 'Queues similarity analysis for 2-30 wallet addresses. Always returns HTTP 202 with a job ID for async polling.',
   })
   @ApiBody({ type: IntelWalletSimilarityRequestDto })
@@ -753,7 +757,14 @@ export class IntelController {
       );
     }
 
-    const similarity = await this.queueSimilarityJob(req, body.wallets, 'intel-similarity');
+    await this.prechargeCreditsForQueue(req, 5, 'precharge:IntelController.queueWalletSimilarity');
+    let similarity: { requestId: string; jobId: string };
+    try {
+      similarity = await this.queueSimilarityJob(req, body.wallets, 'intel-similarity');
+    } catch (error) {
+      await this.refundPrechargedCredits(req, 5, 'refund:IntelController.queueWalletSimilarity');
+      throw error;
+    }
 
     return {
       status: 'queued' as const,
@@ -768,7 +779,7 @@ export class IntelController {
 
   /**
    * POST /intel/token/:mint/holders/agent
-   * 20 credits — agent-optimised variant of /holders.
+   * 5 credits — agent-optimised variant of /holders.
    *
    * Queues the same holder-profiles job as /holders. On polling, the result
    * endpoint reads the full result from Redis, applies the agent transform
@@ -780,14 +791,14 @@ export class IntelController {
    * Poll monitoringUrl, then fetch agentResultKey via GET /api/v1/jobs/result/by-key.
    * The full result is still available at resultKey for developer consumption.
    *
-   * 20cr deducted on job acceptance (same as /holders).
+   * 5cr deducted before queue admission (same as /holders).
    */
   @Post('token/:mint/holders/agent')
-  @RequireCredits(20)
+  @RequireCredits(5)
   @HttpCode(202)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
-    summary: 'Agent-optimised holder-profiles analysis (20cr)',
+    summary: 'Agent-optimised holder-profiles analysis (5cr)',
     description: `Same analysis as POST /intel/token/:mint/holders, but the result is transformed for agent consumption:
 
 - **Aggregate block first**: population-level signal (behavior distribution, supply concentration, fast-money %, clusterAlert) — an agent reads this to make a buy/skip decision without scanning individual profiles.
@@ -797,7 +808,7 @@ export class IntelController {
 Returns HTTP 202. Poll \`monitoringUrl\`. Once completed, fetch \`agentResultKey\` via GET /api/v1/jobs/result/by-key?key={agentResultKey}.
 The full developer result remains available at \`resultKey\`.
 
-20cr deducted on job acceptance.`,
+5cr deducted before queue admission.`,
   })
   @ApiParam({ name: 'mint', description: 'Solana token mint address' })
   @ApiBody({ type: IntelTokenHoldersRequestDto })
@@ -819,6 +830,7 @@ The full developer result remains available at \`resultKey\`.
     }
 
     this.logger.log(`Intel holder-profiles/agent request: mint=${mint} topN=${topN}`);
+    await this.prechargeCreditsForQueue(req, 5, 'precharge:IntelController.queueTokenHoldersAgent');
 
     const requestId = `intel-holders-agent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -837,6 +849,7 @@ The full developer result remains available at \`resultKey\`.
         delay: 0,
       });
     } catch (queueError) {
+      await this.refundPrechargedCredits(req, 5, 'refund:IntelController.queueTokenHoldersAgent');
       this.logger.error(`Intel holder-profiles/agent: failed to queue job for ${mint}: ${queueError}`);
       throw new InternalServerErrorException('Failed to queue holder-profiles job');
     }
@@ -847,7 +860,7 @@ The full developer result remains available at \`resultKey\`.
     const fullResultKey = `holder-profiles:result:${jobId}`;
     const agentResultKey = `holder-profiles:agent:result:${jobId}`;
 
-    // HTTP 202 — CreditInterceptor fires on return → 20cr deducted.
+    // HTTP 202 — credits were atomically deducted before queue admission.
     return {
       status: 'queued' as const,
       tokenMint: mint,
@@ -873,7 +886,7 @@ The full developer result remains available at \`resultKey\`.
    * Idempotent: if the agent result key already exists, returns it directly
    * (no re-transform on repeated calls).
    *
-   * This endpoint is NOT credit-gated — the 20cr was charged on job acceptance.
+   * This endpoint is NOT credit-gated — credits were charged before queue admission.
    * The transform happens here rather than in the processor so we never mutate
    * or duplicate the full result key.
    */
@@ -923,21 +936,21 @@ Result shape:
 
   /**
    * POST /intel/wallets/similarity/agent
-   * 20 credits — agent-optimised variant of /similarity.
+   * 5 credits — agent-optimised variant of /similarity.
    *
    * Queues the same similarity job as /similarity. On result fetch, the full
    * CombinedSimilarityResult is read from Redis, transformed to the agent shape
    * (coordinationScore, flaggedPairs, topOverlaps, no sharedTokens[] arrays),
    * and stored at similarity:agent:result:{requestId} with the same TTL.
    *
-   * 20cr deducted on job acceptance (same as /similarity).
+   * 5cr deducted before queue admission (same as /similarity).
    */
   @Post('wallets/similarity/agent')
-  @RequireCredits(20)
+  @RequireCredits(5)
   @HttpCode(202)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
-    summary: 'Agent-optimised similarity analysis (20cr)',
+    summary: 'Agent-optimised similarity analysis (5cr)',
     description: `Same analysis as POST /intel/wallets/similarity, but the result is transformed for agent consumption:
 
 - **coordinationScore** (0–1): weighted average of top-pair capital scores — single number for quick agent decisions.
@@ -948,7 +961,7 @@ Result shape:
 
 Returns HTTP 202. Poll \`monitoringUrl\`. Once completed, fetch \`agentResultKey\` via GET /api/v1/jobs/result/by-key?key={agentResultKey}.
 
-20cr deducted on job acceptance.`,
+5cr deducted before queue admission.`,
   })
   @ApiBody({ type: IntelWalletSimilarityRequestDto })
   @ApiResponse({ status: 202, description: 'Similarity agent job accepted — poll monitoringUrl, then fetch agentResultKey', type: IntelSimilarityAgentJobAcceptedResponseDto })
@@ -965,7 +978,14 @@ Returns HTTP 202. Poll \`monitoringUrl\`. Once completed, fetch \`agentResultKey
       );
     }
 
-    const similarity = await this.queueSimilarityJob(req, body.wallets, 'intel-similarity-agent');
+    await this.prechargeCreditsForQueue(req, 5, 'precharge:IntelController.queueWalletSimilarityAgent');
+    let similarity: { requestId: string; jobId: string };
+    try {
+      similarity = await this.queueSimilarityJob(req, body.wallets, 'intel-similarity-agent');
+    } catch (error) {
+      await this.refundPrechargedCredits(req, 5, 'refund:IntelController.queueWalletSimilarityAgent');
+      throw error;
+    }
 
     const agentResultKey = `similarity:agent:result:${similarity.requestId}`;
 
@@ -1040,16 +1060,16 @@ Result shape:
   }
 
   @Post('token/:mint/holders/deep')
-  @RequireCredits(35)
+  @RequireCredits(10)
   @HttpCode(202)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
-    summary: 'Bundled holder-profiles + similarity analysis (35cr)',
+    summary: 'Bundled holder-profiles + similarity analysis (10cr)',
     description: `Queues a holder-profiles job for the token mint. Once holder-profiles completes, the processor automatically chains a similarity job using the discovered holder addresses — no round-trip needed.
 
 Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the holder-profiles job first, then poll \`similarity.resultKey\` until the similarity result appears.
 
-35cr per call (vs 40cr for the manual two-step flow).`,
+10cr per call (same total as the two-step holder-profiles + similarity flow).`,
   })
   @ApiParam({ name: 'mint', description: 'Solana token mint address' })
   @ApiBody({ type: IntelTokenHoldersDeepRequestDto })
@@ -1068,6 +1088,7 @@ Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the
     if (topN < 1 || topN > 50) {
       throw new BadRequestException('topN must be between 1 and 50');
     }
+    await this.prechargeCreditsForQueue(req, 10, 'precharge:IntelController.queueTokenHoldersDeep');
 
     const holderProfilesRequestId = `intel-holders-deep-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const chainedSimilarityRequestId = `intel-holders-deep-sim-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1089,6 +1110,7 @@ Returns both \`holderProfiles\` and \`similarity\` identifiers upfront. Poll the
         delay: 0,
       });
     } catch (queueError) {
+      await this.refundPrechargedCredits(req, 10, 'refund:IntelController.queueTokenHoldersDeep');
       this.logger.error(`Intel deep: failed to queue holder-profiles job for ${mint}: ${queueError}`);
       throw new InternalServerErrorException('Failed to queue holder-profiles job');
     }
@@ -1284,7 +1306,7 @@ Returns:
 
   /**
    * POST /intel/wallets/batch-hud
-   * 5 credits — batch HUD for up to 30 wallets. Same freshness logic as GET /intel/wallet/:addr
+   * 1 credit — batch HUD for up to 30 wallets. Same freshness logic as GET /intel/wallet/:addr
    * but applied per-wallet in parallel.
    *
    * For each wallet:
@@ -1292,15 +1314,15 @@ Returns:
    *   - HUD missing or wallet not analyzed → auto-queues deep analysis → jobId in `queued`
    *   - Known system wallet → listed in `skipped`
    *
-   * 5cr charged once for the whole batch regardless of how many wallets are ready.
+   * 1cr charged once for the whole batch regardless of how many wallets are ready.
    * Agent calls again after queued jobs complete to get the remaining HUDs.
    */
   @Post('wallets/batch-hud')
-  @RequireCredits(5)
+  @RequireCredits(1)
   @HttpCode(200)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({
-    summary: 'Batch HUD for up to 30 wallets (5cr)',
+    summary: 'Batch HUD for up to 30 wallets (1cr)',
     description: `Returns HUD metrics for each wallet. Missing or stale wallets are auto-queued for deep analysis.
 
 **Response shape:**
@@ -1308,7 +1330,7 @@ Returns:
 - \`queued\`: array of \`{walletAddress, jobId, monitoringUrl}\` for wallets that needed analysis
 - \`skipped\`: known system/program wallets (no analysis possible)
 
-5cr per call. Call again after queued jobs complete to get the remaining HUDs. Max 30 wallets.`,
+1cr per call. Call again after queued jobs complete to get the remaining HUDs. Max 30 wallets.`,
   })
   @ApiBody({ type: BatchHudRequestDto })
   @ApiResponse({ status: 200, description: 'Batch HUD — huds map + queued jobs + skipped list', type: IntelBatchHudResponseDto })
@@ -1328,6 +1350,7 @@ Returns:
     }
 
     this.logger.log(`Intel batch-hud request: ${wallets.length} wallets`);
+    await this.prechargeCreditsForQueue(req, 1, 'precharge:IntelController.batchWalletHud');
 
     const FRESHNESS_MS = DASHBOARD_ANALYSIS_SCOPE_DEFAULTS.flash.freshnessMinutes * 60 * 1000;
 
@@ -1453,6 +1476,7 @@ Returns:
         delay: 0,
       });
     } catch (queueError) {
+      await this.refundPrechargedCredits(req, 5, `refund:IntelController.${prefix}`);
       this.logger.error(`Intel similarity: failed to queue job for request ${requestId}: ${queueError}`);
       throw new InternalServerErrorException('Failed to queue similarity analysis job');
     }
@@ -1461,6 +1485,38 @@ Returns:
       requestId,
       jobId: String(job.id),
     };
+  }
+
+  private async refundPrechargedCredits(
+    req: Request & { user?: User; creditsPrecharged?: boolean; x402PendingTxBytes?: Buffer },
+    amount: number,
+    reason: string,
+  ): Promise<void> {
+    if (!req.user || !req.creditsPrecharged || req.x402PendingTxBytes) {
+      return;
+    }
+
+    try {
+      await this.creditsService.topUp(req.user.id, amount, reason);
+      req.creditsPrecharged = false;
+    } catch (error) {
+      this.logger.error(
+        `Failed to refund precharged credits: user=${req.user.id} amount=${amount} reason=${reason} error=${error}`,
+      );
+    }
+  }
+
+  private async prechargeCreditsForQueue(
+    req: Request & { user?: User; creditsPrecharged?: boolean; x402PendingTxBytes?: Buffer },
+    amount: number,
+    reason: string,
+  ): Promise<void> {
+    if (!req.user || req.x402PendingTxBytes || req.creditsPrecharged) {
+      return;
+    }
+
+    await this.creditsService.deduct(req.user.id, amount, reason);
+    req.creditsPrecharged = true;
   }
 
   /**

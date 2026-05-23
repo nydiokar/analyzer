@@ -73,3 +73,49 @@ describe('JobsService.getResultByKey', () => {
     assert.ok(redisStore.has(derivedKey));
   });
 });
+
+describe('JobsService.getJobStatus', () => {
+  it('reports stale waiting jobs as failed so pollers do not wait indefinitely', async () => {
+    let moveToFailedCalled = false;
+    const staleJob = {
+      id: 'holder-stale',
+      name: 'analyze-holder-profiles',
+      data: {},
+      progress: 0,
+      returnvalue: null,
+      failedReason: undefined,
+      timestamp: Date.now() - (31 * 60 * 1000),
+      processedOn: undefined,
+      finishedOn: undefined,
+      attemptsMade: 0,
+      opts: {},
+      delay: 0,
+      getState: async () => 'waiting',
+      moveToFailed: async () => {
+        moveToFailedCalled = true;
+      },
+    };
+    const analysisQueue = {
+      getJob: async (jobId: string) => (jobId === staleJob.id ? staleJob : null),
+    };
+    const emptyQueue = {
+      getJob: async () => null,
+    };
+
+    const service = new JobsService(
+      emptyQueue as any,
+      analysisQueue as any,
+      emptyQueue as any,
+      emptyQueue as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    const result = await service.getJobStatus('holder-stale');
+
+    assert.equal(result.status, 'failed');
+    assert.match(result.error ?? '', /exceeded max expected processing time/);
+    assert.equal(moveToFailedCalled, true);
+  });
+});

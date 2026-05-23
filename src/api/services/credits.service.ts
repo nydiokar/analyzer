@@ -155,7 +155,8 @@ export class CreditsService {
         if (currentCredits < normalizedAmount) {
           throw new HttpException(
             {
-              error: 'insufficient_credits',
+              error: 'credits_exhausted',
+              message: 'Account credits exhausted. Top up required.',
               balance: currentCredits,
               required: normalizedAmount,
             },

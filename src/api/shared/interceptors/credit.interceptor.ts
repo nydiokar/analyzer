@@ -14,6 +14,7 @@ import { User } from '@prisma/client';
 interface AuthenticatedRequest extends Request {
   user?: User;
   creditCost?: number; // Set by CreditGuard
+  creditsPrecharged?: boolean; // Set by validated handlers for async job-admission endpoints
   x402Paid?: boolean; // Set by CreditGuard when prepaid re-call (marker was 'x402')
   x402PendingTxBytes?: Buffer; // Set by CreditGuard for fresh x402 calls awaiting confirm
   x402PendingTxSig?: string; // Broadcast signature set by guard — set header sync, then confirm async
@@ -45,6 +46,10 @@ export class CreditInterceptor implements NestInterceptor {
 
     // If no credit cost or no user, just pass through
     if (!creditCost || !user) {
+      return next.handle();
+    }
+
+    if (request.creditsPrecharged) {
       return next.handle();
     }
 

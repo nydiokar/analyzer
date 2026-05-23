@@ -24,6 +24,7 @@ const SOLANA_MAINNET_CAIP2 = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
 interface AuthenticatedRequest extends Request {
   user?: User;
   creditCost?: number;
+  creditsPrecharged?: boolean;
   x402Paid?: boolean;
   x402PendingTxBytes?: Buffer;
   x402PendingTxSig?: string; // Broadcast signature, set by guard so interceptor can set header sync
@@ -135,7 +136,12 @@ export class CreditGuard implements CanActivate {
       this.logger.warn(
         `Insufficient credits: user=${user.id} has ${currentBalance}, needs ${requiredCredits}`,
       );
-      return this.throwPaymentRequired(requiredCredits, (request as any).url, context);
+      return this.throwPaymentRequired(requiredCredits, (request as any).url, context, {
+        error: 'credits_exhausted',
+        message: 'Account credits exhausted. Top up required.',
+        balance: currentBalance,
+        required: requiredCredits,
+      });
     }
 
     // Sufficient credits — store cost for interceptor
@@ -147,7 +153,12 @@ export class CreditGuard implements CanActivate {
     return true;
   }
 
-  private throwPaymentRequired(requiredCredits: number, resourceUrl: string, context: ExecutionContext): never {
+  private throwPaymentRequired(
+    requiredCredits: number,
+    resourceUrl: string,
+    context: ExecutionContext,
+    body: Record<string, unknown> = { error: 'Payment required', required: requiredCredits },
+  ): never {
     const amountBaseUnits = Math.ceil(
       requiredCredits * USDC_PER_CREDIT * Math.pow(10, USDC_DECIMALS),
     );
@@ -171,9 +182,6 @@ export class CreditGuard implements CanActivate {
     const encoded = Buffer.from(JSON.stringify(paymentRequired)).toString('base64');
     const response = context.switchToHttp().getResponse<{ setHeader: (k: string, v: string) => void }>();
     response.setHeader('PAYMENT-REQUIRED', encoded);
-    throw new HttpException(
-      { error: 'Payment required', required: requiredCredits },
-      HttpStatus.PAYMENT_REQUIRED,
-    );
+    throw new HttpException(body, HttpStatus.PAYMENT_REQUIRED);
   }
 }

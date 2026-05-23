@@ -136,7 +136,7 @@ export class SovaIntelClient {
   }
 
   // -------------------------------------------------------------------------
-  // POST /intel/wallets/batch-hud — 5cr flat (up to 30 wallets)
+  // POST /intel/wallets/batch-hud — 1cr flat (up to 30 wallets)
   // -------------------------------------------------------------------------
   async batchHud(wallets: string[]): Promise<BatchHudResponse> {
     return this.http.request<BatchHudResponse>({
@@ -147,7 +147,7 @@ export class SovaIntelClient {
   }
 
   // -------------------------------------------------------------------------
-  // POST /intel/token/:mint/holders — 20cr (async)
+  // POST /intel/token/:mint/holders — 5cr (async)
   // Queues the job and returns the raw accepted response.
   // Use pollHolderProfiles() for a blocking variant.
   // -------------------------------------------------------------------------
@@ -179,7 +179,7 @@ export class SovaIntelClient {
   }
 
   // -------------------------------------------------------------------------
-  // POST /intel/wallets/similarity — 20cr (async)
+  // POST /intel/wallets/similarity — 5cr (async)
   // -------------------------------------------------------------------------
   async queueSimilarity(wallets: string[]): Promise<SimilarityJobAcceptedResponse> {
     return this.http.request<SimilarityJobAcceptedResponse>({
@@ -201,12 +201,12 @@ export class SovaIntelClient {
   }
 
   // -------------------------------------------------------------------------
-  // POST /intel/token/:mint/holders/deep — 35cr (async, chained)
+  // POST /intel/token/:mint/holders/deep — 10cr (async, chained)
   // Queues holder-profiles; processor auto-chains similarity after completion.
   // -------------------------------------------------------------------------
 
   /**
-   * Queue a bundled holder-profiles + similarity analysis (35cr).
+   * Queue a bundled holder-profiles + similarity analysis (10cr).
    * The server discovers holder addresses itself — no `wallets[]` needed.
    *
    * Returns immediately with both job descriptors. `similarity.jobId` is null
@@ -253,13 +253,13 @@ export class SovaIntelClient {
   }
 
   // -------------------------------------------------------------------------
-  // POST /intel/token/:mint/holders/agent — 20cr (async, agent-optimised)
+  // POST /intel/token/:mint/holders/agent — 5cr (async, agent-optimised)
   // Same job as /holders but result is transformed to a compact shape with an
   // aggregate block and slim per-holder profiles.
   // -------------------------------------------------------------------------
 
   /**
-   * Queue an agent-optimised holder-profiles analysis (20cr).
+   * Queue an agent-optimised holder-profiles analysis (5cr).
    * Returns the raw 202 response including `agentResultKey` for polling.
    * Use `pollTokenHoldersAgent()` for a blocking variant.
    */
@@ -290,13 +290,13 @@ export class SovaIntelClient {
   }
 
   // -------------------------------------------------------------------------
-  // POST /intel/wallets/similarity/agent — 20cr (async, agent-optimised)
+  // POST /intel/wallets/similarity/agent — 5cr (async, agent-optimised)
   // Same job as /similarity but result is transformed to a compact shape with
   // a coordinationScore, filtered pairs, and flags.
   // -------------------------------------------------------------------------
 
   /**
-   * Queue an agent-optimised similarity analysis (20cr).
+   * Queue an agent-optimised similarity analysis (5cr).
    * Returns the raw 202 response including `agentResultKey` for polling.
    * Use `pollWalletSimilarityAgent()` for a blocking variant.
    */
