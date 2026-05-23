@@ -124,6 +124,7 @@ async function getProtectedWallets(options: {
   protectFavoritedWallets: boolean;
   protectNotedWallets: boolean;
   protectRecentWalletDays: number;
+  protectKolWallets: boolean;
   protectBehaviorProfiles: boolean;
   protectSpeedCategories: string[];
   protectStrategyTypes: string[];
@@ -192,6 +193,23 @@ async function getProtectedWallets(options: {
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith('#'));
     await addBreakdownEntry('wallet file', fileWallets);
+  }
+
+  if (options.protectKolWallets) {
+    const [kolProfiles, knownKolWallets] = await Promise.all([
+      prisma.kolProfile.findMany({
+        select: { walletAddress: true },
+      }),
+      prisma.wallet.findMany({
+        where: { knownType: 'KOL' },
+        select: { address: true },
+      }),
+    ]);
+
+    await addBreakdownEntry('KOL wallets', [
+      ...kolProfiles.map((kol) => kol.walletAddress),
+      ...knownKolWallets.map((wallet) => wallet.address),
+    ]);
   }
 
   if (options.protectBehaviorProfiles) {
@@ -515,6 +533,11 @@ async function main() {
       default: 45,
       description: 'Exclude wallets seen recently from global swap pruning.',
     })
+    .option('protectKolWallets', {
+      type: 'boolean',
+      default: true,
+      description: 'Exclude KOL registry wallets from global swap pruning.',
+    })
     .option('protectBehaviorProfiles', {
       type: 'boolean',
       default: true,
@@ -616,6 +639,7 @@ async function main() {
         protectFavoritedWallets: argv.protectFavoritedWallets,
         protectNotedWallets: argv.protectNotedWallets,
         protectRecentWalletDays: argv.protectRecentWalletDays,
+        protectKolWallets: argv.protectKolWallets,
         protectBehaviorProfiles: argv.protectBehaviorProfiles,
         protectSpeedCategories: parseCsvList(argv.protectSpeedCategories),
         protectStrategyTypes: parseCsvList(argv.protectStrategyTypes),

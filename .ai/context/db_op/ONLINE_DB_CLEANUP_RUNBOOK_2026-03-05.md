@@ -87,12 +87,12 @@ Use this when the intended rule is:
 - keep snapshots/results longer than raw swap history
 
 ```bash
-pnpm db:smart-prune --pruneHelius false --pruneSwapInactive false --pruneSwapGlobal true --pruneOrphanAnalysisResult false --pruneOrphanTokenLot false --swapGlobalOlderThanDays 30 --protectRecentWalletDays 14 --protectSpeedCategories INTRADAY,DAY_TRADER,SWING,POSITION,HODLER --protectStrategyTypes DAY_TRADER,SWING_TRADER,POSITION_TRADER,PURE_HOLDER --protectTradingStyleKeywords INTRADAY,DAY_TRADER,SWING,POSITION,HODLER
+npx ts-node -r tsconfig-paths/register scripts/maintenance/smart-db-prune.ts --pruneHelius false --pruneSwapInactive false --pruneSwapGlobal true --pruneOrphanAnalysisResult false --pruneOrphanTokenLot false --swapGlobalOlderThanDays 30 --protectRecentWalletDays 14 --protectSpeedCategories INTRADAY,DAY_TRADER,SWING,POSITION,HODLER --protectStrategyTypes DAY_TRADER,SWING_TRADER,POSITION_TRADER,PURE_HOLDER --protectTradingStyleKeywords INTRADAY,DAY_TRADER,SWING,POSITION,HODLER
 ```
 
 Notes:
 - `MOMENTUM` means under 30 minutes; if the intent is "holds longer than Momentum", protection starts at `INTRADAY`.
-- Current script has no built-in KOL protection source yet.
+- Current script protects KOL wallets by default via `--protectKolWallets`.
 - `HolderProfileSnapshot` and other snapshot tables are not touched by this prune script.
 - The prune script now prints a protection breakdown in dry-run output so you can see how many wallets and old rows each rule protects.
 
