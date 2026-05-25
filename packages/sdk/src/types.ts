@@ -348,10 +348,11 @@ export interface SimilarityAgentJobAcceptedResponse {
 // Same underlying job; result is transformed at read time.
 
 export interface AgentHoldingsSummary {
+  /** Count of non-base current holdings; excludes SOL/stables/wrapped majors. */
   totalPositions: number | null;
-  /** Sum of SOL value across ALL current holdings */
+  /** Sum of SOL value across non-base current holdings; excludes SOL/stables/wrapped majors. */
   totalCurrentHoldingsValueSol: number | null;
-  /** Top 5 current holdings by SOL value */
+  /** Top 5 non-base current holdings by SOL value. */
   topHoldings: Array<{ tokenAddress: string; valueSol: number }>;
 }
 

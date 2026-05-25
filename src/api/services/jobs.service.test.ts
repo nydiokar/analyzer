@@ -29,6 +29,10 @@ describe('JobsService.getResultByKey', () => {
               tokenAddress: 'Token1111111111111111111111111111111111111',
               valueSol: 3.5,
             },
+            {
+              tokenAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+              valueSol: 100,
+            },
           ],
         },
       ],
@@ -69,7 +73,9 @@ describe('JobsService.getResultByKey', () => {
     assert.equal(setCalls[0]?.ttl, 321);
     assert.equal((result as any).aggregate.totalHolders, 1);
     assert.equal((result as any).metadata.totalHoldersAnalyzed, 1);
+    assert.equal((result as any).profiles[0].holdingsSummary.totalPositions, 1);
     assert.equal((result as any).profiles[0].holdingsSummary.totalCurrentHoldingsValueSol, 3.5);
+    assert.equal((result as any).profiles[0].holdingsSummary.topHoldings.length, 1);
     assert.ok(redisStore.has(derivedKey));
   });
 });

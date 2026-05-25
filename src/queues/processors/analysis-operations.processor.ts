@@ -15,7 +15,7 @@ import { EnrichmentOperationsQueue } from '../queues/enrichment-operations.queue
 import { HeliusApiClient } from '../../core/services/helius-api-client';
 import { WalletBalanceService } from '../../core/services/wallet-balance-service';
 import { SyncOptions } from '../../core/services/helius-sync-service';
-import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG } from '../../config/constants';
+import { ANALYSIS_EXECUTION_CONFIG, DASHBOARD_ANALYSIS_SCOPE_DEFAULTS, DASHBOARD_JOB_CONFIG, DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 import { TokenInfoService } from '../../api/services/token-info.service';
 import { TokenHoldersService, HolderWithLabel } from '../../api/services/token-holders.service';
 import { HolderProfilesCacheService } from '../../api/services/holder-profiles-cache.service';
@@ -2035,8 +2035,19 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
   }
 
   private async hydrateHoldingsValues(profiles: HolderProfile[]): Promise<HolderProfile[]> {
+    const profilesWithSignalHoldings = profiles.map((profile) => {
+      const currentHoldings = (profile.currentHoldings ?? []).filter(
+        (holding) => !DEFAULT_EXCLUDED_MINTS.includes(holding.tokenAddress),
+      );
+      return {
+        ...profile,
+        currentHoldings,
+        currentHoldingsCount: currentHoldings.length,
+      };
+    });
+
     const missingMints = new Set<string>();
-    for (const profile of profiles) {
+    for (const profile of profilesWithSignalHoldings) {
       for (const holding of profile.currentHoldings ?? []) {
         if ((holding.uiBalance ?? 0) > 0 && holding.tokenAddress) {
           if (holding.tokenAddress) {
@@ -2047,7 +2058,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
     }
 
     if (missingMints.size === 0) {
-      return profiles;
+      return profilesWithSignalHoldings;
     }
 
     let solPriceUsd = 0;
@@ -2055,16 +2066,16 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       solPriceUsd = await this.tokenInfoService.getSolPrice();
     } catch (error) {
       this.logger.debug('SOL price unavailable for holdings hydration.');
-      return profiles;
+      return profilesWithSignalHoldings;
     }
 
     if (!solPriceUsd || solPriceUsd <= 0) {
-      return profiles;
+      return profilesWithSignalHoldings;
     }
 
     try {
       const pricesByMint = await this.tokenInfoService.getTokenPrices([...missingMints]);
-      return profiles.map((profile) => {
+      return profilesWithSignalHoldings.map((profile) => {
         const holdings = profile.currentHoldings ?? [];
         if (holdings.length === 0) {
           return profile;
@@ -2092,7 +2103,7 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
       });
     } catch (error: any) {
       this.logger.debug(`Failed to hydrate holdings values: ${error?.message || 'unknown error'}`);
-      return profiles;
+      return profilesWithSignalHoldings;
     }
   }
   private async processMintParticipants(job: Job<{ mint: string; cutoffTs: number; signature?: string }>): Promise<{ success: boolean; written?: number; zeroDayAlerts?: number; processingTimeMs: number }> {
@@ -2275,7 +2286,11 @@ export class AnalysisOperationsProcessor implements OnModuleDestroy {
           ])
         );
         currentHoldings = pnlResults
-          .filter(r => typeof r.currentUiBalance === 'number' && (r.currentUiBalance ?? 0) > 0)
+          .filter(r =>
+            typeof r.currentUiBalance === 'number' &&
+            (r.currentUiBalance ?? 0) > 0 &&
+            !DEFAULT_EXCLUDED_MINTS.includes(r.tokenAddress)
+          )
           .map(r => ({
             tokenAddress: r.tokenAddress,
             uiBalance: r.currentUiBalance,

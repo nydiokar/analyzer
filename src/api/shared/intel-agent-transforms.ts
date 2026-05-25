@@ -17,6 +17,7 @@
 
 import type { HolderProfile, HolderProfilesResult } from '../../queues/jobs/types';
 import type { CombinedSimilarityResult, CombinedPairwiseSimilarity } from '../../types/similarity';
+import { DEFAULT_EXCLUDED_MINTS } from '../../config/constants';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HOLDER PROFILES — agent shape
@@ -24,9 +25,9 @@ import type { CombinedSimilarityResult, CombinedPairwiseSimilarity } from '../..
 
 export interface AgentHoldingsSummary {
   totalPositions: number | null;
-  /** Sum of valueSol across ALL current holdings (not just top 5) */
+  /** Sum of valueSol across non-base current holdings (excludes SOL/stables/wrapped majors) */
   totalCurrentHoldingsValueSol: number | null;
-  /** Top 5 current holdings by SOL value */
+  /** Top 5 non-base current holdings by SOL value */
   topHoldings: Array<{ tokenAddress: string; valueSol: number }>;
 }
 
@@ -85,18 +86,19 @@ export interface AgentHolderProfilesResult {
 export function buildAgentHolderProfile(profile: HolderProfile): AgentHolderProfile {
   // Build holdingsSummary from currentHoldings[]
   const holdings = profile.currentHoldings ?? [];
-  const topHoldings = holdings
+  const signalHoldings = holdings.filter((h) => !DEFAULT_EXCLUDED_MINTS.includes(h.tokenAddress));
+  const topHoldings = signalHoldings
     .filter((h) => typeof h.valueSol === 'number' && h.valueSol > 0)
     .sort((a, b) => (b.valueSol ?? 0) - (a.valueSol ?? 0))
     .slice(0, 5)
     .map((h) => ({ tokenAddress: h.tokenAddress, valueSol: h.valueSol as number }));
 
-  const totalCurrentHoldingsValueSol = holdings.length > 0
-    ? holdings.reduce((sum, h) => sum + (typeof h.valueSol === 'number' ? h.valueSol : 0), 0)
+  const totalCurrentHoldingsValueSol = signalHoldings.length > 0
+    ? signalHoldings.reduce((sum, h) => sum + (typeof h.valueSol === 'number' ? h.valueSol : 0), 0)
     : null;
 
   const holdingsSummary: AgentHoldingsSummary = {
-    totalPositions: profile.currentHoldingsCount ?? holdings.length,
+    totalPositions: signalHoldings.length,
     totalCurrentHoldingsValueSol:
       totalCurrentHoldingsValueSol != null
         ? Math.round(totalCurrentHoldingsValueSol * 1000) / 1000
