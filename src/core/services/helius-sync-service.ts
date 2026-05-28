@@ -9,7 +9,8 @@ import {
 import { HeliusTransaction } from '@/types/helius-api';
 import { Prisma, Wallet } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
-import { HELIUS_CONFIG } from '../../config/constants';
+import { HELIUS_CONFIG, RPC_FULL_MAPPER_CONFIG } from '../../config/constants';
+import { mapRpcFullToSwapAnalysisInputs } from './rpc-full-mapper';
 import { isAnalysisBlockingType, type KnownWalletType } from '../../config/known-wallets';
 import { SmartFetchService } from './smart-fetch-service';
 
@@ -224,7 +225,11 @@ export class HeliusSyncService {
 
         // Execute sync with (potentially adjusted) options
         try {
-            if (adjustedOptions.smartFetch && adjustedOptions.maxSignatures) {
+            if (RPC_FULL_MAPPER_CONFIG.enabled) {
+                 // Feature-flagged path: fetch RAW RPC-full txs and map with the clean balance-delta
+                 // mapper. Default OFF; the Enhanced/legacy path below is unchanged when the flag is off.
+                 await this.executeRpcFullFetch(walletAddress, adjustedOptions, walletTransactionCounters);
+            } else if (adjustedOptions.smartFetch && adjustedOptions.maxSignatures) {
                  await this.executeSmartFetch(walletAddress, adjustedOptions, mappingStatsAccumulator, walletTransactionCounters);
             } else {
                  await this.executeStandardFetch(walletAddress, adjustedOptions, mappingStatsAccumulator, walletTransactionCounters);
@@ -567,6 +572,152 @@ export class HeliusSyncService {
     }
 
     /**
+     * Feature-flagged sync path (USE_RPC_FULL_MAPPER): fetches RAW RPC-full transactions and maps them
+     * with the clean balance-delta mapper (`rpc-full-mapper.ts`). Mirrors `executeSmartFetch`'s
+     * two-phase strategy so it is a faithful replacement:
+     *   Phase 1 (newer): incremental fetch of txs newer than `newestProcessedTimestamp` (or, on an
+     *     initial / `fetchOlder` sync, newest-first up to `maxSignatures`).
+     *   Phase 2 (older): if the DB row count is still below `maxSignatures`, backfill OLDER history
+     *     (blockTime <= the oldest stored ts) until the target is met or older history is exhausted —
+     *     so bumping `maxSignatures` later deepens history without a full re-fetch.
+     * Does NOT touch the Enhanced/legacy path.
+     */
+    protected async executeRpcFullFetch(
+      walletAddress: string,
+      options: SyncOptions,
+      walletTransactionCounters: Map<string, number>,
+    ): Promise<void> {
+        if (!options.maxSignatures || options.maxSignatures <= 0) {
+            logger.warn(`[Sync][RpcFull] Called for ${walletAddress} without a valid positive maxSignatures. Aborting.`);
+            return;
+        }
+
+        const walletState = await this.databaseService.getWallet(walletAddress);
+        const isEffectivelyInitialFetch = !walletState || options.fetchOlder;
+        const newestProcessedTimestamp = isEffectivelyInitialFetch
+            ? undefined
+            : (walletState!.newestProcessedTimestamp ?? undefined);
+
+        logger.debug(`[Sync][RpcFull] Phase 1 (newer) for ${walletAddress} (initial=${isEffectivelyInitialFetch}, maxSignatures=${options.maxSignatures}, sinceTs=${newestProcessedTimestamp ?? 'none'}).`);
+        options.onProgress?.(10, 'Fetching newer transactions (RPC-full)...');
+
+        try {
+            // === PHASE 1: newer (or initial newest-first) ===
+            await this.heliusClient.getAllRawRpcFullTransactionsForAddress(walletAddress, {
+                limit: options.limit,
+                maxSignatures: options.maxSignatures,
+                newestProcessedTimestamp,
+                onProgress: (p) => options.onProgress?.(10 + p * 0.4, 'Fetching newer transactions (RPC-full)...'),
+                onTransactionBatch: async (batch: any[]) => {
+                    await this.processAndSaveRawRpcFull(walletAddress, batch, walletTransactionCounters);
+                },
+            });
+
+            // === PHASE 2: older backfill until maxSignatures is met (or older history exhausted) ===
+            const countAfterNewer = await this.getDbTransactionCount(walletAddress);
+            const olderHistorySatisfiedTarget = walletState?.olderHistorySatisfiedTarget ?? null;
+            const olderAlreadySatisfied = olderHistorySatisfiedTarget !== null && olderHistorySatisfiedTarget >= options.maxSignatures;
+
+            if (countAfterNewer < options.maxSignatures && !olderAlreadySatisfied) {
+                const stateAfterNewer = await this.databaseService.getWallet(walletAddress);
+                const oldestProcessedTimestamp = stateAfterNewer?.firstProcessedTimestamp ?? undefined;
+                if (oldestProcessedTimestamp !== undefined) {
+                    const remaining = options.maxSignatures - countAfterNewer;
+                    logger.debug(`[Sync][RpcFull] Phase 2 (older) for ${walletAddress}: have ${countAfterNewer}, need ${remaining} more (untilTs=${oldestProcessedTimestamp}).`);
+                    options.onProgress?.(55, 'Fetching older transactions (RPC-full)...');
+                    let olderFetched = 0;
+                    await this.heliusClient.getAllRawRpcFullTransactionsForAddress(walletAddress, {
+                        limit: options.limit,
+                        maxSignatures: remaining,
+                        untilTimestamp: oldestProcessedTimestamp,
+                        onProgress: (p) => options.onProgress?.(55 + p * 0.4, 'Fetching older transactions (RPC-full)...'),
+                        onTransactionBatch: async (batch: any[]) => {
+                            olderFetched += batch.length;
+                            await this.processAndSaveRawRpcFull(walletAddress, batch, walletTransactionCounters);
+                        },
+                    });
+                    // If we discovered fewer older txs than requested, older history is exhausted for
+                    // this target — record it so future syncs skip the (futile) older fetch.
+                    if (olderFetched < remaining) {
+                        await this.databaseService.updateWallet(walletAddress, {
+                            olderHistorySatisfiedTarget: options.maxSignatures,
+                        });
+                    }
+                }
+            }
+
+            const finalCount = walletTransactionCounters.get(walletAddress) || 0;
+            walletTransactionCounters.delete(walletAddress);
+            options.onProgress?.(100, 'Sync complete.');
+            logger.info(`[Sync][RpcFull] 🎉 Completed for ${walletAddress}: ${finalCount} clean-mapper rows saved.`);
+        } catch (fetchError) {
+            if (fetchError instanceof Error && fetchError.message.includes('Invalid param: WrongSize')) {
+                logger.warn(`[Sync][RpcFull] WrongSize error detected for ${walletAddress}. Marking wallet as SYSTEM.`);
+                try {
+                    await this.databaseService.updateWallet(walletAddress, { classification: 'SYSTEM' });
+                } catch (updateError) {
+                    logger.error(`[Sync][RpcFull] Failed to mark wallet ${walletAddress} as SYSTEM:`, { updateError });
+                }
+                throw fetchError;
+            }
+            logger.error(`[Sync][RpcFull] Failed to fetch/process transactions for ${walletAddress}:`, { fetchError });
+            throw fetchError;
+        }
+    }
+
+    /**
+     * Maps a batch of RAW RPC-full txs with the clean mapper and persists with replace-by-signature
+     * semantics (the mapper NETS per (mint,direction), so a plain upsert could strand legacy per-leg
+     * rows for the same signature). Logs — but does not throw on — any SWAP leg with zero associated
+     * value (the price-independent self-consistency invariant) so live regressions stay visible.
+     */
+    protected async processAndSaveRawRpcFull(
+      walletAddress: string,
+      rawBatch: any[],
+      walletTransactionCounters: Map<string, number>,
+    ): Promise<void> {
+        if (rawBatch.length === 0) return;
+
+        const { rows } = mapRpcFullToSwapAnalysisInputs(walletAddress, rawBatch);
+
+        // Self-consistency guard: a SWAP leg should never carry zero value. Log, don't throw.
+        const zeroValueSwaps = rows.filter(
+            (r) => r.interactionType === 'SWAP'
+                && !(Math.abs(r.associatedSolValue) > 0)
+                && !(Math.abs(r.associatedUsdcValue) > 0),
+        );
+        if (zeroValueSwaps.length > 0) {
+            const sampleSigs = Array.from(new Set(zeroValueSwaps.map((r) => r.signature))).slice(0, 5);
+            logger.warn(`[Sync][RpcFull] ${zeroValueSwaps.length} zero-value SWAP leg(s) for ${walletAddress} (self-consistency invariant). Sample sigs: ${sampleSigs.join(', ')}`);
+        }
+
+        const signatures = Array.from(new Set(
+            rawBatch
+                .map((tx) => (tx?.signature || tx?.transaction?.signatures?.[0]) as string | undefined)
+                .filter((s): s is string => !!s),
+        ));
+
+        if (signatures.length > 0) {
+            await this.databaseService.replaceSwapAnalysisInputsForSignatures(
+                walletAddress,
+                signatures,
+                rows as Prisma.SwapAnalysisInputCreateInput[],
+            );
+            const currentCount = walletTransactionCounters.get(walletAddress) || 0;
+            walletTransactionCounters.set(walletAddress, currentCount + rows.length);
+        }
+
+        // Advance the wallet discovery cursor from this batch (blockTime + signature).
+        const stateBatch = rawBatch
+            .map((tx) => ({
+                timestamp: typeof tx?.blockTime === 'number' ? tx.blockTime : 0,
+                signature: (tx?.signature || tx?.transaction?.signatures?.[0] || '') as string,
+            }))
+            .filter((b) => b.signature && b.timestamp > 0);
+        await this.updateWalletStateFromBatch(walletAddress, stateBatch);
+    }
+
+    /**
      * Helper to process transactions: maps them to intermediate records, saves these records,
      * saves mapping activity logs, and updates the wallet's sync state in the database.
      * 
@@ -610,14 +761,28 @@ export class HeliusSyncService {
         walletTransactionCounters.set(walletAddress, currentCount + analysisInputsToSave.length);
       }
     
-      if (transactions.length > 0) {
+      await this.updateWalletStateFromBatch(walletAddress, transactions);
+      // logger.debug(`[Sync] Finished processing batch of ${transactions.length} transactions for ${walletAddress}.`);
+    }
+
+    /**
+     * Updates the wallet's discovery cursor (newest/oldest processed timestamp + signature and
+     * lastSuccessfulFetchTimestamp) from a processed batch. Shared by the Enhanced (legacy) and the
+     * RPC-full clean-mapper sync paths so both advance the cursor identically. Batch items only need
+     * `timestamp` (unix seconds) and `signature`.
+     */
+    private async updateWalletStateFromBatch(
+      walletAddress: string,
+      batch: Array<{ timestamp: number; signature: string }>,
+    ): Promise<void> {
+      if (batch.length > 0) {
         // Determine actual min and max timestamps from the CURRENT BATCH
         let batchMinTimestamp = Infinity;
         let batchMaxTimestamp = 0;
         let batchNewestSignature = ''; // To store the signature of the newest transaction in the batch
         let batchOldestSignature = ''; // To store the signature of the oldest transaction in the batch
 
-        transactions.forEach(tx => {
+        batch.forEach(tx => {
             if (tx.timestamp < batchMinTimestamp) {
                 batchMinTimestamp = tx.timestamp;
                 batchOldestSignature = tx.signature; // Capture oldest sig
@@ -628,11 +793,11 @@ export class HeliusSyncService {
             }
         });
         // If only one transaction, min and max are the same
-        if (transactions.length === 1) {
-            batchMinTimestamp = transactions[0].timestamp;
-            batchMaxTimestamp = transactions[0].timestamp;
-            batchOldestSignature = transactions[0].signature;
-            batchNewestSignature = transactions[0].signature;
+        if (batch.length === 1) {
+            batchMinTimestamp = batch[0].timestamp;
+            batchMaxTimestamp = batch[0].timestamp;
+            batchOldestSignature = batch[0].signature;
+            batchNewestSignature = batch[0].signature;
         }
 
         const updateData: Partial<Omit<Wallet, 'address'>> = { 
@@ -690,10 +855,9 @@ export class HeliusSyncService {
       } else {
         logger.debug(`[Sync] No transactions in this batch to update wallet state for ${walletAddress}.`);
       }
-      // logger.debug(`[Sync] Finished processing batch of ${transactions.length} transactions for ${walletAddress}.`);
     }
 
-    /** Helper to get DB count (example) 
+    /** Helper to get DB count (example)
      * Retrieves the count of `SwapAnalysisInput` records for a given wallet address.
      * This is used, for example, in the SmartFetch logic to determine how many more
      * transactions need to be fetched to meet the `maxSignatures` target.

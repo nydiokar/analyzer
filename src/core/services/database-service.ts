@@ -2182,6 +2182,44 @@ export class DatabaseService {
     }
 
     /**
+     * Replaces this wallet's SwapAnalysisInput rows for a given set of signatures with `inputs`.
+     *
+     * The RPC-full clean mapper NETS per (mint, direction) and emits fewer rows than the legacy
+     * per-leg mapper. Because the unique key is (signature, mint, direction, amount), a plain
+     * upsert would leave the legacy per-leg rows (different `amount`) stranded alongside the new
+     * netted rows for the same signature, inflating inventory. Deleting this wallet's rows for the
+     * batch's signatures first guarantees the clean mapper is the sole source for those signatures.
+     *
+     * Scoped by `walletAddress` so other wallets sharing a signature are untouched. Not wrapped in a
+     * single transaction with the insert: a crash between delete and insert just leaves the batch
+     * unsaved (wallet sync state is advanced only after a successful save), so the next sync re-fetches.
+     *
+     * @param walletAddress The wallet whose rows are being replaced.
+     * @param signatures The signatures covered by this batch (existing rows for these are deleted).
+     * @param inputs The clean-mapper rows to insert.
+     */
+    async replaceSwapAnalysisInputsForSignatures(
+        walletAddress: string,
+        signatures: string[],
+        inputs: Prisma.SwapAnalysisInputCreateInput[],
+    ): Promise<Prisma.BatchPayload> {
+        const uniqueSignatures = Array.from(new Set(signatures));
+        const DELETE_CHUNK = 1000; // keep the IN clause bounded
+        let deletedCount = 0;
+        for (let i = 0; i < uniqueSignatures.length; i += DELETE_CHUNK) {
+            const chunk = uniqueSignatures.slice(i, i + DELETE_CHUNK);
+            const { count } = await this.prismaClient.swapAnalysisInput.deleteMany({
+                where: { walletAddress, signature: { in: chunk } },
+            });
+            deletedCount += count;
+        }
+        if (deletedCount > 0) {
+            this.logger.debug(`[DB] replaceSwapAnalysisInputsForSignatures: deleted ${deletedCount} prior rows for ${uniqueSignatures.length} signatures (${walletAddress}).`);
+        }
+        return this.saveSwapAnalysisInputs(inputs);
+    }
+
+    /**
      * Retrieves SwapAnalysisInput records for a specific wallet, optionally filtered by time.
      * @param walletAddress The wallet address.
      * @param timeRange Optional start and end timestamps.

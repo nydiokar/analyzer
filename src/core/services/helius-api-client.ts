@@ -315,9 +315,10 @@ export class HeliusApiClient {
         blockTime?: { gt?: number; gte?: number; lt?: number; lte?: number; eq?: number };
         signature?: { lt?: string; lte?: string; gt?: string; gte?: string; eq?: string };
         status?: 'succeeded' | 'failed';
+        tokenAccounts?: 'balanceChanged' | 'all';
       };
     }
-  ): Promise<{ transactions: HeliusTransaction[]; paginationToken?: string }> {
+  ): Promise<{ transactions: any[]; paginationToken?: string }> {
     const cappedLimit = Math.min(options.limit, HELIUS_V2_CONFIG.txForAddressSignaturesPageLimit);
     const url = `${this.rpcUrl}`;
 
@@ -325,6 +326,7 @@ export class HeliusApiClient {
       address,
       {
         transactionDetails: 'full', // Use 'full' instead of 'signatures' to get complete transaction data
+        encoding: 'jsonParsed', // REQUIRED: the clean balance-delta mapper reads parsed instructions + uiTokenAmount
         sortOrder: options.sortOrder,
         limit: cappedLimit,
         commitment: 'finalized',
@@ -377,8 +379,11 @@ export class HeliusApiClient {
         const transactionsArray = response.data.result?.data || response.data.result?.transactions;
 
         if (response.data.result && Array.isArray(transactionsArray)) {
+          // RPC-full returns the standard `transaction`+`meta` (jsonParsed) shape. We return it
+          // RAW — the clean balance-delta mapper (rpc-full-mapper.ts) consumes raw txs directly,
+          // NOT the Enhanced HeliusTransaction shape. Do not normalize here.
           return {
-            transactions: transactionsArray,
+            transactions: transactionsArray as any[],
             paginationToken: response.data.result.paginationToken,
           };
         } else {
@@ -433,6 +438,99 @@ export class HeliusApiClient {
     }
 
     throw new Error(`Failed to fetch full transactions via getTransactionsForAddress for ${address} unexpectedly.`);
+  }
+
+  /**
+   * Fetches RAW RPC-full transactions (`transaction`+`meta`, jsonParsed) for a wallet, paginated.
+   *
+   * This is the fetch path for the clean balance-delta mapper (`rpc-full-mapper.ts`). It mirrors the
+   * exact request shape that was economically validated against persisted baselines: full mode,
+   * jsonParsed, `status: 'succeeded'` + `tokenAccounts: 'balanceChanged'` filters (succeeded txs that
+   * changed one of the wallet's token balances). Returns RAW txs — callers map them with the clean
+   * mapper, NOT the legacy Enhanced mapper.
+   *
+   * Cursoring:
+   * - Incremental (newer): pass `newestProcessedTimestamp` → server filters `blockTime > ts`
+   *   (boundary-second txs may re-appear; the replace-by-signature save is idempotent).
+   * - Initial / older: omit it → newest-first up to `maxSignatures`; optional `untilTimestamp` caps the
+   *   older edge.
+   *
+   * @param address Wallet address.
+   * @param options.limit Per-page size (capped at the V2 page limit, default 1000).
+   * @param options.maxSignatures Hard cap on transactions fetched (null = no cap).
+   * @param options.newestProcessedTimestamp Incremental cursor (exclusive lower bound on blockTime).
+   * @param options.untilTimestamp Upper bound on blockTime for older backfill (inclusive).
+   * @param options.onProgress Progress callback (0-100).
+   * @param options.onTransactionBatch Streaming callback invoked per page with RAW txs.
+   * @returns All RAW txs fetched (also streamed via onTransactionBatch).
+   */
+  async getAllRawRpcFullTransactionsForAddress(
+    address: string,
+    options: {
+      limit?: number;
+      maxSignatures?: number | null;
+      newestProcessedTimestamp?: number;
+      untilTimestamp?: number;
+      onProgress?: (progress: number) => void;
+      onTransactionBatch?: (batch: any[]) => Promise<void>;
+    } = {},
+  ): Promise<any[]> {
+    const pageLimit = Math.min(options.limit ?? HELIUS_V2_CONFIG.txForAddressSignaturesPageLimit, HELIUS_V2_CONFIG.txForAddressSignaturesPageLimit);
+    const max = options.maxSignatures ?? null;
+    const isIncremental = options.newestProcessedTimestamp !== undefined;
+    const sortOrder: 'asc' | 'desc' = isIncremental ? 'asc' : 'desc';
+
+    const all: any[] = [];
+    const seen = new Set<string>();
+    let paginationToken: string | undefined = undefined;
+    let fetched = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const filters: {
+        blockTime?: { gt?: number; lte?: number };
+        status?: 'succeeded' | 'failed';
+        tokenAccounts?: 'balanceChanged' | 'all';
+      } = { status: 'succeeded', tokenAccounts: 'balanceChanged' };
+      if (isIncremental) filters.blockTime = { gt: options.newestProcessedTimestamp };
+      else if (options.untilTimestamp !== undefined) filters.blockTime = { lte: options.untilTimestamp };
+
+      const page = await this.getTransactionsForAddressFull(address, {
+        limit: pageLimit,
+        sortOrder,
+        paginationToken,
+        filters,
+      });
+
+      let batch = page.transactions || [];
+      // Apply the hard maxSignatures cap, trimming the final page if needed.
+      if (max !== null && fetched + batch.length > max) {
+        batch = batch.slice(0, Math.max(0, max - fetched));
+      }
+      // De-duplicate by signature across pages (boundary-second / token re-appearance).
+      const deduped: any[] = [];
+      for (const tx of batch) {
+        const sig: string = tx?.signature || tx?.transaction?.signatures?.[0] || '';
+        if (!sig || seen.has(sig)) continue;
+        seen.add(sig);
+        deduped.push(tx);
+      }
+
+      if (deduped.length > 0) {
+        fetched += deduped.length;
+        all.push(...deduped);
+        if (options.onTransactionBatch) {
+          await options.onTransactionBatch(deduped);
+        }
+      }
+
+      paginationToken = page.paginationToken;
+      hasMore = !!paginationToken && (page.transactions?.length ?? 0) > 0 && (max === null || fetched < max);
+      options.onProgress?.(max !== null && max > 0 ? Math.min(100, (fetched / max) * 100) : (hasMore ? 50 : 100));
+    }
+
+    logger.debug(`[RpcFullRaw] Fetched ${all.length} raw RPC-full txs for ${address} (incremental=${isIncremental}, max=${max ?? 'none'}).`);
+    return all;
   }
 
   /**
@@ -523,7 +621,7 @@ export class HeliusApiClient {
 
         // Handle response based on transactionDetails mode
         if (transactionDetails === 'full') {
-          // Full transaction mode
+          // Full transaction mode — returns the standard RAW transaction+meta shape.
           const transactionsArray = response.data.result?.data || response.data.result?.transactions;
           if (response.data.result && Array.isArray(transactionsArray)) {
             return {

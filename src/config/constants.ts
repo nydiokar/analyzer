@@ -238,6 +238,22 @@ export const HELIUS_V2_CONFIG = {
   txForAddressUseStatusSucceededForNewer: boolFromEnv('HELIUS_TX_FOR_ADDRESS_USE_STATUS_SUCCEEDED', true),
 } as const;
 
+/**
+ * RPC-full clean mapper feature flag (wallet sync path only).
+ *
+ * When ON, wallet sync fetches RAW RPC-full transactions and maps them with the clean balance-delta
+ * mapper (`rpc-full-mapper.ts`) instead of the Enhanced `/v0/transactions` + legacy mapper. The clean
+ * mapper recovers cost basis the Enhanced output zeroed and emits netted rows; persistence uses
+ * replace-by-signature so a legacy→clean re-sync can't leave stale per-leg rows.
+ *
+ * DEFAULT OFF. Independent of ENABLE_HELIUS_TX_FOR_ADDRESS_SIGNATURES (that flag only controls how
+ * Phase-1 signatures are listed; this controls how transaction bodies are fetched + mapped). Flip via
+ * env `USE_RPC_FULL_MAPPER=true` only after the validation A/B gate and explicit sign-off.
+ */
+export const RPC_FULL_MAPPER_CONFIG = {
+  enabled: boolFromEnv('USE_RPC_FULL_MAPPER', false),
+} as const;
+
 // Queue and processing configuration
 export const PROCESSING_CONFIG = {
   WALLET_SYNC_CONCURRENCY: getEnvNumber('WALLET_SYNC_CONCURRENCY', 5), // ⚡ OPTIMIZED: Increased from 3 to better utilize 50 RPS (2x more parallel wallet syncs)
