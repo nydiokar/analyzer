@@ -585,6 +585,7 @@ function HolderProfilesContent() {
   const isTokenRunning = tokenStatus === 'running';
   const isWalletRunning = walletEntries.some((entry) => entry.status === 'running');
   const disableAnalyze = analysisMode === 'token' ? isTokenRunning : isWalletRunning || parsedWallets.list.length === 0;
+  const hasValidTokenMint = analysisMode === 'token' && isValidSolanaAddress(tokenMint);
   const shouldShowLastSuccess = tokenStatus === 'failed'
     && lastSuccessfulTokenResult
     && lastSuccessfulTokenResult.tokenMint === tokenMint;
@@ -604,11 +605,10 @@ function HolderProfilesContent() {
       }
     : null;
 
-  const { runs: historyRuns } = useHolderProfileHistory({
+  const { runs: historyRuns, isLoading: isHistoryLoading, error: historyError } = useHolderProfileHistory({
     tokenMint: analysisMode === 'token' ? tokenMint : null,
     topN,
-    // Fetch after completion OR after a failure where we still have a prior result to show
-    enabled: analysisMode === 'token' && (tokenStatus === 'completed' || (tokenStatus === 'failed' && !!displayedTokenResult)),
+    enabled: hasValidTokenMint,
   });
 
   const retrySimilarity = useCallback(() => {
@@ -648,6 +648,17 @@ function HolderProfilesContent() {
           <div className="flex flex-wrap items-center gap-2">
             {analysisMode === 'token' && historyRuns.length > 0 && (
               <SnapshotHistoryModal runs={historyRuns} tokenMint={tokenMint} />
+            )}
+            {analysisMode === 'token' && isHistoryLoading && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading history
+              </span>
+            )}
+            {analysisMode === 'token' && historyError && (
+              <span className="text-xs text-destructive">
+                {historyError}
+              </span>
             )}
             <div className="flex-1 min-w-[180px]">
               {analysisMode === 'token' ? (

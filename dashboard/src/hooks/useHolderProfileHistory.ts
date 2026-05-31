@@ -36,10 +36,14 @@ export function useHolderProfileHistory({
 
   useEffect(() => {
     if (!enabled || !tokenMint) {
+      setRuns([]);
+      setIsLoading(false);
+      setError(null);
       return;
     }
 
     let cancelled = false;
+    setRuns([]);
 
     // Small delay to let the DB write settle after job completion
     const timer = setTimeout(async () => {
