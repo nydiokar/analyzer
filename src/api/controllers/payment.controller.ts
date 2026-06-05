@@ -82,10 +82,11 @@ export class UserCreditsController {
   async getCredits(@Req() req: AuthenticatedRequest) {
     const userId = req.user?.id;
     if (!userId) throw new ForbiddenException('User not authenticated');
-    const [balance, transactions] = await Promise.all([
+    const [balance, transactions, usage] = await Promise.all([
       this.creditsService.getBalance(userId),
       this.creditsService.getRecentTransactions(userId, 20),
+      this.creditsService.getUsageSummary(userId),
     ]);
-    return { balance: balance.credits, updatedAt: balance.updatedAt, transactions };
+    return { balance: balance.credits, updatedAt: balance.updatedAt, transactions, usage };
   }
 }

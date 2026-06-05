@@ -23,6 +23,27 @@ export interface CreditTransactionRecord {
   createdAt: Date;
 }
 
+export interface CreditUsageSummaryItem {
+  reason: string;
+  creditsSpent: number;
+  transactionCount: number;
+  firstSeen: Date;
+  lastSeen: Date;
+}
+
+export interface CreditDailyUsageItem {
+  day: string;
+  creditsSpent: number;
+  transactionCount: number;
+}
+
+export interface CreditUsageSummary {
+  totalCreditsSpent: number;
+  totalSpendTransactions: number;
+  byReason: CreditUsageSummaryItem[];
+  daily: CreditDailyUsageItem[];
+}
+
 @Injectable()
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
@@ -270,5 +291,65 @@ export class CreditsService {
       balanceAfter: r.balanceAfter,
       createdAt: r.createdAt,
     }));
+  }
+
+  async getUsageSummary(userId: string): Promise<CreditUsageSummary> {
+    const [byReasonRows, spendTotals, dailyRows] = await Promise.all([
+      prisma.creditTransaction.groupBy({
+        by: ['reason'],
+        where: {
+          userId,
+          delta: { lt: 0 },
+        },
+        _count: { _all: true },
+        _sum: { delta: true },
+        _min: { createdAt: true },
+        _max: { createdAt: true },
+        orderBy: {
+          _sum: {
+            delta: 'asc',
+          },
+        },
+      }),
+      prisma.creditTransaction.aggregate({
+        where: {
+          userId,
+          delta: { lt: 0 },
+        },
+        _count: { _all: true },
+        _sum: { delta: true },
+      }),
+      prisma.$queryRaw<Array<{ day: Date; creditsSpent: bigint; transactionCount: bigint }>>`
+        SELECT
+          date_trunc('day', "createdAt")::date AS day,
+          SUM(-delta)::bigint AS "creditsSpent",
+          COUNT(*)::bigint AS "transactionCount"
+        FROM "CreditTransaction"
+        WHERE "userId" = ${userId}
+          AND delta < 0
+          AND "createdAt" >= NOW() - INTERVAL '30 days'
+        GROUP BY day
+        ORDER BY day ASC
+      `,
+    ]);
+
+    return {
+      totalCreditsSpent: Math.abs(spendTotals._sum.delta ?? 0),
+      totalSpendTransactions: spendTotals._count._all,
+      byReason: byReasonRows.map((row) => ({
+        reason: row.reason,
+        creditsSpent: Math.abs(row._sum.delta ?? 0),
+        transactionCount: row._count._all,
+        firstSeen: row._min.createdAt ?? new Date(),
+        lastSeen: row._max.createdAt ?? new Date(),
+      })),
+      daily: dailyRows.map((row) => ({
+        day: row.day instanceof Date
+          ? row.day.toISOString().slice(0, 10)
+          : String(row.day).slice(0, 10),
+        creditsSpent: Number(row.creditsSpent),
+        transactionCount: Number(row.transactionCount),
+      })),
+    };
   }
 }

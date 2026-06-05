@@ -24,6 +24,7 @@ export function useCredits() {
   return {
     balance: data?.balance ?? null,
     transactions: data?.transactions ?? [],
+    usage: data?.usage ?? null,
     error,
     isLoading,
     mutate,

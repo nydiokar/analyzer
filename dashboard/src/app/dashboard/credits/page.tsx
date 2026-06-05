@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { useCredits } from '@/hooks/useCredits';
 import { useAuth } from '@/hooks/useAuth';
 import { useCreditPacks } from '@/hooks/useCreditPacks';
 import { useUIStore } from '@/store/ui-store';
+import EChartComponent, { ECOption } from '@/components/charts/EChartComponent';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -23,7 +24,7 @@ import {
   Check,
   Bot,
 } from 'lucide-react';
-import type { CreditTransaction, CreditPack } from '@/types/api';
+import type { CreditTransaction, CreditPack, CreditUsageSummaryItem } from '@/types/api';
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,10 @@ function formatEndpointReason(reason: string): string {
 }
 
 function getReasonLabel(reason: string): string {
+  if (reason.startsWith('precharge:')) {
+    return `${formatEndpointReason(reason.slice('precharge:'.length))} Admission`;
+  }
+
   if (reason.startsWith('endpoint:')) {
     return formatEndpointReason(reason.slice('endpoint:'.length));
   }
@@ -65,6 +70,14 @@ function getReasonLabel(reason: string): string {
   }
 
   return reason;
+}
+
+function getUsageCategory(reason: string): string {
+  if (reason.startsWith('precharge:')) return 'Queue Admission';
+  if (reason.startsWith('endpoint:')) return getReasonLabel(reason);
+  if (reason === 'dashboard-analysis') return 'Dashboard Analysis';
+  if (reason === 'x402_payment') return 'Agent Payment (X402)';
+  return getReasonLabel(reason);
 }
 
 function getTxConfig(tx: CreditTransaction): { label: string; detail: string; icon: React.ReactNode; color: string } {
@@ -202,10 +215,72 @@ function PackCard({
 export default function CreditsPage() {
   const { isAuthenticated } = useAuth();
   const { setShowAuthModal } = useUIStore();
-  const { balance, transactions, isLoading } = useCredits();
+  const { balance, transactions, usage, isLoading } = useCredits();
   const { packs, isLoading: packsLoading } = useCreditPacks();
   const router = useRouter();
   const packsRef = useRef<HTMLDivElement>(null);
+  const usageRows = useMemo(() => {
+    if (!usage) return [];
+
+    const grouped = new Map<string, CreditUsageSummaryItem & { label: string }>();
+    for (const item of usage.byReason) {
+      const label = getUsageCategory(item.reason);
+      const existing = grouped.get(label);
+      if (!existing) {
+        grouped.set(label, { ...item, label });
+        continue;
+      }
+
+      grouped.set(label, {
+        ...existing,
+        creditsSpent: existing.creditsSpent + item.creditsSpent,
+        transactionCount: existing.transactionCount + item.transactionCount,
+        firstSeen: existing.firstSeen < item.firstSeen ? existing.firstSeen : item.firstSeen,
+        lastSeen: existing.lastSeen > item.lastSeen ? existing.lastSeen : item.lastSeen,
+      });
+    }
+
+    return Array.from(grouped.values())
+      .sort((a, b) => b.creditsSpent - a.creditsSpent)
+      .slice(0, 8);
+  }, [usage]);
+
+  const usageChartOption = useMemo<ECOption>(() => {
+    const rows = [...usageRows].reverse();
+    return {
+      grid: { left: 142, right: 22, top: 8, bottom: 22 },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        formatter: (params: unknown) => {
+          const point = Array.isArray(params) ? params[0] as { name: string; value: number; dataIndex: number } : null;
+          if (!point) return '';
+          const row = rows[point.dataIndex];
+          return `${point.name}<br/>${point.value.toLocaleString()} credits<br/>${row.transactionCount.toLocaleString()} events`;
+        },
+      },
+      xAxis: {
+        type: 'value',
+        axisLabel: { color: '#94a3b8' },
+        splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)' } },
+      },
+      yAxis: {
+        type: 'category',
+        data: rows.map((row) => row.label),
+        axisLabel: { color: '#cbd5e1', width: 132, overflow: 'truncate' },
+        axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.18)' } },
+        axisTick: { show: false },
+      },
+      series: [
+        {
+          type: 'bar',
+          data: rows.map((row) => row.creditsSpent),
+          barMaxWidth: 16,
+          itemStyle: { color: '#3b82f6', borderRadius: [0, 4, 4, 0] },
+        },
+      ],
+    };
+  }, [usageRows]);
 
   if (!isAuthenticated) {
     return (
@@ -327,52 +402,109 @@ export default function CreditsPage() {
           </div>
 
           {/* Right column: transaction history */}
-          <Card className="min-h-[400px]">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                <Activity className="h-3.5 w-3.5" />
-                Transaction History
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="space-y-3">
-                  {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-                </div>
-              ) : transactions.length === 0 ? (
-                <div className="flex flex-col items-center py-16 gap-3 text-muted-foreground">
-                  <Receipt className="h-8 w-8 opacity-20" />
-                  <p className="text-sm">No transactions yet</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {transactions.map((tx) => {
-                    const config = getTxConfig(tx);
-                    const isCredit = tx.delta > 0;
-                    return (
-                      <div key={tx.id} className="flex items-center justify-between py-3 gap-3">
-                        <div className={`flex items-start gap-2 min-w-0 ${config.color}`}>
-                          <span className="shrink-0 pt-0.5">{config.icon}</span>
+          <div className="space-y-5">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Activity className="h-3.5 w-3.5" />
+                  Usage Breakdown
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-16 w-full" />
+                    <Skeleton className="h-56 w-full" />
+                  </div>
+                ) : !usage || usage.totalSpendTransactions === 0 ? (
+                  <div className="flex flex-col items-center py-12 gap-3 text-muted-foreground">
+                    <Receipt className="h-8 w-8 opacity-20" />
+                    <p className="text-sm">No credit usage yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <p className="text-[11px] uppercase text-muted-foreground">Spent</p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums">{usage.totalCreditsSpent.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-muted/20 p-3">
+                        <p className="text-[11px] uppercase text-muted-foreground">Events</p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums">{usage.totalSpendTransactions.toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-lg border border-border bg-muted/20 p-3 col-span-2 md:col-span-1">
+                        <p className="text-[11px] uppercase text-muted-foreground">Top Type</p>
+                        <p className="mt-1 text-sm font-medium truncate">{usageRows[0]?.label ?? '—'}</p>
+                      </div>
+                    </div>
+                    <EChartComponent option={usageChartOption} style={{ height: 280, width: '100%' }} />
+                    <div className="divide-y divide-border">
+                      {usageRows.slice(0, 5).map((row) => (
+                        <div key={row.label} className="flex items-center justify-between gap-3 py-2.5">
                           <div className="min-w-0">
-                            <div className="text-sm font-medium text-foreground truncate">{config.label}</div>
-                            <div className="text-[11px] text-muted-foreground font-mono truncate">
-                              {config.detail}
+                            <p className="text-sm font-medium text-foreground truncate">{row.label}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {row.transactionCount.toLocaleString()} events · last {formatDate(row.lastSeen)}
+                            </p>
+                          </div>
+                          <span className="font-mono text-sm font-semibold text-red-400 tabular-nums shrink-0">
+                            {row.creditsSpent.toLocaleString()} cr
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="min-h-[400px]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Activity className="h-3.5 w-3.5" />
+                  Transaction History
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+                  </div>
+                ) : transactions.length === 0 ? (
+                  <div className="flex flex-col items-center py-16 gap-3 text-muted-foreground">
+                    <Receipt className="h-8 w-8 opacity-20" />
+                    <p className="text-sm">No transactions yet</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {transactions.map((tx) => {
+                      const config = getTxConfig(tx);
+                      const isCredit = tx.delta > 0;
+                      return (
+                        <div key={tx.id} className="flex items-center justify-between py-3 gap-3">
+                          <div className={`flex items-start gap-2 min-w-0 ${config.color}`}>
+                            <span className="shrink-0 pt-0.5">{config.icon}</span>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-foreground truncate">{config.label}</div>
+                              <div className="text-[11px] text-muted-foreground font-mono truncate">
+                                {config.detail}
+                              </div>
                             </div>
                           </div>
+                          <span className="text-xs text-muted-foreground flex-1 text-right mr-2 truncate">
+                            {formatDate(tx.createdAt)}
+                          </span>
+                          <span className={`font-mono font-semibold text-sm tabular-nums shrink-0 ${isCredit ? 'text-green-400' : 'text-red-400'}`}>
+                            {isCredit ? '+' : ''}{tx.delta.toLocaleString()}
+                          </span>
                         </div>
-                        <span className="text-xs text-muted-foreground flex-1 text-right mr-2 truncate">
-                          {formatDate(tx.createdAt)}
-                        </span>
-                        <span className={`font-mono font-semibold text-sm tabular-nums shrink-0 ${isCredit ? 'text-green-400' : 'text-red-400'}`}>
-                          {isCredit ? '+' : ''}{tx.delta.toLocaleString()}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         {/* ── Pack selection — below the fold ── */}

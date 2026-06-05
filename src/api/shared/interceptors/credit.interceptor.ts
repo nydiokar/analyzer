@@ -89,6 +89,13 @@ export class CreditInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap({
         next: () => {
+          if (request.creditsPrecharged) {
+            this.logger.log(
+              `Credits already precharged: user=${user.id} cost=${creditCost}`,
+            );
+            return;
+          }
+
           // Success path — deduct credits asynchronously (don't block the response)
           const route = context.getClass().name + '.' + context.getHandler().name;
           this.creditsService

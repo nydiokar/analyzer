@@ -703,9 +703,31 @@ export interface CreditTransaction {
   createdAt: string;
 }
 
+export interface CreditUsageSummaryItem {
+  reason: string;
+  creditsSpent: number;
+  transactionCount: number;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface CreditDailyUsageItem {
+  day: string;
+  creditsSpent: number;
+  transactionCount: number;
+}
+
+export interface CreditUsageSummary {
+  totalCreditsSpent: number;
+  totalSpendTransactions: number;
+  byReason: CreditUsageSummaryItem[];
+  daily: CreditDailyUsageItem[];
+}
+
 /** Returned by GET /users/me/credits */
 export interface CreditsBalance {
   balance: number;
   updatedAt: string;
   transactions: CreditTransaction[];
+  usage?: CreditUsageSummary;
 }
