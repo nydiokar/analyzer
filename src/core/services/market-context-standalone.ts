@@ -514,11 +514,19 @@ export async function enrichSwapBatch(
   if (enrichUpdates.size > 0) {
     const CHUNK = 50;
     const entries = [...enrichUpdates.entries()];
+    let staleUpdateCount = 0;
     for (let i = 0; i < entries.length; i += CHUNK) {
-      await Promise.all(
+      const updateResults = await Promise.all(
         entries.slice(i, i + CHUNK).map(([id, data]) =>
-          prisma.swapAnalysisInput.update({ where: { id }, data: { ...data, enrichedAt: now } }),
+          prisma.swapAnalysisInput.updateMany({ where: { id }, data: { ...data, enrichedAt: now } }),
         ),
+      );
+      staleUpdateCount += updateResults.filter((result) => result.count === 0).length;
+    }
+    if (staleUpdateCount > 0) {
+      enriched -= staleUpdateCount;
+      console.log(
+        `Skipped ${staleUpdateCount} stale market-context update(s); rows were likely replaced by a concurrent sync.`,
       );
     }
   }

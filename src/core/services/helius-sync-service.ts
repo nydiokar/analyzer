@@ -13,6 +13,7 @@ import { HELIUS_CONFIG, RPC_FULL_MAPPER_CONFIG } from '../../config/constants';
 import { mapRpcFullToSwapAnalysisInputs } from './rpc-full-mapper';
 import { isAnalysisBlockingType, type KnownWalletType } from '../../config/known-wallets';
 import { SmartFetchService } from './smart-fetch-service';
+import Redis from 'ioredis';
 
 const logger = createLogger('HeliusSyncService');
 
@@ -52,6 +53,9 @@ export class HeliusSyncService {
 
     private smartFetchService: SmartFetchService;
 
+    private readonly syncLockTtlMs = 15 * 60 * 1000;
+    private readonly syncLockWaitTimeoutMs = 3 * 60 * 1000;
+
     /**
      * Constructs an instance of the HeliusSyncService.
      *
@@ -63,7 +67,8 @@ export class HeliusSyncService {
     constructor(
         private databaseService: DatabaseService,
         heliusApiClient: HeliusApiClient, // Changed from heliusApiKey: string
-        smartFetchService?: SmartFetchService
+        smartFetchService?: SmartFetchService,
+        private readonly redisClient?: Redis,
     ) {
         if (!heliusApiClient) {
             // Service requires an API client instance
@@ -71,6 +76,31 @@ export class HeliusSyncService {
         }
         this.heliusClient = heliusApiClient; // Use the provided instance
         this.smartFetchService = smartFetchService || new SmartFetchService();
+    }
+
+    private syncLockKey(walletAddress: string): string {
+      return `lock:wallet:sync:${walletAddress}`;
+    }
+
+    private async waitForActiveSync(walletAddress: string): Promise<void> {
+      if (!this.redisClient) {
+        return;
+      }
+
+      const lockKey = this.syncLockKey(walletAddress);
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < this.syncLockWaitTimeoutMs) {
+        const currentLock = await this.redisClient.get(lockKey).catch((error) => {
+          logger.warn(`[Sync] Failed to read sync lock for ${walletAddress}: ${getErrorMessage(error)}`);
+          return null;
+        });
+        if (!currentLock) {
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      logger.warn(`[Sync] Timed out waiting for active sync lock for ${walletAddress}; skipping duplicate sync.`);
     }
 
     private async updateWalletDiscoveryRange(
@@ -145,100 +175,167 @@ export class HeliusSyncService {
             return;
         }
 
+        const lockKey = this.syncLockKey(walletAddress);
+        const lockValue = `sync-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        let lockAcquired = false;
+        let lockRenewal: NodeJS.Timeout | undefined;
+
+        if (this.redisClient) {
+            const acquired = await this.redisClient
+                .set(lockKey, lockValue, 'PX', this.syncLockTtlMs, 'NX')
+                .catch((error) => {
+                    logger.warn(`[Sync] Failed to acquire sync lock for ${walletAddress}; continuing without lock: ${getErrorMessage(error)}`);
+                    return null;
+                });
+            if (acquired !== 'OK') {
+                if (acquired === null) {
+                    // Redis locking is a guardrail, not a hard dependency for wallet sync.
+                    // Continue with the old behavior when Redis is unavailable.
+                } else {
+                    logger.debug(`[Sync] Waiting for active sync to finish for ${walletAddress}.`);
+                    await this.waitForActiveSync(walletAddress);
+                    return;
+                }
+            } else {
+                lockAcquired = true;
+                lockRenewal = setInterval(() => {
+                    void this.redisClient?.eval(
+                        `
+                        local current = redis.call('GET', KEYS[1])
+                        if current == ARGV[1] then
+                          return redis.call('PEXPIRE', KEYS[1], ARGV[2])
+                        else
+                          return 0
+                        end
+                        `,
+                        1,
+                        lockKey,
+                        lockValue,
+                        this.syncLockTtlMs.toString(),
+                    ).catch((error) => {
+                        logger.warn(`[Sync] Failed to renew sync lock for ${walletAddress}: ${getErrorMessage(error)}`);
+                    });
+                }, Math.floor(this.syncLockTtlMs / 3));
+            }
+        }
+
         // Per-run accumulators to avoid long-lived shared state
         const mappingStatsAccumulator = new Map<string, Record<string, number>>();
         const walletTransactionCounters = new Map<string, number>();
 
-        // Early check: Skip system wallets to avoid wasting resources.
-        // KOL wallets (knownType='KOL') are real traders and must sync normally.
         try {
-            const existingWallet = await this.databaseService.getWallet(walletAddress);
-            if (existingWallet?.knownType && isAnalysisBlockingType(existingWallet.knownType as KnownWalletType)) {
-                logger.debug(`[Sync] Skipping sync for ${walletAddress} - has knownType=${existingWallet.knownType}`);
-                return;
+            // Early check: Skip system wallets to avoid wasting resources.
+            // KOL wallets (knownType='KOL') are real traders and must sync normally.
+            try {
+                const existingWallet = await this.databaseService.getWallet(walletAddress);
+                if (existingWallet?.knownType && isAnalysisBlockingType(existingWallet.knownType as KnownWalletType)) {
+                    logger.debug(`[Sync] Skipping sync for ${walletAddress} - has knownType=${existingWallet.knownType}`);
+                    return;
+                }
+                // Handle legacy INVALID classification
+                if (existingWallet?.classification === 'INVALID' || existingWallet?.classification === 'SYSTEM') {
+                    logger.debug(`[Sync] Skipping sync for ${walletAddress} - already marked as ${existingWallet.classification}`);
+                    return;
+                }
+            } catch (error) {
+                // If we can't check, proceed with normal flow
+                logger.warn(`[Sync] Could not check wallet classification for ${walletAddress}, proceeding: ${getErrorMessage(error)}`);
             }
-            // Handle legacy INVALID classification
-            if (existingWallet?.classification === 'INVALID' || existingWallet?.classification === 'SYSTEM') {
-                logger.debug(`[Sync] Skipping sync for ${walletAddress} - already marked as ${existingWallet.classification}`);
-                return;
+
+            // Ensure wallet exists in the DB before starting sync operations
+            try {
+                await this.databaseService.ensureWalletExists(walletAddress);
+                logger.debug(`[Sync] Wallet entry ensured for ${walletAddress}. Proceeding with sync.`);
+            } catch (error) {
+                logger.error(`[Sync] CRITICAL: Could not ensure wallet entry for ${walletAddress}. Aborting sync.`, { error });
+                // Depending on desired behavior, you might re-throw or just return to stop sync for this wallet.
+                throw error; // Re-throw to make it visible to the caller (e.g., AnalysesController)
             }
-        } catch (error) {
-            // If we can't check, proceed with normal flow
-            logger.warn(`[Sync] Could not check wallet classification for ${walletAddress}, proceeding: ${getErrorMessage(error)}`);
-        }
 
-        // Ensure wallet exists in the DB before starting sync operations
-        try {
-            await this.databaseService.ensureWalletExists(walletAddress);
-            logger.debug(`[Sync] Wallet entry ensured for ${walletAddress}. Proceeding with sync.`);
-        } catch (error) {
-            logger.error(`[Sync] CRITICAL: Could not ensure wallet entry for ${walletAddress}. Aborting sync.`, { error });
-            // Depending on desired behavior, you might re-throw or just return to stop sync for this wallet.
-            throw error; // Re-throw to make it visible to the caller (e.g., AnalysesController)
-        }
-
-        // logger.debug(`[Sync] Starting data synchronization for wallet: ${walletAddress}`);
-        // logger.debug('[Sync] Options:', options); // Log the sync options
-        
-        // Implementation Notes:
-        // 1. Get current wallet state (newest/oldest sig/ts) from databaseService.getWallet()
-        // 2. Determine fetch parameters (untilSig, untilTs, beforeSig, beforeTs, limit) based on options and state.
-        // 3. Implement Smart Fetch logic if options.smartFetch is true:
-        //    - Check DB count vs options.maxSignatures.
-        //    - Fetch newer transactions first.
-        //    - Process/save newer.
-        //    - If still needed, fetch older transactions up to the remaining limit.
-        //    - Process/save older.
-        // 4. Implement Standard Fetch logic otherwise:
-        //    - Determine fetch start point based on options.fetchOlder and wallet state.
-        //    - Call heliusClient.getAllTransactionsForAddress with appropriate parameters.
-        //    - Process/save fetched transactions.
-        // 5. Use processAndSaveTransactions helper (extracted below).
-
-        // ✅ SMART FETCH LIMITING DISABLED - Fetch full maxSignatures without limiting
-        const adjustedOptions = { ...options };
-        // 🚫 DISABLED: SmartFetchService limiting logic
-        // This was preventing full transaction fetching by reducing maxSignatures
-        // from 5000 → 1000-3000 for "bot-like" wallets
-        /*
-        try {
-            const fetchRecommendation = await this.smartFetchService.getSmartFetchRecommendation(walletAddress);
+            // logger.debug(`[Sync] Starting data synchronization for wallet: ${walletAddress}`);
+            // logger.debug('[Sync] Options:', options); // Log the sync options
             
-            if (fetchRecommendation.shouldLimitFetch) {
-                // Override maxSignatures to prevent constant 10k+ fetches
-                const originalMax = adjustedOptions.maxSignatures;
-                adjustedOptions.maxSignatures = fetchRecommendation.maxSignatures;
-                
-                logger.info(`🚨 [SmartFetch] Limiting fetch for ${walletAddress}: ${originalMax} → ${fetchRecommendation.maxSignatures} signatures`);
-                logger.info(`📊 [SmartFetch] Reason: ${fetchRecommendation.reason}`);
-                
-                // Update wallet classification
-                await this.smartFetchService.updateWalletClassificationIfNeeded(walletAddress);
-            } else {
-                logger.debug(`✅ [SmartFetch] Normal fetch recommended for ${walletAddress}: ${fetchRecommendation.reason}`);
-            }
-        } catch (error) {
-            logger.warn(`[SmartFetch] Failed to get smart fetch recommendation for ${walletAddress}, using original options: ${getErrorMessage(error)}`);
-            // Continue with original options if smart fetch fails
-        }
-        */
+            // Implementation Notes:
+            // 1. Get current wallet state (newest/oldest sig/ts) from databaseService.getWallet()
+            // 2. Determine fetch parameters (untilSig, untilTs, beforeSig, beforeTs, limit) based on options and state.
+            // 3. Implement Smart Fetch logic if options.smartFetch is true:
+            //    - Check DB count vs options.maxSignatures.
+            //    - Fetch newer transactions first.
+            //    - Process/save newer.
+            //    - If still needed, fetch older transactions up to the remaining limit.
+            //    - Process/save older.
+            // 4. Implement Standard Fetch logic otherwise:
+            //    - Determine fetch start point based on options.fetchOlder and wallet state.
+            //    - Call heliusClient.getAllTransactionsForAddress with appropriate parameters.
+            //    - Process/save fetched transactions.
+            // 5. Use processAndSaveTransactions helper (extracted below).
 
-        // Execute sync with (potentially adjusted) options
-        try {
-            if (RPC_FULL_MAPPER_CONFIG.enabled) {
-                 // Feature-flagged path: fetch RAW RPC-full txs and map with the clean balance-delta
-                 // mapper. Default OFF; the Enhanced/legacy path below is unchanged when the flag is off.
-                 await this.executeRpcFullFetch(walletAddress, adjustedOptions, walletTransactionCounters);
-            } else if (adjustedOptions.smartFetch && adjustedOptions.maxSignatures) {
-                 await this.executeSmartFetch(walletAddress, adjustedOptions, mappingStatsAccumulator, walletTransactionCounters);
-            } else {
-                 await this.executeStandardFetch(walletAddress, adjustedOptions, mappingStatsAccumulator, walletTransactionCounters);
+            // ✅ SMART FETCH LIMITING DISABLED - Fetch full maxSignatures without limiting
+            const adjustedOptions = { ...options };
+            // 🚫 DISABLED: SmartFetchService limiting logic
+            // This was preventing full transaction fetching by reducing maxSignatures
+            // from 5000 → 1000-3000 for "bot-like" wallets
+            /*
+            try {
+                const fetchRecommendation = await this.smartFetchService.getSmartFetchRecommendation(walletAddress);
+
+                if (fetchRecommendation.shouldLimitFetch) {
+                    // Override maxSignatures to prevent constant 10k+ fetches
+                    const originalMax = adjustedOptions.maxSignatures;
+                    adjustedOptions.maxSignatures = fetchRecommendation.maxSignatures;
+
+                    logger.info(`🚨 [SmartFetch] Limiting fetch for ${walletAddress}: ${originalMax} → ${fetchRecommendation.maxSignatures} signatures`);
+                    logger.info(`📊 [SmartFetch] Reason: ${fetchRecommendation.reason}`);
+
+                    // Update wallet classification
+                    await this.smartFetchService.updateWalletClassificationIfNeeded(walletAddress);
+                } else {
+                    logger.debug(`✅ [SmartFetch] Normal fetch recommended for ${walletAddress}: ${fetchRecommendation.reason}`);
+                }
+            } catch (error) {
+                logger.warn(`[SmartFetch] Failed to get smart fetch recommendation for ${walletAddress}, using original options: ${getErrorMessage(error)}`);
+                // Continue with original options if smart fetch fails
             }
-             // logger.debug(`[Sync] Synchronization complete for wallet: ${walletAddress}`);
-        } catch (error) {
-             logger.error(`[Sync] Error during synchronization for ${walletAddress}:`, { error });
-             // Decide if error should be re-thrown or just logged
-             // throw error; // Re-throw if caller needs to handle it
+            */
+
+            // Execute sync with (potentially adjusted) options
+            try {
+                if (RPC_FULL_MAPPER_CONFIG.enabled) {
+                     // Feature-flagged path: fetch RAW RPC-full txs and map with the clean balance-delta
+                     // mapper. Default OFF; the Enhanced/legacy path below is unchanged when the flag is off.
+                     await this.executeRpcFullFetch(walletAddress, adjustedOptions, walletTransactionCounters);
+                } else if (adjustedOptions.smartFetch && adjustedOptions.maxSignatures) {
+                     await this.executeSmartFetch(walletAddress, adjustedOptions, mappingStatsAccumulator, walletTransactionCounters);
+                } else {
+                     await this.executeStandardFetch(walletAddress, adjustedOptions, mappingStatsAccumulator, walletTransactionCounters);
+                }
+                 // logger.debug(`[Sync] Synchronization complete for wallet: ${walletAddress}`);
+            } catch (error) {
+                 logger.error(`[Sync] Error during synchronization for ${walletAddress}:`, { error });
+                 // Decide if error should be re-thrown or just logged
+                 // throw error; // Re-throw if caller needs to handle it
+            }
+        } finally {
+            if (lockRenewal) {
+                clearInterval(lockRenewal);
+            }
+            if (lockAcquired && this.redisClient) {
+                await this.redisClient.eval(
+                    `
+                    local current = redis.call('GET', KEYS[1])
+                    if current == ARGV[1] then
+                      return redis.call('DEL', KEYS[1])
+                    else
+                      return 0
+                    end
+                    `,
+                    1,
+                    lockKey,
+                    lockValue,
+                ).catch((error) => {
+                    logger.warn(`[Sync] Failed to release sync lock for ${walletAddress}: ${getErrorMessage(error)}`);
+                });
+            }
         }
     }
 

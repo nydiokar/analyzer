@@ -32,6 +32,22 @@
 
 ## Recent Activity
 
+### May 31, 2026 - RPC-Full Sync Race Guard
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| SYNC-1 | 🐛 FIX | **[RPC-FULL-SYNC-RACE]** Added a wallet-scoped Redis sync lock around `HeliusSyncService.syncWalletData()` and changed stale `SwapAnalysisInput` row-id updates to `updateMany`. This protects the May 29 RPC-full clean-mapper replace-by-signature path from concurrent same-wallet syncs where one job deletes/replaces rows while another job is updating stale row ids. | 🟡 M | `src/core/services/helius-sync-service.ts`, `src/api/integrations/helius.module.ts`, `src/core/services/database-service.ts`, `src/api/services/market-context.service.ts`, `src/core/services/market-context-standalone.ts` |
+
+**Why this exists:**
+- Commit `b405c339` introduced RPC-full clean mapper persistence: `deleteMany(wallet + signatures)` then insert netted clean rows. The delete step is intentional because the clean mapper can emit different `(signature, mint, direction, amount)` rows than the legacy mapper, and plain upsert would strand legacy per-leg rows.
+- The race observed on 2026-05-31: two holder-profile child jobs synced the same wallet concurrently. One job read `SwapAnalysisInput.id`s, another replaced those rows, then the first job failed with Prisma "No record was found for an update."
+- The Redis lock is a guardrail, not the ideal long-term model. It serializes same-wallet syncs and degrades to old behavior if Redis locking is unavailable. `updateMany` makes stale row-id updates non-fatal in both sync-save and enrichment paths.
+
+**When to revisit/remove:**
+- Revisit after the RPC-full mapper has been stable in production and wallet sync ownership is redesigned.
+- Remove only if replace-by-signature no longer uses a delete gap, for example a transactionally safe replace model, a DB-level advisory lock, or a serving model where duplicate same-wallet sync jobs are deduped before execution.
+- Before removing, run a concurrency test with two same-wallet holder-profile/dashboard syncs and confirm no Prisma `P2025`/missing-row update errors, no stranded legacy rows, and correct `SwapAnalysisInput` counts per signature.
+
 ### April 22, 2026 — Token Detail Sidebar: Implemented ✅
 
 | ID | T | Title | Scope | Components |
@@ -247,7 +263,6 @@ Holder Profiles: NO LOCK (relies on service idempotency)
 ```
 
 - **Scope:** S = Small (<50 lines, <1hr) | M = Medium (2-5 files, <4hrs) | L = Large (5+ files, multi-day)
-
 
 
 

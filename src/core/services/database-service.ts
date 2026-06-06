@@ -2111,20 +2111,33 @@ export class DatabaseService {
 
         if (existingRecordsToUpdate.length > 0) {
             const updateChunkSize = 500;
+            let updatedCount = 0;
+            let staleUpdateCount = 0;
             for (let i = 0; i < existingRecordsToUpdate.length; i += updateChunkSize) {
                 const updateChunk = existingRecordsToUpdate.slice(i, i + updateChunkSize);
-                await this.prismaClient.$transaction(
+                const updateResults = await this.prismaClient.$transaction(
                     updateChunk.map(({ id, data }) =>
-                        this.prismaClient.swapAnalysisInput.update({
+                        this.prismaClient.swapAnalysisInput.updateMany({
                             where: { id },
                             data,
                         }),
                     ),
                 );
+                for (const result of updateResults) {
+                    updatedCount += result.count;
+                    if (result.count === 0) {
+                        staleUpdateCount++;
+                    }
+                }
             }
-            this.logger.debug(`[DB] Updated ${existingRecordsToUpdate.length} existing SwapAnalysisInput records with changed mapper output.`);
+            if (staleUpdateCount > 0) {
+                this.logger.debug(
+                    `[DB] Skipped ${staleUpdateCount} stale SwapAnalysisInput update(s); rows were likely replaced by a concurrent sync.`,
+                );
+            }
+            this.logger.debug(`[DB] Updated ${updatedCount} existing SwapAnalysisInput records with changed mapper output.`);
         }
-        
+
         // this.logger.debug(`[DB] Identified ${uniqueNewRecordsToInsert.length} unique new SwapAnalysisInput records to insert.`);
 
         if (uniqueNewRecordsToInsert.length > 0) {

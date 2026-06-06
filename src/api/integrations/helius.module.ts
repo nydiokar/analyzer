@@ -7,6 +7,9 @@ import { SmartFetchService } from '../../core/services/smart-fetch-service';
 import { WalletClassificationService } from '../../core/services/wallet-classification.service';
 import { OnchainMetadataService } from '../../core/services/onchain-metadata.service';
 import { DatabaseModule } from '../modules/database.module';
+import { RedisModule } from '../../queues/config/redis.module';
+import { REDIS_CLIENT } from '../../queues/config/redis.provider';
+import Redis from 'ioredis';
 
 export const HELIUS_SUPPLY_CLIENT = 'HELIUS_SUPPLY_CLIENT';
 
@@ -15,6 +18,7 @@ export const HELIUS_SUPPLY_CLIENT = 'HELIUS_SUPPLY_CLIENT';
   imports: [
     ConfigModule,
     DatabaseModule,
+    RedisModule,
   ],
   providers: [
     {
@@ -41,10 +45,10 @@ export const HELIUS_SUPPLY_CLIENT = 'HELIUS_SUPPLY_CLIENT';
     },
     {
       provide: HeliusSyncService,
-      useFactory: (dbService: DatabaseService, heliusClient: HeliusApiClient, smartFetchService: SmartFetchService) => {
-        return new HeliusSyncService(dbService, heliusClient, smartFetchService);
+      useFactory: (dbService: DatabaseService, heliusClient: HeliusApiClient, smartFetchService: SmartFetchService, redisClient: Redis) => {
+        return new HeliusSyncService(dbService, heliusClient, smartFetchService, redisClient);
       },
-      inject: [DatabaseService, HeliusApiClient, SmartFetchService],
+      inject: [DatabaseService, HeliusApiClient, SmartFetchService, REDIS_CLIENT],
     },
     {
       provide: HELIUS_SUPPLY_CLIENT,
