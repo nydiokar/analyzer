@@ -96,9 +96,14 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
    */
   async getTokenSupply(tokenMint: string): Promise<number | undefined> {
     const cacheKey = `token_supply:${tokenMint}`;
+    const notFoundKey = `token_supply:not_found:${tokenMint}`;
     const inFlightKey = this.getTokenSupplyInFlightKey(tokenMint);
 
     // Layer 1: Redis (hot, no TTL — supply is immutable)
+    const notFound = await this.redis.get(notFoundKey);
+    if (notFound) {
+      return undefined;
+    }
     const cached = await this.redis.get(cacheKey);
     if (cached) {
       return parseFloat(cached);
@@ -145,7 +150,13 @@ export class TokenInfoService implements ITokenInfoService, OnModuleDestroy {
       this.logger.warn(`[Token Supply] No supply data for ${tokenMint}`);
       return undefined;
     } catch (error) {
-      this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}: ${getErrorMessage(error)}`);
+      if ((error as Error)?.name === 'InvalidRpcInputError') {
+        // Mint doesn't exist on-chain — cache permanently so we never retry
+        await this.redis.set(notFoundKey, '1', 'EX', 86400);
+        this.logger.debug(`[Token Supply] Mint not found on-chain, skipping forever: ${tokenMint}`);
+      } else {
+        this.logger.error(`[Token Supply] Failed to fetch for ${tokenMint}: ${getErrorMessage(error)}`);
+      }
       return undefined;
     } finally {
       await this.clearTokenSupplyInFlight(inFlightKey);
