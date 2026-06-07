@@ -137,14 +137,27 @@ export class MarketContextService {
     ];
     const walletFilter = walletAddress ? { walletAddress } : {};
 
-    // Stamp SOL/stable-mint rows complete — no meaningful mcap derivable from these
+    const LP_INTERACTION_TYPES = ['ADD_LIQUIDITY', 'REMOVE_LIQUIDITY'];
+
+    // Stamp SOL/stable-mint rows and LP position rows complete — no meaningful mcap derivable
     await prisma.swapAnalysisInput.updateMany({
       where: { enrichedAt: null, mint: { in: SKIP_MINTS }, ...walletFilter },
       data: { enrichedAt: new Date() },
     });
+    await prisma.swapAnalysisInput.updateMany({
+      where: { enrichedAt: null, interactionType: { in: LP_INTERACTION_TYPES }, ...walletFilter },
+      data: { enrichedAt: new Date() },
+    });
 
     const rows = await prisma.swapAnalysisInput.findMany({
-      where: { enrichedAt: null, NOT: { mint: { in: SKIP_MINTS } }, ...walletFilter },
+      where: {
+        enrichedAt: null,
+        NOT: [
+          { mint: { in: SKIP_MINTS } },
+          { interactionType: { in: LP_INTERACTION_TYPES } },
+        ],
+        ...walletFilter,
+      },
       orderBy: { timestamp: 'desc' },
       take: batchSize,
     });

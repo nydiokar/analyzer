@@ -2246,6 +2246,7 @@ export class DatabaseService {
         try {
             const whereCondition: Prisma.SwapAnalysisInputWhereInput = {
                 walletAddress: walletAddress,
+                NOT: { interactionType: { in: ['ADD_LIQUIDITY', 'REMOVE_LIQUIDITY'] } },
             };
 
             if (timeRange?.startTs || timeRange?.endTs) {
