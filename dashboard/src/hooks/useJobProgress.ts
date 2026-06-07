@@ -287,17 +287,14 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       callbacksRef.current.onConnectionChange?.(true);
       stopPolling();
 
-      // Re-check any jobs that may have completed while we were disconnected
+      // Tell the gateway about every job we're still waiting on.
+      // If the job already completed while we were disconnected, the gateway
+      // re-emits job-completed directly to this socket — no HTTP round-trip needed.
       const active = Array.from(activeJobIdsRef.current).filter(
         (id) => !completedJobsRef.current.has(id)
       );
       for (const jobId of active) {
-        fetcher(`/jobs/${jobId}`)
-          .then(async (job: JobStatusResponseDto) => {
-            if (job?.status === 'completed') await handleJobCompletedFromHttp(job);
-            else if (job?.status === 'failed') handleJobFailedFromHttp(job);
-          })
-          .catch(() => {});
+        newSocket.emit('subscribe-job', { jobId });
       }
     };
 

@@ -5,12 +5,16 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
   WebSocketServer,
+  SubscribeMessage,
+  MessageBody,
+  ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Inject, Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
+import { JobsService } from '../services/jobs.service';
 
 
 // --- Event Interfaces ---
@@ -78,7 +82,10 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   private subscriptionRetryCount = 0;
   private subscriptionRetryTimer?: NodeJS.Timeout;
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redisPublisher: Redis) {
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redisPublisher: Redis,
+    private readonly jobsService: JobsService,
+  ) {
     // The publisher is injected. We create a dedicated subscriber from it.
     this.redisSubscriber = this.redisPublisher.duplicate();
 
@@ -305,6 +312,50 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
     await this.redisPublisher.publish('job-events:queue-to-start', JSON.stringify(event));
   }
   
+  /**
+   * Client emits this on connect/reconnect for any job it's still waiting on.
+   * If the job already completed (missed due to disconnect), re-emit job-completed
+   * directly to that socket so the frontend picks up the result without polling.
+   */
+  @SubscribeMessage('subscribe-job')
+  async handleSubscribeJob(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { jobId: string },
+  ): Promise<void> {
+    const jobId = payload?.jobId;
+    if (!jobId) return;
+
+    try {
+      const job = await this.jobsService.getJobStatus(jobId);
+
+      if (job.status === 'completed') {
+        client.emit('job-completed', {
+          jobId: job.id,
+          queue: job.queue,
+          result: job.result, // raw returnvalue — frontend hydrates the resultKey pointer as normal
+          timestamp: job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now(),
+          processingTime: job.finishedAt && job.processedAt
+            ? new Date(job.finishedAt).getTime() - new Date(job.processedAt).getTime()
+            : 0,
+        });
+        this.logger.debug(`Replayed job-completed for ${jobId} to reconnected socket ${client.id}`);
+      } else if (job.status === 'failed') {
+        client.emit('job-failed', {
+          jobId: job.id,
+          queue: job.queue,
+          error: job.error ?? 'Job failed',
+          timestamp: Date.now(),
+          attempts: 1,
+          maxAttempts: 1,
+        });
+        this.logger.debug(`Replayed job-failed for ${jobId} to reconnected socket ${client.id}`);
+      }
+      // still active → do nothing, normal room broadcast will deliver completion
+    } catch {
+      // job not found or BullMQ error — silent, frontend polling is the fallback
+    }
+  }
+
   async onModuleDestroy() {
     this.logger.log('Closing WebSocket Gateway connections...');
 
