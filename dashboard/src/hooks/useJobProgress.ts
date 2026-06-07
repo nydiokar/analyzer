@@ -78,31 +78,6 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     }
   }, []);
 
-  const startPolling = useCallback(() => {
-    if (pollingIntervalRef.current !== null) return; // already polling
-    pollingIntervalRef.current = setInterval(async () => {
-      const active = Array.from(activeJobIdsRef.current).filter(
-        (id) => !completedJobsRef.current.has(id)
-      );
-      if (active.length === 0) {
-        stopPolling();
-        return;
-      }
-      for (const jobId of active) {
-        try {
-          const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
-          if (job?.status === 'completed') {
-            await handleJobCompletedFromHttp(job);
-          } else if (job?.status === 'failed') {
-            handleJobFailedFromHttp(job);
-          }
-        } catch {
-          // silent — will retry next interval
-        }
-      }
-    }, 5000);
-  }, [stopPolling, handleJobCompletedFromHttp, handleJobFailedFromHttp]);
-
   const debugLog = useCallback(
     (message: string, payload?: Record<string, unknown>) => {
       if (!jobSocketDebug) {
@@ -246,6 +221,32 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       callbacksRef.current.onJobFailed?.(failureData);
     }
   }, [callbacksRef]);
+
+  // Defined after handleJobCompletedFromHttp/handleJobFailedFromHttp to avoid TDZ in deps array.
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current !== null) return; // already polling
+    pollingIntervalRef.current = setInterval(async () => {
+      const active = Array.from(activeJobIdsRef.current).filter(
+        (id) => !completedJobsRef.current.has(id)
+      );
+      if (active.length === 0) {
+        stopPolling();
+        return;
+      }
+      for (const jobId of active) {
+        try {
+          const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
+          if (job?.status === 'completed') {
+            await handleJobCompletedFromHttp(job);
+          } else if (job?.status === 'failed') {
+            handleJobFailedFromHttp(job);
+          }
+        } catch {
+          // silent — will retry next interval
+        }
+      }
+    }, 5000);
+  }, [stopPolling, handleJobCompletedFromHttp, handleJobFailedFromHttp]);
 
   useEffect(() => {
     // Get user from auth store for room-based WebSocket subscription
@@ -523,7 +524,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       });
       newSocket.disconnect();
     };
-  }, [debugLog, incrementDebugCounter, hydrateJobResult, normalizeJobId, startPolling, stopPolling, handleJobCompletedFromHttp, handleJobFailedFromHttp]);
+  }, [debugLog, incrementDebugCounter, hydrateJobResult, normalizeJobId, startPolling, stopPolling]);
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {

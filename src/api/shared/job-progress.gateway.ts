@@ -10,7 +10,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Inject, Logger } from '@nestjs/common';
+import { Inject, Logger, forwardRef } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../queues/config/redis.provider';
 import { getErrorMessage, getErrorDetails } from '../../core/utils/error-utils';
@@ -84,7 +84,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redisPublisher: Redis,
-    private readonly jobsService: JobsService,
+    @Inject(forwardRef(() => JobsService)) private readonly jobsService: JobsService,
   ) {
     // The publisher is injected. We create a dedicated subscriber from it.
     this.redisSubscriber = this.redisPublisher.duplicate();
