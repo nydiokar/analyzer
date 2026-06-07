@@ -284,6 +284,7 @@ export class JobProgressGateway implements OnGatewayInit, OnGatewayConnection, O
   }
 
   private broadcastToSubscribers(event: string, data: any, jobId?: string, queue?: string) {
+    if (!this.server) return;
     if (data.userId) {
       const userRoom = `user-${data.userId}`;
       this.server.to(userRoom).emit(event, data);
