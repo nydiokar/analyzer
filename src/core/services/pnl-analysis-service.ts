@@ -334,6 +334,12 @@ export class PnlAnalysisService {
                                 ? 'PARTIALLY_SOLD'
                                 : 'OPEN';
 
+                    // Do not persist fully-closed lots: they carry no current position,
+                    // are never read (the only consumer skips status==='CLOSED'), and are
+                    // regenerated from SwapAnalysisInput on every re-analysis. Persisting
+                    // them only accumulates dead rows (see prune-closed-token-lots.ts).
+                    if (status === 'CLOSED') continue;
+
                     fifoLotsToPersist.push({
                         walletAddress: walletAddress,
                         tokenAddress: mint,
