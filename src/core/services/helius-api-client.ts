@@ -88,11 +88,15 @@ export class HeliusApiClient {
     );
   }
   
-  // Global rate limiter - shared across all instances to prevent overwhelming API
-  private static globalLastRequestTime: number = 0;
-  private static globalRequestQueue: Array<() => void> = [];
-  private static processingQueue: boolean = false;
-  private static globalMinRequestIntervalMs: number = 0; // Global rate limit interval shared across all instances
+  // Global token-bucket rate limiter — shared across all instances to cap total Helius RPS.
+  // Replaces the previous serialized-queue approach, which allowed only one in-flight dispatch
+  // at a time (max 25 req/s combined across all workers). The token bucket allows true
+  // concurrent in-flight requests while still enforcing the configured RPS ceiling.
+  private static globalMinRequestIntervalMs: number = 0; // set by constructor; most-restrictive wins
+  private static _tbTokens: number = 40;                 // current token count (starts full)
+  private static _tbLastFillMs: number = Date.now();     // last time tokens were refilled
+  private static _tbWaiters: Array<() => void> = [];     // callers waiting for a token
+  private static _tbDrainScheduled: boolean = false;     // true when a drain setTimeout is pending
 
 
   /**
@@ -132,40 +136,70 @@ export class HeliusApiClient {
 
   }
 
-  /** Ensures a minimum interval between requests to respect rate limits globally. */
+  /**
+   * Acquires a rate-limit token before making a Helius API call.
+   *
+   * Token bucket semantics:
+   *   - Bucket capacity = effective RPS (1000 / globalMinRequestIntervalMs).
+   *   - Tokens refill continuously at that rate.
+   *   - If a token is available, the caller proceeds immediately (no serialization).
+   *   - If the bucket is empty, the caller is queued and woken up as tokens arrive.
+   *
+   * This replaces the previous single-slot serialized queue which forced all workers
+   * to dispatch requests one-at-a-time (effectively 25 req/s combined across 10 workers
+   * instead of allowing each worker's requests to be in-flight concurrently).
+   */
   private async rateLimit(): Promise<void> {
-    return new Promise((resolve) => {
-      HeliusApiClient.globalRequestQueue.push(resolve);
-      this.processGlobalQueue();
+    HeliusApiClient._tbRefill();
+    if (HeliusApiClient._tbTokens >= 1) {
+      HeliusApiClient._tbTokens -= 1;
+      return; // fast path — token available, no wait
+    }
+    // Bucket empty — queue the caller and schedule a drain if not already pending
+    return new Promise<void>((resolve) => {
+      HeliusApiClient._tbWaiters.push(resolve);
+      if (!HeliusApiClient._tbDrainScheduled) {
+        HeliusApiClient._tbDrainScheduled = true;
+        setTimeout(() => HeliusApiClient._tbDrain(), HeliusApiClient._tbIntervalMs());
+      }
     });
   }
 
-  /** Processes the global request queue to enforce rate limits across all instances. */
-  private async processGlobalQueue(): Promise<void> {
-    if (HeliusApiClient.processingQueue) {
-      return; // Already processing
+  /** Refills the token bucket based on elapsed time since last fill. */
+  private static _tbRefill(): void {
+    const now = Date.now();
+    const elapsedSec = (now - HeliusApiClient._tbLastFillMs) / 1000;
+    const rps = HeliusApiClient._tbRps();
+    HeliusApiClient._tbTokens = Math.min(rps, HeliusApiClient._tbTokens + elapsedSec * rps);
+    HeliusApiClient._tbLastFillMs = now;
+  }
+
+  /** Releases waiting callers one-per-token and reschedules if more waiters remain. */
+  private static _tbDrain(): void {
+    HeliusApiClient._tbDrainScheduled = false;
+    HeliusApiClient._tbRefill();
+    while (HeliusApiClient._tbWaiters.length > 0 && HeliusApiClient._tbTokens >= 1) {
+      HeliusApiClient._tbTokens -= 1;
+      HeliusApiClient._tbWaiters.shift()!();
     }
-    
-    HeliusApiClient.processingQueue = true;
-    
-    while (HeliusApiClient.globalRequestQueue.length > 0) {
-      const now = Date.now();
-      const timeSinceLastRequest = now - HeliusApiClient.globalLastRequestTime;
-      
-      if (timeSinceLastRequest < HeliusApiClient.globalMinRequestIntervalMs) {
-        const waitTime = HeliusApiClient.globalMinRequestIntervalMs - timeSinceLastRequest;
-        // logger.debug(`Global rate limiting: Waiting ${waitTime}ms for next request...`);
-        await delay(waitTime);
-      }
-      
-      HeliusApiClient.globalLastRequestTime = Date.now();
-      const resolve = HeliusApiClient.globalRequestQueue.shift();
-      if (resolve) {
-        resolve();
-      }
+    if (HeliusApiClient._tbWaiters.length > 0) {
+      HeliusApiClient._tbDrainScheduled = true;
+      setTimeout(() => HeliusApiClient._tbDrain(), HeliusApiClient._tbIntervalMs());
     }
-    
-    HeliusApiClient.processingQueue = false;
+  }
+
+  /** Effective RPS ceiling derived from the configured interval (includes safety buffer). */
+  private static _tbRps(): number {
+    return HeliusApiClient.globalMinRequestIntervalMs > 0
+      ? 1000 / HeliusApiClient.globalMinRequestIntervalMs
+      : 25; // conservative fallback before constructor runs
+  }
+
+  /** Milliseconds to wait between drain ticks (inverse of RPS). */
+  private static _tbIntervalMs(): number {
+    return HeliusApiClient.globalMinRequestIntervalMs > 0
+      ? HeliusApiClient.globalMinRequestIntervalMs
+      : 40;
   }
 
   /**
@@ -261,7 +295,7 @@ export class HeliusApiClient {
             const status = isAxiosError ? (error as AxiosError).response?.status : undefined;
 
             // Log the failure
-            const logLevel = retries === 0 ? 'debug' : 'warn'; 
+            const logLevel = status === 429 ? 'warn' : (retries === 0 ? 'debug' : 'warn');
             logger[logLevel](`Attempt ${attempt} failed: Error fetching RPC signatures page`, { 
                 error: this.sanitizeError(error), address, limit, before, until, status 
             });
@@ -876,7 +910,7 @@ export class HeliusApiClient {
             }
 
             // Log initial failure as debug, subsequent retry attempts as warn
-            const logLevel = retries === 0 ? 'debug' : 'warn'; 
+            const logLevel = status === 429 ? 'warn' : (retries === 0 ? 'debug' : 'warn');
             logger[logLevel](`Attempt ${attempt} failed: Error fetching transactions by signatures`, { 
                 error: this.sanitizeError(error), signatureCount, status 
             });

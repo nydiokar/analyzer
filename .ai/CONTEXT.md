@@ -1,6 +1,6 @@
 # Sova Intel — Project Context
 
-**Branch:** `main` | **Last Updated:** 2026-04-22 | **Status:** `@sova-intel/mcp@0.1.0` published; token detail sidebar feature planned and ready for implementation.
+**Branch:** `main` | **Last Updated:** 2026-06-10 | **Status:** `@sova-intel/mcp@0.1.0` published; token bucket rate limiter deployed; BullMQ orchestration refactor pending.
 
 ---
 
@@ -14,6 +14,7 @@
 | GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
 | GUIDE-1 | **Finish wallet intelligence guide** (`documentation/agent-wallet-intelligence-guide.md`) | ⚪ |
 | X-1 | **Finish sova-x wallets/tokens opening work** | ⚪ |
+| QUEUE-2 | **BullMQ orchestration: `moveToWaitingChildren` for holder-profiles token-mode** — release worker slot while waiting for child wallet jobs; requires attempt-scoped child `jobId`s to avoid dedup deadlock on retry, and streaming continuity decision for the waiting-children state | 🟡 |
 
 ---
 
@@ -31,6 +32,21 @@
 ---
 
 ## Recent Activity
+
+### June 10, 2026 — HeliusApiClient Token Bucket Rate Limiter
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| QUEUE-1a | 🐛 FIX | **[RATE-LIMITER]** Replaced serialized FIFO global request queue in `HeliusApiClient` with a token bucket. Old pattern: one request dispatched every 40ms through a single queue — all 10 BullMQ workers shared a 25 req/sec serialized lane, causing heavy wallets (8000+ txs, 80 batch API calls) to stall for 13 minutes while waiting behind other wallets' requests. New pattern: token bucket at same 25 RPS cap but concurrent — workers draw tokens immediately when available and block only when the bucket is empty. Heavy wallets drop from 13 min → ~60-90s, resolving the `AnalysisOperationsProcessor` 300s timeout errors. | 🟡 M | `src/core/services/helius-api-client.ts` |
+| QUEUE-1b | 🐛 FIX | **[429-VISIBILITY]** Changed `logLevel` at all 4 retry sites from `debug` to `warn` when `status === 429`, so Helius throttling is always visible in production logs. | 🟢 S | `src/core/services/helius-api-client.ts` |
+
+**Root cause:** `AnalysisOperationsProcessor` timed out with "Operation 'Waiting for wallet analysis jobs' timed out after 300s" for token `HozuwMhSNNHhtQRpsomjqW6bMGn4Y3M8yw15FqPGpump`. Prometheus confirmed only 3 jobs ever exceeded 300s (`analysis_job_duration_seconds_bucket{le="300"} 7161` vs `le="+Inf": 7164`). Those 3 were exactly the 2 timeout jobs + 1 child. The bottleneck was not the orchestration pattern — it was the global serialized queue serializing 100 concurrent requests (10 workers × 10 internal concurrency) through a 25 req/sec single-lane dispenser.
+
+**What was NOT changed:** BullMQ orchestration (parent holding worker slot while polling children) is still the same polling pattern. With Fix 1, children finish in ~60-90s, well within the 5-minute timeout, so this is no longer a practical problem. The `moveToWaitingChildren` refactor is tracked as QUEUE-2 — it's the architecturally correct fix but requires careful handling of deduplication (attempt-scoped child job IDs) and progressive streaming (parent in `waiting-children` state emits no progress events).
+
+**Verification:** `npx tsc --noEmit --skipLibCheck` clean. `pm2 restart 10` — process online, 1 restart, 0 unstable restarts.
+
+---
 
 ### May 31, 2026 - RPC-Full Sync Race Guard
 
