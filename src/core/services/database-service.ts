@@ -494,7 +494,12 @@ export class DatabaseService {
 
             const foundWallets = await this.prismaClient.wallet.findMany({
                 where: { address: { in: walletAddresses } },
-                select: { address: true, analyzedTimestampEnd: true, lastSuccessfulFetchTimestamp: true },
+                select: {
+                    address: true,
+                    analyzedTimestampEnd: true,
+                    lastSuccessfulFetchTimestamp: true,
+                    pnlSummary: { select: { id: true } },
+                },
             });
 
             const latestRunMap = new Map(latestRuns.map(run => [run.walletAddress, run]));
@@ -512,7 +517,21 @@ export class DatabaseService {
                 }
 
                 if (latestRun.status === 'IN_PROGRESS' || latestRun.status === 'INITIATED') {
+                    if (latestRun.runTimestamp.getTime() / 1000 < stalenessThreshold) {
+                        return { walletAddress: addr, status: WalletAnalysisStatus.STALE, lastSuccessfulFetchTimestamp: lastFetch };
+                    }
+
                     return { walletAddress: addr, status: WalletAnalysisStatus.IN_PROGRESS, lastSuccessfulFetchTimestamp: lastFetch };
+                }
+
+                if (!wallet?.pnlSummary) {
+                    const completedWithoutSwaps = latestRun.status === 'COMPLETED' && latestRun.signaturesConsidered === 0;
+                    const runIsFresh = latestRun.runTimestamp.getTime() / 1000 >= stalenessThreshold;
+                    if (completedWithoutSwaps && runIsFresh) {
+                        return { walletAddress: addr, status: WalletAnalysisStatus.READY, lastSuccessfulFetchTimestamp: lastFetch };
+                    }
+
+                    return { walletAddress: addr, status: WalletAnalysisStatus.MISSING, lastSuccessfulFetchTimestamp: lastFetch };
                 }
 
                 if (latestRun.status === 'FAILED') {
