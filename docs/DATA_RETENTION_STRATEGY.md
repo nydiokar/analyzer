@@ -2,6 +2,22 @@
 
 _Last updated: 2026-06-10_
 
+> **Maintenance note:** this is the canonical doc for data retention. Keep the
+> Status board below current whenever a phase moves. Companion memory:
+> `project_data_retention_strategy` in the agent memory store.
+
+## Status board (for the next agent — read this first)
+
+| Phase | State | Notes |
+|---|---|---|
+| **TokenLot CLOSED cleanup** | ✅ DONE (2026-06-10) | Deleted 13.31M CLOSED lots + `VACUUM FULL`. Reclaimed ~6 GB (DB 25→19 GB, disk 64%→55%). Source fix in `pnl-analysis-service.ts` stops re-accumulation. Weekly sweep: `scripts/maintenance/prune-closed-token-lots.ts`. |
+| **Cold-storage seam** | ✅ DONE | `src/core/services/cold-storage/` — `ColdStorageAdapter` + `LocalFsColdStorage` + env factory. S3 adapter is an un-wired drop-in (`COLD_STORAGE_DRIVER=s3` throws with instructions). |
+| **DuckDB export/restore (Solution 2)** | ⏭️ NEXT | Build against the **local** adapter first (dry-run on this box): `npm install duckdb`; export `Postgres → Parquet+ZSTD → cold storage`; round-trip verify (row/checksum parity); restore-for-reanalysis. Decision locked: engine = DuckDB. |
+| **S3 adapter + MinIO** | ⏳ LATER | Implement `s3-adapter.ts`, set `COLD_STORAGE_DRIVER=s3` at MinIO on the planned 2 TB box. Zero pipeline change. |
+| **Phase 2: partition `SwapAnalysisInput`** | 📋 PLANNED | Detailed plan below. Linchpin for clean raw-swap aging. Pairs with the archive pipeline. |
+
+Work is on branch `storage/tiered-retention-foundation` (commit `fef1556b`).
+
 ## Context (measured, not assumed)
 
 - DB: PostgreSQL 17 in Docker (`analyzer-postgres`), database `sova_analyzer` ≈ **24 GB**.
