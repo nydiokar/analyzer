@@ -22,6 +22,7 @@ import { RadarModule } from './api/modules/radar.module';
 import { SigBuyersModule } from './api/modules/sig-buyers.module';
 import { MessagesModule } from './api/modules/messages.module';
 import { ShareModule } from './api/modules/share.module';
+import { MarketContextModule } from './api/modules/market-context.module';
 import { TokenValidationController } from './api/controllers/token-validation.controller';
 import { HttpModule } from '@nestjs/axios';
 
@@ -49,6 +50,7 @@ import { HttpModule } from '@nestjs/axios';
     SigBuyersModule,  // Significant Buyers — find wallets that bought a token in a time window
     MessagesModule,   // Chat, token threads, watched tokens, alerts
     ShareModule,      // Shareable holder-profiles snapshot links
+    MarketContextModule, // Read-only market context API (SOL daily prices)
     HttpModule,       // For token validation controller
     // QueueModule, HeliusModule, DatabaseModule are already global from AppModule
     // BehaviorModule is now imported by WalletsModule, so remove from here if not directly used by ApiModule itself
