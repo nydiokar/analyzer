@@ -128,6 +128,46 @@ export interface WalletProfileResponse {
   pnl: { allTime: PnlAllTime | null; period: unknown | null } | null;
 }
 
+export interface SimilarWallet {
+  walletAddress: string;
+  distance: number;
+  builtAt: string;
+}
+
+export interface SimilarWalletsResponse {
+  status: "ok";
+  walletAddress: string;
+  schemaVersion: number;
+  builtAt: string;
+  neighbors: SimilarWallet[];
+}
+
+export interface WalletClusterMember {
+  walletAddress: string;
+  role: string | null;
+  refreshedAt: string;
+}
+
+export interface WalletClusterEdge {
+  a: string;
+  b: string;
+  sharedNonObvious: number;
+  syncEventCount: number;
+  score: number;
+  refreshedAt: string;
+}
+
+export interface WalletClusterResponse {
+  status: "ok";
+  walletAddress: string;
+  clusterId: string;
+  role: string | null;
+  clusterSize: number;
+  refreshedAt: string;
+  members: WalletClusterMember[];
+  topEdges: WalletClusterEdge[];
+}
+
 // --- Token PnL ------------------------------------------------------------
 
 export interface TokenPnlRow {

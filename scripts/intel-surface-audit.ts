@@ -130,6 +130,8 @@ const WALLET_BEHAVIOR_FIELDS = [
 
 const COVERAGE_RULES: CoverageRule[] = [
   { endpoint: 'GET /intel/wallet/:addr', sdkMethods: ['getWalletProfile'] },
+  { endpoint: 'GET /intel/wallet/:addr/similar', sdkMethods: ['getSimilarWallets'] },
+  { endpoint: 'GET /intel/wallet/:addr/cluster', sdkMethods: ['getWalletCluster'] },
   { endpoint: 'GET /intel/wallet/:addr/hud', sdkMethods: ['getWalletHud'] },
   { endpoint: 'GET /intel/wallet/:addr/tokens', sdkMethods: ['getWalletTokens'] },
   { endpoint: 'POST /intel/wallets/batch-hud', sdkMethods: ['batchHud'] },

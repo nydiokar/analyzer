@@ -146,6 +146,91 @@ export class IntelWalletQueuedResponseDto {
   message: string;
 }
 
+export class IntelSimilarWalletDto {
+  @ApiProperty()
+  walletAddress: string;
+
+  @ApiProperty()
+  distance: number;
+
+  @ApiProperty()
+  builtAt: string;
+}
+
+export class IntelSimilarWalletsResponseDto {
+  @ApiProperty({ enum: ['ok'] })
+  status: 'ok';
+
+  @ApiProperty()
+  walletAddress: string;
+
+  @ApiProperty()
+  schemaVersion: number;
+
+  @ApiProperty()
+  builtAt: string;
+
+  @ApiProperty({ type: () => [IntelSimilarWalletDto] })
+  neighbors: IntelSimilarWalletDto[];
+}
+
+export class IntelClusterMemberDto {
+  @ApiProperty()
+  walletAddress: string;
+
+  @ApiProperty({ nullable: true })
+  role: string | null;
+
+  @ApiProperty()
+  refreshedAt: string;
+}
+
+export class IntelClusterEdgeDto {
+  @ApiProperty()
+  a: string;
+
+  @ApiProperty()
+  b: string;
+
+  @ApiProperty()
+  sharedNonObvious: number;
+
+  @ApiProperty()
+  syncEventCount: number;
+
+  @ApiProperty()
+  score: number;
+
+  @ApiProperty()
+  refreshedAt: string;
+}
+
+export class IntelWalletClusterResponseDto {
+  @ApiProperty({ enum: ['ok'] })
+  status: 'ok';
+
+  @ApiProperty()
+  walletAddress: string;
+
+  @ApiProperty()
+  clusterId: string;
+
+  @ApiProperty({ nullable: true })
+  role: string | null;
+
+  @ApiProperty()
+  clusterSize: number;
+
+  @ApiProperty()
+  refreshedAt: string;
+
+  @ApiProperty({ type: () => [IntelClusterMemberDto] })
+  members: IntelClusterMemberDto[];
+
+  @ApiProperty({ type: () => [IntelClusterEdgeDto] })
+  topEdges: IntelClusterEdgeDto[];
+}
+
 export class IntelJobRefDto {
   @ApiProperty()
   jobId: string;

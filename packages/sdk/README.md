@@ -136,6 +136,8 @@ for (const holder of result.profiles) {
 |:-------|:---------|--------:|
 | `getWalletProfile(address)` | `GET /intel/wallet/:addr` | 5 |
 | `getWalletHud(address)` | `GET /intel/wallet/:addr/hud` | 1 |
+| `getSimilarWallets(address, k?)` | `GET /intel/wallet/:addr/similar` | 1 |
+| `getWalletCluster(address, params?)` | `GET /intel/wallet/:addr/cluster` | 1 |
 | `getWalletTokens(address, params?)` | `GET /intel/wallet/:addr/tokens` | 3 |
 | `batchHud(wallets[])` | `POST /intel/wallets/batch-hud` | 5 flat |
 | `queueHolderProfiles(mint, topN?)` | `POST /intel/token/:mint/holders` | 20 |

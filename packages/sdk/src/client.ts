@@ -7,6 +7,8 @@ import { pollAndFetch, pollResultKey, JobPollerError } from "./poller.js";
 import type {
   SovaIntelClientConfig,
   WalletProfileResponse,
+  SimilarWalletsResponse,
+  WalletClusterResponse,
   WalletHud,
   WalletGetQueuedResponse,
   TokenPnlResponse,
@@ -115,6 +117,26 @@ export class SovaIntelClient {
       return this.fetchWalletHudPrepaid(walletAddress, prepaidJobId);
     }
     return res as WalletHud;
+  }
+
+  async getSimilarWallets(walletAddress: string, k = 20): Promise<SimilarWalletsResponse> {
+    return this.http.request<SimilarWalletsResponse>({
+      path: `/intel/wallet/${walletAddress}/similar`,
+      query: { k },
+    });
+  }
+
+  async getWalletCluster(
+    walletAddress: string,
+    params?: { memberLimit?: number; edgeLimit?: number },
+  ): Promise<WalletClusterResponse> {
+    return this.http.request<WalletClusterResponse>({
+      path: `/intel/wallet/${walletAddress}/cluster`,
+      query: {
+        memberLimit: params?.memberLimit,
+        edgeLimit: params?.edgeLimit,
+      },
+    });
   }
 
   // -------------------------------------------------------------------------

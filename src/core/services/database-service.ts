@@ -90,6 +90,33 @@ export interface SimilarWalletVectorResult {
     builtAt: Date;
 }
 
+export interface WalletVectorMetadata {
+    walletAddress: string;
+    schemaVersion: number;
+    builtAt: Date;
+}
+
+export interface WalletClusterProjection {
+    clusterId: string;
+    walletAddress: string;
+    role: string | null;
+    clusterSize: number;
+    refreshedAt: Date;
+    members: Array<{
+        walletAddress: string;
+        role: string | null;
+        refreshedAt: Date;
+    }>;
+    topEdges: Array<{
+        a: string;
+        b: string;
+        sharedNonObvious: number;
+        syncEventCount: number;
+        score: number;
+        refreshedAt: Date;
+    }>;
+}
+
 // Use Prisma generated types directly where possible, or derive carefully
 export type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 export type AnalysisRunCreateData = Omit<Prisma.AnalysisRunCreateInput, 'id' | 'results' | 'advancedStats'>;
@@ -3009,6 +3036,58 @@ export class DatabaseService {
             ORDER BY v."vector" <=> seed."vector"
             LIMIT ${boundedLimit}
         `;
+    }
+
+    async getWalletVectorMetadata(walletAddress: string): Promise<WalletVectorMetadata | null> {
+        return this.prismaClient.walletVector.findUnique({
+            where: { walletAddress },
+            select: { walletAddress: true, schemaVersion: true, builtAt: true },
+        });
+    }
+
+    async getWalletClusterProjection(walletAddress: string, memberLimit: number = 100, edgeLimit: number = 200): Promise<WalletClusterProjection | null> {
+        const boundedMemberLimit = Math.max(1, Math.min(500, Math.floor(memberLimit)));
+        const boundedEdgeLimit = Math.max(0, Math.min(1000, Math.floor(edgeLimit)));
+        const membership = await this.prismaClient.walletClusterMembership.findUnique({
+            where: { walletAddress },
+        });
+        if (!membership) return null;
+
+        const members = await this.prismaClient.walletClusterMembership.findMany({
+            where: { clusterId: membership.clusterId },
+            select: { walletAddress: true, role: true, refreshedAt: true },
+            orderBy: [{ role: 'asc' }, { walletAddress: 'asc' }],
+            take: boundedMemberLimit,
+        });
+        const memberAddresses = members.map((member) => member.walletAddress);
+        const topEdges = memberAddresses.length > 0 && boundedEdgeLimit > 0
+            ? await this.prismaClient.walletWalletEdge.findMany({
+                where: {
+                    a: { in: memberAddresses },
+                    b: { in: memberAddresses },
+                },
+                select: {
+                    a: true,
+                    b: true,
+                    sharedNonObvious: true,
+                    syncEventCount: true,
+                    score: true,
+                    refreshedAt: true,
+                },
+                orderBy: [{ score: 'desc' }, { a: 'asc' }, { b: 'asc' }],
+                take: boundedEdgeLimit,
+            })
+            : [];
+
+        return {
+            clusterId: membership.clusterId,
+            walletAddress: membership.walletAddress,
+            role: membership.role,
+            clusterSize: membership.clusterSize,
+            refreshedAt: membership.refreshedAt,
+            members,
+            topEdges,
+        };
     }
 
     /**

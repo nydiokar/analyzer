@@ -47,9 +47,11 @@ import {
   IntelDeepJobAcceptedResponseDto,
   IntelHolderProfilesAgentJobAcceptedResponseDto,
   IntelHolderProfilesJobAcceptedResponseDto,
+  IntelSimilarWalletsResponseDto,
   IntelSimilarityAgentJobAcceptedResponseDto,
   IntelSimilarityJobAcceptedResponseDto,
   IntelTokenPerformanceResponseDto,
+  IntelWalletClusterResponseDto,
   IntelWalletProfileResponseDto,
   IntelWalletQueuedResponseDto,
 } from '../shared/dto/intel-public.dto';
@@ -231,6 +233,100 @@ export class IntelController {
             period: pnlOverview.periodData ?? null,
           }
         : null,
+    };
+  }
+
+  private parseBoundedQueryInt(value: string | undefined, fallback: number, min: number, max: number): number {
+    if (value == null || value === '') return fallback;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+      throw new BadRequestException(`Query value must be an integer between ${min} and ${max}`);
+    }
+    return parsed;
+  }
+
+  @Get('wallet/:addr/similar')
+  @RequireCredits(1)
+  @ApiOperation({
+    summary: 'Stored behavioral nearest neighbors (1cr)',
+    description: 'Returns nearest wallets from the persisted SPEC-001 WalletVector projection. Does not run analysis or build vectors.',
+  })
+  @ApiParam({ name: 'addr', description: 'Solana wallet address' })
+  @ApiResponse({ status: 200, description: 'Stored behavioral neighbors', type: IntelSimilarWalletsResponseDto })
+  @ApiResponse({ status: 404, description: 'Wallet vector not found; run/backfill wallet representation first' })
+  async getSimilarWallets(
+    @Param('addr') addr: string,
+    @Query('k') k?: string,
+  ) {
+    if (!isValidSolanaAddress(addr)) {
+      throw new BadRequestException(`Invalid Solana address: ${addr}`);
+    }
+
+    const limit = this.parseBoundedQueryInt(k, 20, 1, 100);
+    const vector = await this.databaseService.getWalletVectorMetadata(addr);
+    if (!vector) {
+      throw new NotFoundException('Wallet vector not found');
+    }
+    const neighbors = await this.databaseService.findSimilarWalletVectors(addr, limit);
+
+    return {
+      status: 'ok' as const,
+      walletAddress: addr,
+      schemaVersion: vector.schemaVersion,
+      builtAt: vector.builtAt.toISOString(),
+      neighbors: neighbors.map((neighbor) => ({
+        walletAddress: neighbor.walletAddress,
+        distance: neighbor.distance,
+        builtAt: neighbor.builtAt.toISOString(),
+      })),
+    };
+  }
+
+  @Get('wallet/:addr/cluster')
+  @RequireCredits(1)
+  @ApiOperation({
+    summary: 'Stored coordination cluster membership (1cr)',
+    description: 'Returns stored SPEC-001 cluster membership and top in-cluster edges. Does not recompute correlation.',
+  })
+  @ApiParam({ name: 'addr', description: 'Solana wallet address' })
+  @ApiResponse({ status: 200, description: 'Stored coordination cluster', type: IntelWalletClusterResponseDto })
+  @ApiResponse({ status: 404, description: 'Wallet cluster not found; run graph materializers first' })
+  async getWalletCluster(
+    @Param('addr') addr: string,
+    @Query('memberLimit') memberLimit?: string,
+    @Query('edgeLimit') edgeLimit?: string,
+  ) {
+    if (!isValidSolanaAddress(addr)) {
+      throw new BadRequestException(`Invalid Solana address: ${addr}`);
+    }
+
+    const boundedMemberLimit = this.parseBoundedQueryInt(memberLimit, 100, 1, 500);
+    const boundedEdgeLimit = this.parseBoundedQueryInt(edgeLimit, 200, 0, 1000);
+    const cluster = await this.databaseService.getWalletClusterProjection(addr, boundedMemberLimit, boundedEdgeLimit);
+    if (!cluster) {
+      throw new NotFoundException('Wallet cluster not found');
+    }
+
+    return {
+      status: 'ok' as const,
+      walletAddress: addr,
+      clusterId: cluster.clusterId,
+      role: cluster.role,
+      clusterSize: cluster.clusterSize,
+      refreshedAt: cluster.refreshedAt.toISOString(),
+      members: cluster.members.map((member) => ({
+        walletAddress: member.walletAddress,
+        role: member.role,
+        refreshedAt: member.refreshedAt.toISOString(),
+      })),
+      topEdges: cluster.topEdges.map((edge) => ({
+        a: edge.a,
+        b: edge.b,
+        sharedNonObvious: edge.sharedNonObvious,
+        syncEventCount: edge.syncEventCount,
+        score: edge.score,
+        refreshedAt: edge.refreshedAt.toISOString(),
+      })),
     };
   }
 
