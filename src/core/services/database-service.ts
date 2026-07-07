@@ -28,6 +28,13 @@ import { WalletAnalysisStatus } from '@/types/wallet';
 import { DB_CONFIG, USER_FAVORITES_CONFIG } from '../../config/constants';
 import type { DashboardAnalysisScope } from '../../shared/dashboard-analysis.types';
 import { getErrorMessage } from 'core/utils/error-utils';
+import {
+    WALLET_VECTOR_SOURCE_DIMENSIONS,
+    WALLET_VECTOR_SCHEMA_VERSION,
+    buildWalletSourceVector,
+    standardizeWalletVector,
+    vectorToSqlLiteral,
+} from 'core/representations/wallet-feature-vector';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -75,6 +82,12 @@ interface SwapInputTimeRange {
 export interface WalletTimeRangeInfo {
     firstObservedTsInPeriod: number | null;
     lastObservedTsInPeriod: number | null;
+}
+
+export interface SimilarWalletVectorResult {
+    walletAddress: string;
+    distance: number;
+    builtAt: Date;
 }
 
 // Use Prisma generated types directly where possible, or derive carefully
@@ -2917,7 +2930,8 @@ export class DatabaseService {
         const { walletAddress, ...profileData } = data;
         this.logger.debug(`Upserting WalletBehaviorProfile for wallet: ${walletAddress}`);
         try {
-            const profile = await this.prismaClient.walletBehaviorProfile.upsert({
+            const profile = await this.prismaClient.$transaction(async (tx) => {
+              const savedProfile = await tx.walletBehaviorProfile.upsert({
                 where: { walletAddress },
                 create: {
                     ...profileData,
@@ -2929,12 +2943,72 @@ export class DatabaseService {
                     }
                 },
                 update: profileData
+              });
+
+              await this.upsertWalletVectorForProfile(tx, savedProfile);
+              return savedProfile;
             });
             return profile;
         } catch (error) {
             this.logger.error(`Error upserting WalletBehaviorProfile for wallet ${walletAddress}:`, { error });
             return null;
         }
+    }
+
+    private async upsertWalletVectorForProfile(
+        tx: Prisma.TransactionClient,
+        profile: WalletBehaviorProfile,
+    ): Promise<void> {
+        const stats = await tx.populationStats.findUnique({ where: { id: 1 } });
+        if (!stats || stats.schemaVersion !== WALLET_VECTOR_SCHEMA_VERSION) {
+            return;
+        }
+
+        const means = Array.isArray(stats.means) ? stats.means.filter((value): value is number => typeof value === 'number') : [];
+        const scales = Array.isArray(stats.scales) ? stats.scales.filter((value): value is number => typeof value === 'number') : [];
+        if (means.length !== WALLET_VECTOR_SOURCE_DIMENSIONS || scales.length !== WALLET_VECTOR_SOURCE_DIMENSIONS) {
+            this.logger.warn(`Skipping WalletVector write for ${profile.walletAddress}: invalid PopulationStats`);
+            return;
+        }
+
+        const summary = await tx.walletPnlSummary.findUnique({
+            where: { walletAddress: profile.walletAddress },
+            include: { advancedStats: true },
+        });
+        const sourceVector = buildWalletSourceVector({
+            behavior: profile,
+            advancedStats: summary?.advancedStats ?? null,
+        });
+        const vectorLiteral = vectorToSqlLiteral(standardizeWalletVector(sourceVector, { means, scales }));
+        const sourceVectorJson = JSON.stringify(sourceVector);
+
+        await tx.$executeRaw`
+            INSERT INTO "WalletVector" ("walletAddress", "schemaVersion", "vector", "sourceVector", "builtAt")
+            VALUES (${profile.walletAddress}, ${WALLET_VECTOR_SCHEMA_VERSION}, ${vectorLiteral}::vector, ${sourceVectorJson}::jsonb, NOW())
+            ON CONFLICT ("walletAddress") DO UPDATE SET
+                "schemaVersion" = EXCLUDED."schemaVersion",
+                "vector" = EXCLUDED."vector",
+                "sourceVector" = EXCLUDED."sourceVector",
+                "builtAt" = NOW()
+        `;
+    }
+
+    async findSimilarWalletVectors(walletAddress: string, limit: number = 20): Promise<SimilarWalletVectorResult[]> {
+        const boundedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+        return this.prismaClient.$queryRaw<SimilarWalletVectorResult[]>`
+            SELECT
+                v."walletAddress",
+                (v."vector" <=> seed."vector")::float AS "distance",
+                v."builtAt"
+            FROM "WalletVector" seed
+            JOIN "WalletVector" v
+              ON v."schemaVersion" = seed."schemaVersion"
+             AND v."walletAddress" <> seed."walletAddress"
+            WHERE seed."walletAddress" = ${walletAddress}
+              AND seed."schemaVersion" = ${WALLET_VECTOR_SCHEMA_VERSION}
+            ORDER BY v."vector" <=> seed."vector"
+            LIMIT ${boundedLimit}
+        `;
     }
 
     /**

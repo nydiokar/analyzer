@@ -32,6 +32,13 @@
 
 ## Recent Activity
 
+### July 7, 2026 - Wallet Representation Layer Started
+
+| ID | T | Title | Scope | Components |
+|:--:|:-:|:------|:-----:|:-----------:|
+| WRL-1 | FEAT | **[SPEC-001 substrate]** Added additive pgvector/graph schema substrate, deterministic 32-dim wallet feature-vector builder, vector backfill and Gate-0 ledger scripts, wallet-token edge materializer, and a DB kNN read helper. Local pgvector Docker DB was started as `analyzer-postgres` on host port `5433`; all migrations apply cleanly there. | M | `prisma/schema.prisma`, `prisma/migrations/20260707000000_wallet_representation_layer/`, `src/core/representations/wallet-feature-vector.ts`, `src/core/services/database-service.ts`, `scripts/spec001-*.ts` |
+| WRL-2 | FIX | **[label-capture hygiene]** Added radar review provenance fields and stopped automated inactive wallet-hunt cleanup from hard-deleting hunt snapshots; cleanup now archives hunts so future metric-learning labels are not destroyed. | S | `src/api/controllers/radar.controller.ts`, `src/api/services/radar-snapshot.service.ts`, `src/api/services/wallet-hunt.service.ts` |
+
 ### May 31, 2026 - RPC-Full Sync Race Guard
 
 | ID | T | Title | Scope | Components |

@@ -10,9 +10,10 @@ Legend: ready = file written, not launched; blocked = waiting on named dependenc
 
 | Job | File | Lane / task | Status | Depends on / what's left |
 |---|---|---|---|---|
-| SPEC002_T01 - vector history and drift pilot | `AGENT_2_SPEC002_VECTOR_HISTORY_DRIFT.md` | BUILD / temporal vectors | blocked | SPEC002_T00 verdict: keep blocked until SPEC-001 Gate-0/Gate-1 land and `WalletVector` exists. Current repo has no vector table; do not build a second representation layer. |
+| SPEC001_T01 - representation substrate | `documentation/specs/SPEC-001-wallet-representation-layer.md` | BUILD / wallet vectors + graph substrate | in_progress | Additive migration, feature-vector builder, vector backfill script, kNN DB read helper, Gate-0 ledger script, wallet-token edge materializer, and label-capture fixes landed locally. Remaining: run against non-empty developer/server data, fill Gate-0 counts, add pruned wallet-wallet edge materializer + cluster materializer, then expose public endpoints behind service-boundary checklist. |
+| SPEC002_T01 - vector history and drift pilot | `AGENT_2_SPEC002_VECTOR_HISTORY_DRIFT.md` | BUILD / temporal vectors | blocked | SPEC002_T00 verdict: keep blocked until SPEC-001 Gate-0/Gate-1 land and current-version `WalletVector` rows are backfilled. Schema substrate now exists; do not build a second representation layer. |
 | SPEC002_T02 - formation replay and densification design | `AGENT_3_SPEC002_FORMATION_REPLAY.md` | RESEARCH + BUILD / cluster formation | blocked | SPEC002_T00 verdict: keep build blocked until SPEC-001 graph-table direction is concrete and `WalletWalletEdge`/`WalletClusterMembership` exist or are being built. Read-only design only; no live alerting or second serving model. |
-| SPEC002_T03 - label ledger and learned-metric readiness | `AGENT_4_SPEC002_LABEL_LEDGER_METRIC_READINESS.md` | RESEARCH / moat gate | ready | SPEC002_T00 verdict: GO for read-only label inventory/report and pair/split contract only. No metric training, embeddings, model serving, or label-ledger implementation. |
+| SPEC002_T03 - label ledger and learned-metric readiness | `AGENT_4_SPEC002_LABEL_LEDGER_METRIC_READINESS.md` | RESEARCH / moat gate | done | Read-only readiness report + inventory script delivered (2026-07-07). Verdict: **NO-GO** for metric training/embeddings (blocked on missing SPEC-001 `WalletVector` substrate AND unproven/impure labels). GO only for inventory + pair/split contract + threshold gate. Report: `.ai/context/SPEC002_LABEL_READINESS_2026-07-07.md`; script: `scripts/spec002-label-inventory.ts`. Next: SPEC002_T04 label-capture instrumentation, not ML. |
 
 ---
 
@@ -21,6 +22,7 @@ Legend: ready = file written, not launched; blocked = waiting on named dependenc
 | Job | File | Verdict | Key artifact |
 |---|---|---|---|
 | SPEC002_T00 - manager gate and spec hardening | `AGENT_1_SPEC002_MANAGER_GATE.md` | Completed. SPEC-002 is consistent only as post-SPEC-001 direction; Act 2 build work is blocked until representation substrate exists. SPEC002_T03 may run read-only now. | `documentation/specs/SPEC-002-temporal-intelligence-and-the-learned-metric.md` §7 |
+| SPEC002_T03 - label ledger and learned-metric readiness | `AGENT_4_SPEC002_LABEL_LEDGER_METRIC_READINESS.md` | **NO-GO** for learned metric (blocked: no `WalletVector` substrate + unproven/impure labels). Read-only inventory, pair/split contract, and threshold gate delivered. Learned-metric work **remains blocked**. Recommended next: label-capture instrumentation (SPEC002_T04), not ML. | `.ai/context/SPEC002_LABEL_READINESS_2026-07-07.md`, `scripts/spec002-label-inventory.ts` |
 
 ---
 

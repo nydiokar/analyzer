@@ -35,11 +35,72 @@ model Wallet {
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
   kolProfile                   KolProfile?
+  vector                       WalletVector?
 
   @@index([classification])
   @@index([classificationConfidence])
   @@index([isVerifiedBot])
   @@index([knownType])
+}
+
+model WalletVector {
+  walletAddress String                  @id
+  schemaVersion Int
+  vector        Unsupported("vector(64)")
+  sourceVector  Json
+  builtAt       DateTime                @updatedAt
+  wallet        Wallet                  @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@index([schemaVersion])
+}
+
+model PopulationStats {
+  id            Int      @id @default(1)
+  schemaVersion Int
+  means         Json
+  scales        Json
+  walletCount   Int
+  computedAt    DateTime @updatedAt
+}
+
+model WalletTokenEdge {
+  walletAddress String
+  mint          String
+  buyWeight     Float
+  buyCount      Int
+  sellCount     Int
+  tradeCount    Int
+  firstTs       Int
+  lastTs        Int
+  refreshedAt   DateTime @updatedAt
+
+  @@id([walletAddress, mint])
+  @@index([mint])
+  @@index([walletAddress])
+}
+
+model WalletWalletEdge {
+  a                String
+  b                String
+  sharedNonObvious Int
+  syncEventCount   Int
+  score            Float
+  refreshedAt      DateTime @updatedAt
+
+  @@id([a, b])
+  @@index([a])
+  @@index([b])
+  @@index([score])
+}
+
+model WalletClusterMembership {
+  walletAddress String   @id
+  clusterId     String
+  role          String?
+  clusterSize   Int
+  refreshedAt   DateTime @updatedAt
+
+  @@index([clusterId])
 }
 
 // ---------------------------------------------------------------------------
@@ -679,12 +740,15 @@ model WalletHunt {
   name          String
   createdAt     DateTime @default(now())
   lastVisitedAt DateTime @default(now())
+  archivedAt    DateTime?
+  archiveReason String?
 
   snapshots WalletHuntSnapshot[]
   user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([lastVisitedAt])
+  @@index([archivedAt])
 }
 
 model WalletHuntSnapshot {
@@ -789,6 +853,8 @@ model RadarHolding {
   isActiveHolding Boolean   @default(true)
   reviewStatus    String    @default("unreviewed")
   reviewedAt      DateTime?
+  reviewerId      String?
+  reviewSource    String?
   note            String?
 
   @@unique([wallet, tokenMint])
@@ -796,6 +862,8 @@ model RadarHolding {
   @@index([firstSeenAt])
   @@index([reviewStatus])
   @@index([isActiveHolding])
+  @@index([reviewerId])
+  @@index([reviewSource])
 }
 
 // ---------------------------------------------------------------------------

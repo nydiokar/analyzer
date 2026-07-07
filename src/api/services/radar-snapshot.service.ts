@@ -81,7 +81,7 @@ export class RadarSnapshotService {
             uiBalance: token.uiBalance,
             usdValue: token.valueUsd ?? null,
             isActiveHolding: true,
-            ...(passes ? {} : { reviewStatus: 'ignored', reviewedAt: now }),
+            ...(passes ? {} : { reviewStatus: 'ignored', reviewedAt: now, reviewSource: 'dust_auto' }),
           },
         });
         updatedTokens++;

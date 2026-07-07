@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Body,
+  Req,
   HttpCode,
   HttpStatus,
   Logger,
@@ -14,6 +15,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { IsOptional, IsString, IsIn } from 'class-validator';
+import { Request } from 'express';
 import { IsAnalyst } from '../shared/decorators/analyst.decorator';
 import { RadarSnapshotService } from '../services/radar-snapshot.service';
 import { isValidSolanaAddress } from '../shared/solana-address.pipe';
@@ -91,7 +93,7 @@ export class RadarController {
       }),
       prisma.radarHolding.updateMany({
         where: { wallet: address, reviewStatus: { not: 'ignored' } },
-        data: { reviewStatus: 'ignored', reviewedAt: new Date() },
+        data: { reviewStatus: 'ignored', reviewedAt: new Date(), reviewSource: 'wallet_removal' },
       }),
     ]);
   }
@@ -136,15 +138,22 @@ export class RadarController {
 
   // PATCH /analyst/radar/holdings/:id/review — update review status
   @Patch('holdings/:id/review')
-  async updateReview(@Param('id') id: string, @Body(ValidationPipe) dto: ReviewStatusDto) {
+  async updateReview(
+    @Param('id') id: string,
+    @Body(ValidationPipe) dto: ReviewStatusDto,
+    @Req() req: Request & { user?: { id?: string } },
+  ) {
     const existing = await prisma.radarHolding.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Holding not found');
 
+    const isReviewed = dto.status !== 'unreviewed';
     return prisma.radarHolding.update({
       where: { id },
       data: {
         reviewStatus: dto.status,
-        reviewedAt: dto.status !== 'unreviewed' ? new Date() : null,
+        reviewedAt: isReviewed ? new Date() : null,
+        reviewerId: isReviewed ? req.user?.id ?? null : null,
+        reviewSource: isReviewed ? 'analyst' : null,
       },
     });
   }

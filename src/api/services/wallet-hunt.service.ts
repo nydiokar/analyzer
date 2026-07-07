@@ -33,7 +33,7 @@ export class WalletHuntService {
 
   async createHunt(userId: string, name: string): Promise<{ id: string; name: string; createdAt: Date; lastVisitedAt: Date }> {
     const existingCount = await prisma.walletHunt.count({
-      where: { userId },
+      where: { userId, archivedAt: null },
     });
 
     if (existingCount >= MAX_HUNTS_PER_USER) {
@@ -49,7 +49,7 @@ export class WalletHuntService {
 
   async getHunts(userId: string): Promise<HuntListItemDto[]> {
     const hunts = await prisma.walletHunt.findMany({
-      where: { userId },
+      where: { userId, archivedAt: null },
       include: { _count: { select: { snapshots: true } } },
       orderBy: { lastVisitedAt: 'desc' },
     });
@@ -70,6 +70,7 @@ export class WalletHuntService {
     });
 
     if (!hunt) throw new NotFoundException('Hunt not found');
+    if (hunt.archivedAt) throw new NotFoundException('Hunt archived');
     if (hunt.userId !== userId) throw new ForbiddenException('Not your hunt');
 
     // Update lastVisitedAt
@@ -105,6 +106,7 @@ export class WalletHuntService {
     });
 
     if (!hunt) throw new NotFoundException('Hunt not found');
+    if (hunt.archivedAt) throw new NotFoundException('Hunt archived');
     if (hunt.userId !== userId) throw new ForbiddenException('Not your hunt');
 
     await prisma.walletHunt.delete({
@@ -129,6 +131,7 @@ export class WalletHuntService {
     });
 
     if (!hunt) throw new NotFoundException('Hunt not found');
+    if (hunt.archivedAt) throw new NotFoundException('Hunt archived');
     if (hunt.userId !== userId) throw new ForbiddenException('Not your hunt');
 
     if (hunt.snapshots.length >= MAX_SNAPSHOTS_PER_HUNT) {
@@ -186,6 +189,7 @@ export class WalletHuntService {
     });
 
     if (!hunt) throw new NotFoundException('Hunt not found');
+    if (hunt.archivedAt) throw new NotFoundException('Hunt archived');
     if (hunt.userId !== userId) throw new ForbiddenException('Not your hunt');
 
     const snapshot = await prisma.walletHuntSnapshot.findUnique({
@@ -211,6 +215,7 @@ export class WalletHuntService {
     });
 
     if (!hunt) throw new NotFoundException('Hunt not found');
+    if (hunt.archivedAt) throw new NotFoundException('Hunt archived');
     if (hunt.userId !== userId) throw new ForbiddenException('Not your hunt');
 
     await this.userFavoritesService.addFavorite(userId, { walletAddress });
@@ -287,7 +292,7 @@ export class WalletHuntService {
     // Warn hunts > 14 days inactive (log only for now)
     const warnThreshold = new Date(now.getTime() - INACTIVITY_WARN_DAYS * 24 * 60 * 60 * 1000);
     const warnable = await prisma.walletHunt.findMany({
-      where: { lastVisitedAt: { lt: warnThreshold } },
+      where: { lastVisitedAt: { lt: warnThreshold }, archivedAt: null },
       select: { id: true, userId: true, name: true, lastVisitedAt: true },
     });
 
@@ -295,14 +300,15 @@ export class WalletHuntService {
       this.logger.log(`Found ${warnable.length} hunts inactive for >${INACTIVITY_WARN_DAYS} days`);
     }
 
-    // Delete hunts > 21 days inactive
+    // Archive hunts > 21 days inactive, preserving snapshots as future label evidence.
     const deleteThreshold = new Date(now.getTime() - INACTIVITY_DELETE_DAYS * 24 * 60 * 60 * 1000);
-    const deleted = await prisma.walletHunt.deleteMany({
-      where: { lastVisitedAt: { lt: deleteThreshold } },
+    const archived = await prisma.walletHunt.updateMany({
+      where: { lastVisitedAt: { lt: deleteThreshold }, archivedAt: null },
+      data: { archivedAt: now, archiveReason: 'inactive_cleanup' },
     });
 
-    if (deleted.count > 0) {
-      this.logger.log(`Deleted ${deleted.count} hunts inactive for >${INACTIVITY_DELETE_DAYS} days`);
+    if (archived.count > 0) {
+      this.logger.log(`Archived ${archived.count} hunts inactive for >${INACTIVITY_DELETE_DAYS} days`);
     }
   }
 }
