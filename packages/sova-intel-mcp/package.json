@@ -27,7 +27,7 @@
     "@solana/web3.js": "^1.98.4",
     "@sova-intel/sdk": "^0.2.1",
     "bs58": "^6.0.0",
-    "zod": "^3.24.2"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
