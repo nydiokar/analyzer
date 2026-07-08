@@ -152,7 +152,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@next/eslint-plugin-next": "^16.0.3",
+    "@next/eslint-plugin-next": "^16.2.10",
     "@types/bcrypt": "^6.0.0",
     "@types/chai": "^5.2.2",
     "@types/crypto-js": "^4.2.2",
