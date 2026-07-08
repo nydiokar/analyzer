@@ -316,20 +316,22 @@ its own spec, gated by SPEC002_T00, NOT implemented here:
 
 ---
 
-## 8. Verdict โ€” GO / NO-GO
+## 8. Verdict — GO / NO-GO
 
 **Metric-learning training / embedding dispatch: NO-GO (blocked).**
 
-- Hard blocker A: SPEC-001 substrate (`WalletVector`) does not exist โ€” there is no engineered
-  space to learn a metric *over*. Metric learning has nothing to re-weight.
-- Hard blocker B: label readiness is unproven and, on code evidence, likely sparse and impure
-  (`ignored` polluted, no reviewer identity, ground truth auto-deleted at 21 days). The ยง6
-  thresholds cannot yet be shown to pass.
+- Hard blocker A is now resolved for substrate existence: `WalletVector` exists locally as part
+  of the SPEC-001 representation layer. Metric learning still must not start until server
+  current-version vector coverage is measured and accepted.
+- Hard blocker B remains: label readiness is unproven and, on code evidence, likely sparse and
+  impure (`ignored` polluted, no reviewer identity, ground truth auto-deleted at 21 days). The
+  ง6 thresholds cannot yet be shown to pass.
 
 **GO (now):** the read-only inventory (this report + `scripts/spec002-label-inventory.ts`),
-the pair/split contract (ยง4โ€“ยง5), and the threshold gate (ยง6).
+the pair/split contract (ง4-ง5), the threshold gate (ง6), and the non-ML temporal-vector T01
+work once current-version vector coverage is checked.
 
-**Recommended next dispatch:** `SPEC002_T04 โ€” label-capture instrumentation` (ยง7 items 1โ€“2
-first; item 3 ledger only after ยง6 counts justify it). **Do not** dispatch metric training,
-embeddings, or any model-serving dependency until SPEC-001 Phase-1 vectors exist **and** ยง6
-thresholds pass on server counts.
+**Recommended next dispatch for the learned metric lane:** `SPEC002_T04 — label-capture
+instrumentation` (ง7 items 1-2 first; item 3 ledger only after ง6 counts justify it). **Do not**
+dispatch metric training, embeddings, or any model-serving dependency until current-version
+vectors cover the server target dataset **and** ง6 thresholds pass on server counts.

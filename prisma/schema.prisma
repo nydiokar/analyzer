@@ -37,6 +37,7 @@ model Wallet {
   dailyPnl                     WalletDailyPnl[]
   kolProfile                   KolProfile?
   vector                       WalletVector?
+  vectorHistory                WalletVectorHistory[]
 
   @@index([classification])
   @@index([classificationConfidence])
@@ -52,6 +53,23 @@ model WalletVector {
   builtAt       DateTime                @updatedAt
   wallet        Wallet                  @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
 
+  @@index([schemaVersion])
+}
+
+model WalletVectorHistory {
+  id                     Int                     @id @default(autoincrement())
+  walletAddress          String
+  schemaVersion          Int
+  vector                 Unsupported("vector(64)")
+  sourceVector           Json
+  sourceVectorHash       String
+  driftFromPrevious      Float?
+  sourceProfileUpdatedAt DateTime
+  builtAt                DateTime                @default(now())
+  wallet                 Wallet                  @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@unique([walletAddress, schemaVersion, sourceVectorHash])
+  @@index([walletAddress, schemaVersion, builtAt])
   @@index([schemaVersion])
 }
 

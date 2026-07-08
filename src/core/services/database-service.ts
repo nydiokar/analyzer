@@ -21,6 +21,7 @@ import { BaseAnalysisConfig } from '@/types/analysis'; // Needed for getTransact
 import { createLogger } from 'core/utils/logger'; // Assuming createLogger function is defined in utils
 import { sanitizePrismaInput } from 'core/utils/string-sanitizer'; // UTF-8 sanitization for PostgreSQL
 
+import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import { NotFoundException, InternalServerErrorException, Injectable, ConflictException, Logger, ForbiddenException } from '@nestjs/common';
@@ -3006,8 +3007,22 @@ export class DatabaseService {
             behavior: profile,
             advancedStats: summary?.advancedStats ?? null,
         });
-        const vectorLiteral = vectorToSqlLiteral(standardizeWalletVector(sourceVector, { means, scales }));
+        const standardizedVector = standardizeWalletVector(sourceVector, { means, scales });
+        const vectorLiteral = vectorToSqlLiteral(standardizedVector);
         const sourceVectorJson = JSON.stringify(sourceVector);
+        const sourceVectorHash = createHash('sha256')
+            .update(`${WALLET_VECTOR_SCHEMA_VERSION}:${sourceVectorJson}`)
+            .digest('hex');
+
+        await this.appendWalletVectorHistory(
+            tx,
+            profile.walletAddress,
+            WALLET_VECTOR_SCHEMA_VERSION,
+            vectorLiteral,
+            sourceVectorJson,
+            sourceVectorHash,
+            profile.updatedAt,
+        );
 
         await tx.$executeRaw`
             INSERT INTO "WalletVector" ("walletAddress", "schemaVersion", "vector", "sourceVector", "builtAt")
@@ -3017,6 +3032,50 @@ export class DatabaseService {
                 "vector" = EXCLUDED."vector",
                 "sourceVector" = EXCLUDED."sourceVector",
                 "builtAt" = NOW()
+        `;
+    }
+
+    private async appendWalletVectorHistory(
+        tx: Prisma.TransactionClient,
+        walletAddress: string,
+        schemaVersion: number,
+        vectorLiteral: string,
+        sourceVectorJson: string,
+        sourceVectorHash: string,
+        sourceProfileUpdatedAt: Date,
+    ): Promise<void> {
+        const previousRows = await tx.$queryRaw<{ driftFromPrevious: number | null }[]>`
+            SELECT ("vector" <-> ${vectorLiteral}::vector)::float AS "driftFromPrevious"
+            FROM "WalletVectorHistory"
+            WHERE "walletAddress" = ${walletAddress}
+              AND "schemaVersion" = ${schemaVersion}
+            ORDER BY "builtAt" DESC, "id" DESC
+            LIMIT 1
+        `;
+        const driftFromPrevious = previousRows[0]?.driftFromPrevious ?? null;
+
+        await tx.$executeRaw`
+            INSERT INTO "WalletVectorHistory" (
+                "walletAddress",
+                "schemaVersion",
+                "vector",
+                "sourceVector",
+                "sourceVectorHash",
+                "driftFromPrevious",
+                "sourceProfileUpdatedAt",
+                "builtAt"
+            )
+            VALUES (
+                ${walletAddress},
+                ${schemaVersion},
+                ${vectorLiteral}::vector,
+                ${sourceVectorJson}::jsonb,
+                ${sourceVectorHash},
+                ${driftFromPrevious},
+                ${sourceProfileUpdatedAt},
+                NOW()
+            )
+            ON CONFLICT ("walletAddress", "schemaVersion", "sourceVectorHash") DO NOTHING
         `;
     }
 

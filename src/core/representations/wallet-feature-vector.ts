@@ -152,6 +152,19 @@ export function vectorToSqlLiteral(vector: number[]): string {
   return `[${vector.map(roundVectorNumber).join(',')}]`;
 }
 
+export function computeWalletVectorDrift(previous: number[] | null, current: number[]): number | null {
+  if (!previous) return null;
+  if (previous.length !== current.length) {
+    throw new Error(`Cannot compare wallet vectors with different dimensions: ${previous.length} and ${current.length}`);
+  }
+
+  const sumSquaredDistance = current.reduce((acc, value, index) => {
+    const delta = value - previous[index];
+    return acc + delta * delta;
+  }, 0);
+  return roundVectorNumber(Math.sqrt(sumSquaredDistance));
+}
+
 function readMcapDistribution(value: Prisma.JsonValue | null): {
   nano: number;
   ultraMicro: number;

@@ -5,6 +5,7 @@ import {
   WALLET_VECTOR_STORAGE_DIMENSIONS,
   buildWalletSourceVector,
   computePopulationStats,
+  computeWalletVectorDrift,
   padWalletVector,
   standardizeWalletVector,
   vectorToSqlLiteral,
@@ -68,5 +69,12 @@ describe('wallet feature vector', () => {
     assert.equal(stats.walletCount, 2);
     assert.equal(standardized.length, WALLET_VECTOR_STORAGE_DIMENSIONS);
     assert.match(literal, /^\[[\d.,-]+\]$/);
+  });
+
+  it('computes deterministic euclidean drift for same-schema vectors', () => {
+    assert.equal(computeWalletVectorDrift(null, [1, 2]), null);
+    assert.equal(computeWalletVectorDrift([1, 2, 3], [1, 2, 3]), 0);
+    assert.equal(computeWalletVectorDrift([1, 2], [4, 6]), 5);
+    assert.throws(() => computeWalletVectorDrift([1], [1, 2]), /different dimensions/);
   });
 });
