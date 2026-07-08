@@ -34,6 +34,7 @@ model Wallet {
   behaviorProfile              WalletBehaviorProfile?
   walletNotes                  WalletNote[]
   pnlSummary                   WalletPnlSummary?
+  dailyPnl                     WalletDailyPnl[]
   kolProfile                   KolProfile?
   vector                       WalletVector?
 
@@ -356,6 +357,33 @@ model WalletBehaviorProfile {
   @@index([speedCategory])
 }
 
+model WalletDailyPnl {
+  id                      Int      @id @default(autoincrement())
+  walletAddress           String
+  date                    String
+  tradeCount              Int
+  buyCount                Int
+  sellCount               Int
+  volumeSol               Float
+  feesSol                 Float
+  realizedPnlSol          Float
+  profitableSellsCount    Int
+  totalSellsCount         Int
+  uniqueMintsTradedCount  Int
+  newMintsEnteredCount    Int
+  volumeUsd               Float?
+  realizedPnlUsd          Float?
+  hasIncompleteEnrichment Boolean  @default(false)
+  hasIncompleteHistory    Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  lastComputedAt          DateTime @default(now())
+  wallet                  Wallet   @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@unique([walletAddress, date])
+  @@index([walletAddress])
+  @@index([date])
+}
 model HolderProfileSnapshot {
   id            Int      @id @default(autoincrement())
   walletAddress String

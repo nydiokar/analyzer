@@ -25,23 +25,24 @@ The optional additive `MetricLearningLabel` ledger migration is **proposal-only*
 
 ---
 
-## 1. Substrate reality check (why T01/T02 stay blocked, T03 runs)
+## 1. Substrate reality check (updated after SPEC-001 substrate landed)
 
-`prisma/schema.prisma` grep confirms the SPEC-001 substrate tables **do not exist**:
+The original SPEC002_T03 report was written before the current representation substrate was
+present. That is no longer the live branch state: `prisma/schema.prisma` now contains
+`WalletVector`, `WalletWalletEdge`, and `WalletClusterMembership`, and the local Docker
+pgvector database verifies the representation migration as applied.
 
-- No `model WalletVector`, no `model WalletWalletEdge`, no `model WalletClusterMembership`.
+Current execution implication:
 
-Therefore vector-history/drift (SPEC002_T01) and formation-replay (SPEC002_T02) build work
-**remain BLOCKED** — there is no persisted representation to diff or densify. This report only
-inventories the **label** assets, which already exist as operational fields and can be read now.
+- SPEC002_T01 is the next small build candidate after checking current-version vector coverage
+  on the target dataset.
+- SPEC002_T02 remains gated by real row counts, pruned edge fanout, and a formation backtest;
+  do not ship live alerts from the tiny dev dataset.
+- SPEC002_T03 remains read-only/reporting until label volume and negative-pair rules are real.
 
-Local dev machine has **no live DB** (`analyzer-postgres` container is not running here;
-`docker ps` shows only `orchestrator-n8n-1`). Consistent with the standing note "DB runs on a
-remote server; dev machine has schema/services but no live data." **Counts in §2–§3 must be
-produced on the server** using the read-only SQL below (or by running the inventory script
-against the server DB). This report ships the measurement contract + thresholds; the operator
-fills the counts.
-
+Local Docker verification on 2026-07-07 used a tiny synthetic dataset: 3 wallets, 2 behavior
+profiles, 2 vectors, 6 wallet-token edges, 3 wallet-wallet edges, and 3 cluster memberships.
+Those counts prove plumbing only; they are not production Gate-0 evidence.
 ---
 
 ## 2. Label inventory — what to count and how

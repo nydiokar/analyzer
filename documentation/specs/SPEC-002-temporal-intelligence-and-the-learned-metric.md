@@ -207,23 +207,24 @@ shipped, and only the final act needs the embedding — earned, not assumed.
 
 ### 7.1 Verdict
 
-SPEC-002 is directionally consistent with SPEC-001, but it is **not executable as build work
-before SPEC-001 lands**. Its "mostly free" Act 2 language is only true after SPEC-001 has
-created the representation substrate: persisted `WalletVector`, `WalletWalletEdge`, and
-`WalletClusterMembership` artifacts. In the current repo those names are planned in
-`documentation/specs/SPEC-001-wallet-representation-layer.md:125`,
-`documentation/specs/SPEC-001-wallet-representation-layer.md:145`, and
-`documentation/specs/SPEC-001-wallet-representation-layer.md:149`, but a schema grep of
-`prisma/schema.prisma` finds no current model declarations for those three tables.
+SPEC-002 is directionally consistent with SPEC-001, but build work must follow the substrate
+state, not the older pre-substrate note. As of the SPEC-001 representation-layer branch,
+`prisma/schema.prisma` contains `WalletVector`, `WalletWalletEdge`, and
+`WalletClusterMembership`, and the Docker pgvector database verifies those tables through the
+`20260707000000_wallet_representation_layer` migration.
 
-Root cause: SPEC-002 describes temporal diffs over future SPEC-001 artifacts, while the live
-system still computes request-local token-space vectors and discards them. The current
-similarity path builds capital/binary token vectors in
-`src/core/analysis/similarity/analyzer.ts:36` and `src/core/analysis/similarity/analyzer.ts:38`,
-optionally returns those request-local vectors from
-`src/core/analysis/similarity/similarity-service.ts:277`, and hardcodes
-`clusters: []` in `src/core/analysis/similarity/analyzer.ts:285`.
+That changes the execution stance:
 
+- SPEC002_T01 (vector history / drift pilot) is no longer blocked by missing tables. It is the
+  next small, meaningful build candidate after confirming current-version vector coverage on
+  the target dataset.
+- SPEC002_T02 (formation replay / densification) is no longer blocked by missing graph tables,
+  but it remains gated by real Gate-0 row counts, edge fanout, and a false-positive backtest.
+- SPEC002_T03 remains read-only/reporting until label volume and negative-pair rules are real.
+
+Root cause of the older block was timing: SPEC-002 described temporal diffs over future
+SPEC-001 artifacts before the representation-layer migration landed. That warning should now
+be read as a sequencing rule, not as a current schema fact.
 ### 7.2 Verified Assets And Limits
 
 The label/time assets named by SPEC-002 do exist:
@@ -265,8 +266,8 @@ No SPEC-002 build job may start until the relevant gate below is satisfied:
 
 | Job | Gate | Verdict | Reason |
 |---|---|---|---|
-| SPEC002_T01 - vector history and drift pilot | BLOCKED | Do not build now. | Requires SPEC-001 Phase 1 `WalletVector`; current schema has no vector table and current similarity vectors are request-local token-space data. |
-| SPEC002_T02 - formation replay and densification design | BLOCKED for build; read-only design only after graph direction is concrete. | Do not build now. | Requires SPEC-001 Phase 2 graph tables or a completed graph-table direction; replay must stay mint-first/pruned and cannot introduce a second serving model. |
+| SPEC002_T01 - vector history and drift pilot | GO after vector coverage check | Next build candidate. | Requires current-version `WalletVector` coverage on the target dataset; implement append-only vector history and drift scoring, not a learned model. |
+| SPEC002_T02 - formation replay and densification design | GATED | Design/backtest next, live build later. | Graph tables exist, but replay must stay mint-first/pruned and needs real row counts, edge fanout bounds, and false-positive controls before alerting. |
 | SPEC002_T03 - label ledger and learned-metric readiness | GO for read-only inventory/report only. | May run now; no ML. | Current label assets exist, but are operational fields. The next safe task is measuring label volume and defining pair/split rules, not training. |
 
 Service-boundary check: this addendum adds no endpoint, queue consumer, IPC receiver, or
