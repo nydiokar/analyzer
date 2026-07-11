@@ -20,28 +20,50 @@ import {
 } from '../src/core/representations/wallet-feature-vector';
 
 const BATCH_SIZE = 250;
+const READ_PAGE_SIZE = 2000;
 
 async function main(): Promise<void> {
-  const rows = await prisma.walletBehaviorProfile.findMany({
-    include: {
-      wallet: {
-        include: {
-          pnlSummary: {
-            include: { advancedStats: true },
+  // Keyset-paginate the read. A single unbounded findMany over the full profile
+  // population (~64k rows on production data) exceeds the Prisma query-engine
+  // response buffer and fails with "Failed to convert rust String into napi
+  // string"; paging by walletAddress keeps each response bounded. Population
+  // stats still require every source vector, but those are tiny in memory.
+  const sources: Array<{ walletAddress: string; sourceVector: number[] }> = [];
+  let cursorAddress: string | null = null;
+  for (;;) {
+    const page = await prisma.walletBehaviorProfile.findMany({
+      include: {
+        wallet: {
+          include: {
+            pnlSummary: {
+              include: { advancedStats: true },
+            },
           },
         },
       },
-    },
-    orderBy: { walletAddress: 'asc' },
-  });
-
-  const sources = rows.map((row) => ({
-    walletAddress: row.walletAddress,
-    sourceVector: buildWalletSourceVector({
-      behavior: row,
-      advancedStats: row.wallet.pnlSummary?.advancedStats ?? null,
-    }),
-  }));
+      orderBy: { walletAddress: 'asc' },
+      take: READ_PAGE_SIZE,
+      ...(cursorAddress
+        ? { skip: 1, cursor: { walletAddress: cursorAddress } }
+        : {}),
+    });
+    if (page.length === 0) {
+      break;
+    }
+    for (const row of page) {
+      sources.push({
+        walletAddress: row.walletAddress,
+        sourceVector: buildWalletSourceVector({
+          behavior: row,
+          advancedStats: row.wallet.pnlSummary?.advancedStats ?? null,
+        }),
+      });
+    }
+    cursorAddress = page[page.length - 1].walletAddress;
+    if (page.length < READ_PAGE_SIZE) {
+      break;
+    }
+  }
   const stats = computePopulationStats(sources.map((row) => row.sourceVector));
 
   await prisma.populationStats.upsert({
@@ -83,7 +105,7 @@ async function main(): Promise<void> {
     console.log(`WalletVector backfill: ${written}/${sources.length}`);
   }
 
-  console.log(JSON.stringify({ walletProfiles: rows.length, vectorsWritten: written, schemaVersion: WALLET_VECTOR_SCHEMA_VERSION }, null, 2));
+  console.log(JSON.stringify({ walletProfiles: sources.length, vectorsWritten: written, schemaVersion: WALLET_VECTOR_SCHEMA_VERSION }, null, 2));
 }
 
 main()

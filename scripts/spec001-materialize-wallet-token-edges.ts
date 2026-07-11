@@ -57,6 +57,12 @@ async function main(): Promise<void> {
       where: { refreshedAt: { lt: runStartedAt } },
     });
     return { result, stale };
+  }, {
+    // Bulk set-based materialization over the full SwapAnalysisInput table
+    // (tens of millions of rows) far exceeds Prisma's 5s interactive-transaction
+    // default. Give the aggregation a real budget.
+    maxWait: 60_000,
+    timeout: 600_000,
   });
 
   console.log(JSON.stringify({ walletTokenEdgesUpsertedOrUpdated: Number(result), staleWalletTokenEdgesPruned: stale.count }, null, 2));
