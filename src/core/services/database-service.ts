@@ -109,6 +109,17 @@ export interface RankedSimilarWalletResult {
     builtAt: Date;
 }
 
+/**
+ * Human-readable behavior labels for a neighbor wallet, used to make the
+ * /similar payload actionable. All fields nullable: not every wallet with a
+ * vector has a full behavior profile or advanced stats.
+ */
+export interface WalletBehaviorEnrichment {
+    strategyType: string | null;
+    speedCategory: string | null;
+    winRate: number | null;
+}
+
 export interface WalletVectorMetadata {
     walletAddress: string;
     schemaVersion: number;
@@ -3230,6 +3241,47 @@ export class DatabaseService {
 
         ranked.sort((a, b) => b.blendedScore - a.blendedScore || a.distance - b.distance);
         return ranked.slice(0, boundedLimit);
+    }
+
+    /**
+     * Batched behavioral enrichment for a bounded set of neighbor wallets.
+     *
+     * The /similar endpoint returns address+distance, which is not actionable on
+     * its own — an analyst cannot tell a SCALPER neighbor from a HODLER. This adds
+     * the human-readable behavior label and win rate in ONE query over the ≤k
+     * neighbor addresses (no per-neighbor round trip / N+1). Fields are null when a
+     * neighbor has no behavior profile or advanced stats. Addresses not present in
+     * the result map simply have no enrichment.
+     */
+    async getWalletBehaviorEnrichment(
+        walletAddresses: string[],
+    ): Promise<Map<string, WalletBehaviorEnrichment>> {
+        if (walletAddresses.length === 0) return new Map();
+        const rows = await this.prismaClient.walletBehaviorProfile.findMany({
+            where: { walletAddress: { in: walletAddresses } },
+            select: {
+                walletAddress: true,
+                strategyType: true,
+                speedCategory: true,
+                wallet: {
+                    select: {
+                        pnlSummary: {
+                            select: { advancedStats: { select: { tokenWinRatePercent: true } } },
+                        },
+                    },
+                },
+            },
+        });
+        return new Map(
+            rows.map((row) => [
+                row.walletAddress,
+                {
+                    strategyType: row.strategyType ?? null,
+                    speedCategory: row.speedCategory ?? null,
+                    winRate: row.wallet.pnlSummary?.advancedStats?.tokenWinRatePercent ?? null,
+                },
+            ]),
+        );
     }
 
     async getWalletVectorMetadata(walletAddress: string): Promise<WalletVectorMetadata | null> {

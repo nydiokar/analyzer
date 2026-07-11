@@ -167,6 +167,15 @@ export class IntelSimilarWalletDto {
 
   @ApiProperty({ required: false, description: 'Blended rank score = cosineSimilarity + tokenBoost * sharedTokenJaccard. Present when rerank=true.' })
   blendedScore?: number;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Behavior strategy label (e.g. FAST_TRADER). Null if the neighbor has no behavior profile.' })
+  strategyType?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Speed category (e.g. SCALPER). Null if the neighbor has no behavior profile.' })
+  speedCategory?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Token win rate percent. Null if the neighbor has no advanced stats.' })
+  winRate?: number | null;
 }
 
 export class IntelSimilarWalletsResponseDto {

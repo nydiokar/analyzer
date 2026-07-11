@@ -280,9 +280,15 @@ export class IntelController {
 
     // Additive vector-first mode: k-NN retrieval + shared-token blended re-rank.
     // Default (rerank absent/false) preserves the original cosine-distance ordering
-    // and payload exactly for backward compatibility.
+    // for backward compatibility. Both modes now carry behavioral enrichment so a
+    // consumer sees WHAT each neighbor is (strategyType/speedCategory/winRate), not
+    // just an address + distance. Enrichment is one batched query over the ≤k
+    // returned neighbors and all fields are optional/nullable.
     if (rerank === 'true' || rerank === '1') {
       const ranked = await this.databaseService.findRankedSimilarWallets(addr, limit);
+      const enrichment = await this.databaseService.getWalletBehaviorEnrichment(
+        ranked.map((neighbor) => neighbor.walletAddress),
+      );
       return {
         ...base,
         neighbors: ranked.map((neighbor) => ({
@@ -293,17 +299,26 @@ export class IntelController {
           sharedTokenJaccard: neighbor.sharedTokenJaccard,
           blendedScore: neighbor.blendedScore,
           builtAt: neighbor.builtAt.toISOString(),
+          strategyType: enrichment.get(neighbor.walletAddress)?.strategyType ?? null,
+          speedCategory: enrichment.get(neighbor.walletAddress)?.speedCategory ?? null,
+          winRate: enrichment.get(neighbor.walletAddress)?.winRate ?? null,
         })),
       };
     }
 
     const neighbors = await this.databaseService.findSimilarWalletVectors(addr, limit);
+    const enrichment = await this.databaseService.getWalletBehaviorEnrichment(
+      neighbors.map((neighbor) => neighbor.walletAddress),
+    );
     return {
       ...base,
       neighbors: neighbors.map((neighbor) => ({
         walletAddress: neighbor.walletAddress,
         distance: neighbor.distance,
         builtAt: neighbor.builtAt.toISOString(),
+        strategyType: enrichment.get(neighbor.walletAddress)?.strategyType ?? null,
+        speedCategory: enrichment.get(neighbor.walletAddress)?.speedCategory ?? null,
+        winRate: enrichment.get(neighbor.walletAddress)?.winRate ?? null,
       })),
     };
   }
