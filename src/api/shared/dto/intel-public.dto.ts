@@ -155,6 +155,18 @@ export class IntelSimilarWalletDto {
 
   @ApiProperty()
   builtAt: string;
+
+  @ApiProperty({ required: false, description: 'Cosine similarity (1 - distance). Present when rerank=true.' })
+  cosineSimilarity?: number;
+
+  @ApiProperty({ required: false, description: 'Count of tokens shared with the seed wallet. Present when rerank=true.' })
+  sharedTokenCount?: number;
+
+  @ApiProperty({ required: false, description: 'Jaccard overlap of traded tokens vs the seed wallet. Present when rerank=true.' })
+  sharedTokenJaccard?: number;
+
+  @ApiProperty({ required: false, description: 'Blended rank score = cosineSimilarity + tokenBoost * sharedTokenJaccard. Present when rerank=true.' })
+  blendedScore?: number;
 }
 
 export class IntelSimilarWalletsResponseDto {

@@ -19,7 +19,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ApiBody, ApiOperation, ApiParam, ApiProperty, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiParam, ApiProperty, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { User } from '@prisma/client';
 import { IsArray, IsString, ArrayMaxSize, ArrayMinSize, IsOptional, IsInt, Min, Max } from 'class-validator';
@@ -249,14 +249,17 @@ export class IntelController {
   @RequireCredits(1)
   @ApiOperation({
     summary: 'Stored behavioral nearest neighbors (1cr)',
-    description: 'Returns nearest wallets from the persisted SPEC-001 WalletVector projection. Does not run analysis or build vectors.',
+    description: 'Returns nearest wallets from the persisted SPEC-001 WalletVector projection via the HNSW index. Does not run analysis or build vectors. Pass rerank=true to re-rank the k-NN candidate set with a shared-token overlap signal (adds cosineSimilarity, sharedTokenCount, sharedTokenJaccard, blendedScore).',
   })
   @ApiParam({ name: 'addr', description: 'Solana wallet address' })
+  @ApiQuery({ name: 'k', required: false, description: 'Number of neighbors (1-100, default 20)' })
+  @ApiQuery({ name: 'rerank', required: false, description: 'When true, blend behavioral cosine with shared-token overlap' })
   @ApiResponse({ status: 200, description: 'Stored behavioral neighbors', type: IntelSimilarWalletsResponseDto })
   @ApiResponse({ status: 404, description: 'Wallet vector not found; run/backfill wallet representation first' })
   async getSimilarWallets(
     @Param('addr') addr: string,
     @Query('k') k?: string,
+    @Query('rerank') rerank?: string,
   ) {
     if (!isValidSolanaAddress(addr)) {
       throw new BadRequestException(`Invalid Solana address: ${addr}`);
@@ -267,13 +270,36 @@ export class IntelController {
     if (!vector) {
       throw new NotFoundException('Wallet vector not found');
     }
-    const neighbors = await this.databaseService.findSimilarWalletVectors(addr, limit);
 
-    return {
+    const base = {
       status: 'ok' as const,
       walletAddress: addr,
       schemaVersion: vector.schemaVersion,
       builtAt: vector.builtAt.toISOString(),
+    };
+
+    // Additive vector-first mode: k-NN retrieval + shared-token blended re-rank.
+    // Default (rerank absent/false) preserves the original cosine-distance ordering
+    // and payload exactly for backward compatibility.
+    if (rerank === 'true' || rerank === '1') {
+      const ranked = await this.databaseService.findRankedSimilarWallets(addr, limit);
+      return {
+        ...base,
+        neighbors: ranked.map((neighbor) => ({
+          walletAddress: neighbor.walletAddress,
+          distance: neighbor.distance,
+          cosineSimilarity: neighbor.cosineSimilarity,
+          sharedTokenCount: neighbor.sharedTokenCount,
+          sharedTokenJaccard: neighbor.sharedTokenJaccard,
+          blendedScore: neighbor.blendedScore,
+          builtAt: neighbor.builtAt.toISOString(),
+        })),
+      };
+    }
+
+    const neighbors = await this.databaseService.findSimilarWalletVectors(addr, limit);
+    return {
+      ...base,
       neighbors: neighbors.map((neighbor) => ({
         walletAddress: neighbor.walletAddress,
         distance: neighbor.distance,

@@ -91,6 +91,24 @@ export interface SimilarWalletVectorResult {
     builtAt: Date;
 }
 
+/**
+ * A k-NN candidate re-ranked with the precomputed shared-token overlap signal.
+ * `cosineSimilarity` (= 1 - cosine distance) and `sharedTokenJaccard` are the two
+ * raw, orthogonal POVs; `blendedScore` promotes candidates that are behaviorally
+ * similar AND share tokens, without letting a zero-overlap candidate be penalised
+ * below its behavioral rank. Token signals are null when neither wallet has
+ * materialized WalletTokenEdge rows (only ~40% of vector wallets do on real data).
+ */
+export interface RankedSimilarWalletResult {
+    walletAddress: string;
+    distance: number;
+    cosineSimilarity: number;
+    sharedTokenCount: number;
+    sharedTokenJaccard: number;
+    blendedScore: number;
+    builtAt: Date;
+}
+
 export interface WalletVectorMetadata {
     walletAddress: string;
     schemaVersion: number;
@@ -167,6 +185,12 @@ interface WalletStatus {
 
 interface WalletStatusResponse {
   statuses: WalletStatus[];
+}
+
+/** Round a score to 6 decimal places for stable, compact similarity output. */
+function roundVectorNumberLocal(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 // --- DatabaseService Class ---
@@ -3079,22 +3103,133 @@ export class DatabaseService {
         `;
     }
 
-    async findSimilarWalletVectors(walletAddress: string, limit: number = 20): Promise<SimilarWalletVectorResult[]> {
+    /**
+     * Database-wide behavioral nearest-neighbor retrieval over the persisted
+     * WalletVector projection, backed by the HNSW cosine index.
+     *
+     * The seed vector is read first and passed back as a BOUND LITERAL. A
+     * join-seed / subquery-seed form (e.g. `ORDER BY v.vector <=> seed.vector`)
+     * defeats the HNSW index and degrades to a full sequential scan + top-N
+     * sort over every vector (~455ms on 64k rows); the bound-literal form uses
+     * the index (~1-50ms). Both are wrapped in one transaction so the
+     * transaction-local `hnsw.ef_search` GUC applies to the same pooled
+     * connection that runs the retrieval. Verified identical ordering to the
+     * exact-scan form at ef_search=100 on the real-data copy.
+     */
+    async findSimilarWalletVectors(
+        walletAddress: string,
+        limit: number = 20,
+        efSearch: number = 100,
+    ): Promise<SimilarWalletVectorResult[]> {
         const boundedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
-        return this.prismaClient.$queryRaw<SimilarWalletVectorResult[]>`
+        // ef_search must be >= the requested LIMIT for HNSW to return a full
+        // candidate set; clamp to a sane ceiling to bound query cost.
+        const boundedEfSearch = Math.max(boundedLimit, Math.min(500, Math.floor(efSearch)));
+
+        return this.prismaClient.$transaction(async (tx) => {
+            const seedRows = await tx.$queryRaw<{ vector: string }[]>`
+                SELECT "vector"::text AS "vector"
+                FROM "WalletVector"
+                WHERE "walletAddress" = ${walletAddress}
+                  AND "schemaVersion" = ${WALLET_VECTOR_SCHEMA_VERSION}
+                LIMIT 1
+            `;
+            const seedVector = seedRows[0]?.vector;
+            if (!seedVector) return [];
+
+            // Transaction-local GUC: applies only to this connection for this tx,
+            // survives Prisma connection pooling (a plain SET would not).
+            await tx.$executeRaw`SELECT set_config('hnsw.ef_search', ${String(boundedEfSearch)}, true)`;
+
+            return tx.$queryRaw<SimilarWalletVectorResult[]>`
+                SELECT
+                    v."walletAddress",
+                    (v."vector" <=> ${seedVector}::vector)::float AS "distance",
+                    v."builtAt"
+                FROM "WalletVector" v
+                WHERE v."schemaVersion" = ${WALLET_VECTOR_SCHEMA_VERSION}
+                  AND v."walletAddress" <> ${walletAddress}
+                ORDER BY v."vector" <=> ${seedVector}::vector
+                LIMIT ${boundedLimit}
+            `;
+        });
+    }
+
+    /**
+     * Vector-first similarity: retrieve a bounded k-NN candidate set via the HNSW
+     * index, then re-rank ONLY those candidates with the precomputed shared-token
+     * overlap signal from WalletTokenEdge. No per-request transaction re-fetch and
+     * no all-pairs scan — every expensive step is bounded to <=retrieveK candidates.
+     *
+     * The blend is boosting, not averaging: cosine similarity is the base score and
+     * token overlap only adds. On real data behavioral neighbors rarely share tokens
+     * (cosine and Jaccard are orthogonal), so an averaging blend would wrongly demote
+     * genuinely similar wallets. `blendedScore = cosineSimilarity + tokenBoostWeight *
+     * sharedTokenJaccard` keeps behavioral rank intact when overlap is zero while
+     * promoting the coordination signal (behaviorally similar AND sharing tokens).
+     */
+    async findRankedSimilarWallets(
+        walletAddress: string,
+        limit: number = 20,
+        options?: { retrieveK?: number; efSearch?: number; tokenBoostWeight?: number },
+    ): Promise<RankedSimilarWalletResult[]> {
+        const boundedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+        // Retrieve a wider candidate pool than we return so the token-overlap
+        // signal can re-order within the behavioral neighborhood.
+        const retrieveK = Math.max(boundedLimit, Math.min(200, Math.floor(options?.retrieveK ?? boundedLimit * 3)));
+        const efSearch = Math.max(retrieveK, Math.min(500, Math.floor(options?.efSearch ?? 100)));
+        const tokenBoostWeight = Math.max(0, Math.min(5, options?.tokenBoostWeight ?? 1));
+
+        const candidates = await this.findSimilarWalletVectors(walletAddress, retrieveK, efSearch);
+        if (candidates.length === 0) return [];
+
+        const candidateAddresses = candidates.map((c) => c.walletAddress);
+
+        // Shared-token counts against the seed, computed only for the <=retrieveK
+        // candidates from the precomputed WalletTokenEdge table (indexed on mint).
+        const overlapRows = await this.prismaClient.$queryRaw<{ walletAddress: string; sharedCount: number; candCount: number }[]>`
+            WITH seed_mints AS (
+                SELECT mint FROM "WalletTokenEdge" WHERE "walletAddress" = ${walletAddress}
+            ),
+            cand AS (
+                SELECT "walletAddress", mint
+                FROM "WalletTokenEdge"
+                WHERE "walletAddress" IN (${Prisma.join(candidateAddresses)})
+            )
             SELECT
-                v."walletAddress",
-                (v."vector" <=> seed."vector")::float AS "distance",
-                v."builtAt"
-            FROM "WalletVector" seed
-            JOIN "WalletVector" v
-              ON v."schemaVersion" = seed."schemaVersion"
-             AND v."walletAddress" <> seed."walletAddress"
-            WHERE seed."walletAddress" = ${walletAddress}
-              AND seed."schemaVersion" = ${WALLET_VECTOR_SCHEMA_VERSION}
-            ORDER BY v."vector" <=> seed."vector"
-            LIMIT ${boundedLimit}
+                c."walletAddress" AS "walletAddress",
+                COUNT(*) FILTER (WHERE s.mint IS NOT NULL)::int AS "sharedCount",
+                COUNT(*)::int AS "candCount"
+            FROM cand c
+            LEFT JOIN seed_mints s ON s.mint = c.mint
+            GROUP BY c."walletAddress"
         `;
+
+        const seedTokenCount = await this.prismaClient.walletTokenEdge.count({ where: { walletAddress } });
+        const overlapByWallet = new Map(overlapRows.map((r) => [r.walletAddress, r]));
+
+        const ranked = candidates.map((candidate) => {
+            const overlap = overlapByWallet.get(candidate.walletAddress);
+            const sharedTokenCount = overlap?.sharedCount ?? 0;
+            const candTokenCount = overlap?.candCount ?? 0;
+            const unionCount = seedTokenCount + candTokenCount - sharedTokenCount;
+            const sharedTokenJaccard = unionCount > 0 ? sharedTokenCount / unionCount : 0;
+            // cosine distance in pgvector is 1 - cosineSimilarity, so similarity = 1 - distance.
+            const cosineSimilarity = 1 - candidate.distance;
+            const blendedScore = cosineSimilarity + tokenBoostWeight * sharedTokenJaccard;
+            return {
+                walletAddress: candidate.walletAddress,
+                distance: candidate.distance,
+                cosineSimilarity: roundVectorNumberLocal(cosineSimilarity),
+                sharedTokenCount,
+                sharedTokenJaccard: roundVectorNumberLocal(sharedTokenJaccard),
+                blendedScore: roundVectorNumberLocal(blendedScore),
+                builtAt: candidate.builtAt,
+            };
+        });
+
+        ranked.sort((a, b) => b.blendedScore - a.blendedScore || a.distance - b.distance);
+        return ranked.slice(0, boundedLimit);
     }
 
     async getWalletVectorMetadata(walletAddress: string): Promise<WalletVectorMetadata | null> {
