@@ -5,6 +5,7 @@ import type { NextRequest } from 'next/server';
 const protectedRoutes = [
   '/wallets',
   '/similarity-lab',
+  '/wallet-siblings',
   '/tools',
   '/admin',
   '/trackers',
@@ -15,6 +16,7 @@ const protectedRoutes = [
 const verifiedOnlyRoutes = [
   '/wallets',
   '/similarity-lab',
+  '/wallet-siblings',
   '/tools',
 ];
 

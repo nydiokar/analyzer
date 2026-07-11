@@ -54,6 +54,7 @@ function buildRouteTitle(pathname: string, searchParams: URLSearchParams): strin
   if (pathname === '/discover') return 'Discover';
   if (pathname === '/trackers') return 'Tracked Wallets';
   if (pathname === '/similarity-lab') return 'Similarity Lab';
+  if (pathname === '/wallet-siblings') return 'Wallet Siblings';
   if (pathname === '/wallet-hunt') return 'Wallet Hunt';
   if (pathname === '/radar') return 'Radar';
   if (pathname === '/tokens') {
@@ -161,6 +162,7 @@ export function AppShell({ children }: AppShellProps) {
     { href: '/discover', label: 'Discover' },
     { href: '/trackers', label: 'Tracked Wallets' },
     { href: '/similarity-lab', label: 'Similarity Lab' },
+    { href: '/wallet-siblings', label: 'Wallet Siblings' },
     { href: '/tools/holder-profiles', label: 'Holder Profiles' },
     { href: '/wallet-hunt', label: 'Wallet Hunt' },
     ...(user?.isAnalyst || user?.isAdmin
