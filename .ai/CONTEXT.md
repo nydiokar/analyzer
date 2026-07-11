@@ -14,6 +14,7 @@
 | MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🔴 |
 | MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |
 | GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
+| SURFACE-1 | **[REPRESENTATION → PRODUCT] Surface the new wallet-representation capabilities into the dashboard.** The SPEC-001/002 substrate (behavioral vectors, wallet↔token + wallet↔wallet edges, materialized coordination clusters, ms-latency HNSW kNN) is built and validated on real data — but the product surfaces (Similarity Lab, Holder Profiles, cluster views) still show the OLD thing. We gained a genuinely new capability class and haven't spent it where users look. This is a DESIGN + INTEGRATION job, not more substrate. **The specs never covered when/how to surface this — this is a plan gap, filed deliberately.** Brief: `.ai/dispatch/AGENT_8_SURFACE_REPRESENTATION_DASHBOARD.md`. Priority: after SPEC001_T01/SPEC002_T01 close (needs the representation validated + stable on real data first), but before it goes stale. | 🟡 |
 | GUIDE-1 | **Finish wallet intelligence guide** (`documentation/agent-wallet-intelligence-guide.md`) | ⚪ |
 | X-1 | **Finish sova-x wallets/tokens opening work** | ⚪ |
 
