@@ -123,6 +123,38 @@ model WalletClusterMembership {
 }
 
 // ---------------------------------------------------------------------------
+// Metric-learning label ledger — SPEC-002 Act 3 (the moat).
+// Append-only, leakage-safe, idempotent training-ready pair ledger.
+// Populated ONLY by scripts/spec002-extract-labels.ts from the P1/N1 rules in
+// .ai/context/SPEC002_LABEL_READINESS_2026-07-07.md (§4). This table trains
+// nothing and serves nothing; it is the durable label substrate a future
+// (gated) metric-learning job would consume. Wallet pairs are canonicalized so
+// walletA < walletB before insert; the unique key on (walletA, walletB, source)
+// makes re-extraction idempotent. splitBucket bakes in the HUNT-grouped +
+// time-OOS split (§5) so a future job cannot straddle the train/dev/oos boundary.
+// ---------------------------------------------------------------------------
+model MetricLearningLabel {
+  id          String   @id @default(cuid())
+  walletA     String
+  walletB     String
+  /// "positive" | "negative" | "ambiguous"
+  label       String
+  /// Provenance rule, e.g. "P1_hunt_cross_token" | "N1_cross_hunt_disjoint"
+  source      String
+  huntId      String?
+  reviewerId  String?
+  /// P1 weight = min(appearanceCount)/uniqueTokenCount; null for negatives
+  confidence  Float?
+  /// "train" | "dev" | "oos" — HUNT-grouped with time-based OOS holdout (§5)
+  splitBucket String?
+  createdAt   DateTime @default(now())
+
+  @@unique([walletA, walletB, source])
+  @@index([huntId])
+  @@index([label])
+}
+
+// ---------------------------------------------------------------------------
 // KOL Registry — Key Opinion Leaders with public social identity
 // Linked 1:1 to Wallet. Wallets with knownType='KOL' are analyzed normally
 // (not skipped), but their identity is surfaced in API responses.
