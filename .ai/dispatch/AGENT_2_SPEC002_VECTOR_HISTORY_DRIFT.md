@@ -25,6 +25,15 @@ Implement the first temporal projection:
 
 The product outcome is simple: identify wallets whose behavior changed materially over time.
 
+## 1b. Target DB for migration + backfill
+
+Apply the migration and backfill against the real-data dev copy `analyzer-postgres-pg17`
+(:5434, DB `sova_analyzer`),
+`DATABASE_URL="postgresql://postgres:postgres@localhost:5434/sova_analyzer?schema=public"`.
+**It is a disposable restore of a server dump — safe to migrate, backfill, or wipe.** Not
+production; the operator re-extracts it on demand, so work on it directly (no throwaway
+clone). This is the "unlocked DB" referenced in the DISPATCH_LOG remaining-work note.
+
 ## 2. Root-cause framing
 
 Today, `WalletBehaviorProfile` is one row per wallet and current similarity vectors are rebuilt per request. That overwrites or discards the previous representation, so the system cannot say whether a wallet changed character. The fix is not a new model; it is versioning the representation SPEC-001 already produces.

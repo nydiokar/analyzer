@@ -191,6 +191,13 @@
 
 **ALWAYS run scripts with:** `npx ts-node -r tsconfig-paths/register`
 
+**Real-data dev DB (disposable):** `analyzer-postgres-pg17` (:5434, DB `sova_analyzer`),
+`DATABASE_URL="postgresql://postgres:postgres@localhost:5434/sova_analyzer?schema=public"`.
+It is a restore of a **server dump**, NOT production — **safe to mutate, migrate, run
+materializers against, or drop/recreate.** The operator re-extracts it on demand, so jobs
+that need real data should use it directly; no throwaway clone required. (The older
+`analyzer-postgres` on :5433 is a tiny synthetic set.)
+
 ### DB Growth Investigation Protocol
 *Decided: 2026-02-26*
 

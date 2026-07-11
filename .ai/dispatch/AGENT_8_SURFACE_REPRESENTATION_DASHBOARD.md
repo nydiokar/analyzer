@@ -101,6 +101,13 @@ What does an analyst do 20 times a day that this makes 10x faster or newly possi
   neighbors/clusters carry the human context (behavior, win rate, shared tokens, confidence).
 - `.ai/CONTEXT.md` and `DISPATCH_LOG.md` updated with what landed.
 
+## 6b. Validation env
+
+Real-data copy: `analyzer-postgres-pg17` (:5434, DB `sova_analyzer`),
+`DATABASE_URL="postgresql://postgres:postgres@localhost:5434/sova_analyzer?schema=public"`.
+**It is a disposable dev restore of a server dump — safe to mutate, migrate, or wipe.**
+Not production; the operator re-extracts it on demand. No need for a throwaway clone.
+
 ## 7. Service boundary checklist (for any new read/endpoint)
 
 - Concurrency: reads are cheap but repeatable — cap k/limits; keep any heavy path queue-backed.

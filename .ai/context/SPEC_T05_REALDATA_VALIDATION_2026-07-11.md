@@ -9,6 +9,12 @@
 
 ## 0. Environment
 
+> **This DB is a disposable dev copy — safe to mutate, migrate, or wipe.**
+> `analyzer-postgres-pg17` (:5434, `sova_analyzer`) is a restore of a server dump, NOT the
+> production DB. The operator can re-extract it at any time. Jobs may apply migrations,
+> run materializers, and write to it freely, and may drop/recreate the container if needed
+> — no production risk, no need to work on a throwaway clone. It is dev, by design.
+
 - Server dump `sova_novec.dump` (4.5 GB, custom format, `pg_dump` 17.x) restored into a **new
   pg17 pgvector container** `analyzer-postgres-pg17` on host port **5434**, DB `sova_analyzer`.
   - The existing `analyzer-postgres` (pg16, port 5433, synthetic set) was left **untouched**.
