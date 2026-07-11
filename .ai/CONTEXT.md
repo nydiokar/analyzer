@@ -8,7 +8,9 @@
 
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
-| MCP-8 | **[sova-intel-mcp] Post-publish end-to-end smoke test** — install published MCP in Claude Desktop or Claude Code, run `wallet_hud` live | 🔴 NOW |
+| SPEC001_T06 | ✅ **DONE 2026-07-11** — vector-first similarity landed + validated on real data. HNSW index-defeat bug fixed (455ms→1.5ms, identical neighbors), boosting blended re-rank, `?rerank=true` additive endpoint, WW materializer rewritten (3m34s vs old 8min-killed), cluster pipeline intact. See DISPATCH_LOG SPEC001_T06. | ✅ |
+| SPEC001_T06-caveat | **[FIELD-TEST THE ENDPOINTS — carry into T06]** `/intel/wallet/:addr/similar` + `/cluster` exist and docs/agent-skill were drafted, but NOT field-tested. Open questions to resolve before calling this done: (a) is the payload correct / do we expose enough metadata (neighbor behaviorCode, winRate, shared-token count, score — not just address+distance)? (b) FIRST CONSUMER should be the DASHBOARD + ourselves — build/repurpose a dashboard interface that consumes it so we feel the added value; (c) decide if the surface needs reframing or a new dedicated UI; (d) we must SEE the delta: run current similarity vs vector-first on the same wallets and confirm same-or-better results, i.e. we translated the data to be cheaper WITHOUT regressing what it finds. | 🔴 |
+| MCP-8 | **[sova-intel-mcp] Post-publish end-to-end smoke test** — install published MCP in Claude Desktop or Claude Code, run `wallet_hud` live | 🟡 |
 | MCP-13 | **[sova-intel-mcp] x402 runtime verification** — packaging is fixed; still need real standalone `x402` startup/payment verification | 🔴 |
 | MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |
 | GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
