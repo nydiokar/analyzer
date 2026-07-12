@@ -123,7 +123,10 @@ requires ≥2 wallets and runs a queue-backed job. Upgrade path:
 ## 7. Gate status
 
 - **SPEC002_T01:** closed 2026-07-12 ✅
-- **SPEC001_T01:** `in_progress` — remaining work is Gate-0/Gate-2 counts + public docs +
-  agent skill (DISPATCH_LOG:13), i.e. **paperwork, not the endpoints this job consumes**.
-  Per guard §5 the build waits on its formal close; this design note is the allowed step and
-  is complete. **Next session: build Surface A behind the batched read from §5.**
+- **SPEC001_T01:** substrate **closed** 2026-07-12 — Gate-0 counts filled on real data
+  (76,681 wallets / 14.9M swaps / 64,378 vectors / 3.06M token edges; projections validated).
+  The only outstanding item is external public docs + agent SKILL.md, **de-coupled to
+  GUIDE-1** — it does not gate internal dashboard work (endpoints live + audited).
+- **SURFACE-1 build: UNBLOCKED.** Both gates (SPEC002_T01, SPEC001_T01 substrate) are closed.
+  Next step: build Surface A behind the batched read from §5, then wire Surface B's single-seed
+  Lab as the pivot destination.
