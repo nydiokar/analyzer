@@ -8,7 +8,7 @@
 
 | ID | Task | Priority |
 |:--:|:-----|:--------:|
-| SPEC001_T01 | ✅ **DONE (substrate) 2026-07-12** — representation substrate closed + validated on real data. All of: additive migration, feature-vector builder, vector/edge/cluster materializers, bounded Intel read endpoints, SDK methods, label-capture fixes — landed and proven on :5434. **Gate-0 counts filled** (`scripts/spec001-gate0-ledger.ts`): 76,681 wallets / 14.9M swaps / 527,902 mints / 64,378 vectors / 3.06M token edges (projection = actual); 2,776 WW edges; labels 6 unreviewed / 564 ignored / **0 confirmed-positive**. Only outstanding item = external public docs + agent SKILL.md → **de-coupled to GUIDE-1** (not a blocker for internal work). See DISPATCH_LOG SPEC001_T01. | ✅ |
+| SPEC001_T01 | ✅ **DONE (substrate) 2026-07-12** — representation substrate closed + validated on real data. All of: additive migration, feature-vector builder, vector/edge/cluster materializers, bounded Intel read endpoints, SDK methods, label-capture fixes — landed and proven on :5434. **Gate-0 counts filled** (`scripts/spec001-gate0-ledger.ts`): 76,681 wallets / 14.9M swaps / 527,902 mints / 64,378 vectors / 3.06M token edges (projection = actual); 2,776 WW edges; labels 6 unreviewed / 564 ignored / **0 confirmed-positive**. **Note:** 64,378 vectors = **100% of tradeable wallets** (= behavior-profile count); the 12,303 without a vector have **zero swaps** and are un-vectorizable by definition — NOT a coverage gap (see Architecture Decisions → "Representation-layer coverage is NOT a gap"). Only outstanding item = external public docs + agent SKILL.md → **de-coupled to GUIDE-1** (not a blocker for internal work). See DISPATCH_LOG SPEC001_T01. | ✅ |
 | SPEC001_T06 | ✅ **DONE 2026-07-11** — vector-first similarity landed + validated on real data. HNSW index-defeat bug fixed (455ms→1.5ms, identical neighbors), boosting blended re-rank, `?rerank=true` additive endpoint, WW materializer rewritten (3m34s vs old 8min-killed), cluster pipeline intact. See DISPATCH_LOG SPEC001_T06. | ✅ |
 | SPEC002_T01 | ✅ **DONE 2026-07-12** — vector history + behavioral-drift pilot closed on real data (:5434). `WalletVectorHistory` backfilled **64,378/64,378 = 100%** coverage of current `WalletVector` (acceptance ≥99%); rerun idempotent (0 dup rows/keys); drift deterministic (tests pass); live append+drift path verified e2e (changed vector → `driftFromPrevious≈2.0`). Read surface = minimal bounded O(1)-by-wallet DB helper `getWalletVectorHistory` (no API endpoint — SURFACE-1 owns product surfacing). History now self-populates via the existing `upsertWalletBehaviorProfile` write-path. See DISPATCH_LOG SPEC002_T01. | ✅ |
 | SPEC001_T06-caveat | ✅ **DONE 2026-07-12** — field-tested on real-data copy (:5434). (a) **Payload enriched**: `/similar` now returns `strategyType`/`speedCategory`/`winRate` per neighbor in BOTH default and rerank modes via one batched join (`getWalletBehaviorEnrichment`) — no more bare address+distance; DTO fields optional/nullable, intel audit clean (no contract drift). (b/c) **Dedicated dashboard consumer**: new `/wallet-siblings` route (single-seed instant HNSW lookup + rerank toggle), distinct from the heavyweight queue-backed Similarity Lab. (d) **Delta proven**: `scripts/spec001-similarity-delta-proof.ts` shows rerank keeps the behavioral pool and PROMOTES coordination siblings (e.g. seed → top-2 neighbors with shared=24/23 tokens surfaced above cosine-only order); retrieval 11–46ms. Controller-level payload verified end-to-end (8/8 assertions) on real data. **Deferred**: public docs-site coverage for `/similar` + `/cluster` (SKILL.md + sova-intel docs) — pre-existing gap flagged by intel audit, not a regression; tracked under GUIDE-1. | ✅ |
@@ -17,6 +17,7 @@
 | MCP-15 | **[sova-intel-mcp] Acceptance-bar verification pass** — local code/package fixes are done; still need live invalid-input, expired-result-key, upstream-error, limited-mode, apikey, and x402 verification against the API | 🟡 |
 | GTM-3 | **Open Twitter bot for public use** — rate-limit and open; announce on @Sova_intel | 🟡 |
 | SURFACE-1 | **[REPRESENTATION → PRODUCT] Surface the new wallet-representation capabilities into the dashboard.** The SPEC-001/002 substrate (behavioral vectors, wallet↔token + wallet↔wallet edges, materialized coordination clusters, ms-latency HNSW kNN) is built and validated on real data — but the product surfaces (Similarity Lab, Holder Profiles, cluster views) still show the OLD thing. We gained a genuinely new capability class and haven't spent it where users look. This is a DESIGN + INTEGRATION job, not more substrate. **The specs never covered when/how to surface this — this is a plan gap, filed deliberately.** Brief: `.ai/dispatch/AGENT_8_SURFACE_REPRESENTATION_DASHBOARD.md`. **Both gates now closed (SPEC001_T01 substrate + SPEC002_T01) — BUILD UNBLOCKED 2026-07-12.** Design note: `.ai/context/SURFACE_1_REPRESENTATION_DASHBOARD_DESIGN_2026-07-12.md` (chosen: Holder Profiles inline + upgraded single-seed Similarity Lab). Exploratory build catalog (beyond the dispatch's provocations, human + machine surfaces): `.ai/context/REPRESENTATION_BUILD_CATALOG_2026-07-12.md`. | 🟡 |
+| REPR-QUAL | **[REPRESENTATION FIDELITY] The 32-dim vector was built by an under-reviewed agent pass — audit whether it faithfully maps behavior before building products on it.** Three priorities (details + first read-only findings: `.ai/context/REPRESENTATION_QUALITY_PRIORITIES_2026-07-12.md`): **(1) metrics↔vectors map** — `WalletBehaviorProfile` has ~55 fields, the vector uses 32 dims from ~24; no doc records which/why/what was excluded (excluded incl. `strategyType`/`speedCategory`/`exitPattern` derived labels, `averageSessionStartHour`, richer mcap fields; **suspected wrong choice:** vector uses `medianActiveHoldingHours` not the true round-trip `medianCompletedHoldTimeHours`). **(2) dimension significance** — which dims actually define behavior. First probe: vector separates FAST_TRADER 85% / ACCUMULATOR 80% cleanly but is BLIND on PURE_HOLDER 0% / DISTRIBUTOR 10% (strong on active-trading axis, blind on holding/distribution axis). **(3) similarity correctness harness** — the ORIGINAL goal: prove new ≥ old confidence, < old latency, systematically (known-connected collections pass so far, not yet a harness). No magnitude/money axis exists by design. NOT a build job — audits + harness. | 🟡 |
 | GUIDE-1 | **Finish wallet intelligence guide** (`documentation/agent-wallet-intelligence-guide.md`) | ⚪ |
 | X-1 | **Finish sova-x wallets/tokens opening work** | ⚪ |
 
@@ -199,6 +200,24 @@ It is a restore of a **server dump**, NOT production — **safe to mutate, migra
 materializers against, or drop/recreate.** The operator re-extracts it on demand, so jobs
 that need real data should use it directly; no throwaway clone required. (The older
 `analyzer-postgres` on :5433 is a tiny synthetic set.)
+
+### Representation-layer coverage is NOT a gap (read before "fixing" it)
+*Verified on :5434, 2026-07-12 (SQL reproducible)*
+
+The recurring `64,378 vectors / 76,681 wallets` figure is **not a 16% coverage hole** —
+it is 100% coverage of every wallet that can *have* a behavior vector:
+
+- `WalletVector` count **equals** `WalletBehaviorProfile` count **equals** 64,378 (one vector
+  per behavior profile, by construction — `spec001-backfill-wallet-vectors.ts`).
+- The 12,303 "uncovered" wallets have **exactly ZERO swaps** (verified: `zero_swaps = 12,303`,
+  `swaps ≥ 1 = 0`). They are empty `Wallet` shells (counterparty/holder-lookup/sync-only rows),
+  and a behavioral vector over zero trades is **undefined, not missing**.
+- Therefore `/similar` and `/cluster` returning **structured 404 for these wallets is correct**,
+  not a bug. A production migration will show the same shape: coverage = "fraction of wallet
+  rows that have any trade," which is a property of the source data, not a defect to close.
+
+**Do not open work to "improve vector coverage."** The only lever is upstream (whether a wallet
+gets analyzed into a behavior profile at all), which is a separate, pre-existing pipeline concern.
 
 ### DB Growth Investigation Protocol
 *Decided: 2026-02-26*

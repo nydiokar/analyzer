@@ -16,6 +16,43 @@ it, effort, and honest risk. Nothing here is committed; several are one bounded 
 - Per-wallet realized/unrealized PnL + winRate, joinable to the vector space.
 - 527,902 mints (501,868 "non-obvious"), timestamped swaps.
 
+---
+
+## ⚠️ VERIFIED SUBSTRATE REALITY — read before building any entry below
+
+*Confirmed on :5434, 2026-07-12 (reproducible SQL). Every idea below must handle these four facts or it ships a bug/false-alarm.*
+
+1. **Vector coverage is 100% of tradeable wallets — NOT a 16% gap.** 64,378 vectors =
+   64,378 behavior profiles. The 12,303 wallets without a vector have **zero swaps** (empty
+   shells). `/similar` + `/cluster` **404 by design** on them. → Every human surface (A1–A5)
+   needs an explicit **"no representation yet"** empty state, not an error; every machine
+   surface (B1–B5) needs a **structured 404**, never a fallback scan.
+
+2. **Coordination clusters are genuinely rare — 421 of 64,378 wallets (0.65%) are in ANY
+   cluster.** This is real, not under-materialization: most wallets are not coordinated.
+   → A "cluster badge" is **empty for ~99% of holders** — that's the correct, expected default.
+   Design the *absence* of a cluster as the normal state; a present badge is the exception
+   that carries signal. Do not build UI that looks broken when a wallet has no cluster.
+
+3. **There is NO `WalletCluster` parent table.** Cluster identity lives only as a `clusterId`
+   string on `WalletClusterMembership` (it's the concatenation of member addresses). There is
+   **no row to join for cluster-level metadata** (score, label, created-at). → Any "cluster
+   density / cluster info" read must aggregate from memberships; do not assume a parent entity.
+
+4. **Drift populates only on re-analysis, never on a schedule.** `WalletVectorHistory` appends
+   a row only when `upsertWalletBehaviorProfile` runs (a wallet is re-analyzed). → A "drift
+   watchlist / changed-character feed" (A4) is **inert** until a periodic rebuild cadence
+   exists. That cadence is a prerequisite, not a detail — flag it as a dependency, don't
+   assume drift is live.
+
+**Same-person ≠ same-behavior (validation finding, 2026-07-12).** Tested against hand-labeled
+known-connected wallet collections (`.ai/context/COLLECTIONS_VECTOR_VALIDATION_2026-07-12.md`):
+the substrate perfectly recovers **operational sibling fleets** (one owner, same strategy, same
+tokens — clustered 4/4 and 3/3, and ranked as each other's top DB-wide neighbors), but
+**correctly does NOT link same-owner-different-role wallets** (STELLAR pair: cosine 0.58, 12
+shared tokens → no cluster). Any surface that presents siblings/clusters as "same person" is
+**overclaiming**; the honest claim is "same behavioral fingerprint / coordinated on-chain."
+
 The meta-insight: the old product only ever asked **forward** questions ("tell me about THIS
 wallet/token"). The substrate makes **inverse** and **relational** questions cheap:
 "given a behavior, find the wallets", "given an outcome, find the antecedent", "given a
@@ -163,3 +200,48 @@ Ranked by (value × cheapness), honest about dependencies:
 outcome→antecedent, token→crowd-quality) and serve them to **machines as much as humans**. The
 substrate's real unspent power is that it makes those inversions O(ms), and no competitor with
 only per-request analysis can answer them at all.
+
+---
+
+## E. PRIORITY EXTRACTION — what to actually start next (decision-ready)
+
+*Distilled from section D + the verified-reality gate. This is the "where do I navigate to"
+list for the next build session. Ordered by (value × cheapness × unblocked).*
+
+**START HERE (top 3, all unblocked, all ride SURFACE-1's batched read):**
+
+1. **SURFACE-1 Surface A + Catalog A2 — cohort-quality on the Holder Profiles table.**
+   The single cheapest "wow" in a daily flow. Replaces the old cohort-scoped `SimilaritySidebar`
+   / client-side `analyzeSimilarityGraph` with DB-wide siblings + confident-cluster badge + drift
+   flag per holder row. **Gate:** must land the one **batched** `WHERE addr IN (...)` helper first
+   (N+1 guard, §5 of the design note). **Reality checks:** pitfall 1 (empty state for no-vector
+   rows), pitfall 2 (cluster badge empty for ~99% is normal). *This is already the chosen
+   SURFACE-1 build — it just also delivers A2 for free.*
+
+2. **Catalog A1 / B3 — "who is accumulating this NEW token" early-crowd fingerprint.**
+   The biggest product *flip* (forensics → alpha). One bounded read over `WalletTokenEdge`
+   (buyers in a firstTs window) → behavior + cluster + winRate. Ship the human panel (A1) and
+   its machine twin (`token_crowd`, B3) from the same read. **Reality checks:** pitfall 1
+   (thin-data empty state under ~10 buyers), pitfall 2 (cluster density will usually be ~0 —
+   present it as "N of M buyers are coordinated," where 0 is the common, correct answer).
+
+3. **Catalog B1 — `wallet_reputation` MCP/API tool (k-NN outcome-by-analogy).**
+   Highest-value *machine* primitive, serves the agent audience the dashboard ideas ignore.
+   kNN neighbors → aggregate their PnL → percentile the seed against its own cohort. No ML.
+   **Reality checks:** pitfall 1 (404 on no-vector seed), and label confidence honestly
+   (n-neighbors, data tier) — never present analogy as prediction.
+
+**THEN (second wave, once the above prove the pattern):**
+
+4. **Catalog A3 / B4 — behavior→wallets cohort search** (the vector space as a search engine;
+   most strategically differentiating; medium effort — the query-vector builder is the real cost).
+
+**PARKED (do not start — blocked on a named prerequisite):**
+
+- **A4 drift watchlist** — blocked on a **rebuild-cadence decision** (pitfall 4). Cheap once
+  that exists; inert until it does.
+- **C2 formation alerting** — blocked on its false-positive backtest gate (SPEC002_T02).
+- **C3 trajectory embeddings / learned metric** — hard-gated: 0 confirmed-positive labels.
+
+**One-line for the next session:** *open SURFACE-1, build Surface A behind the batched read
+(that also gives you A2), then reuse that read for A1/B3; B1 is the parallel machine track.*
