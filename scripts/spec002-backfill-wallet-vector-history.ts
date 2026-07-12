@@ -80,7 +80,11 @@ async function main(): Promise<void> {
             ${sourceVectorJson}::jsonb,
             ${sourceVectorHash},
             (
-              SELECT ("vector" <-> ${row.vectorLiteral}::vector)::float
+              -- Drift over the RAW behavioral source vector (population-invariant),
+              -- not the standardized storage `vector`. Matches the live write-path
+              -- and the tested computeWalletVectorDrift helper. jsonb::text::vector
+              -- reuses pgvector's euclidean operator without a numeric-array UDF.
+              SELECT ("sourceVector"::text::vector <-> ${sourceVectorJson}::jsonb::text::vector)::float
               FROM "WalletVectorHistory"
               WHERE "walletAddress" = ${row.walletAddress}
                 AND "schemaVersion" = ${row.schemaVersion}

@@ -33,6 +33,7 @@ import {
     WALLET_VECTOR_SOURCE_DIMENSIONS,
     WALLET_VECTOR_SCHEMA_VERSION,
     buildWalletSourceVector,
+    computeWalletVectorDrift,
     standardizeWalletVector,
     vectorToSqlLiteral,
 } from 'core/representations/wallet-feature-vector';
@@ -89,6 +90,37 @@ export interface SimilarWalletVectorResult {
     walletAddress: string;
     distance: number;
     builtAt: Date;
+}
+
+/**
+ * One append-only behavioral-vector snapshot from WalletVectorHistory (SPEC002_T01).
+ * `driftFromPrevious` is the euclidean distance over the RAW 32-dim behavioral source
+ * vector to the immediately prior snapshot for the same wallet+schema (null on the
+ * first snapshot). Raw source, not the population-standardized storage vector, so drift
+ * is population-invariant — a wallet only drifts when its own behavior changes.
+ */
+export interface WalletVectorHistoryEntry {
+    id: number;
+    schemaVersion: number;
+    driftFromPrevious: number | null;
+    sourceProfileUpdatedAt: Date;
+    builtAt: Date;
+}
+
+/**
+ * Parse a stored WalletVectorHistory.sourceVector (JSONB) back into the raw 32-dim
+ * feature array used for drift. Returns null on absence or any shape mismatch so a
+ * malformed/legacy prior row degrades to "no drift" instead of throwing and aborting
+ * the enclosing behavior-profile write.
+ */
+function parseStoredSourceVector(value: unknown): number[] | null {
+    if (!Array.isArray(value) || value.length !== WALLET_VECTOR_SOURCE_DIMENSIONS) {
+        return null;
+    }
+    if (!value.every((entry) => typeof entry === 'number' && Number.isFinite(entry))) {
+        return null;
+    }
+    return value as number[];
 }
 
 /**
@@ -3054,6 +3086,7 @@ export class DatabaseService {
             profile.walletAddress,
             WALLET_VECTOR_SCHEMA_VERSION,
             vectorLiteral,
+            sourceVector,
             sourceVectorJson,
             sourceVectorHash,
             profile.updatedAt,
@@ -3075,19 +3108,27 @@ export class DatabaseService {
         walletAddress: string,
         schemaVersion: number,
         vectorLiteral: string,
+        sourceVector: number[],
         sourceVectorJson: string,
         sourceVectorHash: string,
         sourceProfileUpdatedAt: Date,
     ): Promise<void> {
-        const previousRows = await tx.$queryRaw<{ driftFromPrevious: number | null }[]>`
-            SELECT ("vector" <-> ${vectorLiteral}::vector)::float AS "driftFromPrevious"
+        // Drift is computed over the RAW behavioral source vector, not the
+        // population-standardized storage `vector`. Standardization is relative to
+        // PopulationStats, so a wallet whose behavior never changed would show
+        // spurious drift the moment population mean/scale is recomputed. The raw
+        // 32-dim feature vector is the fixed representation SPEC-002 defines drift
+        // over, and matches the tested `computeWalletVectorDrift` helper.
+        const previousRows = await tx.$queryRaw<{ sourceVector: unknown }[]>`
+            SELECT "sourceVector"
             FROM "WalletVectorHistory"
             WHERE "walletAddress" = ${walletAddress}
               AND "schemaVersion" = ${schemaVersion}
             ORDER BY "builtAt" DESC, "id" DESC
             LIMIT 1
         `;
-        const driftFromPrevious = previousRows[0]?.driftFromPrevious ?? null;
+        const previousSourceVector = parseStoredSourceVector(previousRows[0]?.sourceVector);
+        const driftFromPrevious = computeWalletVectorDrift(previousSourceVector, sourceVector);
 
         await tx.$executeRaw`
             INSERT INTO "WalletVectorHistory" (
@@ -3111,6 +3152,34 @@ export class DatabaseService {
                 NOW()
             )
             ON CONFLICT ("walletAddress", "schemaVersion", "sourceVectorHash") DO NOTHING
+        `;
+    }
+
+    /**
+     * SPEC002_T01 read surface: append-only behavioral-vector history for one wallet,
+     * newest first. O(1)-by-wallet via the (walletAddress, schemaVersion, builtAt)
+     * index — never scans the whole table. `limit` is clamped to a bounded window so a
+     * hot wallet with a long history cannot return an unbounded row set. This is the
+     * minimal drift read path; product-facing surfacing is owned by SURFACE-1, which
+     * consumes this helper rather than re-querying the table.
+     */
+    async getWalletVectorHistory(
+        walletAddress: string,
+        limit: number = 50,
+    ): Promise<WalletVectorHistoryEntry[]> {
+        const boundedLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+        return this.prismaClient.$queryRaw<WalletVectorHistoryEntry[]>`
+            SELECT
+                "id",
+                "schemaVersion",
+                "driftFromPrevious",
+                "sourceProfileUpdatedAt",
+                "builtAt"
+            FROM "WalletVectorHistory"
+            WHERE "walletAddress" = ${walletAddress}
+              AND "schemaVersion" = ${WALLET_VECTOR_SCHEMA_VERSION}
+            ORDER BY "builtAt" DESC, "id" DESC
+            LIMIT ${boundedLimit}
         `;
     }
 
