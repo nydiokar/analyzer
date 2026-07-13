@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   WALLET_VECTOR_SOURCE_DIMENSIONS,
   WALLET_VECTOR_STORAGE_DIMENSIONS,
+  WALLET_VECTOR_AXIS_WEIGHTS,
   buildWalletSourceVector,
   computePopulationStats,
   computeWalletVectorDrift,
@@ -47,7 +48,7 @@ const behavior = {
 };
 
 describe('wallet feature vector', () => {
-  it('builds the v2 30-dim source vector and 64-dim storage vector', () => {
+  it('builds the v2 source vector and pads to the storage width', () => {
     const source = buildWalletSourceVector({ behavior, advancedStats: { tokenWinRatePercent: 55 } });
     const padded = padWalletVector(source);
 
@@ -57,6 +58,37 @@ describe('wallet feature vector', () => {
       padded.slice(WALLET_VECTOR_SOURCE_DIMENSIONS),
       Array.from({ length: WALLET_VECTOR_STORAGE_DIMENSIONS - WALLET_VECTOR_SOURCE_DIMENSIONS }, () => 0),
     );
+  });
+
+  it('reads the real dollar-range mcap keys, not the legacy word keys (MCAP-VEC-BUG)', () => {
+    // The whole v2 mcap fix: a dollar-range distribution must produce a nonzero
+    // weighted-median mcap dim (index 12). Legacy word keys must produce zero, so
+    // a regression back to the old reader is caught here.
+    const dollarKeyed = buildWalletSourceVector({ behavior, advancedStats: { tokenWinRatePercent: 55 } });
+    assert.ok(dollarKeyed[12] > 0, 'dollar-range keys must yield a nonzero mcap dim');
+
+    const legacyKeyed = buildWalletSourceVector({
+      behavior: { ...behavior, mcapDistribution: { nano: 0.5, micro: 0.3, mid: 0.2 } },
+      advancedStats: { tokenWinRatePercent: 55 },
+    });
+    assert.equal(legacyKeyed[12], 0, 'legacy word keys are not recognized and must yield 0');
+  });
+
+  it('applies per-axis weights on top of standardization', () => {
+    const a = buildWalletSourceVector({ behavior, advancedStats: { tokenWinRatePercent: 55 } });
+    const b = buildWalletSourceVector({
+      behavior: { ...behavior, percentOfValueInCurrentHoldings: 0.1, totalSellCount: 40 },
+      advancedStats: { tokenWinRatePercent: 10 },
+    });
+    const stats = computePopulationStats([a, b]);
+    const std = standardizeWalletVector(a, stats);
+    // holdingConviction (source index 26, weight 1.8) must not equal a raw z-score:
+    // its standardized value should be scaled by its weight. Compare to the
+    // unweighted z of that dim.
+    const convictionIdx = WALLET_VECTOR_SOURCE_DIMENSIONS - 1;
+    const rawZ = (a[convictionIdx] - stats.means[convictionIdx]) / (stats.scales[convictionIdx] || 1);
+    assert.ok(Math.abs(std[convictionIdx] - rawZ * WALLET_VECTOR_AXIS_WEIGHTS[convictionIdx]) < 1e-6);
+    assert.ok(WALLET_VECTOR_AXIS_WEIGHTS[convictionIdx] !== 1, 'conviction dim is intentionally up-weighted');
   });
 
   it('encodes never-seller presence flag as 0 (GAP A)', () => {

@@ -14,7 +14,10 @@
  *   2. Named confusion           — DISTRIBUTOR->FAST_TRADER, PURE_HOLDER->LOW_ACTIVITY.
  *   3. Per-dim health            — frac-zero per source dim + the max |pearson r|
  *      pair (dead-dim + collinearity gate).
- *   4. Known-connected recovery  — Solomon / FLORK fleets recover, STELLAR does not.
+ *
+ * Known-connected recovery (Solomon/FLORK recover, STELLAR does not) is NOT
+ * measured here — it is covered by scripts/surface1-representation-batch-smoke.ts,
+ * which exercises the materialized cluster/edge path end-to-end. Run that too.
  *
  * Run (version comes from the code constant of whatever is checked out):
  *   npx ts-node -r tsconfig-paths/register scripts/spec-agent12-vector-quality-harness.ts \

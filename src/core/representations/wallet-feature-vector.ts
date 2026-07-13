@@ -78,17 +78,12 @@ export function buildWalletSourceVector(source: WalletFeatureSource): number[] {
   const hour = ((safeNumber(behavior.averageSessionStartHour) % 24) + 24) % 24;
   const hourRad = (hour / 24) * 2 * Math.PI;
 
-  // Axis 5 — holding conviction, the PURE_HOLDER vs LOW_ACTIVITY separator. The
-  // data shows PURE_HOLDER = pctHeld≈1.0 AND never-sold (comp_hold=0); LOW_ACTIVITY
-  // = pctHeld≈0.46 AND does-sell. Two co-directional dims amplify this axis against
-  // dilution by the ~20 activity/speed dims (per adversarial-review GAP; the two
-  // rare types are otherwise close). Both bounded [0,1].
-  // Single holding-conviction dim (merged): pctHeld, strongly boosted when the
-  // wallet has NEVER completed a round-trip (true holder) and attenuated when it
-  // has (a seller). Continuous across the whole population (not sparse), so it
-  // carries variance for everyone while still peaking for PURE_HOLDER (~1.0) and
-  // sitting low for LOW_ACTIVITY (~0.23). Replaces the earlier sparse
-  // pureHolderSignal that read as a dead dim on frac-zero.
+  // Axis 5 — holding conviction, the PURE_HOLDER vs LOW_ACTIVITY separator. Data:
+  // PURE_HOLDER = pctHeld≈1.0 AND never-sold (comp_hold=0); LOW_ACTIVITY = pctHeld≈
+  // 0.46 AND does-sell. Single merged dim: pctHeld, attenuated 0.4× when the wallet
+  // HAS completed a round-trip (a seller) so it peaks for true holders (~1.0) and
+  // sits low for churners (~0.18). Continuous across the whole population (not
+  // sparse) so it carries variance for everyone and does not read as a dead dim.
   const pctHeld = clamp01(behavior.percentOfValueInCurrentHoldings);
   const holdingConviction = clamp01(pctHeld * (hasCompleted ? 0.4 : 1));
 
