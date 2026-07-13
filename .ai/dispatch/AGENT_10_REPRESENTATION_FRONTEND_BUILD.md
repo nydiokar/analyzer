@@ -86,6 +86,35 @@ behavior + cluster + winRate → a token-page panel. Thin-data empty state under
   the Solomon/FLORK wallets hold and confirm the sibling/cluster chips light up correctly, and
   that a STELLAR-type wallet shows *no* false cluster.
 
+## 4b. DURABLE PRINCIPLE — engine swap, not parallel copy (read before any surfacing work)
+
+*Added 2026-07-12 after a build that first violated it, then corrected. This is the standing
+rule for surfacing the representation layer into ANY existing product surface.*
+
+- **The UI reflects the REAL API/engine state.** If a screen ends up showing two answers to the
+  same question, that is not a UI bug — it is the visible symptom of a redundant engine/path that
+  must be reconciled or killed at the SOURCE (service + API), not papered over in the component.
+- **Swap the engine underneath a functionality; do NOT spawn a second parallel functionality.**
+  Before adding UI, trace the existing chain end-to-end (page → endpoint → processor → service →
+  math). Find the ONE link that is the outdated computation and exchange only that link. Do not
+  touch the surrounding pipeline (sync / PnL / behavior / token-mcap enrichment / balances) — that
+  orchestration produces "goodies" other parts depend on; severing it breaks sequencing.
+- **Reconcile scope explicitly.** Cohort-scoped ("who here, in THIS token, is coordinated") and
+  DB-wide ("does this wallet belong to a known ring ANYWHERE") are DIFFERENT questions and both are
+  wanted. Keep both, label each by scope. Never let a new DB-wide signal silently shadow or
+  duplicate an existing cohort signal.
+- **Preserve numeric honesty.** Do not return a new engine's number in an old field that means
+  something else (e.g. behavioral-vector proximity ≠ capital-weighted token overlap). Swap the
+  judgment (clusters/connections) via an ADAPTER into the shape the UI already consumes; keep the
+  old evidence detail (token-overlap bars) intact.
+- **Concrete instance (done):** the holder-profiles `SimilaritySidebar` cluster/connection truth
+  was recomputed client-side per render (`analyzeSimilarityGraph`) from a cohort-scoped queue job
+  that re-fetched raw transactions. The swap: a persisted-engine read `getCohortCoordination()`
+  (materialized `WalletClusterMembership` rings + `WalletWalletEdge` edges) → adapter
+  `buildPersistedGraphAnalysis()` → same `SimilarityGraphAnalysis` shape → same sidebar/table,
+  unchanged interactions. The queue pipeline is untouched; only the coordination judgment moved to
+  the materialized engine (higher confidence, DB-wide corroboration, no per-request tx refetch).
+
 ## 5. Acceptance
 
 - STEP 1 batched read landed (no N+1), STEP 2 + STEP 3 built on existing endpoints, additive,
