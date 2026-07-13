@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo, memo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, memo, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -23,6 +24,7 @@ import { useFavorites } from '@/hooks/useFavorites';
 import { BulkTrackModal } from '@/components/shared/BulkTrackModal';
 import { useSimilarityLabTrackersFlow } from '@/hooks/similarity-lab/useSimilarityLabTrackersFlow';
 import { CreditPurchaseModal } from '@/components/credits/CreditPurchaseModal';
+import { SingleSeedSiblings } from '@/components/similarity-lab/SingleSeedSiblings';
 
 
 // Removed TopProgressBar - progress now handled inline
@@ -32,7 +34,9 @@ const MemoizedSimilarityResultDisplay = memo(SimilarityResultDisplay);
 
 type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 
-export default function AnalysisLabPage() {
+function AnalysisLabContent() {
+  const searchParams = useSearchParams();
+  const seedParam = searchParams.get('seed');
   const PERSIST_KEY = 'similarityLab:lastJob';
   // Core state management - textarea + selected holders are source of truth
   const [inputText, setInputText] = useState<string>('');
@@ -729,6 +733,11 @@ export default function AnalysisLabPage() {
           titleExtra={<FeatureHelpLink slug="similarity-lab" />}
         />
 
+        {/* Surface B: single-seed instant siblings (vector-first, no queue).
+            The pivot destination for a Holder Profiles chip. Additive — the
+            multi-wallet queue flow below is unchanged. */}
+        <SingleSeedSiblings initialSeed={seedParam} />
+
         {/* Main Input Card - 2-column layout with controlled widths */}
         <Card className="p-4">
           <div className="grid grid-cols-1 lg:grid-cols-[460px_minmax(0,1fr)] gap-6">
@@ -837,4 +846,21 @@ export default function AnalysisLabPage() {
       </div>
     </AppShell>
   );
-} 
+}
+
+export default function AnalysisLabPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="w-full px-[10%] lg:px-[15%] py-8">
+            <p className="text-sm text-muted-foreground">Loading Similarity Lab…</p>
+          </div>
+        </AppShell>
+      }
+    >
+      <AnalysisLabContent />
+    </Suspense>
+  );
+}
+

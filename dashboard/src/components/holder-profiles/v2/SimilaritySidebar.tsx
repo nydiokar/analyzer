@@ -28,6 +28,13 @@ interface Props {
   walletRanks?: Map<string, number>;
   /** Callback to share graph analysis (connection counts, clusters) with parent */
   onGraphAnalysisChange?: (analysis: SimilarityGraphAnalysis | null) => void;
+  /**
+   * SURFACE-1 engine swap: when provided, this PERSISTED-engine analysis is the
+   * source of truth for clusters/connections, replacing the client-side
+   * `analyzeSimilarityGraph` recompute. The cohort `similarityResult` pairs are
+   * still used for the token-overlap ribbon (evidence detail).
+   */
+  graphAnalysisOverride?: SimilarityGraphAnalysis | null;
   /** Callback to retry similarity analysis */
   onRetry?: () => void;
 }
@@ -79,6 +86,7 @@ export function SimilaritySidebar({
   onClusterSelect,
   walletRanks,
   onGraphAnalysisChange,
+  graphAnalysisOverride,
   onRetry,
 }: Props) {
   const pairs = useMemo(() => {
@@ -86,11 +94,17 @@ export function SimilaritySidebar({
     return transformToPairs(similarityResult);
   }, [similarityResult]);
 
-  // Analyze similarity graph for clusters and connection counts
+  // SURFACE-1 engine swap: prefer the PERSISTED-engine analysis (materialized
+  // DB-wide rings + coordination edges) as the source of truth for clusters /
+  // connections. Fall back to the legacy client-side recompute only when the
+  // persisted read is not (yet) available, so nothing regresses.
   const graphAnalysis = useMemo<SimilarityGraphAnalysis | null>(() => {
+    if (graphAnalysisOverride !== undefined && graphAnalysisOverride !== null) {
+      return graphAnalysisOverride;
+    }
     if (pairs.length === 0) return null;
     return analyzeSimilarityGraph(pairs);
-  }, [pairs]);
+  }, [graphAnalysisOverride, pairs]);
 
   // Calculate stats - high similarity pairs (>= 80%)
   const stats = useMemo(() => {
