@@ -731,3 +731,61 @@ export interface CreditsBalance {
   transactions: CreditTransaction[];
   usage?: CreditUsageSummary;
 }
+
+// --- SPEC-001/002 wallet representation layer (SURFACE-1) ---
+// Audit-independent signals only: DB-wide siblings, coordination-cluster
+// membership, best-effort drift. Never raw vector dimensions or per-dim scores.
+
+export interface WalletRepresentationSiblings {
+  count: number;
+  topStrategy: string | null;
+  nearestAddress: string | null;
+  medianNeighborWinRate: number | null;
+  coordinatedNeighborCount: number;
+}
+
+export interface WalletRepresentationCluster {
+  clusterId: string;
+  clusterSize: number;
+  role: string | null;
+}
+
+export interface WalletRepresentationDrift {
+  magnitude: number;
+  at: string;
+}
+
+export interface WalletRepresentationSummary {
+  walletAddress: string;
+  hasVector: boolean;
+  siblings: WalletRepresentationSiblings | null;
+  cluster: WalletRepresentationCluster | null;
+  drift: WalletRepresentationDrift | null;
+}
+
+/** Returned by POST /wallets/representation/batch */
+export interface WalletRepresentationBatchResponse {
+  representations: Record<string, WalletRepresentationSummary>;
+  calculatedAt: string;
+}
+
+export interface CohortCoordinationCluster {
+  clusterId: string;
+  clusterSize: number;
+  membersInCohort: Array<{ walletAddress: string; role: string | null }>;
+}
+
+export interface CohortCoordinationEdge {
+  a: string;
+  b: string;
+  sharedNonObvious: number;
+  score: number;
+}
+
+/** Returned by POST /wallets/representation/cohort */
+export interface CohortCoordinationResponse {
+  clusters: CohortCoordinationCluster[];
+  edges: CohortCoordinationEdge[];
+  refreshedAt: string | null;
+  calculatedAt: string;
+}

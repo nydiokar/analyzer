@@ -26,7 +26,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { WalletBadge } from '@/components/shared/WalletBadge';
 import { InfoIcon, Link2 } from 'lucide-react';
 import { useFavoriteActions } from '@/providers/FavoriteModalProvider';
-import type { WalletHudDto } from '@/types/api';
+import type { WalletHudDto, WalletRepresentationSummary } from '@/types/api';
+import { RepresentationChips } from './RepresentationChips';
 
 interface Props {
   profiles: HolderProfile[];
@@ -34,6 +35,7 @@ interface Props {
   tokenMint?: string;
   onSelect?: (profile: HolderProfile) => void;
   hudData?: Record<string, WalletHudDto>;
+  representations?: Record<string, WalletRepresentationSummary>;
   highlightedWallets?: Set<string>;
   connectionCounts?: Map<string, number>;
 }
@@ -43,6 +45,7 @@ interface HolderTableRowProps {
   mode: 'token' | 'wallet';
   tokenMint?: string;
   hud?: WalletHudDto;
+  representation?: WalletRepresentationSummary;
   isHighlighted: boolean;
   connectionCount?: number;
   onSelect?: (profile: HolderProfile) => void;
@@ -116,6 +119,7 @@ const HolderTableRow = memo(function HolderTableRow({
   mode,
   tokenMint,
   hud,
+  representation,
   isHighlighted,
   connectionCount,
   onSelect,
@@ -173,6 +177,7 @@ const HolderTableRow = memo(function HolderTableRow({
     >
       {mode === 'token' && <td className="px-2 py-2 text-muted-foreground whitespace-nowrap w-[56px]">#{profile.rank}</td>}
       <td className="px-4 py-2 min-w-[180px]">
+        <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <WalletBadge
             address={profile.walletAddress}
@@ -200,6 +205,8 @@ const HolderTableRow = memo(function HolderTableRow({
               </TooltipContent>
             </Tooltip>
           ) : null}
+        </div>
+        <RepresentationChips representation={representation} />
         </div>
       </td>
       <td className="px-4 py-2 select-text" data-interactive>
@@ -334,6 +341,7 @@ const HolderTableRow = memo(function HolderTableRow({
     prev.mode === next.mode &&
     prev.tokenMint === next.tokenMint &&
     prev.hud === next.hud &&
+    prev.representation === next.representation &&
     prev.isHighlighted === next.isHighlighted &&
     prev.connectionCount === next.connectionCount &&
     prev.onSelect === next.onSelect
@@ -346,6 +354,7 @@ export function MinimalHoldersTable({
   tokenMint,
   onSelect,
   hudData,
+  representations,
   highlightedWallets,
   connectionCounts,
 }: Props) {
@@ -417,6 +426,7 @@ export function MinimalHoldersTable({
                 mode={mode}
                 tokenMint={tokenMint}
                 hud={hudData?.[profile.walletAddress]}
+                representation={representations?.[profile.walletAddress]}
                 isHighlighted={highlightedWallets?.has(profile.walletAddress) ?? false}
                 connectionCount={connectionCounts?.get(profile.walletAddress)}
                 onSelect={onSelect}

@@ -15,6 +15,7 @@ import { WebSocketModule } from './api/modules/websocket.module'; // Import WebS
 import { HeliusWebhookModule } from './api/integrations/helius-webhook.module';
 import { DiscoverModule } from './api/modules/discover.module';
 import { WalletHudModule } from './api/modules/wallet-hud.module';
+import { WalletRepresentationModule } from './api/modules/wallet-representation.module';
 import { WalletHuntModule } from './api/modules/wallet-hunt.module';
 import { PaymentModule } from './api/modules/payment.module';
 import { IntelModule } from './api/modules/intel.module';
@@ -42,6 +43,7 @@ import { HttpModule } from '@nestjs/axios';
     HeliusWebhookModule, // Helius webhook integration
     DiscoverModule,
     WalletHudModule, // Wallet HUD (Heads-Up Display) for high-signal metrics
+    WalletRepresentationModule, // SPEC-001/002 representation signals for the dashboard (SURFACE-1)
     WalletHuntModule, // Wallet Hunt for detecting person wallets via token intersection
     PaymentModule,    // Solana Pay credit pack checkout
     IntelModule,      // External product API for devs and agents

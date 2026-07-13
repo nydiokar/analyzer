@@ -179,6 +179,79 @@ export interface WalletClusterProjection {
     }>;
 }
 
+/**
+ * Per-wallet representation-layer summary for a bounded holder page (SURFACE-1).
+ *
+ * This is the SINGLE batched read that backs the holder-profiles inline chips:
+ * DB-wide behavioral siblings, stored coordination-cluster membership, and the
+ * best-effort behavioral-drift flag. It is deliberately narrow — it emits only
+ * audit-independent signals (addresses/distance/labels/counts, cluster
+ * membership, a drift magnitude), never raw vector dimensions or any per-dim
+ * derived score. Every field is null/absent when the wallet has no vector
+ * (zero-swap shell) or no cluster (~99% of wallets) — absence is the normal,
+ * expected state, not an error.
+ */
+export interface WalletRepresentationSummary {
+    walletAddress: string;
+    /** True when a behavioral vector exists (i.e. the wallet has traded). */
+    hasVector: boolean;
+    /** DB-wide behavioral nearest-neighbor summary (null when no vector). */
+    siblings: {
+        count: number;
+        /** Most common strategyType among the returned neighbors, if any. */
+        topStrategy: string | null;
+        /** Nearest neighbor address (top-1) for a one-click pivot into the Lab. */
+        nearestAddress: string | null;
+        /** Median neighbor win rate (percent) over neighbors that have one. */
+        medianNeighborWinRate: number | null;
+        /** Count of neighbors that carry a shared-token coordination signal. */
+        coordinatedNeighborCount: number;
+    } | null;
+    /** Stored coordination-cluster membership (null for the ~99% with none). */
+    cluster: {
+        clusterId: string;
+        clusterSize: number;
+        role: string | null;
+    } | null;
+    /** Best-effort behavioral drift (null until a re-analysis appended history). */
+    drift: {
+        magnitude: number;
+        at: string;
+    } | null;
+}
+
+/**
+ * Cohort coordination verdict from the PERSISTED engine (SURFACE-1 engine swap).
+ *
+ * Given the wallets currently on a holder-profiles screen, this is the
+ * materialized-engine answer to "who here is coordinated" — the same question
+ * the old client-side `analyzeSimilarityGraph` recomputed per render from
+ * cohort-scoped capital pairs, but now sourced from the stored
+ * `WalletClusterMembership` (DB-wide rings) + `WalletWalletEdge` (materialized
+ * pairwise coordination). No raw-transaction refetch, no per-request vector
+ * rebuild. `clusters` are the DB-wide rings that ≥2 cohort members belong to
+ * (so the cohort inherits the higher-confidence DB verdict); `edges` are the
+ * materialized coordination edges internal to the cohort (evidence + graph).
+ */
+export interface CohortCoordination {
+    /** DB-wide clusters that ≥2 of the cohort's wallets share (corroboration). */
+    clusters: Array<{
+        clusterId: string;
+        /** DB-wide size of the ring (may exceed the in-cohort member count). */
+        clusterSize: number;
+        /** Cohort members that belong to this DB-wide ring. */
+        membersInCohort: Array<{ walletAddress: string; role: string | null }>;
+    }>;
+    /** Materialized coordination edges whose BOTH endpoints are in the cohort. */
+    edges: Array<{
+        a: string;
+        b: string;
+        sharedNonObvious: number;
+        score: number;
+    }>;
+    refreshedAt: string | null;
+}
+
 // Use Prisma generated types directly where possible, or derive carefully
 export type SwapAnalysisInputCreateData = Prisma.SwapAnalysisInputCreateInput;
 export type AnalysisRunCreateData = Omit<Prisma.AnalysisRunCreateInput, 'id' | 'results' | 'advancedStats'>;
@@ -3402,6 +3475,239 @@ export class DatabaseService {
             refreshedAt: membership.refreshedAt,
             members,
             topEdges,
+        };
+    }
+
+    /**
+     * SURFACE-1 batched representation read — the N+1 guard for the holder table.
+     *
+     * A holder page has up to ~100 rows and needs three per-row signals (DB-wide
+     * siblings, cluster membership, drift). Fetching those per-row would be
+     * 3 x N round trips. This batches every signal that CAN be batched into one
+     * `WHERE addr IN (...)` query:
+     *   - vector presence  → one WalletVector query
+     *   - cluster badge     → one WalletClusterMembership query (+ one sizes query)
+     *   - drift flag        → one WalletVectorHistory query (latest per wallet)
+     *
+     * The DB-wide sibling summary is genuinely per-seed (HNSW is a per-vector
+     * index — it cannot be expressed as a single `IN` scan without defeating the
+     * index). It is therefore run per seed but under a BOUNDED CONCURRENCY POOL
+     * with a small k, so the total cost is bounded rather than an unbounded
+     * fan-out. Concurrency is kept small (default 3) because each HNSW probe runs
+     * inside an interactive transaction (it sets a transaction-local
+     * `hnsw.ef_search` GUC); too many concurrent transactions exhaust the Prisma
+     * connection pool and time out (P2028). Each probe is only ~1.5–46ms, so a
+     * low concurrency still clears a full holder page quickly. The address set is
+     * capped at MAX so a caller cannot request an unbounded batch.
+     *
+     * Emits only audit-independent signals (see WalletRepresentationSummary):
+     * addresses/labels/counts/cluster membership/drift magnitude — never raw
+     * vector dimensions. Wallets with no vector return `hasVector: false` and
+     * null signals; that is the correct "no representation yet" state, not an error.
+     */
+    async getWalletRepresentationBatch(
+        walletAddresses: string[],
+        options?: { siblingK?: number; concurrency?: number },
+    ): Promise<Map<string, WalletRepresentationSummary>> {
+        const MAX_BATCH = 200;
+        const uniqueAddresses = [...new Set(walletAddresses.filter(Boolean))].slice(0, MAX_BATCH);
+        const result = new Map<string, WalletRepresentationSummary>();
+        if (uniqueAddresses.length === 0) return result;
+
+        const siblingK = Math.max(1, Math.min(25, Math.floor(options?.siblingK ?? 10)));
+        // Default serial: each probe holds an interactive transaction (for the
+        // transaction-local hnsw.ef_search GUC). Running several concurrently
+        // overruns the Prisma pool acquisition timeout (P2028) under the default
+        // small pool. Each probe is only ~1.5–46ms, so serial still clears a full
+        // holder page in a few seconds. Callers on a larger pool may opt into a
+        // higher concurrency explicitly.
+        const concurrency = Math.max(1, Math.min(5, Math.floor(options?.concurrency ?? 1)));
+
+        // Seed every address with an empty summary so absent signals read as
+        // "no representation yet" rather than a missing key.
+        for (const addr of uniqueAddresses) {
+            result.set(addr, {
+                walletAddress: addr,
+                hasVector: false,
+                siblings: null,
+                cluster: null,
+                drift: null,
+            });
+        }
+
+        // --- Batched signal 1: vector presence (one IN query) ---
+        const vectorRows = await this.prismaClient.walletVector.findMany({
+            where: { walletAddress: { in: uniqueAddresses }, schemaVersion: WALLET_VECTOR_SCHEMA_VERSION },
+            select: { walletAddress: true },
+        });
+        const vectorSet = new Set(vectorRows.map((row) => row.walletAddress));
+        for (const addr of vectorSet) {
+            const entry = result.get(addr);
+            if (entry) entry.hasVector = true;
+        }
+
+        // --- Batched signal 2: cluster membership (one IN query + one sizes query) ---
+        const memberships = await this.prismaClient.walletClusterMembership.findMany({
+            where: { walletAddress: { in: uniqueAddresses } },
+            select: { walletAddress: true, clusterId: true, clusterSize: true, role: true },
+        });
+        for (const membership of memberships) {
+            const entry = result.get(membership.walletAddress);
+            if (entry) {
+                entry.cluster = {
+                    clusterId: membership.clusterId,
+                    clusterSize: membership.clusterSize,
+                    role: membership.role,
+                };
+            }
+        }
+
+        // --- Batched signal 3: latest drift per wallet (one IN query) ---
+        // WalletVectorHistory is append-only; the newest row per wallet carries the
+        // most recent driftFromPrevious. DISTINCT ON keeps it to one row per wallet.
+        const driftRows = await this.prismaClient.$queryRaw<
+            { walletAddress: string; driftFromPrevious: number | null; builtAt: Date }[]
+        >`
+            SELECT DISTINCT ON ("walletAddress")
+                "walletAddress", "driftFromPrevious", "builtAt"
+            FROM "WalletVectorHistory"
+            WHERE "walletAddress" IN (${Prisma.join(uniqueAddresses)})
+              AND "schemaVersion" = ${WALLET_VECTOR_SCHEMA_VERSION}
+            ORDER BY "walletAddress", "builtAt" DESC, "id" DESC
+        `;
+        for (const row of driftRows) {
+            const entry = result.get(row.walletAddress);
+            if (entry && row.driftFromPrevious != null) {
+                entry.drift = { magnitude: roundVectorNumberLocal(row.driftFromPrevious), at: row.builtAt.toISOString() };
+            }
+        }
+
+        // --- Per-seed signal 4: DB-wide siblings (bounded concurrency, only for vectored seeds) ---
+        const vectoredSeeds = uniqueAddresses.filter((addr) => vectorSet.has(addr));
+        for (let i = 0; i < vectoredSeeds.length; i += concurrency) {
+            const slice = vectoredSeeds.slice(i, i + concurrency);
+            await Promise.all(
+                slice.map(async (seed) => {
+                    const ranked = await this.findRankedSimilarWallets(seed, siblingK);
+                    if (ranked.length === 0) {
+                        const entry = result.get(seed);
+                        if (entry) {
+                            entry.siblings = {
+                                count: 0,
+                                topStrategy: null,
+                                nearestAddress: null,
+                                medianNeighborWinRate: null,
+                                coordinatedNeighborCount: 0,
+                            };
+                        }
+                        return;
+                    }
+                    const enrichment = await this.getWalletBehaviorEnrichment(ranked.map((n) => n.walletAddress));
+                    const strategyCounts = new Map<string, number>();
+                    const winRates: number[] = [];
+                    for (const neighbor of ranked) {
+                        const info = enrichment.get(neighbor.walletAddress);
+                        if (info?.strategyType) {
+                            strategyCounts.set(info.strategyType, (strategyCounts.get(info.strategyType) ?? 0) + 1);
+                        }
+                        if (info?.winRate != null) winRates.push(info.winRate);
+                    }
+                    let topStrategy: string | null = null;
+                    let topStrategyCount = 0;
+                    for (const [strategy, count] of strategyCounts) {
+                        if (count > topStrategyCount) {
+                            topStrategy = strategy;
+                            topStrategyCount = count;
+                        }
+                    }
+                    let medianNeighborWinRate: number | null = null;
+                    if (winRates.length > 0) {
+                        winRates.sort((a, b) => a - b);
+                        const mid = Math.floor(winRates.length / 2);
+                        medianNeighborWinRate = winRates.length % 2 === 0
+                            ? roundVectorNumberLocal((winRates[mid - 1] + winRates[mid]) / 2)
+                            : winRates[mid];
+                    }
+                    const coordinatedNeighborCount = ranked.filter((n) => n.sharedTokenCount > 0).length;
+                    const entry = result.get(seed);
+                    if (entry) {
+                        entry.siblings = {
+                            count: ranked.length,
+                            topStrategy,
+                            nearestAddress: ranked[0]?.walletAddress ?? null,
+                            medianNeighborWinRate,
+                            coordinatedNeighborCount,
+                        };
+                    }
+                }),
+            );
+        }
+
+        return result;
+    }
+
+    /**
+     * SURFACE-1 engine swap: cohort coordination from the PERSISTED graph.
+     *
+     * Replaces the client-side `analyzeSimilarityGraph` cluster/connection
+     * recompute for the holder-profiles screen. Two bounded reads over the
+     * cohort address set (no raw-tx refetch, no per-request vector rebuild):
+     *   1. `WalletClusterMembership WHERE addr IN (cohort)` → group by clusterId,
+     *      keep rings with ≥2 cohort members (a single-member "ring" carries no
+     *      cohort coordination signal — the DB-wide chip already shows it).
+     *   2. `WalletWalletEdge WHERE a IN (cohort) AND b IN (cohort)` → the
+     *      materialized coordination edges internal to this cohort (the graph
+     *      the sidebar draws + the connection counts).
+     * Address set capped so a caller cannot request an unbounded cohort.
+     */
+    async getCohortCoordination(walletAddresses: string[]): Promise<CohortCoordination> {
+        const MAX_COHORT = 300;
+        const cohort = [...new Set(walletAddresses.filter(Boolean))].slice(0, MAX_COHORT);
+        if (cohort.length < 2) {
+            return { clusters: [], edges: [], refreshedAt: null };
+        }
+
+        const [memberships, edges] = await Promise.all([
+            this.prismaClient.walletClusterMembership.findMany({
+                where: { walletAddress: { in: cohort } },
+                select: { walletAddress: true, clusterId: true, clusterSize: true, role: true, refreshedAt: true },
+            }),
+            this.prismaClient.walletWalletEdge.findMany({
+                where: { a: { in: cohort }, b: { in: cohort } },
+                select: { a: true, b: true, sharedNonObvious: true, score: true, refreshedAt: true },
+                orderBy: [{ score: 'desc' }],
+                take: 2000,
+            }),
+        ]);
+
+        // Group memberships by DB-wide cluster; keep only rings with ≥2 cohort
+        // members (that is the cohort-level coordination signal).
+        const byCluster = new Map<string, { clusterSize: number; members: Array<{ walletAddress: string; role: string | null }> }>();
+        let refreshedAt: Date | null = null;
+        for (const m of memberships) {
+            if (!byCluster.has(m.clusterId)) {
+                byCluster.set(m.clusterId, { clusterSize: m.clusterSize, members: [] });
+            }
+            byCluster.get(m.clusterId)!.members.push({ walletAddress: m.walletAddress, role: m.role });
+            if (!refreshedAt || m.refreshedAt > refreshedAt) refreshedAt = m.refreshedAt;
+        }
+        for (const e of edges) {
+            if (!refreshedAt || e.refreshedAt > refreshedAt) refreshedAt = e.refreshedAt;
+        }
+
+        const clusters = [...byCluster.entries()]
+            .filter(([, v]) => v.members.length >= 2)
+            .map(([clusterId, v]) => ({
+                clusterId,
+                clusterSize: v.clusterSize,
+                membersInCohort: v.members.sort((a, b) => a.walletAddress.localeCompare(b.walletAddress)),
+            }))
+            .sort((a, b) => b.membersInCohort.length - a.membersInCohort.length);
+
+        return {
+            clusters,
+            edges: edges.map((e) => ({ a: e.a, b: e.b, sharedNonObvious: e.sharedNonObvious, score: e.score })),
+            refreshedAt: refreshedAt ? refreshedAt.toISOString() : null,
         };
     }
 

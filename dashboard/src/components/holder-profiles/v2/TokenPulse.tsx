@@ -13,6 +13,10 @@ import { CognitiveMetricCard } from './CognitiveMetricCard';
 import type { CombinedSimilarityResult } from '@/components/similarity-lab/results/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useWalletHudCache } from '@/hooks/useWalletHudCache';
+import { useWalletRepresentationBatch } from '@/hooks/useWalletRepresentationBatch';
+import { useCohortCoordination } from '@/hooks/useCohortCoordination';
+import { buildPersistedGraphAnalysis } from './utils/persisted-coordination';
+import { CohortQualityBadge } from './CohortQualityBadge';
 
 interface Props {
   result: HolderProfilesResult;
@@ -96,6 +100,25 @@ export function TokenPulse({
     enabled: shouldHydrateHud,
     proactiveFetch: true,
   });
+
+  // SURFACE-1 batched representation read (DB-wide siblings / cluster / drift).
+  // One request per ≤100-address page — the N+1 guard. Absence per wallet is the
+  // normal "no representation yet" state, handled inside the chips/badge.
+  const { data: representations } = useWalletRepresentationBatch(walletAddresses, {
+    enabled: shouldHydrateHud,
+  });
+
+  // SURFACE-1 engine swap: cohort coordination now comes from the PERSISTED
+  // materialized graph (DB-wide rings + WalletWalletEdge), replacing the old
+  // client-side analyzeSimilarityGraph recompute as the source of truth. Adapted
+  // to the exact SimilarityGraphAnalysis shape the sidebar/table already consume.
+  const { data: cohortCoordination } = useCohortCoordination(walletAddresses, {
+    enabled: shouldHydrateHud,
+  });
+  const persistedGraphAnalysis = useMemo(
+    () => buildPersistedGraphAnalysis(cohortCoordination),
+    [cohortCoordination],
+  );
 
   // Handle pair selection - persistently highlight wallets in table until clicked again
   const handlePairSelect = useCallback((wallets: [string, string] | null) => {
@@ -244,15 +267,22 @@ export function TokenPulse({
             </div>
           </div>
           <div>
-            <p className="text-sm font-medium mb-3">Supporting evidence</p>
+            <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+              <p className="text-sm font-medium">Supporting evidence</p>
+              <CohortQualityBadge
+                representations={representations}
+                walletAddresses={walletAddresses}
+              />
+            </div>
             <MinimalHoldersTable
               profiles={result.profiles}
               mode="token"
               tokenMint={result.tokenMint}
               onSelect={(profile) => setSelectedProfile(profile)}
               hudData={hudData}
+              representations={representations}
               highlightedWallets={highlightedWallets}
-              connectionCounts={graphAnalysis?.connectionCounts}
+              connectionCounts={(persistedGraphAnalysis ?? graphAnalysis)?.connectionCounts}
             />
           </div>
         </div>
@@ -268,6 +298,7 @@ export function TokenPulse({
           onClusterSelect={handleClusterSelect}
           walletRanks={walletRanks}
           onGraphAnalysisChange={handleGraphAnalysisChange}
+          graphAnalysisOverride={persistedGraphAnalysis}
           onRetry={onRetrySimilarity}
         />
       </div>
