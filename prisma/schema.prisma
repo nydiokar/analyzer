@@ -38,6 +38,7 @@ model Wallet {
   kolProfile                   KolProfile?
   vector                       WalletVector?
   vectorHistory                WalletVectorHistory[]
+  capitalVector                WalletCapitalVector?
 
   @@index([classification])
   @@index([classificationConfidence])
@@ -74,6 +75,27 @@ model WalletVectorHistory {
 }
 
 model PopulationStats {
+  id            Int      @id @default(1)
+  schemaVersion Int
+  means         Json
+  scales        Json
+  walletCount   Int
+  computedAt    DateTime @updatedAt
+}
+
+model WalletCapitalVector {
+  walletAddress String                    @id
+  schemaVersion Int
+  vector        Unsupported("vector(16)")
+  sourceVector  Json
+  dataQuality   Float
+  builtAt       DateTime                  @updatedAt
+  wallet        Wallet                    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@index([schemaVersion])
+}
+
+model CapitalPopulationStats {
   id            Int      @id @default(1)
   schemaVersion Int
   means         Json

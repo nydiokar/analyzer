@@ -37,6 +37,14 @@ import {
     standardizeWalletVector,
     vectorToSqlLiteral,
 } from 'core/representations/wallet-feature-vector';
+import {
+    CAPITAL_VECTOR_SCHEMA_VERSION,
+    CAPITAL_VECTOR_SOURCE_DIMENSIONS,
+    buildCapitalSourceVector,
+    computeCapitalDataQuality,
+    standardizeCapitalVector,
+    capitalVectorToSqlLiteral,
+} from 'core/representations/capital-feature-vector';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -89,6 +97,19 @@ export interface WalletTimeRangeInfo {
 export interface SimilarWalletVectorResult {
     walletAddress: string;
     distance: number;
+    builtAt: Date;
+}
+
+/**
+ * One capital/outcome nearest-neighbor result (AGENT_11). Carries the bounded
+ * per-wallet dataQuality — a consumer MUST NOT treat a low-quality neighbor as
+ * ground-truth "skilled" (money magnitude is corrupted by untracked transfers /
+ * paper gains / dust volume).
+ */
+export interface SimilarCapitalVectorResult {
+    walletAddress: string;
+    distance: number;
+    dataQuality: number;
     builtAt: Date;
 }
 
@@ -3114,6 +3135,10 @@ export class DatabaseService {
               });
 
               await this.upsertWalletVectorForProfile(tx, savedProfile);
+              // AGENT_11: the capital/outcome vector self-populates on the same
+              // write (a full analysis refreshes behavior + PnL + advancedStats
+              // together). confidenceScore rides from the freshly-saved profile.
+              await this.upsertCapitalVectorForWallet(tx, savedProfile.walletAddress, savedProfile.confidenceScore);
               return savedProfile;
             });
             return profile;
@@ -3172,6 +3197,61 @@ export class DatabaseService {
                 "schemaVersion" = EXCLUDED."schemaVersion",
                 "vector" = EXCLUDED."vector",
                 "sourceVector" = EXCLUDED."sourceVector",
+                "builtAt" = NOW()
+        `;
+    }
+
+    /**
+     * AGENT_11 live write-path: build + upsert the capital/outcome vector for a
+     * wallet in-transaction, so it self-populates on live imports (not
+     * retrospective-only). Gates on CapitalPopulationStats exactly like the
+     * behavior vector gates on PopulationStats: if the capital population isn't
+     * built yet (or dim mismatch), it no-ops rather than writing an un-standardized
+     * vector. Reads its own PnL + advancedStats; confidenceScore is passed in from
+     * the caller's freshly-saved behavior profile.
+     */
+    private async upsertCapitalVectorForWallet(
+        tx: Prisma.TransactionClient,
+        walletAddress: string,
+        confidenceScore: number | null,
+    ): Promise<void> {
+        const stats = await tx.capitalPopulationStats.findUnique({ where: { id: 1 } });
+        if (!stats || stats.schemaVersion !== CAPITAL_VECTOR_SCHEMA_VERSION) {
+            return;
+        }
+        const means = Array.isArray(stats.means) ? stats.means.filter((v): v is number => typeof v === 'number') : [];
+        const scales = Array.isArray(stats.scales) ? stats.scales.filter((v): v is number => typeof v === 'number') : [];
+        if (means.length !== CAPITAL_VECTOR_SOURCE_DIMENSIONS || scales.length !== CAPITAL_VECTOR_SOURCE_DIMENSIONS) {
+            this.logger.warn(`Skipping WalletCapitalVector write for ${walletAddress}: invalid CapitalPopulationStats`);
+            return;
+        }
+
+        const summary = await tx.walletPnlSummary.findUnique({
+            where: { walletAddress },
+            include: { advancedStats: true },
+        });
+        if (!summary) {
+            return; // no money data yet -> no capital vector (mirrors zero-swap behavior gate)
+        }
+
+        const featureSource = {
+            pnl: summary,
+            advancedStats: summary.advancedStats ?? null,
+            confidenceScore,
+        };
+        const sourceVector = buildCapitalSourceVector(featureSource);
+        const dataQuality = computeCapitalDataQuality(featureSource);
+        const vectorLiteral = capitalVectorToSqlLiteral(standardizeCapitalVector(sourceVector, { means, scales }));
+        const sourceVectorJson = JSON.stringify(sourceVector);
+
+        await tx.$executeRaw`
+            INSERT INTO "WalletCapitalVector" ("walletAddress", "schemaVersion", "vector", "sourceVector", "dataQuality", "builtAt")
+            VALUES (${walletAddress}, ${CAPITAL_VECTOR_SCHEMA_VERSION}, ${vectorLiteral}::vector, ${sourceVectorJson}::jsonb, ${dataQuality}, NOW())
+            ON CONFLICT ("walletAddress") DO UPDATE SET
+                "schemaVersion" = EXCLUDED."schemaVersion",
+                "vector" = EXCLUDED."vector",
+                "sourceVector" = EXCLUDED."sourceVector",
+                "dataQuality" = EXCLUDED."dataQuality",
                 "builtAt" = NOW()
         `;
     }
@@ -3301,6 +3381,49 @@ export class DatabaseService {
                     v."builtAt"
                 FROM "WalletVector" v
                 WHERE v."schemaVersion" = ${WALLET_VECTOR_SCHEMA_VERSION}
+                  AND v."walletAddress" <> ${walletAddress}
+                ORDER BY v."vector" <=> ${seedVector}::vector
+                LIMIT ${boundedLimit}
+            `;
+        });
+    }
+
+    /**
+     * Capital/outcome nearest-neighbor retrieval over WalletCapitalVector (AGENT_11),
+     * backed by the HNSW cosine index. Mirrors findSimilarWalletVectors exactly
+     * (bound-literal seed to keep the index; transaction-local ef_search GUC).
+     * Returns each neighbor's bounded dataQuality — the caller MUST surface it so a
+     * low-quality neighbor is never read as ground-truth "skilled".
+     */
+    async findSimilarCapitalVectors(
+        walletAddress: string,
+        limit: number = 20,
+        efSearch: number = 100,
+    ): Promise<SimilarCapitalVectorResult[]> {
+        const boundedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+        const boundedEfSearch = Math.max(boundedLimit, Math.min(500, Math.floor(efSearch)));
+
+        return this.prismaClient.$transaction(async (tx) => {
+            const seedRows = await tx.$queryRaw<{ vector: string }[]>`
+                SELECT "vector"::text AS "vector"
+                FROM "WalletCapitalVector"
+                WHERE "walletAddress" = ${walletAddress}
+                  AND "schemaVersion" = ${CAPITAL_VECTOR_SCHEMA_VERSION}
+                LIMIT 1
+            `;
+            const seedVector = seedRows[0]?.vector;
+            if (!seedVector) return [];
+
+            await tx.$executeRaw`SELECT set_config('hnsw.ef_search', ${String(boundedEfSearch)}, true)`;
+
+            return tx.$queryRaw<SimilarCapitalVectorResult[]>`
+                SELECT
+                    v."walletAddress",
+                    (v."vector" <=> ${seedVector}::vector)::float AS "distance",
+                    v."dataQuality",
+                    v."builtAt"
+                FROM "WalletCapitalVector" v
+                WHERE v."schemaVersion" = ${CAPITAL_VECTOR_SCHEMA_VERSION}
                   AND v."walletAddress" <> ${walletAddress}
                 ORDER BY v."vector" <=> ${seedVector}::vector
                 LIMIT ${boundedLimit}
