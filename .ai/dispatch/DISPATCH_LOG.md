@@ -77,3 +77,24 @@ is now proof-on-real-data, which fans out to close three in_progress jobs at onc
 A future SPEC002_T05 (learned metric) stays blocked until T04's ledger + T05's counts jointly pass
 the §6 thresholds. T04's ledger is now built, so the learned-metric lane is **half-unblocked**:
 the label substrate exists; the remaining blocker is real label volume (SPEC_T05) clearing §6.
+
+---
+
+## Representation surfacing + fidelity wave (2026-07-13)
+
+- **AGENT_10 / SURFACE-1 — DONE.** Representation layer surfaced into the dashboard (Surface A holder
+  chips, Surface B single-seed siblings) + cohort-coordination engine-swap (materialized rings/edges
+  replace the client-side recompute). Committed in 3 buildable commits.
+- **AGENT_12 (behavior vector v2) — DONE.** Adversarially reviewed the brief first (5 gaps filed:
+  null-semantics, all-or-nothing version cutover, false retention guard, mandatory test/stats
+  recompute, missing harness), then executed via the corrected order. Built a version-parameterized
+  quality harness (same script v1↔v2), froze v1 baseline, rebuilt 32→27 dims (fix MCAP-VEC-BUG, drop
+  8 collinear dims, add closed-hold+presence/sellSkew/session-sin-cos/conviction, re-weight
+  post-standardization). Proven better: DISTRIBUTOR purity 0.26→0.55, dead dims 6→0, max|r| 0.98→0.81,
+  known-connected preserved. Downstream re-materialized; live write-path emits v2. Cutover made
+  portable (stats-flip-last; prod = backfill→deploy).
+- **AGENT_11 (capital embedding) — DONE.** Part A audit gated GREEN; Part B built the money-axis as a
+  SEPARATE `WalletCapitalVector` (8 bounded axes + dataQuality honesty score, HNSW), backfilled 99.8%,
+  live-write-path hooked + proven, `findSimilarCapitalVectors` returns dataQuality per neighbor.
+  Self-review caught 2 real bugs (unbounded PCI dead dim; sd==0 false-max-consistency).
+- **AGENT_13 (behavior×capital typology) — now UNBLOCKED** (both upstream landed).
