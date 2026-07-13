@@ -81,7 +81,7 @@ async function main(): Promise<void> {
             ${sourceVectorHash},
             (
               -- Drift over the RAW behavioral source vector (population-invariant),
-              -- not the standardized storage `vector`. Matches the live write-path
+              -- not the standardized storage vector. Matches the live write-path
               -- and the tested computeWalletVectorDrift helper. jsonb::text::vector
               -- reuses pgvector's euclidean operator without a numeric-array UDF.
               SELECT ("sourceVector"::text::vector <-> ${sourceVectorJson}::jsonb::text::vector)::float

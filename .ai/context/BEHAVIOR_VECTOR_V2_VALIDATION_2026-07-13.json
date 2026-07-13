@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-13T11:46:16.154Z",
+  "args": {
+    "seedsPerType": 100,
+    "k": 20,
+    "out": ".ai/context/BEHAVIOR_VECTOR_V2_VALIDATION_2026-07-13.json"
+  },
+  "perType": [
+    {
+      "type": "FAST_TRADER",
+      "seedCount": 100,
+      "meanPurity": 0.905,
+      "confusionInto": {
+        "DAY_TRADER": 0.036,
+        "ACCUMULATOR": 0.038,
+        "DISTRIBUTOR": 0.019,
+        "LOW_ACTIVITY": 0.002
+      }
+    },
+    {
+      "type": "LOW_ACTIVITY",
+      "seedCount": 100,
+      "meanPurity": 0.886,
+      "confusionInto": {
+        "ACCUMULATOR": 0.045,
+        "PURE_HOLDER": 0.024,
+        "BALANCED_TRADER": 0.014,
+        "DISTRIBUTOR": 0.002,
+        "FAST_TRADER": 0.026,
+        "DAY_TRADER": 0.003,
+        "SWING_TRADER": 0.001
+      }
+    },
+    {
+      "type": "ACCUMULATOR",
+      "seedCount": 100,
+      "meanPurity": 0.713,
+      "confusionInto": {
+        "FAST_TRADER": 0.151,
+        "LOW_ACTIVITY": 0.047,
+        "DAY_TRADER": 0.07,
+        "BALANCED_TRADER": 0.002,
+        "SWING_TRADER": 0.013,
+        "POSITION_TRADER": 0.005
+      }
+    },
+    {
+      "type": "DAY_TRADER",
+      "seedCount": 100,
+      "meanPurity": 0.639,
+      "confusionInto": {
+        "FAST_TRADER": 0.226,
+        "SWING_TRADER": 0.054,
+        "ACCUMULATOR": 0.064,
+        "LOW_ACTIVITY": 0.009,
+        "DISTRIBUTOR": 0.007,
+        "POSITION_TRADER": 0.002
+      }
+    },
+    {
+      "type": "DISTRIBUTOR",
+      "seedCount": 100,
+      "meanPurity": 0.547,
+      "confusionInto": {
+        "FAST_TRADER": 0.391,
+        "LOW_ACTIVITY": 0.012,
+        "DAY_TRADER": 0.031,
+        "SWING_TRADER": 0.013,
+        "POSITION_TRADER": 0.007
+      }
+    },
+    {
+      "type": "POSITION_TRADER",
+      "seedCount": 100,
+      "meanPurity": 0.5,
+      "confusionInto": {
+        "SWING_TRADER": 0.359,
+        "ACCUMULATOR": 0.106,
+        "LOW_ACTIVITY": 0.014,
+        "DISTRIBUTOR": 0.008,
+        "DAY_TRADER": 0.014
+      }
+    },
+    {
+      "type": "SWING_TRADER",
+      "seedCount": 100,
+      "meanPurity": 0.499,
+      "confusionInto": {
+        "DAY_TRADER": 0.203,
+        "POSITION_TRADER": 0.152,
+        "ACCUMULATOR": 0.133,
+        "LOW_ACTIVITY": 0.009,
+        "DISTRIBUTOR": 0.005
+      }
+    },
+    {
+      "type": "PURE_HOLDER",
+      "seedCount": 100,
+      "meanPurity": 0.289,
+      "confusionInto": {
+        "LOW_ACTIVITY": 0.711
+      }
+    },
+    {
+      "type": "BALANCED_TRADER",
+      "seedCount": 100,
+      "meanPurity": 0.164,
+      "confusionInto": {
+        "LOW_ACTIVITY": 0.72,
+        "ACCUMULATOR": 0.078,
+        "FAST_TRADER": 0.032,
+        "DISTRIBUTOR": 0.005
+      }
+    }
+  ],
+  "dimHealth": {
+    "dims": 27,
+    "fracZero": [
+      0.053,
+      0.054,
+      0.053,
+      0.109,
+      0.053,
+      0.053,
+      0.071,
+      0.088,
+      0.002,
+      0.002,
+      0.002,
+      0.053,
+      0.272,
+      0.053,
+      0.106,
+      0.04,
+      0.079,
+      0.238,
+      0,
+      0.147,
+      0.079,
+      0.12,
+      0.12,
+      0.049,
+      0.008,
+      0,
+      0.079
+    ],
+    "deadDims": [],
+    "maxAbsCorr": {
+      "i": 5,
+      "j": 13,
+      "r": 0.81
+    }
+  }
+}
