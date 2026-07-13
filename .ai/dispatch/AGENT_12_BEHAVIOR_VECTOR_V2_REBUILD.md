@@ -1,5 +1,23 @@
 # AGENT 12 — Behavior Vector v2 Rebuild (apply the axis map) + live-pipeline integration audit
 
+> **⚠️ READ FIRST — this brief was adversarially reviewed 2026-07-13 and is NOT complete enough to
+> follow literally.** See `.ai/context/AGENT_12_ADVERSARIAL_REVIEW_2026-07-13.md`. Every core claim
+> was verified live on :5434 and holds, but FIVE gaps were found — execute via the review's
+> **corrected order (§6)**, not this brief's §1–§3 sequencing. Non-negotiable additions:
+> - **GAP A:** `medianCompletedHoldTimeHours` is null on 11.8% (buy-only wallets). missing→0 reads as
+>   "instant exit" — WRONG for a never-seller. Carry a presence signal; don't let 0 mean fast.
+> - **GAP B (biggest):** `WALLET_VECTOR_SCHEMA_VERSION` is a hard `WHERE` filter in every read/write +
+>   the WW-edge script. Flipping it = **all version-filtered surfaces go EMPTY** until v2 backfill
+>   completes. `WalletVector` PK is `walletAddress` (`ON CONFLICT`) → **v2 clobbers v1, no coexistence.**
+>   Decide + document the cutover model (rebuild-window on :5434 is fine; shadow-table for prod) BEFORE
+>   touching the constant.
+> - **GAP C:** brief §5 "v1 rows may be retained" is FALSE for `WalletVector` (only `WalletVectorHistory`
+>   is append-only/version-scoped).
+> - **GAP D:** the test goldens + PopulationStats recompute are NOT optional. One builder, one constant,
+>   bump in place — no `v2`-suffixed parallel module.
+> - **GAP E:** the "re-run the audit harness" does NOT exist as a committed script. WRITE it first, run
+>   on v1 to capture the baseline, THEN build v2. It is a prerequisite, not a step inside the rebuild.
+
 Lane: BUILD / representation. This is the direct continuation of the REPR-QUAL audit: the audit produced
 a validated map of what's dead / redundant / missing in the current 32-dim behavior vector. This job
 **spends that map** — rebuilds the vector to schema v2, and confirms the whole thing self-populates on
