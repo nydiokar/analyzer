@@ -207,6 +207,24 @@ export class SimilarityService {
         for (const addr of walletsWithFetchedData) { cosineSimilarityMatrix[addr] = {}; }
     }
     
+    // TODO(perf): O(n²) MEMORY PROBLEM — MUST FIX BEFORE SCALING PAST ~100 WALLETS
+    //
+    // aggregateSimilarityMetrics() builds a flat pairwiseSimilarities array with n*(n-1)/2 entries.
+    // At 170 wallets that's 14,365 pairs, each carrying a sharedTokens[] array that nobody reads
+    // at runtime (the frontend only uses the matrix views and top-5 mostSimilarPairs).
+    // On top of that we hold 5 separate n×n matrices in memory simultaneously.
+    // Entire result is then JSON.stringified and written to Redis — payload grows quadratically.
+    //
+    // Fix plan:
+    //   1. Drop sharedTokens from pairwiseSimilarities when walletCount > threshold (say 50).
+    //      The per-pair token list is only shown in the drilldown UI, which can re-query on demand.
+    //   2. Switch the 5 n×n matrix objects to use numeric indices internally (flat Float32Array),
+    //      expanding to the address-keyed form only at serialisation time.
+    //   3. Paginate getTransactionsForAnalysis — currently loads all rows for all wallets in one
+    //      unbounded query; add a per-wallet LIMIT and stream wallet batches instead.
+    //   4. Compute pairwiseSimilarities as a streaming reduce (never materialise the full list —
+    //      emit top-K and the full matrix, discard the rest).
+    //
     // Aggregate cosine results into SimilarityMetrics structure
     const coreMetrics = this.similarityAnalyzer['aggregateSimilarityMetrics'](
         cosineSimilarityMatrix,

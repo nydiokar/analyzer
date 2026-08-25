@@ -158,7 +158,7 @@ export class AnalysesController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({
     summary: 'Queue a similarity analysis job',
-    description: 'Adds a similarity analysis job to the BullMQ queue for background processing. Max 30 wallets per request. Returns job ID and status for monitoring via the Jobs API.'
+    description: 'Adds a similarity analysis job to the BullMQ queue for background processing. Max 50 wallets for regular users, 200 for owner. Returns job ID and status for monitoring via the Jobs API.'
   })
   @ApiBody({ 
     type: SimilarityAnalysisRequestDto,
@@ -202,6 +202,19 @@ export class AnalysesController {
     // Validate input
     if (!dto.walletAddresses || dto.walletAddresses.length < 2) {
       throw new BadRequestException('At least two wallet addresses are required for similarity analysis.');
+    }
+
+    // Wallet count enforcement: 30 for regular users, 200 for owner
+    const OWNER_EMAIL = process.env.OWNER_EMAIL;
+    const isOwner = !!OWNER_EMAIL && req.user?.email === OWNER_EMAIL;
+    const walletLimit = isOwner ? 200 : 50;
+    if (dto.walletAddresses.length > walletLimit) {
+      throw new BadRequestException(
+        `Too many wallets: ${dto.walletAddresses.length} provided, max is ${walletLimit}.`
+      );
+    }
+    if (isOwner && dto.walletAddresses.length > 50) {
+      this.logger.warn(`Owner bypass: running similarity for ${dto.walletAddresses.length} wallets (above standard 50-wallet limit).`);
     }
 
     // Validate wallet addresses

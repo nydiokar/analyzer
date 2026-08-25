@@ -20,6 +20,12 @@ import { X402VerificationService } from '../../services/x402-verification.servic
 interface AuthenticatedRequest extends Request {
   user?: User;
   apiKeyScopes?: ApiKeyScope[];
+  apiKeyInfo?: {
+    id?: string;
+    prefix?: string;
+    description?: string;
+    scopes?: ApiKeyScope[];
+  };
 }
 
 @Injectable()
@@ -120,6 +126,7 @@ export class CompositeAuthGuard implements CanActivate {
           this.ensureEmailVerified(allowUnverified, request, result.user);
           request.user = result.user;
           request.apiKeyScopes = result.scopes;
+          request.apiKeyInfo = result.keyInfo;
           return true;
         }
       } catch (error) {
@@ -228,7 +235,7 @@ export class CompositeAuthGuard implements CanActivate {
     }
   }
 
-  private async validateApiKey(apiKey: string): Promise<{ user: User; scopes: ApiKeyScope[] } | null> {
+  private async validateApiKey(apiKey: string): Promise<{ user: User; scopes: ApiKeyScope[]; keyInfo?: AuthenticatedRequest['apiKeyInfo'] } | null> {
     try {
       // Use the new API key service for validation
       const result = await this.apiKeyService.validateApiKey(apiKey);
@@ -239,7 +246,8 @@ export class CompositeAuthGuard implements CanActivate {
 
       return {
         user: result.user,
-        scopes: result.scopes || []
+        scopes: result.scopes || [],
+        keyInfo: result.keyInfo,
       };
     } catch (error) {
       // Don't log here - already logged in canActivate with throttling

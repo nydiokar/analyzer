@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 import { JobsController } from '../controllers/jobs.controller';
 import { JobsService } from '../services/jobs.service';
-import { QueueModule } from '../../queues/queue.module';
 
+// QueueModule and DatabaseModule are both @Global() — no explicit import needed.
+// Removing the QueueModule import here breaks the 3-module cycle:
+// QueueModule → WebSocketModule → (forwardRef) JobsModule → QueueModule
 @Module({
-  imports: [
-    QueueModule, // Import QueueModule to access queue services + REDIS_CLIENT (globally available)
-  ],
+  imports: [],
   controllers: [JobsController],
   providers: [JobsService],
-  exports: [JobsService], // Export JobsService for use in other modules (C3 task)
+  exports: [JobsService],
 })
 export class JobsModule {} 

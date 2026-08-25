@@ -2,15 +2,16 @@ module.exports = {
   apps : [{
     name        : "sova-backend-api",
     script      : "dist/main.js",     // Path to your NestJS entry point
-    node_args   : "-r tsconfig-paths/register", // Crucial for resolving path aliases
+    node_args   : "-r tsconfig-paths/register --max-old-space-size=6144", // path aliases + 6G heap for large similarity jobs
     watch       : false,
-    // Keep in sync with prod expectations; heavy similarity/analysis bursts can exceed 1G RSS.
-    max_memory_restart : '2G',       // Optional: restart if it exceeds memory
-    env_production: {                // Environment variables for production
+    max_memory_restart : '6G',       // raised from 2G — large similarity jobs peak ~2.3GB RSS
+    env: {
+       TS_NODE_BASEURL: "./dist",   // Always required — tells tsconfig-paths to resolve aliases in dist/
+    },
+    env_production: {
        NODE_ENV: "production",
        PORT: 3001,
-       TS_NODE_BASEURL: "./dist", // Tells tsconfig-paths where compiled files are
-       // DATABASE_URL should be set in a .env file
+       TS_NODE_BASEURL: "./dist",
     }
   }]
 }; 

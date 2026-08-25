@@ -69,6 +69,15 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     callbacksRef.current = callbacks;
   }, [callbacks]);
 
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current !== null) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  }, []);
+
   const debugLog = useCallback(
     (message: string, payload?: Record<string, unknown>) => {
       if (!jobSocketDebug) {
@@ -213,6 +222,32 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     }
   }, [callbacksRef]);
 
+  // Defined after handleJobCompletedFromHttp/handleJobFailedFromHttp to avoid TDZ in deps array.
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current !== null) return; // already polling
+    pollingIntervalRef.current = setInterval(async () => {
+      const active = Array.from(activeJobIdsRef.current).filter(
+        (id) => !completedJobsRef.current.has(id)
+      );
+      if (active.length === 0) {
+        stopPolling();
+        return;
+      }
+      for (const jobId of active) {
+        try {
+          const job: JobStatusResponseDto = await fetcher(`/jobs/${jobId}`);
+          if (job?.status === 'completed') {
+            await handleJobCompletedFromHttp(job);
+          } else if (job?.status === 'failed') {
+            handleJobFailedFromHttp(job);
+          }
+        } catch {
+          // silent — will retry next interval
+        }
+      }
+    }, 5000);
+  }, [stopPolling, handleJobCompletedFromHttp, handleJobFailedFromHttp]);
+
   useEffect(() => {
     // Get user from auth store for room-based WebSocket subscription
     const user = useAuthStore.getState().user;
@@ -251,6 +286,17 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       setIsConnected(true);
       setError(null);
       callbacksRef.current.onConnectionChange?.(true);
+      stopPolling();
+
+      // Tell the gateway about every job we're still waiting on.
+      // If the job already completed while we were disconnected, the gateway
+      // re-emits job-completed directly to this socket — no HTTP round-trip needed.
+      const active = Array.from(activeJobIdsRef.current).filter(
+        (id) => !completedJobsRef.current.has(id)
+      );
+      for (const jobId of active) {
+        newSocket.emit('subscribe-job', { jobId });
+      }
     };
 
     const handleDisconnect = (reason: string) => {
@@ -259,11 +305,15 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       setIsConnected(false);
       callbacksRef.current.onConnectionChange?.(false);
 
-      // Log reconnection strategy
       if (reason === 'io server disconnect') {
         console.log('⚠️  Server disconnected the socket. Will attempt to reconnect...');
       } else if (reason === 'transport close' || reason === 'transport error') {
         console.log('🔄 Connection lost. Attempting to reconnect...');
+      }
+
+      // If there are active jobs, poll so we catch completion without waiting for reconnect
+      if (activeJobIdsRef.current.size > 0) {
+        startPolling();
       }
     };
 
@@ -455,6 +505,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
     setSocket(newSocket);
 
     return () => {
+      stopPolling();
       newSocket.off('connect', handleConnect);
       newSocket.off('disconnect', handleDisconnect);
       newSocket.off('connect_error', handleConnectError);
@@ -473,7 +524,7 @@ export const useJobProgress = (callbacks: UseJobProgressCallbacks) => {
       });
       newSocket.disconnect();
     };
-  }, [debugLog, incrementDebugCounter, hydrateJobResult, normalizeJobId]);
+  }, [debugLog, incrementDebugCounter, hydrateJobResult, normalizeJobId, startPolling, stopPolling]);
 
   // Main function to subscribe to a job's progress.
   const subscribeToJob = useCallback(async (jobId: string) => {

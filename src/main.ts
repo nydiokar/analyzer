@@ -5,7 +5,7 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ForbiddenExceptionFilter } from './api/shared/forbidden-exception.filter';
 import { ThrottlerExceptionFilter } from './api/shared/throttler-exception.filter';
-import { Logger, LogLevel } from '@nestjs/common';
+import { Logger, LogLevel, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import * as dotenv from 'dotenv';
@@ -13,6 +13,37 @@ import { json } from 'express';
 import { setupThrottledLogging } from './core/logging/setup-throttled-logging';
 import { MetricsService } from './api/services/metrics.service';
 import { METRICS_CONFIG } from './config/constants';
+import { User } from '@prisma/client';
+
+type ApiKeyAuditInfo = {
+  id?: string;
+  prefix?: string;
+  description?: string;
+  scopes?: string[];
+};
+
+type AuditedRequest = {
+  method?: string;
+  originalUrl?: string;
+  url?: string;
+  path?: string;
+  ip?: string;
+  headers?: Record<string, string | string[] | undefined>;
+  socket?: {
+    remoteAddress?: string;
+  };
+  user?: User;
+  apiKeyInfo?: ApiKeyAuditInfo;
+  creditCost?: number;
+  creditsPrecharged?: boolean;
+  x402Paid?: boolean;
+  x402PendingTxSig?: string;
+};
+
+type AuditedResponse = {
+  statusCode?: number;
+  on: (event: 'finish', listener: () => void) => void;
+};
 
 dotenv.config();
 
@@ -28,6 +59,43 @@ function normalizeMetricsRoute(req: { route?: { path?: string }; path?: string; 
   }
 
   return METRICS_CONFIG.UNKNOWN_ROUTE_LABEL;
+}
+
+function getHeaderValue(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value.join(',');
+  }
+
+  return value ?? null;
+}
+
+function getFirstForwardedIp(value: string | string[] | undefined): string | null {
+  const raw = getHeaderValue(value);
+  if (!raw) {
+    return null;
+  }
+
+  return raw.split(',')[0]?.trim() || null;
+}
+
+function getAuditClientIp(req: AuditedRequest): string {
+  return (
+    getHeaderValue(req.headers?.['cf-connecting-ip']) ||
+    getFirstForwardedIp(req.headers?.['x-forwarded-for']) ||
+    getHeaderValue(req.headers?.['x-real-ip']) ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    'unknown'
+  );
+}
+
+function shouldAuditUsage(path: string): boolean {
+  return (
+    path.startsWith('/api/v1/intel') ||
+    path.startsWith('/api/v1/jobs') ||
+    path.startsWith('/intel') ||
+    path.startsWith('/jobs')
+  );
 }
 
 async function bootstrap() {
@@ -58,6 +126,44 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   app.use(json({ limit: '5mb' }));
+
+  const usageAuditLogger = new Logger('UsageAudit');
+  app.use((req: AuditedRequest, res: AuditedResponse, next: () => void) => {
+    const requestPath = req.originalUrl || req.url || '';
+    if (!shouldAuditUsage(requestPath)) {
+      next();
+      return;
+    }
+
+    const startedAt = Date.now();
+
+    res.on('finish', () => {
+      const audit = {
+        event: 'usage_audit',
+        method: req.method ?? null,
+        path: requestPath,
+        statusCode: res.statusCode ?? null,
+        durationMs: Date.now() - startedAt,
+        userId: req.user?.id ?? null,
+        userEmail: req.user?.email ?? null,
+        apiKeyPrefix: req.apiKeyInfo?.prefix ?? null,
+        apiKeyDescription: req.apiKeyInfo?.description ?? null,
+        authMode: req.apiKeyInfo ? 'api_key' : req.x402Paid || req.x402PendingTxSig ? 'x402' : req.user ? 'user' : 'anonymous',
+        creditCost: req.creditCost ?? null,
+        creditsPrecharged: req.creditsPrecharged === true,
+        x402Paid: req.x402Paid === true,
+        clientIp: getAuditClientIp(req),
+        cfConnectingIp: getHeaderValue(req.headers?.['cf-connecting-ip']),
+        xForwardedFor: getHeaderValue(req.headers?.['x-forwarded-for']),
+        remoteAddress: req.socket?.remoteAddress ?? null,
+        userAgent: getHeaderValue(req.headers?.['user-agent']),
+      };
+
+      usageAuditLogger.log(JSON.stringify(audit));
+    });
+
+    next();
+  });
 
   // HTTP Metrics Middleware - tracks all requests
   const metricsService = app.get(MetricsService);
@@ -118,6 +224,9 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api-docs', app, document);
   // --- End Swagger Setup ---
+
+  // Enforce DTO class-validator decorators (e.g. @ArrayMaxSize, @IsString, @IsOptional)
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }));
 
   // Register global exception filters for user-friendly error messages
   app.useGlobalFilters(

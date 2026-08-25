@@ -32,10 +32,45 @@ const STABLE_MINTS = new Set<string>([
   'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // USD1
 ]);
 
+// Known AMM/liquidity programs whose position-NFT movements must NOT be classified as token swaps.
+// In jsonParsed RPC-full responses, custom programs like these carry no `program` friendly name —
+// only `programId` (the raw pubkey). The Enhanced mapper reads the same set from `instruction.programId`.
+const LIQUIDITY_PROGRAM_IDS = new Set<string>([
+  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo', // Meteora DLMM
+  '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // Raydium AMM v4
+  'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C', // Raydium CPMM
+  'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', // Raydium CLMM
+  'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc', // Orca Whirlpool
+  'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA', // PumpSwap AMM
+]);
+
 const LAMPORTS_PER_SOL = 1_000_000_000;
 // Below this, native/SOL movement is treated as fee/rent noise, not economic value.
 const SOL_SIGNIFICANCE = 0.001;
 const STABLE_SIGNIFICANCE = 0.01;
+
+/**
+ * Returns true if any top-level or inner instruction in the transaction was
+ * dispatched to a known AMM/liquidity program.
+ *
+ * In jsonParsed RPC-full responses each instruction carries `programId` (the
+ * raw pubkey string) regardless of whether Solana/Helius knows a friendly name
+ * for it. This is the equivalent of `hasLiquidityProgramInteraction` in the
+ * Enhanced mapper, which reads the same `instruction.programId` field from
+ * Helius's Enhanced-API shape.
+ */
+function touchesLiquidityProgram(raw: any): boolean {
+  const top: any[] = raw?.transaction?.message?.instructions || [];
+  for (const ix of top) {
+    if (ix?.programId && LIQUIDITY_PROGRAM_IDS.has(ix.programId)) return true;
+  }
+  for (const group of raw?.meta?.innerInstructions || []) {
+    for (const ix of group?.instructions || []) {
+      if (ix?.programId && LIQUIDITY_PROGRAM_IDS.has(ix.programId)) return true;
+    }
+  }
+  return false;
+}
 
 export interface RpcFullMappedRow {
   walletAddress: string;
@@ -187,6 +222,7 @@ function mapOne(raw: any, wallet: string, flags: Record<string, string[]>): RpcF
   const ak = accountKeysOf(raw);
   const walletIdx = ak.indexOf(wallet);
   const isFeePayer = ak[0] === wallet;
+  const isLiquidityTx = touchesLiquidityProgram(raw);
   const addFlag = (f: string) => {
     (flags[signature] = flags[signature] || []).push(f);
   };
@@ -304,6 +340,37 @@ function mapOne(raw: any, wallet: string, flags: Record<string, string[]>): RpcF
       if ((solDir && !solOpposes) || (stableDir && !stableOpposes)) {
         addFlag('value-same-direction-as-asset:liquidity-or-non-swap');
       }
+    }
+
+    // LP position open/close: transaction touches a known AMM program AND the only
+    // non-value asset legs are true 0-decimal, raw-amount-1 position NFTs.
+    //
+    // Safety: we check BOTH decimals===0 AND rawDelta===±1n. Checking only uiAmount===1
+    // is NOT safe — a 9-decimal token trading exactly 1e9 raw units also produces
+    // uiAmount=1. Position NFT mints (Raydium CLMM, Orca Whirlpool) are provably
+    // 0-decimal with raw supply=1. Fungible tokens that happen to trade at ui=1 will
+    // have decimals>0, so they fall through to normal SWAP classification.
+    const onlyPositionNfts =
+      assetLegs.length > 0 &&
+      assetLegs.every((l) => {
+        if (STABLE_MINTS.has(l.mint) || l.mint === SOL_MINT) return false;
+        const delta = mintDeltas.get(l.mint);
+        return (
+          delta !== undefined &&
+          delta.decimals === 0 &&
+          (delta.rawDelta === 1n || delta.rawDelta === -1n)
+        );
+      });
+    if (isLiquidityTx && onlyPositionNfts) {
+      // Determine open vs close by whether the position NFT is entering or leaving.
+      const dir = assetsIn.length > 0 && assetsOut.length === 0 ? 'in' : 'out';
+      const lpType = dir === 'in' ? 'ADD_LIQUIDITY' : 'REMOVE_LIQUIDITY';
+      addFlag(`lp-position-${lpType.toLowerCase()}`);
+      for (const l of assetLegs) {
+        push(l.mint, l.direction, l.ui, solNotional, stableNotional, lpType);
+      }
+      attachFee();
+      return rows;
     }
 
     // A token<->token movement is always a swap (you don't "transfer" by exchanging two

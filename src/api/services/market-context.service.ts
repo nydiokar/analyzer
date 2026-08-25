@@ -13,6 +13,7 @@ import {
 @Injectable()
 export class MarketContextService {
   private readonly logger = new Logger(MarketContextService.name);
+  private readonly maxSolPriceRangeDays = 366;
 
   constructor(
     private readonly db: DatabaseService,
@@ -22,6 +23,42 @@ export class MarketContextService {
   // ---------------------------------------------------------------------------
   // SOL price cache
   // ---------------------------------------------------------------------------
+
+  async getSolPriceByDate(date: string): Promise<{ date: string; priceUsd: number; fetchedAt: Date } | null> {
+    return prisma.solDailyPrice.findUnique({
+      where: { date },
+      select: { date: true, priceUsd: true, fetchedAt: true },
+    });
+  }
+
+  async getLatestSolPrice(maxAgeHours = 48): Promise<{ date: string; priceUsd: number; fetchedAt: Date } | null> {
+    const row = await prisma.solDailyPrice.findFirst({
+      orderBy: { date: 'desc' },
+      select: { date: true, priceUsd: true, fetchedAt: true },
+    });
+
+    if (!row) return null;
+
+    const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+    const rowTime = Date.parse(`${row.date}T23:59:59.999Z`);
+    if (!Number.isFinite(rowTime) || Date.now() - rowTime > maxAgeMs) {
+      return null;
+    }
+
+    return row;
+  }
+
+  async getSolPricesRange(from: string, to: string): Promise<{ date: string; priceUsd: number; fetchedAt: Date }[]> {
+    return prisma.solDailyPrice.findMany({
+      where: { date: { gte: from, lte: to } },
+      orderBy: { date: 'asc' },
+      select: { date: true, priceUsd: true, fetchedAt: true },
+    });
+  }
+
+  getMaxSolPriceRangeDays(): number {
+    return this.maxSolPriceRangeDays;
+  }
 
   /**
    * Write (or refresh) today's SOL price in SolDailyPrice.
@@ -137,14 +174,27 @@ export class MarketContextService {
     ];
     const walletFilter = walletAddress ? { walletAddress } : {};
 
-    // Stamp SOL/stable-mint rows complete — no meaningful mcap derivable from these
+    const LP_INTERACTION_TYPES = ['ADD_LIQUIDITY', 'REMOVE_LIQUIDITY'];
+
+    // Stamp SOL/stable-mint rows and LP position rows complete — no meaningful mcap derivable
     await prisma.swapAnalysisInput.updateMany({
       where: { enrichedAt: null, mint: { in: SKIP_MINTS }, ...walletFilter },
       data: { enrichedAt: new Date() },
     });
+    await prisma.swapAnalysisInput.updateMany({
+      where: { enrichedAt: null, interactionType: { in: LP_INTERACTION_TYPES }, ...walletFilter },
+      data: { enrichedAt: new Date() },
+    });
 
     const rows = await prisma.swapAnalysisInput.findMany({
-      where: { enrichedAt: null, NOT: { mint: { in: SKIP_MINTS } }, ...walletFilter },
+      where: {
+        enrichedAt: null,
+        NOT: [
+          { mint: { in: SKIP_MINTS } },
+          { interactionType: { in: LP_INTERACTION_TYPES } },
+        ],
+        ...walletFilter,
+      },
       orderBy: { timestamp: 'desc' },
       take: batchSize,
     });
