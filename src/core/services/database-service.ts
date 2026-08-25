@@ -45,6 +45,11 @@ import {
     standardizeCapitalVector,
     capitalVectorToSqlLiteral,
 } from 'core/representations/capital-feature-vector';
+import {
+    scoreCapitalOutcome,
+    type CapitalOutcomeScore,
+    type OutcomeNeighbor,
+} from 'core/representations/capital-outcome-scorer';
 
 // Instantiate Prisma Client - remains exported for potential direct use elsewhere, but service uses it too
 /**
@@ -3243,6 +3248,24 @@ export class DatabaseService {
         const dataQuality = computeCapitalDataQuality(featureSource);
         const vectorLiteral = capitalVectorToSqlLiteral(standardizeCapitalVector(sourceVector, { means, scales }));
         const sourceVectorJson = JSON.stringify(sourceVector);
+        const sourceVectorHash = createHash('sha256')
+            .update(`${CAPITAL_VECTOR_SCHEMA_VERSION}:${sourceVectorJson}`)
+            .digest('hex');
+
+        // CAPHIST-1: capture the capital trajectory point BEFORE the snapshot upsert, so
+        // WalletCapitalVectorHistory self-populates on the same live write-path as the
+        // behavior history. Idempotent on the source hash (unchanged capital = no new row).
+        await this.appendWalletCapitalVectorHistory(
+            tx,
+            walletAddress,
+            CAPITAL_VECTOR_SCHEMA_VERSION,
+            vectorLiteral,
+            sourceVector,
+            sourceVectorJson,
+            sourceVectorHash,
+            dataQuality,
+            summary.updatedAt,
+        );
 
         await tx.$executeRaw`
             INSERT INTO "WalletCapitalVector" ("walletAddress", "schemaVersion", "vector", "sourceVector", "dataQuality", "builtAt")
@@ -3300,6 +3323,65 @@ export class DatabaseService {
                 ${vectorLiteral}::vector,
                 ${sourceVectorJson}::jsonb,
                 ${sourceVectorHash},
+                ${driftFromPrevious},
+                ${sourceProfileUpdatedAt},
+                NOW()
+            )
+            ON CONFLICT ("walletAddress", "schemaVersion", "sourceVectorHash") DO NOTHING
+        `;
+    }
+
+    /**
+     * CAPHIST-1 (SPEC-003 substrate): append one capital/outcome trajectory point.
+     * Mirrors appendWalletVectorHistory exactly, plus carries `dataQuality` because a
+     * capital drift built on transfer-distorted PnL is not signal. Drift is computed over
+     * the RAW capital source vector (not the population-standardized storage `vector`),
+     * for the same reason as the behavior path: standardization is relative to
+     * CapitalPopulationStats, so a wallet whose money profile never changed would show
+     * spurious drift the moment population mean/scale is recomputed. Idempotent on the
+     * source hash — an unchanged capital profile appends no new row.
+     */
+    private async appendWalletCapitalVectorHistory(
+        tx: Prisma.TransactionClient,
+        walletAddress: string,
+        schemaVersion: number,
+        vectorLiteral: string,
+        sourceVector: number[],
+        sourceVectorJson: string,
+        sourceVectorHash: string,
+        dataQuality: number,
+        sourceProfileUpdatedAt: Date,
+    ): Promise<void> {
+        const previousRows = await tx.$queryRaw<{ sourceVector: unknown }[]>`
+            SELECT "sourceVector"
+            FROM "WalletCapitalVectorHistory"
+            WHERE "walletAddress" = ${walletAddress}
+              AND "schemaVersion" = ${schemaVersion}
+            ORDER BY "builtAt" DESC, "id" DESC
+            LIMIT 1
+        `;
+        const previousSourceVector = parseStoredSourceVector(previousRows[0]?.sourceVector);
+        const driftFromPrevious = computeWalletVectorDrift(previousSourceVector, sourceVector);
+
+        await tx.$executeRaw`
+            INSERT INTO "WalletCapitalVectorHistory" (
+                "walletAddress",
+                "schemaVersion",
+                "vector",
+                "sourceVector",
+                "sourceVectorHash",
+                "dataQuality",
+                "driftFromPrevious",
+                "sourceProfileUpdatedAt",
+                "builtAt"
+            )
+            VALUES (
+                ${walletAddress},
+                ${schemaVersion},
+                ${vectorLiteral}::vector,
+                ${sourceVectorJson}::jsonb,
+                ${sourceVectorHash},
+                ${dataQuality},
                 ${driftFromPrevious},
                 ${sourceProfileUpdatedAt},
                 NOW()
@@ -3429,6 +3511,124 @@ export class DatabaseService {
                 LIMIT ${boundedLimit}
             `;
         });
+    }
+
+    /**
+     * AGENT_13 D2 — calibrated capital outcome-by-analogy score for one wallet.
+     * Wires the HNSW capital-kNN neighborhood + each neighbor's realizedPnl into the
+     * pure `scoreCapitalOutcome` core. Returns a CALIBRATED EXPECTATION (profitable
+     * fraction + Wilson CI + median PnL + reason codes + confidence tier), never a
+     * binary "skilled" label. dataQuality-gated: low-quality neighbors are excluded
+     * from the estimate but counted for honesty.
+     *
+     * Bounded: one kNN probe (index-backed) + one batched IN() PnL fetch + one cached
+     * scalar base-rate query. `retrieveK` is over-fetched vs the gate so enough
+     * high-dq neighbors survive. Returns null when the wallet has no capital vector.
+     */
+    async getCapitalOutcomeScore(
+        walletAddress: string,
+        opts: { retrieveK?: number; dataQualityGate?: number } = {},
+    ): Promise<CapitalOutcomeScore | null> {
+        const dataQualityGate = opts.dataQualityGate ?? 0.9;
+        // Over-fetch: the dq gate drops ~a fifth of neighbors, so pull more than we need.
+        const retrieveK = Math.max(20, Math.min(100, Math.floor(opts.retrieveK ?? 40)));
+
+        const seedRows = await this.prismaClient.$queryRaw<{ sourceVector: unknown }[]>`
+            SELECT "sourceVector"
+            FROM "WalletCapitalVector"
+            WHERE "walletAddress" = ${walletAddress}
+              AND "schemaVersion" = ${CAPITAL_VECTOR_SCHEMA_VERSION}
+            LIMIT 1
+        `;
+        if (seedRows.length === 0) return null;
+
+        // The stored `sourceVector` is the RAW bounded CAPITAL feature vector (8-dim),
+        // not z-scores. NB: parseStoredSourceVector validates the BEHAVIOR dim (27) and
+        // would reject this — parse against the capital dim here. Reason codes need
+        // population-relative z-scores, so standardize against CapitalPopulationStats.
+        const rawStored = seedRows[0]?.sourceVector;
+        const rawSourceVector =
+            Array.isArray(rawStored) &&
+            rawStored.length === CAPITAL_VECTOR_SOURCE_DIMENSIONS &&
+            rawStored.every((v) => typeof v === 'number' && Number.isFinite(v))
+                ? (rawStored as number[])
+                : null;
+        const standardizedSourceVector = await this.standardizeCapitalSourceForReasonCodes(rawSourceVector);
+
+        const neighbors = await this.findSimilarCapitalVectors(walletAddress, retrieveK);
+        if (neighbors.length === 0) {
+            return scoreCapitalOutcome({
+                walletAddress,
+                neighbors: [],
+                standardizedSourceVector,
+                dataQualityGate,
+                populationBaseRate: await this.getCapitalPopulationProfitableBaseRate(dataQualityGate),
+            });
+        }
+
+        const pnlRows = await this.prismaClient.walletPnlSummary.findMany({
+            where: { walletAddress: { in: neighbors.map((n) => n.walletAddress) } },
+            select: { walletAddress: true, realizedPnl: true },
+        });
+        const pnlMap = new Map<string, number>();
+        for (const r of pnlRows) pnlMap.set(r.walletAddress, r.realizedPnl);
+
+        const outcomeNeighbors: OutcomeNeighbor[] = neighbors
+            .filter((n) => pnlMap.has(n.walletAddress))
+            .map((n) => ({
+                walletAddress: n.walletAddress,
+                realizedPnl: pnlMap.get(n.walletAddress) as number,
+                dataQuality: n.dataQuality,
+                distance: n.distance,
+            }));
+
+        return scoreCapitalOutcome({
+            walletAddress,
+            neighbors: outcomeNeighbors,
+            standardizedSourceVector,
+            dataQualityGate,
+            populationBaseRate: await this.getCapitalPopulationProfitableBaseRate(dataQualityGate),
+        });
+    }
+
+    /**
+     * Population profitable base rate over dq-gated wallets, so an outcome score is read
+     * RELATIVE to the population (lift), not as an absolute claim. Cached per dq gate for
+     * the process lifetime — it moves only on a full backfill, never per request.
+     */
+    /**
+     * Standardize a RAW capital source vector into population z-scores for reason codes.
+     * Reuses the same CapitalPopulationStats + standardizeCapitalVector path as the
+     * write-path, so the z-scores are exactly comparable to what the stored `vector`
+     * encodes. Returns null (→ no reason codes) if stats aren't built or dims mismatch.
+     */
+    private async standardizeCapitalSourceForReasonCodes(
+        rawSourceVector: number[] | null,
+    ): Promise<number[] | null> {
+        if (!rawSourceVector || rawSourceVector.length !== CAPITAL_VECTOR_SOURCE_DIMENSIONS) return null;
+        const stats = await this.prismaClient.capitalPopulationStats.findUnique({ where: { id: 1 } });
+        if (!stats || stats.schemaVersion !== CAPITAL_VECTOR_SCHEMA_VERSION) return null;
+        const means = Array.isArray(stats.means) ? stats.means.filter((v): v is number => typeof v === 'number') : [];
+        const scales = Array.isArray(stats.scales) ? stats.scales.filter((v): v is number => typeof v === 'number') : [];
+        if (means.length !== CAPITAL_VECTOR_SOURCE_DIMENSIONS || scales.length !== CAPITAL_VECTOR_SOURCE_DIMENSIONS) return null;
+        // Padded 16-dim; the first SOURCE_DIMENSIONS are the real standardized axes.
+        return standardizeCapitalVector(rawSourceVector, { means, scales }).slice(0, CAPITAL_VECTOR_SOURCE_DIMENSIONS);
+    }
+
+    private capitalBaseRateCache = new Map<number, { value: number; at: number }>();
+    private async getCapitalPopulationProfitableBaseRate(dataQualityGate: number): Promise<number> {
+        const cached = this.capitalBaseRateCache.get(dataQualityGate);
+        if (cached && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
+
+        const rows = await this.prismaClient.$queryRaw<{ base_rate: number | null }[]>`
+            SELECT AVG(CASE WHEN ps."realizedPnl" > 0 THEN 1.0 ELSE 0.0 END)::float AS base_rate
+            FROM "WalletCapitalVector" cv
+            JOIN "WalletPnlSummary" ps ON ps."walletAddress" = cv."walletAddress"
+            WHERE cv."dataQuality" > ${dataQualityGate}
+        `;
+        const value = typeof rows[0]?.base_rate === 'number' ? rows[0].base_rate : 0;
+        this.capitalBaseRateCache.set(dataQualityGate, { value, at: Date.now() });
+        return value;
     }
 
     /**

@@ -39,6 +39,7 @@ model Wallet {
   vector                       WalletVector?
   vectorHistory                WalletVectorHistory[]
   capitalVector                WalletCapitalVector?
+  capitalVectorHistory         WalletCapitalVectorHistory[]
 
   @@index([classification])
   @@index([classificationConfidence])
@@ -102,6 +103,29 @@ model CapitalPopulationStats {
   scales        Json
   walletCount   Int
   computedAt    DateTime @updatedAt
+}
+
+// SPEC-003 substrate (CAPHIST-1): append-only capital/outcome vector history.
+// Mirrors WalletVectorHistory so each wallet becomes TWO trajectories (behavior +
+// capital). Adds `dataQuality` because every capital point must carry it — drift on
+// transfer-distorted PnL is not signal (SPEC-003 §55). Self-populates on the existing
+// capital write-path; idempotent on (walletAddress, schemaVersion, sourceVectorHash).
+model WalletCapitalVectorHistory {
+  id                     Int                       @id @default(autoincrement())
+  walletAddress          String
+  schemaVersion          Int
+  vector                 Unsupported("vector(16)")
+  sourceVector           Json
+  sourceVectorHash       String
+  dataQuality            Float
+  driftFromPrevious      Float?
+  sourceProfileUpdatedAt DateTime
+  builtAt                DateTime                  @default(now())
+  wallet                 Wallet                    @relation(fields: [walletAddress], references: [address], onDelete: Cascade)
+
+  @@unique([walletAddress, schemaVersion, sourceVectorHash])
+  @@index([walletAddress, schemaVersion, builtAt])
+  @@index([schemaVersion])
 }
 
 model WalletTokenEdge {
