@@ -137,7 +137,7 @@
 ## 📖 **Documentation**
 
 - 📋 **Detailed Activity Log** → See `.ai/CONTEXT.md` for granular daily entries
-- 🚀 **Deployment Guide** → See `deployment/RUNBOOK.md` for production setup
+- 🚀 **Deployment Guide** → See `deployment/README.md` for production setup
 - 🎯 **Setup Instructions** → See `SETUP.md` for local development
 
 ---

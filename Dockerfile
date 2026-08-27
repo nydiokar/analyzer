@@ -3,8 +3,10 @@
 # Sova Intel backend API.
 #
 # Runtime config comes from the process environment only — no .env is copied in.
-# Memory limits are set by the orchestrator, not baked here: see NODE_OPTIONS in
-# terraform/main.tf, which is derived from the container memory limit.
+# Memory limits are set by the orchestrator, not baked here: NODE_OPTIONS is
+# derived from the container memory limit — in docker-compose.yml (BACKEND_MEMORY_MB /
+# BACKEND_HEAP_MB) for local/VPS deploys, or in terraform/main.tf (container_memory_mib
+# * heap_fraction) for the optional Cloud Run path. See DEPLOYMENT.md.
 
 ARG NODE_VERSION=22-bookworm-slim
 ARG PNPM_VERSION=10.28.0
@@ -71,9 +73,9 @@ WORKDIR /app
 
 COPY prisma ./prisma
 
-# Generate before pruning: the prisma CLI is a devDependency and is removed by
-# --prod. The generated client lands in node_modules/.prisma and is consumed at
-# runtime by @prisma/client, which is a production dependency and survives.
+# prisma is a production dependency (needed at runtime for `prisma migrate
+# deploy`, see docker-compose.yml's migrate service), so it survives --prod
+# pruning below along with the client it generates into node_modules/.prisma.
 RUN pnpm exec prisma generate
 
 # CI=true: this install prunes the devDependency tree inherited from `deps`,
