@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "module": "commonjs",
     "lib": ["ES2022"],
@@ -12,7 +13,8 @@
     "resolveJsonModule": true,
     "sourceMap": true,
     "declaration": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
+    "types": ["node"],
     "jsx": "react",
     "jsxFactory": "React.createElement",
     "jsxFragmentFactory": "React.Fragment",
@@ -33,8 +35,7 @@
     "strictNullChecks": false,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false,
-    "downlevelIteration": true
+    "noFallthroughCasesInSwitch": false
   },
   "include": ["src/**/*", "src/core/scripts/activityCorrelator.ts", "src/core/scripts/helius-analyzer.ts", "src/core/scripts/kpi-comparison-report.ts", "src/core/scripts/wallet-behavior-analyzer.ts", "src/core/scripts/walletSimilarity.ts"],
   "exclude": ["node_modules", "dist", "test", "tests", "dashboard"]

@@ -10,6 +10,7 @@ import { DatabaseService } from '../services/database.service';
 import { BehaviorService } from '../services/behavior.service';
 import { PnlOverviewService } from '../services/pnl-overview.service';
 import { TokenPerformanceService } from '../services/token-performance.service';
+import { CreditsService } from '../services/credits.service';
 
 const OPENAPI_STUB = {};
 
@@ -25,6 +26,7 @@ const OPENAPI_STUB = {};
     { provide: SimilarityOperationsQueue, useValue: OPENAPI_STUB },
     { provide: RedisLockService, useValue: OPENAPI_STUB },
     { provide: JobEventsBridgeService, useValue: OPENAPI_STUB },
+    { provide: CreditsService, useValue: OPENAPI_STUB },
     { provide: REDIS_CLIENT, useValue: OPENAPI_STUB },
   ],
 })
