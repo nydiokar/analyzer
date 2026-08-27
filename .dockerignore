@@ -1,0 +1,59 @@
+# Secrets — never enter the build context
+.env
+.env.*
+!.env.example
+
+# Dependencies — reinstalled in-container for linux/amd64.
+# Host copies carry Windows binaries for bcrypt, sharp, better-sqlite3, keccak.
+node_modules
+**/node_modules
+
+# Build output — rebuilt in-container
+dist
+packages/*/dist
+tsconfig.tsbuildinfo
+dashboard/.next
+
+# Local runtime data
+logs
+data
+analysis_reports
+analysis_sessions
+debug_output
+reports
+artifacts
+
+# Not part of the backend image
+dashboard
+submodules
+pft-bot_v2
+wallet-strategy-lab
+docs
+documentation
+tests
+.tasks
+
+# VCS / editor / agent config
+.git
+.gitignore
+.gitmodules
+.github
+.vscode
+.cursor
+.cursorignore
+.claude
+.codex
+.ai
+
+# Host-side ops — the container is supervised by the orchestrator, not PM2
+ecosystem*.config.js
+*.ps1
+*.sh
+docker-compose.yml
+ops
+deployment
+terraform
+
+# Docs
+*.md
+!README.md

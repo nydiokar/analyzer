@@ -166,6 +166,10 @@ const customLevels = {
   trace: 7
 };
 
+// Log directory for the rotating file transports. Overridable so deployments
+// can point at a writable volume; unused when LOG_TO_FILES=false.
+const LOG_DIR = process.env.LOG_DIR || 'logs';
+
 // --- Create a single, shared logger instance ---
 const globalLogger = winstonCreateLogger({
   level: process.env.LOG_LEVEL || 'debug',
@@ -184,23 +188,27 @@ const globalLogger = winstonCreateLogger({
       handleExceptions: true, // Centralized exception handling
       handleRejections: true  // Centralized rejection handling
     }),
-    new DailyRotateFile({
-      filename: 'logs/error-%DATE%.log',
-      datePattern: 'YYYY-MM-DD',
-      level: 'error',
-      maxSize: '10m', // 10MB max file size
-      maxFiles: '14d', // Keep 14 days of error logs
-      zippedArchive: true, // Compress old log files
-      handleExceptions: false,
-    }),
-    new DailyRotateFile({
-      filename: 'logs/combined-%DATE%.log',
-      datePattern: 'YYYY-MM-DD',
-      maxSize: '20m', // 20MB max file size
-      maxFiles: '7d', // Keep 7 days of combined logs
-      zippedArchive: true, // Compress old log files
-      handleExceptions: false,
-    })
+    // File transports are skipped when LOG_TO_FILES=false (containers), where the
+    // runtime collects stdout and the filesystem is ephemeral and often read-only.
+    ...(process.env.LOG_TO_FILES === 'false' ? [] : [
+      new DailyRotateFile({
+        filename: `${LOG_DIR}/error-%DATE%.log`,
+        datePattern: 'YYYY-MM-DD',
+        level: 'error',
+        maxSize: '10m', // 10MB max file size
+        maxFiles: '14d', // Keep 14 days of error logs
+        zippedArchive: true, // Compress old log files
+        handleExceptions: false,
+      }),
+      new DailyRotateFile({
+        filename: `${LOG_DIR}/combined-%DATE%.log`,
+        datePattern: 'YYYY-MM-DD',
+        maxSize: '20m', // 20MB max file size
+        maxFiles: '7d', // Keep 7 days of combined logs
+        zippedArchive: true, // Compress old log files
+        handleExceptions: false,
+      })
+    ])
   ],
 });
 

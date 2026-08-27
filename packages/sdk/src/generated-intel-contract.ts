@@ -48,6 +48,7 @@ export const GENERATED_WALLET_BEHAVIOR_FIELDS = [
   "avgEntryMcapUsd",
   "avgHoldTimeHours",
   "buySellRatio",
+  "currentHoldMedianHours",
   "dominantEntryMcapBucket",
   "dominantEntryMcapBucketShare",
   "entryMcapP25Usd",
