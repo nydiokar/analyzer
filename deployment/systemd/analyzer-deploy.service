@@ -5,6 +5,5 @@ Wants=docker.service network-online.target
 
 [Service]
 Type=oneshot
-User=analyzer-deploy
 EnvironmentFile=/etc/analyzer-deploy.env
 ExecStart=/bin/bash -lc 'exec "$ROOT_DIR/deployment/scripts/pull-deploy.sh"'

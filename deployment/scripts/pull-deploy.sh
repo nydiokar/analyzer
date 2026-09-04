@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-ROOT_DIR="${ROOT_DIR:-/home/luna/analyzer}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${ROOT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 STATE_FILE="${STATE_FILE:-/var/lib/analyzer-deploy/current-sha}"
 REPOSITORY="${GITHUB_REPOSITORY:-nydiokar/analyzer}"
 WORKFLOW="${DEPLOY_WORKFLOW:-production-deploy.yml}"

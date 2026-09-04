@@ -203,32 +203,32 @@ needs a new down-migration, not an image swap.
 
 GitHub-hosted runners do not need SSH access to the server. Install the
 pull-based systemd units from `deployment/systemd/` on the server, ensure the
-repository exists at the path configured in `/etc/analyzer-deploy.env`, and create a
-dedicated `analyzer-deploy` user with access to the existing Docker project.
+repository exists at the path configured in `/etc/analyzer-deploy.env`.
+The unit runs locally under systemd so it can use the existing Docker daemon;
+GitHub still has no access to the server.
 
 Example one-time server configuration:
 
 ```bash
 sudo install -m 0644 deployment/systemd/analyzer-deploy.service /etc/systemd/system/
 sudo install -m 0644 deployment/systemd/analyzer-deploy.timer /etc/systemd/system/
-sudo install -d -o analyzer-deploy -g analyzer-deploy /var/lib/analyzer-deploy
 sudoedit /etc/analyzer-deploy.env
+sudo docker login ghcr.io --username <github-username>
 sudo systemctl daemon-reload
 sudo systemctl enable --now analyzer-deploy.timer
 ```
 
-`/etc/analyzer-deploy.env` should contain the GHCR read-only token and paths:
+`/etc/analyzer-deploy.env` contains only paths and public repository metadata:
 
 ```bash
 ROOT_DIR=/opt/analyzer
 APP_IMAGE_REPO=ghcr.io/nydiokar/analyzer
-GHCR_USERNAME=<read-only-ghcr-user>
-GHCR_TOKEN=<read-only-package-token>
 GITHUB_REPOSITORY=nydiokar/analyzer
 ```
 
-For a private repository, also set `GITHUB_TOKEN` with read-only Actions API
-access. The timer polls every two minutes, deploys only the latest successful
+The `docker login` credential is stored locally in the Docker credential store.
+For a private repository, add a read-only `GITHUB_TOKEN` to the service env
+file. The timer polls every two minutes, deploys only the latest successful
 `main` workflow SHA, and records it under `/var/lib/analyzer-deploy/current-sha`.
 The publish job uses the built-in `GITHUB_TOKEN` with only `contents: read` and
 `packages: write`; it has no SSH or server credentials.
