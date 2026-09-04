@@ -5,5 +5,8 @@ Wants=docker.service network-online.target
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/analyzer-deploy.env
-ExecStart=/bin/bash -lc 'exec "$ROOT_DIR/deployment/scripts/pull-deploy.sh"'
+Environment=ROOT_DIR=/home/cifran/dev/analyzer
+Environment=APP_IMAGE_REPO=ghcr.io/nydiokar/analyzer
+Environment=GITHUB_REPOSITORY=nydiokar/analyzer
+EnvironmentFile=-/etc/analyzer-deploy.env
+ExecStart=/home/cifran/dev/analyzer/deployment/scripts/pull-deploy.sh

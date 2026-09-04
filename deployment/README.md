@@ -218,17 +218,24 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now analyzer-deploy.timer
 ```
 
-`/etc/analyzer-deploy.env` contains only paths and public repository metadata:
+`/etc/analyzer-deploy.env` is optional. The unit already contains the verified
+server path and public repository metadata. Create this file only for a
+private repository, where the GitHub API needs a read-only token:
 
 ```bash
-ROOT_DIR=/opt/analyzer
-APP_IMAGE_REPO=ghcr.io/nydiokar/analyzer
-GITHUB_REPOSITORY=nydiokar/analyzer
+GITHUB_TOKEN=<read-only-github-actions-api-token>
 ```
 
 The `docker login` credential is stored locally in the Docker credential store.
-For a private repository, add a read-only `GITHUB_TOKEN` to the service env
-file. The timer polls every two minutes, deploys only the latest successful
+If the GHCR package is private, authenticate once as the same account that
+owns the Docker daemon:
+
+```bash
+sudo docker login ghcr.io --username <github-username>
+```
+
+Use a token with only `read:packages`. The timer polls every two minutes,
+deploys only the latest successful
 `main` workflow SHA, and records it under `/var/lib/analyzer-deploy/current-sha`.
 The publish job uses the built-in `GITHUB_TOKEN` with only `contents: read` and
 `packages: write`; it has no SSH or server credentials.
