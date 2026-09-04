@@ -61,6 +61,7 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
 RUN pnpm exec tsc
+RUN pnpm run lint
 
 # ---------------------------------------------------------------------------
 # Stage 3: production dependencies
