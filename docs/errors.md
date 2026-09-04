@@ -1,4 +1,6 @@
- npm run build && pm2 start ecosystem.backend.config.js --env production
+This is a legacy PM2/host-build command. It is not the current production
+deployment path. Use `deployment/scripts/deploy.sh <full-git-sha>`; see
+`deployment/README.md`.
 
 
 > Sova Intel@0.15.0 build

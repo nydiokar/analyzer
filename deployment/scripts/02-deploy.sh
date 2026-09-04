@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# LEGACY: superseded by deployment/README.md and deploy.sh for Docker production.
 set -euo pipefail
 
 ROOT_DIR="${ROOT_DIR:-/home/luna/analyzer}"

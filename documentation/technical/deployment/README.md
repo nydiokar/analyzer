@@ -1,5 +1,12 @@
 # 🚀 Deployment Architecture Implementation
 
+> **Production deployment notice:** This document contains historical
+> architecture notes. The active production procedure is
+> [`deployment/README.md`](../../../deployment/README.md). Production builds
+> happen in GitHub Actions, images are published to GHCR, and the server pulls
+> an immutable full-git-SHA image. Do not use the PM2/host-build commands below
+> for the current Docker Compose production stack.
+
 ## 🎯 Overview
 
 The Wallet Analysis System implements a **hybrid deployment strategy** combining self-hosted backend infrastructure with cloud-hosted frontend, optimized for cost, control, and performance.
@@ -24,7 +31,11 @@ The Wallet Analysis System implements a **hybrid deployment strategy** combining
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🖥️ Backend Deployment Implementation
+## 🖥️ Historical Backend Deployment Implementation
+
+The PM2 and host-build sections below describe the former deployment model.
+They remain historical architecture context only; they are not production
+instructions for the current Docker Compose deployment.
 
 ### Self-Hosted Infrastructure
 
@@ -239,25 +250,15 @@ rsync -avz /opt/wallet-analyzer/backups/ user@backup-server:/backups/wallet-anal
 
 ### Backend Deployment
 
+See the canonical runbook for the current Docker Compose flow. The server
+either runs the systemd pull timer after one-time setup, or deliberately runs:
+
 ```bash
-# 1. Pull latest code
-git pull origin main
-
-# 2. Install dependencies
-npm ci --production=false
-
-# 3. Build application
-npm run build
-
-# 4. Run database migrations
-npm run db:migrate
-
-# 5. Graceful restart
-pm2 reload ecosystem.config.js --env production
-
-# 6. Verify health
-curl https://api.wallet-analyzer.com/health
+./deployment/scripts/deploy.sh <full-git-sha>
 ```
+
+There is no production `npm ci`, host-side build, Prisma migration, or PM2
+restart step in the current backend deployment path.
 
 ### Frontend Deployment
 

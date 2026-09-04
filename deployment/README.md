@@ -10,6 +10,18 @@ it to GHCR, and the VPS only pulls the selected image. No Node/pnpm/PM2 on the
 host — only Docker. The dashboard (`dashboard/`) is a separate deploy entirely, on
 Vercel — see "Frontend (Vercel) — connecting it to this backend" below.
 
+## Choose a production deployment mode
+
+| Mode | After the one-time setup |
+|---|---|
+| Initial server setup | Configure `.env`, authenticate Docker to GHCR if required, then deploy the first full SHA with `deploy.sh`. |
+| Automatic | GitHub Actions publishes the SHA; the server timer detects the successful `main` workflow and deploys it. No per-release server command. |
+| Manual | GitHub Actions publishes the SHA; an operator runs `deploy.sh <full-git-sha>` when intentionally releasing or rolling back. |
+
+All three modes use the same immutable image and the same migration, Compose,
+health-check, and rollback logic. None runs `docker compose build` on the
+server.
+
 ## Quick Start (new server, from scratch)
 
 ```bash
@@ -17,13 +29,14 @@ git clone <repo-url> analyzer
 cd analyzer
 cp .env.example .env
 # Fill in .env — see "Required .env values" below
+# If the GHCR package is private, log in once: sudo docker login ghcr.io
 ./deployment/scripts/deploy.sh <40-character-git-sha>
 ```
 
 The deploy script brings up Postgres and Redis, waits for both to report
 healthy, runs Prisma migrations from the selected image, then starts the app.
-`docker compose ps` shows all three long-running containers (`migrate` runs
-once and exits 0); the app is on `http://127.0.0.1:3001`.
+`docker compose` shows all three long-running containers (`migrate` runs once
+and exits 0); the app is on `http://127.0.0.1:3001`.
 
 ## Deploy an image
 
@@ -154,7 +167,7 @@ docker exec -it sova-grafana grafana cli admin reset-admin-password 'NEW_STRONG_
 ## Baseline health check (existing server)
 
 ```bash
-docker compose ps
+APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' sova-backend)" docker compose ps
 curl -fsS http://127.0.0.1:3001/api/v1/health
 ```
 
@@ -179,7 +192,8 @@ The admin profile uses the currently running backend image, so it does not
 build or export a second application image:
 
 ```bash
-docker compose --profile admin run --rm admin scripts/manage-users.ts list
+APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' sova-backend)" \
+  docker compose --profile admin run --rm admin scripts/manage-users.ts list
 ```
 
 The admin container starts only for the command and is removed automatically;
@@ -202,8 +216,9 @@ needs a new down-migration, not an image swap.
 ## Automatic deployment without SSH
 
 GitHub-hosted runners do not need SSH access to the server. Install the
-pull-based systemd units from `deployment/systemd/` on the server, ensure the
-repository exists at the path configured in `/etc/analyzer-deploy.env`.
+pull-based systemd units from `deployment/systemd/` on the server. The checked
+in unit is configured for `/home/cifran/dev/analyzer`; edit its `ROOT_DIR` if
+the production checkout uses a different path.
 The unit runs locally under systemd so it can use the existing Docker daemon;
 GitHub still has no access to the server.
 
@@ -212,29 +227,25 @@ Example one-time server configuration:
 ```bash
 sudo install -m 0644 deployment/systemd/analyzer-deploy.service /etc/systemd/system/
 sudo install -m 0644 deployment/systemd/analyzer-deploy.timer /etc/systemd/system/
-sudoedit /etc/analyzer-deploy.env
-sudo docker login ghcr.io --username <github-username>
 sudo systemctl daemon-reload
 sudo systemctl enable --now analyzer-deploy.timer
 ```
 
-`/etc/analyzer-deploy.env` is optional. The unit already contains the verified
-server path and public repository metadata. Create this file only for a
-private repository, where the GitHub API needs a read-only token:
+If the GHCR package is private, authenticate the server's Docker daemon once:
+
+```bash
+sudo docker login ghcr.io --username <github-username>
+```
+
+Use a token with only `read:packages`; Docker stores the credential locally.
+If the GitHub repository is private, additionally create
+`/etc/analyzer-deploy.env` with a read-only Actions API token:
 
 ```bash
 GITHUB_TOKEN=<read-only-github-actions-api-token>
 ```
 
-The `docker login` credential is stored locally in the Docker credential store.
-If the GHCR package is private, authenticate once as the same account that
-owns the Docker daemon:
-
-```bash
-sudo docker login ghcr.io --username <github-username>
-```
-
-Use a token with only `read:packages`. The timer polls every two minutes,
+The timer polls every two minutes,
 deploys only the latest successful
 `main` workflow SHA, and records it under `/var/lib/analyzer-deploy/current-sha`.
 The publish job uses the built-in `GITHUB_TOKEN` with only `contents: read` and
@@ -248,7 +259,7 @@ The publish job uses the built-in `GITHUB_TOKEN` with only `contents: read` and
 4. Abort on first failed gate; do not continue in degraded state.
 
 Minimal verification set:
-- `docker compose ps` shows `postgres`, `redis`, `app` all healthy/running
+- `APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' sova-backend)" docker compose ps` shows `postgres`, `redis`, `app` all healthy/running
   (`migrate` exits 0 and is not expected to stay running)
 - `curl -fsS http://127.0.0.1:3001/api/v1/health`
 - `curl -fsS https://api.sova-intel.com/api/v1/health` (if public)

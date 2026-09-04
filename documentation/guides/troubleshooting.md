@@ -246,7 +246,19 @@ curl http://localhost:3001/api/v1/health
 npx prisma migrate status
 
 # 2. Apply pending migrations
+For the current production Compose deployment, do not run migrations directly
+on the host. Use the same-image deployment command so migration and runtime
+cannot drift:
+
+```bash
+./deployment/scripts/deploy.sh <full-git-sha>
+```
+
+For local development only:
+
+```bash
 npx prisma migrate deploy
+```
 
 # 3. Reset database if needed (WARNING: loses data)
 npx prisma migrate reset

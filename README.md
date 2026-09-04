@@ -328,6 +328,21 @@ npx ts-node prisma/seed.ts            # Run seeds (credit packs, test users, etc
 
 ## Deployment
 
+Production images are built once by GitHub Actions and published to GHCR.
+The VPS never runs `docker compose build`. See the canonical
+[deployment guide](deployment/README.md) for the three supported paths:
+
+- initial server setup and first SHA deployment
+- automatic server-side pull deployment via the systemd timer
+- deliberate manual deployment or rollback with `deploy.sh <full-git-sha>`
+
+The normal automatic workflow is:
+
+```text
+git push main → Actions verifies/builds/pushes ghcr.io/nydiokar/analyzer:<sha>
+             → optional server timer pulls that exact SHA and restarts Compose
+```
+
 ### Production Checklist
 
 - [ ] Set `NODE_ENV=production`
@@ -343,22 +358,11 @@ npx ts-node prisma/seed.ts            # Run seeds (credit packs, test users, etc
 - [ ] Set up log aggregation (ELK, Datadog, etc)
 - [ ] Test payment webhook integration
 
-### Docker
+### Local Docker development
 
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY . .
-RUN npm ci --omit=dev
-RUN npx prisma generate
-EXPOSE 3000
-CMD ["npm", "run", "start:prod"]
-```
-
-```bash
-docker build -t sova-intel .
-docker run -p 3000:3000 --env-file .env sova-intel
-```
+For production, use the repository `Dockerfile` through GitHub Actions and
+the Compose/image workflow in `deployment/README.md`. Do not use this section
+as a production deployment procedure.
 
 ## Contributing
 

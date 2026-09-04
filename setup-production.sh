@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+echo "This legacy host-build setup script is not the current production path."
+echo "Use deployment/README.md and deployment/scripts/deploy.sh instead."
+echo "Production images are built in GitHub Actions and pulled by the server."
+exit 1
+
 echo "🚀 Production Setup Script"
 echo "=========================="
 echo ""

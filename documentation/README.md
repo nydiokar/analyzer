@@ -24,7 +24,7 @@ We've successfully documented the **core system architecture**, **major componen
 
 ### **🚀 Operational Documentation**
 - **[technical/performance/](./technical/performance/)** - **⏳ PENDING** Performance tuning and optimization
-- **[technical/deployment/](./technical/deployment/)** - **⏳ PENDING** Production deployment guide
+- **[technical/deployment/](./technical/deployment/)** - Historical architecture notes; current production runbook is [`deployment/README.md`](../deployment/README.md)
 
 ### **📚 Guides & References**
 - **[guides/troubleshooting.md](./guides/troubleshooting.md)** - **✅ COMPLETE** Common issues and solutions
@@ -45,7 +45,7 @@ We've successfully documented the **core system architecture**, **major componen
 
 ### **Operational Guides**
 - **Performance Tuning**: Optimization strategies, benchmarking, and monitoring
-- **Deployment Guide**: Production setup, DevOps practices, and scaling
+- **Deployment Guide**: Current setup and operations live in [`deployment/README.md`](../deployment/README.md)
 
 ## 🚀 **Getting Started**
 

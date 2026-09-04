@@ -1,4 +1,9 @@
-# 🚀 Quick Start Guide
+# 🚀 Quick Start Guide (local development)
+
+This document is for local development and testing. It is not the production
+deployment runbook. Production uses a prebuilt GHCR image; see
+[`deployment/README.md`](deployment/README.md) for initial setup, automatic
+pull deployment, manual SHA deployment, and rollback.
 
 This guide will get your analyzer running with onchain metadata enrichment in under 5 minutes.
 
@@ -8,7 +13,7 @@ This guide will get your analyzer running with onchain metadata enrichment in un
 - **WSL2** enabled 
 - **Helius API key** - [Get one free](https://www.helius.dev/)
 
-## One-Command Setup
+## One-Command Local Setup
 
 ```bash
 ./setup.sh
@@ -119,13 +124,13 @@ netstat -ano | findstr :3000
 ### Redis connection failed
 ```bash
 # Check Redis is running:
-docker-compose ps
+APP_IMAGE=sova-backend:local docker-compose ps
 
-# Restart Redis:
-docker-compose restart redis
+# Restart Redis (local development):
+APP_IMAGE=sova-backend:local docker-compose restart redis
 
 # Check logs:
-docker-compose logs redis
+APP_IMAGE=sova-backend:local docker-compose logs redis
 ```
 
 ### Migration fails
@@ -150,10 +155,10 @@ npx prisma studio          # Visual DB browser
 npx prisma migrate reset   # Reset DB (dangerous!)
 
 # Docker management
-docker-compose up -d       # Start all services
-docker-compose down        # Stop all services
-docker-compose logs -f     # View logs
-docker-compose ps          # List services
+APP_IMAGE=sova-backend:local docker-compose up -d redis  # Start local Redis
+APP_IMAGE=sova-backend:local docker-compose down         # Stop local stack
+APP_IMAGE=sova-backend:local docker-compose logs -f      # View logs
+APP_IMAGE=sova-backend:local docker-compose ps           # List services
 
 # Testing
 npm run test:unit          # Run unit tests
@@ -182,7 +187,7 @@ Check the logs:
 # Watch for errors or warnings
 
 # Redis logs
-docker-compose logs redis
+APP_IMAGE=sova-backend:local docker-compose logs redis
 
 # Database inspection
 npx prisma studio

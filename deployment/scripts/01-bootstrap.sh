@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# LEGACY: superseded by deployment/README.md and deploy.sh for Docker production.
 set -euo pipefail
 
 ROOT_DIR="${ROOT_DIR:-/home/luna/analyzer}"
@@ -103,4 +104,3 @@ log "  REDIS_URL=redis://:<your_redis_password>@127.0.0.1:6379"
 log ""
 log "Then run:"
 log "  bash deployment/scripts/02-deploy.sh"
-
