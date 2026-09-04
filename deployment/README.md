@@ -5,9 +5,9 @@ says something different about how to deploy, this file wins — flag the
 other one for a fix.
 
 Production is a single Docker Compose stack: **app + Postgres + Redis**.
-GitHub Actions builds the app image once from the repo's `Dockerfile`, pushes
-it to GHCR as a multi-architecture image, and the VPS only pulls the selected
-image. No Node/pnpm/PM2 on the
+GitHub Actions builds the app image once from the repo's `Dockerfile` on a
+native ARM64 runner, pushes it to GHCR as `linux/arm64`, and the VPS only pulls
+the selected image. No Node/pnpm/PM2 on the
 host — only Docker. The dashboard (`dashboard/`) is a separate deploy entirely, on
 Vercel — see "Frontend (Vercel) — connecting it to this backend" below.
 
