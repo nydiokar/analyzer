@@ -238,16 +238,9 @@ sudo docker login ghcr.io --username <github-username>
 ```
 
 Use a token with only `read:packages`; Docker stores the credential locally.
-If the GitHub repository is private, additionally create
-`/etc/analyzer-deploy.env` with a read-only Actions API token:
-
-```bash
-GITHUB_TOKEN=<read-only-github-actions-api-token>
-```
-
-The timer polls every two minutes,
-deploys only the latest successful
-`main` workflow SHA, and records it under `/var/lib/analyzer-deploy/current-sha`.
+The timer polls every two minutes, resolves the GHCR `latest` convenience
+pointer to its OCI revision label, then deploys only that full SHA tag. It
+records the deployed SHA under `/var/lib/analyzer-deploy/current-sha`.
 The publish job uses the built-in `GITHUB_TOKEN` with only `contents: read` and
 `packages: write`; it has no SSH or server credentials.
 
