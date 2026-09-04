@@ -57,7 +57,7 @@ RUN pnpm exec prisma generate
 COPY packages ./packages
 RUN pnpm --filter @sova-intel/sdk run build
 
-COPY tsconfig.json ./
+COPY tsconfig.json eslint.config.mjs ./
 COPY src ./src
 COPY scripts ./scripts
 RUN pnpm exec tsc
