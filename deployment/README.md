@@ -6,7 +6,8 @@ other one for a fix.
 
 Production is a single Docker Compose stack: **app + Postgres + Redis**.
 GitHub Actions builds the app image once from the repo's `Dockerfile`, pushes
-it to GHCR, and the VPS only pulls the selected image. No Node/pnpm/PM2 on the
+it to GHCR as a multi-architecture image, and the VPS only pulls the selected
+image. No Node/pnpm/PM2 on the
 host — only Docker. The dashboard (`dashboard/`) is a separate deploy entirely, on
 Vercel — see "Frontend (Vercel) — connecting it to this backend" below.
 
