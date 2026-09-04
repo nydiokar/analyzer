@@ -239,6 +239,12 @@ importers:
       yargs:
         specifier: ^17.7.2
         version: 17.7.2
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@types/node@24.10.3)(typescript@6.0.3)
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.1
@@ -306,15 +312,9 @@ importers:
       pm2:
         specifier: ^6.0.13
         version: 6.0.14(bufferutil@4.1.0)(utf-8-validate@5.0.10)
-      ts-node:
-        specifier: ^10.9.2
-        version: 10.9.2(@types/node@24.10.3)(typescript@6.0.3)
       ts-node-dev:
         specifier: ^2.0.0
         version: 2.0.0(@types/node@24.10.3)(typescript@6.0.3)
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
       typescript-eslint:
         specifier: ^8.47.0
         version: 8.49.0(eslint@9.39.1(jiti@2.6.1))(typescript@6.0.3)

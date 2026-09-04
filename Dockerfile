@@ -108,6 +108,8 @@ COPY --from=builder   --chown=node:node /app/packages/sdk/dist ./packages/sdk/di
 COPY --from=builder   --chown=node:node /app/packages/sdk/package.json ./packages/sdk/package.json
 COPY --from=builder   --chown=node:node /app/dist ./dist
 COPY --from=builder   --chown=node:node /app/prisma ./prisma
+COPY --from=builder   --chown=node:node /app/src ./src
+COPY --from=builder   --chown=node:node /app/scripts ./scripts
 COPY --chown=node:node package.json tsconfig.json ./
 
 # tsconfig-paths/register reads tsconfig.json at boot to resolve the @/core/*

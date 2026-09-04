@@ -1,12 +1,11 @@
 # Full production stack: app + Postgres + Redis, one command, local or remote.
 #
-#   docker compose up -d --build
+#   APP_IMAGE=ghcr.io/nydiokar/analyzer:<git-sha> docker compose up -d
 #
 # Fill .env first (see .env.example). Postgres and Redis run as containers
 # with named volumes, so data survives restarts and image rebuilds.
 #
-# Migrations run automatically via the "migrate" service before "app" starts —
-# no manual `prisma migrate deploy` step needed.
+# The application image is built in CI and selected explicitly at deploy time.
 
 services:
   postgres:
@@ -48,10 +47,7 @@ services:
       retries: 5
 
   migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: sova-backend:local
+    image: ${APP_IMAGE:?APP_IMAGE must identify an immutable published image}
     container_name: sova-migrate
     env_file:
       - .env
@@ -65,10 +61,7 @@ services:
     restart: "no"
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: sova-backend:local
+    image: ${APP_IMAGE:?APP_IMAGE must identify an immutable published image}
     container_name: sova-backend
     env_file:
       - .env
@@ -110,11 +103,7 @@ services:
   # invoked through `pnpm admin:run ...` or a command such as
   # `pnpm user:manage list`.
   admin:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: builder
-    image: sova-admin:local
+    image: ${APP_IMAGE:?APP_IMAGE must identify an immutable published image}
     env_file:
       - .env
     environment:
@@ -123,7 +112,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-    entrypoint: ["pnpm", "exec", "ts-node", "-r", "tsconfig-paths/register"]
+    entrypoint: ["node", "-r", "ts-node/register", "-r", "tsconfig-paths/register"]
     profiles: ["admin"]
     depends_on:
       postgres:

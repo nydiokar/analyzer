@@ -1,0 +1,10 @@
+[Unit]
+Description=Deploy the latest successful Sova Analyzer production image
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=analyzer-deploy
+EnvironmentFile=/etc/analyzer-deploy.env
+ExecStart=/bin/bash -lc 'exec "$ROOT_DIR/deployment/scripts/pull-deploy.sh"'

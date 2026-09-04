@@ -4,9 +4,10 @@ This is the single canonical deployment doc. If another file in this repo
 says something different about how to deploy, this file wins — flag the
 other one for a fix.
 
-Production is a single Docker Compose stack: **app + Postgres + Redis**,
-built from the repo's `Dockerfile`. No Node/pnpm/PM2 on the host — only
-Docker. The dashboard (`dashboard/`) is a separate deploy entirely, on
+Production is a single Docker Compose stack: **app + Postgres + Redis**.
+GitHub Actions builds the app image once from the repo's `Dockerfile`, pushes
+it to GHCR, and the VPS only pulls the selected image. No Node/pnpm/PM2 on the
+host — only Docker. The dashboard (`dashboard/`) is a separate deploy entirely, on
 Vercel — see "Frontend (Vercel) — connecting it to this backend" below.
 
 ## Quick Start (new server, from scratch)
@@ -16,24 +17,24 @@ git clone <repo-url> analyzer
 cd analyzer
 cp .env.example .env
 # Fill in .env — see "Required .env values" below
-docker compose up -d --build
+./deployment/scripts/deploy.sh <40-character-git-sha>
 ```
 
-Compose brings up Postgres and Redis, waits for both to report healthy,
-runs Prisma migrations once via the `migrate` service, then starts the app.
+The deploy script brings up Postgres and Redis, waits for both to report
+healthy, runs Prisma migrations from the selected image, then starts the app.
 `docker compose ps` shows all three long-running containers (`migrate` runs
 once and exits 0); the app is on `http://127.0.0.1:3001`.
 
-## Redeploy (pull new code)
+## Deploy an image
 
 ```bash
-git pull
-docker compose up -d --build
+./deployment/scripts/deploy.sh <40-character-git-sha>
 ```
 
-Rebuilds the image, reruns migrations via `migrate` (no-op if there's
-nothing new to apply), replaces the `app` container. Postgres/Redis data
-persists in named volumes and is untouched.
+The script pulls the exact SHA-tagged image, runs migrations from that same
+image, starts the stack, and verifies backend health. It never selects
+`latest` implicitly. Set `APP_IMAGE_REPO` when deploying a different GHCR
+package.
 
 ## Required `.env` values
 
@@ -174,23 +175,63 @@ For a new maintenance script, use the generic runner:
 pnpm admin:run scripts/my-maintenance-script.ts --help
 ```
 
+The admin profile uses the currently running backend image, so it does not
+build or export a second application image:
+
+```bash
+docker compose --profile admin run --rm admin scripts/manage-users.ts list
+```
+
 The admin container starts only for the command and is removed automatically;
 it is excluded from normal `docker compose up` startup.
 
 ## Rollback
 
 ```bash
-git checkout <previous-commit>
-docker compose up -d --build
+./deployment/scripts/deploy.sh <previous-40-character-git-sha>
 ```
 
-Rebuilds and redeploys the prior version. Prisma migrations are
-forward-only by design — a schema rollback needs a new down-migration, not
-an image swap.
+The previous image remains in GHCR and is deployable without rebuilding source
+on the VPS. Prisma migrations are forward-only by design — a schema rollback
+needs a new down-migration, not an image swap.
 
 - **Nginx**: restore backup from `/etc/nginx/nginx.conf.bak.<timestamp>`,
   then `sudo nginx -t && sudo systemctl reload nginx`
 - **Observability**: `bash deployment/scripts/04-observability.sh down`
+
+## Automatic deployment without SSH
+
+GitHub-hosted runners do not need SSH access to the server. Install the
+pull-based systemd units from `deployment/systemd/` on the server, ensure the
+repository exists at the path configured in `/etc/analyzer-deploy.env`, and create a
+dedicated `analyzer-deploy` user with access to the existing Docker project.
+
+Example one-time server configuration:
+
+```bash
+sudo install -m 0644 deployment/systemd/analyzer-deploy.service /etc/systemd/system/
+sudo install -m 0644 deployment/systemd/analyzer-deploy.timer /etc/systemd/system/
+sudo install -d -o analyzer-deploy -g analyzer-deploy /var/lib/analyzer-deploy
+sudoedit /etc/analyzer-deploy.env
+sudo systemctl daemon-reload
+sudo systemctl enable --now analyzer-deploy.timer
+```
+
+`/etc/analyzer-deploy.env` should contain the GHCR read-only token and paths:
+
+```bash
+ROOT_DIR=/opt/analyzer
+APP_IMAGE_REPO=ghcr.io/nydiokar/analyzer
+GHCR_USERNAME=<read-only-ghcr-user>
+GHCR_TOKEN=<read-only-package-token>
+GITHUB_REPOSITORY=nydiokar/analyzer
+```
+
+For a private repository, also set `GITHUB_TOKEN` with read-only Actions API
+access. The timer polls every two minutes, deploys only the latest successful
+`main` workflow SHA, and records it under `/var/lib/analyzer-deploy/current-sha`.
+The publish job uses the built-in `GITHUB_TOKEN` with only `contents: read` and
+`packages: write`; it has no SSH or server credentials.
 
 ## Automated-deploy gates (CI / LLM-driven deploys)
 
@@ -207,8 +248,8 @@ Minimal verification set:
 - `curl -fsS http://127.0.0.1:9090/-/healthy` (if observability is up)
 
 Drift checks:
-- pinned image versions must stay explicit (no `latest` for the app image
-  tag if ever pushed to a registry; `postgres:16` / `redis:latest` are the
+- pinned image versions must stay explicit (no `latest` as the app deployment
+  identity; `postgres:16` / `redis:latest` are the
   local base images and are fine as-is)
 - nginx config must preserve rate limit zone + websocket proxy headers
 - `docker-compose.yml` service names (`app`, `postgres`, `redis`, `migrate`)
@@ -231,5 +272,5 @@ The old 4-phase bootstrap (`deployment/scripts/01-bootstrap.sh` +
 `02-deploy.sh` — host Node/pnpm/PM2 install, manual `docker run` for
 Postgres, manual `.env` round-trip between scripts) and the separate
 `deployment/RUNBOOK.md` / `deployment/LLM_GUIDANCE.md` files are superseded
-by this document and `docker compose up -d --build`. The old scripts are
-kept for reference but are not needed on a fresh server.
+by this document and `deployment/scripts/deploy.sh`. The old scripts are kept
+for reference but are not needed on a fresh server.
