@@ -157,6 +157,26 @@ docker compose ps
 curl -fsS http://127.0.0.1:3001/api/v1/health
 ```
 
+## Production maintenance scripts
+
+Database and Redis maintenance commands run through the Docker `admin` profile
+and use the same environment and network as the app:
+
+```bash
+pnpm user:manage list
+pnpm apikey:manage --help
+pnpm clear:queues
+```
+
+For a new maintenance script, use the generic runner:
+
+```bash
+pnpm admin:run scripts/my-maintenance-script.ts --help
+```
+
+The admin container starts only for the command and is removed automatically;
+it is excluded from normal `docker compose up` startup.
+
 ## Rollback
 
 ```bash

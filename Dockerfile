@@ -59,6 +59,7 @@ RUN pnpm --filter @sova-intel/sdk run build
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY scripts ./scripts
 RUN pnpm exec tsc
 
 # ---------------------------------------------------------------------------

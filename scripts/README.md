@@ -29,8 +29,20 @@ Scripts for system administration, data management, and operational tasks.
 Most scripts support command-line arguments. Run with `--help` for options:
 
 ```bash
-npx ts-node scripts/manage-users.ts --help
-npx ts-node scripts/clean-logs.ts stats
-npx ts-node -r tsconfig-paths/register scripts/review-tracked-wallets.ts --user <userId> --sort composite --limit 20
-npx ts-node -r tsconfig-paths/register scripts/review-tracked-wallets.ts --user <userId> --format html --out /tmp/tracked-wallet-review.html
+pnpm user:manage --help
+pnpm clean:logs stats
+pnpm review:tracked-wallets --user <userId> --sort composite --limit 20
+pnpm review:tracked-wallets --user <userId> --format html --out /tmp/tracked-wallet-review.html
 ```
+
+Production maintenance commands run through the Docker `admin` profile, so
+they use the same Postgres and Redis network/configuration as the application.
+Use the package command when one exists. For a new maintenance script, use
+the generic runner:
+
+```bash
+pnpm admin:run scripts/my-maintenance-script.ts --help
+```
+
+The runner creates and removes the one-off container automatically; no manual
+Docker command or host-side `DATABASE_URL` is required.

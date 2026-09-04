@@ -106,6 +106,33 @@ services:
       retries: 5
       start_period: 60s
 
+  # One-off maintenance/admin runner. It is only started when explicitly
+  # invoked through `pnpm admin:run ...` or a command such as
+  # `pnpm user:manage list`.
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    image: sova-admin:local
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sova_app}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sova_analyzer}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    entrypoint: ["pnpm", "exec", "ts-node", "-r", "tsconfig-paths/register"]
+    profiles: ["admin"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   postgres-data:
   redis-data:
