@@ -28,6 +28,8 @@ fi
 printf '== Pulling %s ==\n' "$APP_IMAGE"
 docker compose --profile admin pull app migrate admin
 docker image inspect "$APP_IMAGE" >/dev/null
+revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$APP_IMAGE")"
+[ "$revision" = "$TAG" ] || fail "image revision label does not match requested SHA"
 
 printf '%s\n' '== Starting database services =='
 docker compose up -d postgres redis
@@ -49,6 +51,25 @@ done
 backend_status="$(docker inspect --format '{{.State.Health.Status}}' sova-backend 2>/dev/null || true)"
 [ "$backend_status" = healthy ] || fail "sova-backend is not healthy (status: ${backend_status:-missing})"
 
-revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$APP_IMAGE")"
+tmp_env="$(mktemp "$ROOT_DIR/.env.deploy.XXXXXX")"
+trap 'rm -f "$tmp_env"' EXIT
+awk -v image="$APP_IMAGE" '
+  BEGIN { replaced = 0 }
+  /^APP_IMAGE=/ {
+    if (!replaced) {
+      print "APP_IMAGE=" image
+      replaced = 1
+    }
+    next
+  }
+  { print }
+  END {
+    if (!replaced) print "APP_IMAGE=" image
+  }
+' .env > "$tmp_env"
+chmod --reference=.env "$tmp_env"
+mv "$tmp_env" .env
+trap - EXIT
+
 printf 'OK: deployed %s\n' "$APP_IMAGE"
 printf 'OK: image revision %s\n' "$revision"

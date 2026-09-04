@@ -1,11 +1,13 @@
 # Full production stack: app + Postgres + Redis, one command, local or remote.
 #
-#   APP_IMAGE=ghcr.io/nydiokar/analyzer:<git-sha> docker compose up -d
+# `deployment/scripts/deploy.sh` records the selected image in `.env` after a
+# successful deployment, so normal Compose commands need no image argument.
 #
 # Fill .env first (see .env.example). Postgres and Redis run as containers
 # with named volumes, so data survives restarts and image rebuilds.
 #
 # The application image is built in CI and selected explicitly at deploy time.
+# APP_IMAGE remains required: Compose must not invent an application image.
 
 services:
   postgres:

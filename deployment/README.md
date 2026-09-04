@@ -36,8 +36,10 @@ cp .env.example .env
 
 The deploy script brings up Postgres and Redis, waits for both to report
 healthy, runs Prisma migrations from the selected image, then starts the app.
-`docker compose` shows all three long-running containers (`migrate` runs once
-and exits 0); the app is on `http://127.0.0.1:3001`.
+After a successful deploy it records the selected `APP_IMAGE` in `.env`
+automatically. `docker compose` therefore works from a fresh shell without
+copying the image name. It shows all three long-running containers (`migrate`
+runs once and exits 0); the app is on `http://127.0.0.1:3001`.
 
 ## Deploy an image
 
@@ -47,8 +49,10 @@ and exits 0); the app is on `http://127.0.0.1:3001`.
 
 The script pulls the exact SHA-tagged image, runs migrations from that same
 image, starts the stack, and verifies backend health. It never selects
-`latest` implicitly. Set `APP_IMAGE_REPO` when deploying a different GHCR
-package.
+`latest` implicitly. It also requires the image's OCI revision label to match
+the requested SHA. On success it updates the `APP_IMAGE` entry in `.env`; do
+not edit that entry manually. Set `APP_IMAGE_REPO` when deploying a different
+GHCR package.
 
 ## Required `.env` values
 
@@ -165,10 +169,29 @@ Reset admin password:
 docker exec -it sova-grafana grafana cli admin reset-admin-password 'NEW_STRONG_PASSWORD'
 ```
 
-## Baseline health check (existing server)
+## Everyday Compose administration
+
+The successful deployment maintains `.env` as Compose's machine-managed image
+input. Operators do not need to discover or export `APP_IMAGE`:
 
 ```bash
-APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' sova-backend)" docker compose ps
+docker compose ps
+docker compose logs -f app
+docker compose restart app
+docker compose up -d app
+```
+
+If `.env` has no recorded image, Compose fails closed with the required
+`APP_IMAGE` error. Run the canonical deployment command to establish it:
+
+```bash
+./deployment/scripts/deploy.sh <40-character-git-sha>
+```
+
+### Baseline health check (existing server)
+
+```bash
+docker compose ps
 curl -fsS http://127.0.0.1:3001/api/v1/health
 ```
 
@@ -190,11 +213,11 @@ pnpm admin:run scripts/my-maintenance-script.ts --help
 ```
 
 The admin profile uses the currently running backend image, so it does not
-build or export a second application image:
+build or select a second application image. It uses the same machine-managed
+`.env` value as the rest of Compose:
 
 ```bash
-APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' sova-backend)" \
-  docker compose --profile admin run --rm admin scripts/manage-users.ts list
+pnpm user:manage list
 ```
 
 The admin container starts only for the command and is removed automatically;
@@ -247,13 +270,14 @@ The publish job uses the built-in `GITHUB_TOKEN` with only `contents: read` and
 
 ## Automated-deploy gates (CI / LLM-driven deploys)
 
-1. Do not run `docker compose up` before `.env` has all required keys filled.
+1. Do not run `docker compose up` before `.env` has all required keys filled
+   and a successful deployment has recorded `APP_IMAGE`.
 2. Do not enable TLS nginx config before certificate files exist.
 3. Run post-change health checks after every phase.
 4. Abort on first failed gate; do not continue in degraded state.
 
 Minimal verification set:
-- `APP_IMAGE="$(docker inspect --format '{{.Config.Image}}' sova-backend)" docker compose ps` shows `postgres`, `redis`, `app` all healthy/running
+- `docker compose ps` shows `postgres`, `redis`, `app` all healthy/running
   (`migrate` exits 0 and is not expected to stay running)
 - `curl -fsS http://127.0.0.1:3001/api/v1/health`
 - `curl -fsS https://api.sova-intel.com/api/v1/health` (if public)
@@ -262,7 +286,8 @@ Minimal verification set:
 Drift checks:
 - pinned image versions must stay explicit (no `latest` as the app deployment
   identity; `postgres:16` / `redis:latest` are the
-  local base images and are fine as-is)
+  local base images and are fine as-is). `deploy.sh` accepts only a full
+  40-character SHA and verifies the pulled image's OCI revision label matches.
 - nginx config must preserve rate limit zone + websocket proxy headers
 - `docker-compose.yml` service names (`app`, `postgres`, `redis`, `migrate`)
   must not be renamed without updating this file
