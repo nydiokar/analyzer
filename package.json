@@ -151,7 +151,7 @@
     "uuid": "^13.0.0",
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0",
-    "x402": "^1.1.0",
+    "x402": "^1.2.0",
     "yargs": "^17.7.2",
     "@sova-intel/sdk": "workspace:*"
   },
