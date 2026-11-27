@@ -156,7 +156,7 @@
     "@sova-intel/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
+    "@eslint/js": "^9.39.5",
     "@next/eslint-plugin-next": "^16.0.3",
     "@types/bcrypt": "^6.0.0",
     "@types/chai": "^5.2.2",
